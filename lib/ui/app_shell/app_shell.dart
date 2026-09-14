@@ -248,7 +248,9 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
         },
         const SingleActivator(LogicalKeyboardKey.space): _maybeTogglePlay,
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_queueOpen) {
+          if (_searchFocus.hasFocus) {
+            _searchFocus.unfocus();
+          } else if (_queueOpen) {
             setState(() => _queueOpen = false);
           } else if (_miniOpen) {
             setState(() => _miniOpen = false);

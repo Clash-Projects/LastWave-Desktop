@@ -618,14 +618,14 @@ class EdDock extends StatelessWidget {
 class LwToastHost extends StatefulWidget {
   final Widget child;
   const LwToastHost({super.key, required this.child});
-  static _LwToastHostState of(BuildContext context) {
-    final s = context.findAncestorStateOfType<_LwToastHostState>();
+  static LwToastHostState of(BuildContext context) {
+    final s = context.findAncestorStateOfType<LwToastHostState>();
     assert(s != null, 'LwToastHost not found in tree');
     return s!;
   }
 
   @override
-  State<LwToastHost> createState() => _LwToastHostState();
+  State<LwToastHost> createState() => LwToastHostState();
 }
 
 class _ToastEntry {
@@ -634,7 +634,7 @@ class _ToastEntry {
   _ToastEntry(this.title, this.description);
 }
 
-class _LwToastHostState extends State<LwToastHost>
+class LwToastHostState extends State<LwToastHost>
     with SingleTickerProviderStateMixin {
   final List<_ToastEntry> _items = [];
 

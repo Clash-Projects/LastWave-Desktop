@@ -234,16 +234,16 @@ class WavePlayerDock extends ConsumerWidget {
                     final showVolumeSlider = dockW >= 800;
                     final showExpand = dockW >= 850;
                     final showMini = dockW >= 950;
-                    final rightWidth = dockW < 560
-                        ? 110.0
-                        : dockW < 800
-                            ? 170.0
-                            : dockW < 950
-                                ? 250.0
-                                : 330.0;
-                    return SizedBox(
-                      width: rightWidth,
+                    return ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: dockW < 560
+                            ? 110.0
+                            : dockW < 800
+                                ? 170.0
+                                : 260.0,
+                      ),
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           if (showQuality)

@@ -24,7 +24,7 @@ class _Album {
 }
 
 final _waveAlbumsProvider =
-    FutureProvider.autoDispose<List<_Album>>((ref) async {
+    FutureProvider<List<_Album>>((ref) async {
   final api = ref.watch(lastFmApiProvider);
   final apiKey = ref.watch(prefsApiKeyProvider);
   final user = ref.watch(prefsProvider).username;

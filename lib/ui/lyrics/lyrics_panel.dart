@@ -97,7 +97,9 @@ class _WaveLyricsPanelState
     final trackKey = widget.track.queueKey;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.isAttached || !_following ||
-          widget.track.queueKey != trackKey) return;
+          widget.track.queueKey != trackKey) {
+        return;
+      }
       _scroll.scrollTo(
         index: index < 0 ? 0 : index,
         alignment: index < 0 ? 0 : 0.32,
@@ -109,8 +111,6 @@ class _WaveLyricsPanelState
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    final accent = waveAccent(context);
     // Highlight subscription is isolated: only position ticks rebuild
     // this panel, never the shell or lists.
     final position = ref.watch(

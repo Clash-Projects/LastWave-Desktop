@@ -10,8 +10,9 @@ import '../../widgets/skeletons.dart';
 import '../lastfm/home_repository.dart';
 
 final _friendsProvider =
-    FutureProvider.autoDispose<List<FriendEntry>>((ref) {
-  return ref.watch(homeRepositoryProvider).fetchFriends();
+    FutureProvider<List<FriendEntry>>((ref) {
+  final viewing = ref.watch(viewingProfileProvider);
+  return ref.watch(homeRepositoryProvider).fetchFriends(viewingAs: viewing);
 });
 
 /// Editorial friends ledger: masthead + avatar ledger rows.

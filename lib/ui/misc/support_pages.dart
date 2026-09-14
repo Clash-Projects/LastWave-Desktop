@@ -13,8 +13,9 @@ import '../components/track_row.dart';
 import '../theme/tokens.dart';
 
 final _waveFriendsProvider =
-    FutureProvider.autoDispose<List<FriendEntry>>((ref) {
-  return ref.watch(homeRepositoryProvider).fetchFriends();
+    FutureProvider<List<FriendEntry>>((ref) {
+  final viewing = ref.watch(viewingProfileProvider);
+  return ref.watch(homeRepositoryProvider).fetchFriends(viewingAs: viewing);
 });
 
 final _waveMixProvider = FutureProvider.autoDispose

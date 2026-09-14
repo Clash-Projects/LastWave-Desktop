@@ -285,6 +285,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
     final results = _results();
     final sel = results.isEmpty
         ? 0
@@ -359,10 +360,24 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
         // Canonical dialog width (menus.dart Add-to-playlist/Properties
         // both use 440) — keeps flyouts/dialogs coherent.
         constraints: const BoxConstraints(maxWidth: 440),
-        style: const ContentDialogThemeData(
+        style: ContentDialogThemeData(
           decoration: BoxDecoration(
+            color: dark
+                ? WaveColors.surfaceRaised
+                : WaveColors.lightSurfaceRaised,
             borderRadius:
-                BorderRadius.all(Radius.circular(WaveRadius.floating)),
+                const BorderRadius.all(Radius.circular(WaveRadius.floating)),
+            border: Border.all(
+              color: waveDivider(context),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: dark ? 0.6 : 0.2),
+                blurRadius: 28,
+                spreadRadius: 2,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
         ),
         content: SizedBox(

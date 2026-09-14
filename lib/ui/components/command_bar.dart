@@ -106,13 +106,13 @@ class WaveLibraryToolbar extends StatelessWidget {
     }
     return Row(
       children: [
-        if (filterSlot != null) filterSlot!,
+        ?filterSlot,
         const Spacer(),
         if (sortSlot != null) ...[
           sortSlot!,
           if (viewSlot != null) const SizedBox(width: 8),
         ],
-        if (viewSlot != null) viewSlot!,
+        ?viewSlot,
       ],
     );
   }

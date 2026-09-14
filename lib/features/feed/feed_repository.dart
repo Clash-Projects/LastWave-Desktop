@@ -121,49 +121,58 @@ class FeedRepository {
     String artist, {
     int limit = 12,
   }) async {
-    final out = <GeneratedTrack>[];
-    // YTM radio branch.
-    try {
-      final seed = await _tube.findBestMatchOrNull(name, artist);
-      if (seed != null) {
-        final related = await _tube.fetchRelatedSongs(
-          seed.videoId,
-          limit: limit,
-        );
-        out.addAll(related.map((t) => GeneratedTrack(
-              name: t.title,
-              artist: t.artist,
-              artworkUrl: t.artworkUrl,
-              videoId: t.videoId,
-            )));
-      }
-    } catch (_) {}
-    // Last.fm branch.
-    try {
-      final json = await _api.get({
-        'method': 'track.getsimilar',
-        'artist': artist,
-        'track': name,
-        'api_key': _apiKey(),
-        'limit': '20',
-        'autocorrect': '1',
-      });
-      final similars = _asList(
-          (json['similartracks'] as Map?)?['track']);
-      for (final s in similars) {
-        final n = s['name']?.toString() ?? '';
-        final a = (s['artist'] as Map?)?['name']?.toString() ??
-            s['artist']?.toString() ??
-            '';
-        if (n.isEmpty || a.isEmpty) continue;
-        out.add(GeneratedTrack(
-          name: n,
-          artist: a,
-          match: s['match']?.toString() ?? '',
-        ));
-      }
-    } catch (_) {}
-    return out;
+    final ytmFuture = () async {
+      final ytmOut = <GeneratedTrack>[];
+      try {
+        final seed = await _tube
+            .findBestMatchOrNull(name, artist)
+            .timeout(const Duration(seconds: 4));
+        if (seed != null) {
+          final related = await _tube
+              .fetchRelatedSongs(seed.videoId, limit: limit)
+              .timeout(const Duration(seconds: 4));
+          ytmOut.addAll(related.map((t) => GeneratedTrack(
+                name: t.title,
+                artist: t.artist,
+                artworkUrl: t.artworkUrl,
+                videoId: t.videoId,
+              )));
+        }
+      } catch (_) {}
+      return ytmOut;
+    }();
+
+    final lfmFuture = () async {
+      final lfmOut = <GeneratedTrack>[];
+      try {
+        final json = await _api.get({
+          'method': 'track.getsimilar',
+          'artist': artist,
+          'track': name,
+          'api_key': _apiKey(),
+          'limit': '20',
+          'autocorrect': '1',
+        }).timeout(const Duration(seconds: 4));
+        final similars = _asList(
+            (json['similartracks'] as Map?)?['track']);
+        for (final s in similars) {
+          final n = s['name']?.toString() ?? '';
+          final a = (s['artist'] as Map?)?['name']?.toString() ??
+              s['artist']?.toString() ??
+              '';
+          if (n.isEmpty || a.isEmpty) continue;
+          lfmOut.add(GeneratedTrack(
+            name: n,
+            artist: a,
+            match: s['match']?.toString() ?? '',
+          ));
+        }
+      } catch (_) {}
+      return lfmOut;
+    }();
+
+    final results = await Future.wait([ytmFuture, lfmFuture]);
+    return [...results[0], ...results[1]];
   }
 
   /// Resolve YTM videoIds for tracks missing them (bounded parallelism).
@@ -306,11 +315,14 @@ class FeedRepository {
         if (seeds.length >= 3) break;
       }
       final discovery = <GeneratedTrack>[];
-      for (final seed in seeds) {
-        try {
-          discovery.addAll(
-              await _similarTracks(seed.name, seed.artist, limit: 8));
-        } catch (_) {}
+      final discoveryBatches = await Future.wait(
+        seeds.map(
+          (seed) => _similarTracks(seed.name, seed.artist, limit: 8)
+              .timeout(const Duration(seconds: 4), onTimeout: () => []),
+        ),
+      );
+      for (final batch in discoveryBatches) {
+        discovery.addAll(batch);
       }
       final fresh = _diversify(
         score(discovery, 2.0),
@@ -367,17 +379,16 @@ class FeedRepository {
     final top = await _home
         .fetchTopTracks(limit: 20)
         .catchError((_) => <HomeTrack>[]);
-    final pooled = <GeneratedTrack>[];
-    for (final t in recent.take(3)) {
-      pooled.addAll(
-          await _similarTracks(t.name, t.artist).catchError(
-              (_) => <GeneratedTrack>[]));
-    }
-    for (final t in top.take(3)) {
-      pooled.addAll(
-          await _similarTracks(t.name, t.artist).catchError(
-              (_) => <GeneratedTrack>[]));
-    }
+    final poolSeeds = [...recent.take(3), ...top.take(3)];
+    final pooledBatches = await Future.wait(
+      poolSeeds.map(
+        (t) => _similarTracks(t.name, t.artist)
+            .catchError((_) => <GeneratedTrack>[]),
+      ),
+    );
+    final pooled = <GeneratedTrack>[
+      for (final batch in pooledBatches) ...batch,
+    ];
     if (pooled.isEmpty) {
       final charts =
           await _tube.browseSongs('FEmusic_charts', limit: total);

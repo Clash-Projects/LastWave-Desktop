@@ -50,6 +50,7 @@ class WaveScrollBehavior extends FluentScrollBehavior {
     if (details.direction == AxisDirection.left ||
         details.direction == AxisDirection.right) {
       return RawScrollbar(
+        controller: details.controller,
         thumbVisibility: false,
         thickness: 4,
         radius: const Radius.circular(2),
@@ -59,6 +60,7 @@ class WaveScrollBehavior extends FluentScrollBehavior {
       );
     }
     return RawScrollbar(
+      controller: details.controller,
       thumbVisibility: false,
       thickness: 6,
       radius: const Radius.circular(3),

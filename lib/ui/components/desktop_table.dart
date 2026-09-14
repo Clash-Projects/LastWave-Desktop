@@ -537,14 +537,16 @@ class _HeaderRow extends StatelessWidget {
             ),
         ],
       );
-      final boxed = width != null
-          ? SizedBox(width: width, child: inner)
-          : Expanded(flex: flex, child: inner);
-      if (!sortable) return boxed;
-      return _HeaderTap(
-        onTap: () => onSort(col),
-        child: boxed,
-      );
+      final content = sortable
+          ? _HeaderTap(
+              onTap: () => onSort(col),
+              child: inner,
+            )
+          : inner;
+      if (width != null) {
+        return SizedBox(width: width, child: content);
+      }
+      return Expanded(flex: flex, child: content);
     }
 
     return Padding(

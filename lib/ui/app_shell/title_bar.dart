@@ -36,123 +36,121 @@ class WaveTitleBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
     final auth = ref.watch(authRepositoryProvider);
-    return DragToMoveArea(
-      child: GestureDetector(
-        // WinUI: double-click title bar toggles maximize.
-        onDoubleTap: () async {
-          try {
-            if (await windowManager.isMaximized()) {
-              await windowManager.unmaximize();
-            } else {
-              await windowManager.maximize();
-            }
-          } catch (_) {}
-        },
-        child: WaveHaze(
-          level: LwHazeLevel.l1,
-          base: dark
-              ? WaveColors.background.withValues(alpha: 0.85)
-              : WaveColors.lightBackground.withValues(alpha: 0.9),
-          border: Border(
-            bottom: BorderSide(color: waveDivider(context)),
-          ),
-          child: SizedBox(
-            height: WaveDensity.titleBar,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final maxW = constraints.maxWidth;
-                final compact = maxW < 700;
-                final searchMax =
-                    (maxW * 0.28).clamp(140.0, 300.0).toDouble();
-                return Row(
-                  children: [
-                    const SizedBox(width: 6),
-                    _BarBtn(
-                      tooltip: 'Toggle navigation',
-                      icon: WaveIcons.panelLeft,
-                      onTap: onToggleRail,
-                    ),
-                    _BarBtn(
-                      tooltip: 'Back',
-                      icon: WaveIcons.back,
-                      onTap: canGoBack ? () => context.pop() : null,
-                    ),
-                    if (!compact)
-                      _BarBtn(
-                        tooltip: 'Forward',
-                        icon: WaveIcons.forward,
-                        onTap: null,
+    return WaveHaze(
+      level: LwHazeLevel.l1,
+      base: dark
+          ? WaveColors.background.withValues(alpha: 0.85)
+          : WaveColors.lightBackground.withValues(alpha: 0.9),
+      border: Border(
+        bottom: BorderSide(color: waveDivider(context)),
+      ),
+      child: SizedBox(
+        height: WaveDensity.titleBar,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final maxW = constraints.maxWidth;
+            final compact = maxW < 700;
+            final searchMax =
+                (maxW * 0.28).clamp(140.0, 300.0).toDouble();
+            return Row(
+              children: [
+                const SizedBox(width: 6),
+                _BarBtn(
+                  tooltip: 'Toggle navigation',
+                  icon: WaveIcons.panelLeft,
+                  onTap: onToggleRail,
+                ),
+                _BarBtn(
+                  tooltip: 'Back',
+                  icon: WaveIcons.back,
+                  onTap: canGoBack ? () => context.pop() : null,
+                ),
+                if (!compact)
+                  _BarBtn(
+                    tooltip: 'Forward',
+                    icon: WaveIcons.forward,
+                    onTap: null,
+                  ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: searchMax,
+                  child: _WaveSearchBox(
+                    controller: searchController,
+                    focus: searchFocus,
+                    onSubmit: onSearchSubmit,
+                    onPalette: onPalette,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                if (!compact)
+                  _BarBtn(
+                    tooltip: 'Commands (Ctrl+K)',
+                    icon: WaveIcons.command,
+                    onTap: onPalette,
+                  ),
+                Expanded(
+                  child: DragToMoveArea(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      // WinUI: double-click title bar toggles maximize.
+                      onDoubleTap: () async {
+                        try {
+                          if (await windowManager.isMaximized()) {
+                            await windowManager.unmaximize();
+                          } else {
+                            await windowManager.maximize();
+                          }
+                        } catch (_) {}
+                      },
+                      child: const SizedBox(
+                        width: double.infinity,
+                        height: double.infinity,
                       ),
-                    const SizedBox(width: 8),
-                    // WinUI AutoSuggestBox-like search: flexible, never
-                    // pushes window controls off-screen.
-                    Flexible(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: ConstrainedBox(
-                          constraints:
-                              BoxConstraints(maxWidth: searchMax),
-                          child: _WaveSearchBox(
-                            controller: searchController,
-                            focus: searchFocus,
-                            onSubmit: onSearchSubmit,
-                            onPalette: onPalette,
-                          ),
+                    ),
+                  ),
+                ),
+                // Profile / account — tiny, no giant buttons.
+                GestureDetector(
+                  onTap: () => context.go(
+                    auth.status == AuthStatus.signedIn
+                        ? '/profile'
+                        : '/welcome',
+                  ),
+                  child: LWTooltip(
+                    message: auth.status == AuthStatus.signedIn
+                        ? auth.username
+                        : 'Connect Last.fm',
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: dark
+                            ? WaveColors.surfaceRaised
+                            : WaveColors.lightOverlay,
+                        border:
+                            Border.all(color: waveDivider(context)),
+                      ),
+                      child: Center(
+                        child: Text(
+                          auth.status == AuthStatus.signedIn &&
+                                  auth.username.isNotEmpty
+                              ? auth.username[0].toUpperCase()
+                              : '?',
+                          style: WaveType.label
+                              .copyWith(fontSize: 11),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    if (!compact)
-                      _BarBtn(
-                        tooltip: 'Commands (Ctrl+K)',
-                        icon: WaveIcons.command,
-                        onTap: onPalette,
-                      ),
-                    const Spacer(),
-                    // Profile / account — tiny, no giant buttons.
-                    GestureDetector(
-                      onTap: () => context.go(
-                        auth.status == AuthStatus.signedIn
-                            ? '/profile'
-                            : '/welcome',
-                      ),
-                      child: LWTooltip(
-                        message: auth.status == AuthStatus.signedIn
-                            ? auth.username
-                            : 'Connect Last.fm',
-                        child: Container(
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: dark
-                                ? WaveColors.surfaceRaised
-                                : WaveColors.lightOverlay,
-                            border:
-                                Border.all(color: waveDivider(context)),
-                          ),
-                          child: Center(
-                            child: Text(
-                              auth.status == AuthStatus.signedIn &&
-                                      auth.username.isNotEmpty
-                                  ? auth.username[0].toUpperCase()
-                                  : '?',
-                              style: WaveType.label
-                                  .copyWith(fontSize: 11),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    _AppMenu(),
-                    const SizedBox(width: 6),
-                    const _WindowButtons(),
-                  ],
-                );
-              },
-            ),
-          ),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                _AppMenu(),
+                const SizedBox(width: 6),
+                const _WindowButtons(),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -176,6 +174,8 @@ class _WaveSearchBox extends ConsumerStatefulWidget {
 
 class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
   final _flyout = FlyoutController();
+  bool _isOpen = false;
+  bool _suppressFocusFlyout = false;
 
   @override
   void initState() {
@@ -191,41 +191,77 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
   }
 
   void _onFocus() {
-    if (widget.focus.hasFocus) _showRecents();
+    if (widget.focus.hasFocus) {
+      if (_suppressFocusFlyout) {
+        _suppressFocusFlyout = false;
+        return;
+      }
+      _showRecents();
+    } else {
+      _suppressFocusFlyout = false;
+      _closeFlyout();
+    }
   }
 
-  void _showRecents() {
+  void _closeFlyout() {
+    if (_isOpen && _flyout.isOpen) {
+      try {
+        _flyout.close();
+      } catch (_) {}
+    }
+    _isOpen = false;
+  }
+
+  Future<void> _showRecents() async {
     final history =
         ref.read(searchRepositoryProvider).history().take(5).toList();
     if (history.isEmpty) return;
-    _flyout.showFlyout(
-      barrierColor: Colors.transparent,
-      placementMode: FlyoutPlacementMode.bottomCenter,
-      builder: (context) => MenuFlyout(
-        items: [
-          for (final h in history)
+    if (_isOpen || _flyout.isOpen) return;
+    _isOpen = true;
+
+    try {
+      await _flyout.showFlyout(
+        barrierColor: Colors.transparent,
+        barrierDismissible: true,
+        dismissWithEsc: true,
+        placementMode: FlyoutPlacementMode.bottomCenter,
+        builder: (context) => MenuFlyout(
+          items: [
+            for (final h in history)
+              MenuFlyoutItem(
+                leading:
+                    const Icon(WaveIcons.history, size: 15),
+                text: Text(h),
+                onPressed: () {
+                  widget.controller.text = h;
+                  _closeFlyout();
+                  widget.focus.unfocus();
+                  widget.onSubmit(h);
+                },
+              ),
+            const MenuFlyoutSeparator(),
             MenuFlyoutItem(
-              leading:
-                  const Icon(WaveIcons.history, size: 15),
-              text: Text(h),
+              leading: const Icon(WaveIcons.command, size: 15),
+              text: const Text('All commands  (Ctrl+K)'),
               onPressed: () {
-                widget.controller.text = h;
-                widget.onSubmit(h);
-                _flyout.close();
+                _closeFlyout();
+                widget.focus.unfocus();
+                widget.onPalette();
               },
             ),
-          const MenuFlyoutSeparator(),
-          MenuFlyoutItem(
-            leading: const Icon(WaveIcons.command, size: 15),
-            text: const Text('All commands  (Ctrl+K)'),
-            onPressed: () {
-              _flyout.close();
-              widget.onPalette();
-            },
-          ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    } finally {
+      _isOpen = false;
+    }
+
+    if (mounted) {
+      _suppressFocusFlyout = true;
+      if (widget.focus.hasFocus) {
+        widget.focus.unfocus();
+      }
+    }
   }
 
   @override
@@ -245,6 +281,18 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
             controller: widget.controller,
             focusNode: widget.focus,
             placeholder: 'Search',
+            onTap: () {
+              _suppressFocusFlyout = false;
+              if (!_isOpen) {
+                _showRecents();
+              }
+            },
+            onTapOutside: (_) {
+              _closeFlyout();
+              if (widget.focus.hasFocus) {
+                widget.focus.unfocus();
+              }
+            },
             prefix: Padding(
               padding: const EdgeInsets.only(left: 8),
               child: Icon(
@@ -256,19 +304,50 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
               ),
             ),
             suffix: widget.controller.text.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(FluentIcons.chrome_close,
-                        size: 10),
-                    onPressed: () {
-                      widget.controller.clear();
-                      setState(() {});
-                    },
+                ? Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: IconButton(
+                      icon: const Icon(FluentIcons.chrome_close, size: 10),
+                      onPressed: () {
+                        widget.controller.clear();
+                        setState(() {});
+                      },
+                    ),
                   )
-                : const Text('Ctrl K',
-                    style: TextStyle(fontSize: 10)),
+                : Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: GestureDetector(
+                      onTap: widget.onPalette,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: dark
+                              ? WaveColors.surfaceRaised
+                              : WaveColors.lightOverlay,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: waveDivider(context).withValues(alpha: 0.5),
+                          ),
+                        ),
+                        child: Text(
+                          'Ctrl K',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w500,
+                            color: dark
+                                ? WaveColors.textTertiary
+                                : WaveColors.lightTextTertiary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
             onChanged: (_) => setState(() {}),
             onSubmitted: (v) {
-              _flyout.close();
+              _suppressFocusFlyout = true;
+              _closeFlyout();
+              widget.focus.unfocus();
               widget.onSubmit(v);
             },
           ),

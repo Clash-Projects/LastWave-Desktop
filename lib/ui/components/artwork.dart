@@ -197,13 +197,17 @@ class _WaveArtworkState extends State<WaveArtwork> {
 
   Future<void> _onError(int gen, int index, int attempt) async {
     if (!mounted || gen != _gen || index != _chainIndex ||
-        attempt != _attempt) return;
+        attempt != _attempt) {
+      return;
+    }
     final errorKey = '$gen|$index|$attempt';
     if (_handledError == errorKey) return;
     _handledError = errorKey;
     await ArtworkResolver.evict(_chain[index]);
     if (!mounted || gen != _gen || index != _chainIndex ||
-        attempt != _attempt) return;
+        attempt != _attempt) {
+      return;
+    }
     if (_chainIndex + 1 < _chain.length) {
       setState(() => _chainIndex++);
       return;

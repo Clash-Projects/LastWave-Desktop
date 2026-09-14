@@ -464,9 +464,7 @@ class SignatureDecipher {
 
   String _helperBody(String js, String obj) {
     // Helper objects are `var NAME={...};` (2+ char names).
-    final m = RegExp('(?:var\\s+)?' +
-            RegExp.escape(obj) +
-            r'\s*=\s*\{')
+    final m = RegExp('(?:var\\s+)?${RegExp.escape(obj)}\\s*=\\s*\\{')
         .firstMatch(js);
     if (m == null) throw FormatException('no helper $obj');
     final start = js.indexOf('{', m.start);
