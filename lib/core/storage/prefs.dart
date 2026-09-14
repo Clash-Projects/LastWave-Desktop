@@ -13,14 +13,13 @@ class Prefs {
       Prefs(await SharedPreferences.getInstance());
 
   // -- Last.fm session (OAuth only; API keys come from .env) --------------
+  // Authentication is compulsory: there is no guest or anonymous mode.
+  // A session is valid only when both the username and the session key
+  // are stored.
   String get sessionKey => _sp.getString('lw_sessionkey') ?? '';
   String get username => _sp.getString('lw_username') ?? '';
-  bool get guestMode => _sp.getBool('lw_guest_mode') ?? false;
   bool get isAuthenticated =>
-      username.isNotEmpty && !_isGuestSession;
-
-  bool get _isGuestSession =>
-      guestMode || sessionKey.isEmpty && username.isEmpty;
+      username.isNotEmpty && sessionKey.isNotEmpty;
 
   Future<void> saveSession({
     required String sessionKey,
@@ -28,13 +27,14 @@ class Prefs {
   }) async {
     await _sp.setString('lw_sessionkey', sessionKey);
     await _sp.setString('lw_username', username);
-    await _sp.setBool('lw_guest_mode', false);
+    // Drop any legacy guest flag from older builds.
+    await _sp.remove('lw_guest_mode');
   }
 
   Future<void> signOut() async {
     await _sp.remove('lw_sessionkey');
     await _sp.remove('lw_username');
-    await _sp.setBool('lw_guest_mode', true);
+    await _sp.remove('lw_guest_mode');
   }
 
   // -- Audio quality (mirrors Android quality tiers) ---------------------
@@ -96,6 +96,12 @@ class Prefs {
   bool get amoled => _sp.getBool('lw_amoled') ?? false;
   Future<void> setAmoled(bool v) => _sp.setBool('lw_amoled', v);
 
+  /// 'dark' (midnight observatory) or 'light' (pearl white).
+  String get themeMode => _sp.getString('lw_theme_mode') ?? 'dark';
+  Future<void> setThemeMode(String v) =>
+      _sp.setString('lw_theme_mode', v);
+  bool get isLight => themeMode == 'light';
+
   String get accentMode => _sp.getString('lw_accent_mode') ?? 'manual';
   Future<void> setAccentMode(String v) =>
       _sp.setString('lw_accent_mode', v);
@@ -107,6 +113,37 @@ class Prefs {
       _sp.getBool('lw_dynamic_now_playing') ?? false;
   Future<void> setDynamicNowPlaying(bool v) =>
       _sp.setBool('lw_dynamic_now_playing', v);
+
+  // -- Haze / material (spec §42 — only settings that actually work) ------
+  /// 'automatic' | 'haze' | 'solid'. Solid disables BackdropFilter
+  /// everywhere (static tonal fallback); automatic uses Haze L1–L3 as
+  /// designed, honouring reduce-transparency.
+  String get hazeMaterial => _sp.getString('lw_haze_material') ?? 'automatic';
+  Future<void> setHazeMaterial(String v) =>
+      _sp.setString('lw_haze_material', v);
+
+  /// 'low' | 'medium' | 'high'. Scales L1–L3 blur sigma.
+  String get hazeIntensity =>
+      _sp.getString('lw_haze_intensity') ?? 'medium';
+  Future<void> setHazeIntensity(String v) =>
+      _sp.setString('lw_haze_intensity', v);
+
+  /// Accent source: 'system' | 'lastwave' | 'artwork' | 'custom'.
+  /// 'manual' (legacy) is treated as 'custom'. The theme controller
+  /// resolves the effective accent; artwork mode tints from the current
+  /// palette seed where available, otherwise falls back to custom.
+  String get accentSource {
+    final v = _sp.getString('lw_accent_source') ??
+        _sp.getString('lw_accent_mode') ??
+        'custom';
+    if (v == 'manual') return 'custom';
+    return v;
+  }
+
+  Future<void> setAccentSource(String v) async {
+    await _sp.setString('lw_accent_source', v);
+    await _sp.setString('lw_accent_mode', v);
+  }
 
   bool get liquidGlass => _sp.getBool('lw_liquid_glass') ?? false;
   Future<void> setLiquidGlass(bool v) =>

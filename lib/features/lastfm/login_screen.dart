@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../design_system/icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../design_system/components.dart';
+import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
 import 'auth_repository.dart';
 
-/// Last.fm sign-in via browser OAuth (web-auth token exchange).
-/// The app's own API keys (from .env) are used — no custom keys.
+/// Editorial connect ledger: centered masthead + inline steps.
+/// Replaces boxed shad card with flat ledger hierarchy.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
   @override
@@ -58,7 +59,7 @@ class _LoginScreenState
       if (mounted) context.go('/home');
     } catch (e) {
       setState(() => _error =
-          'Not approved yet — approve in the browser, then retry.\n$e');
+          'Not approved yet — approve in the browser, then retry.');
     } finally {
       setState(() => _busy = false);
     }
@@ -66,94 +67,125 @@ class _LoginScreenState
 
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authRepositoryProvider);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final accent = Theme.of(context).colorScheme.primary;
     return Center(
       child: ConstrainedBox(
         constraints:
             const BoxConstraints(maxWidth: 480),
-        child: ListView(
-          shrinkWrap: true,
+        child: Padding(
           padding:
               const EdgeInsets.all(LwSpacing.xl),
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [
-                  Theme.of(context).colorScheme.primary,
-                  Theme.of(context)
-                      .colorScheme
-                      .primary
-                      .withValues(alpha: 0.55),
-                ]),
-                borderRadius:
-                    BorderRadius.circular(18),
-              ),
-              child: const Icon(
-                  LwIcons.disc3,
-                  color: Colors.white,
-                  size: 30),
-            ),
-            const SizedBox(height: LwSpacing.lg),
-            const Text('Connect Last.fm',
-                style: LwType.display),
-            const SizedBox(height: 6),
-            const Text(
-              'Sync scrobbles, taste profile and discovery feed. '
-              'You can also continue as guest with charts only.',
-              style: LwType.body,
-            ),
-            const SizedBox(height: LwSpacing.lg),
-            if (_error != null)
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
               Container(
-                padding:
-                    const EdgeInsets.all(LwSpacing.sm),
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
-                  color: LwColors.danger
-                      .withValues(alpha: 0.12),
+                  color: accent.withValues(
+                      alpha: 0.12),
                   borderRadius: BorderRadius.circular(
-                      LwRadius.sm),
+                      LwRadius.md),
                 ),
-                child: Text(_error!,
-                    style: LwType.caption.copyWith(
-                        color: LwColors.danger)),
+                child: Icon(
+                    LucideIcons.audioWaveform,
+                    color: accent,
+                    size: 22),
               ),
-            if (_error != null)
               const SizedBox(height: LwSpacing.md),
-            FilledButton.icon(
-              onPressed:
-                  _busy ? null : _beginWebAuth,
-              icon: const Icon(LwIcons.globe,
-                  size: 16),
-              label: Text(_handshake == null
-                  ? 'Approve in browser'
-                  : 'Restart approval'),
-            ),
-            if (_handshake != null) ...[
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed:
-                    _busy ? null : _completeWebAuth,
-                icon: const Icon(LwIcons.check,
-                    size: 16),
-                label: const Text(
-                    'I approved — finish sign-in'),
+              const EdKicker('System · Account'),
+              const Text('Connect Last.fm',
+                  style: LwType.display),
+              const SizedBox(height: 4),
+              Text(
+                  'Sync scrobbles, taste profile and discovery feed. Sign-in is required.',
+                  style: LwType.body.copyWith(
+                      color: dark
+                          ? LwColors.textSecondary
+                          : LwColors
+                              .lightTextSecondary)),
+              const SizedBox(height: LwSpacing.md),
+              if (_error != null)
+                Container(
+                  padding: const EdgeInsets.all(
+                      LwSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: LwColors.danger
+                        .withValues(alpha: 0.1),
+                    borderRadius:
+                        BorderRadius.circular(
+                            LwRadius.sm),
+                    border: Border.all(
+                        color: LwColors.danger
+                            .withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                          LucideIcons.circleAlert,
+                          size: 15,
+                          color: LwColors.danger),
+                      const SizedBox(
+                          width: LwSpacing.xs),
+                      Expanded(
+                          child: Text(_error!,
+                              style:
+                                  LwType.caption)),
+                    ],
+                  ),
+                ),
+              if (_error != null)
+                const SizedBox(height: LwSpacing.sm),
+              Row(
+                children: [
+                  Expanded(
+                    child: LwButton(
+                      onPressed:
+                          _busy ? null : _beginWebAuth,
+                      leading: _busy
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child:
+                                  CircularProgressIndicator(
+                                      strokeWidth: 2))
+                          : const Icon(
+                              LucideIcons.globe,
+                              size: 15),
+                      child: Text(_handshake ==
+                              null
+                          ? 'Approve in browser'
+                          : 'Restart approval'),
+                    ),
+                  ),
+                ],
               ),
+              if (_handshake != null) ...[
+                const SizedBox(
+                    height: LwSpacing.xs),
+                Row(
+                  children: [
+                    Expanded(
+                      child: LwButton.outline(
+                        onPressed: _busy
+                            ? null
+                            : _completeWebAuth,
+                        leading: const Icon(
+                            LucideIcons.badgeCheck,
+                            size: 15),
+                        child: const Text(
+                            'I approved — finish sign-in'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: LwSpacing.xs),
             ],
-            const SizedBox(height: LwSpacing.lg),
-            TextButton(
-              onPressed: () => context.go('/home'),
-              child: const Text(
-                  'Continue as guest (charts only)'),
-            ),
-            if (auth.status == AuthStatus.signingIn ||
-                _busy)
-              const Padding(
-                padding: EdgeInsets.only(top: 12),
-                child: LinearProgressIndicator(),
-              ),
-          ],
+          ),
         ),
       ),
     );

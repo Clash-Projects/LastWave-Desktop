@@ -83,15 +83,19 @@ class SearchRepository {
                 ))
             .toList();
       case SearchTab.playlists:
-        final playlists = await _tube.searchPlaylists(q);
+        final playlists =
+            await _tube.searchPlaylists(q, limit: 30);
         return playlists
             .map((e) => SearchResultItem(
-                  name: e.name,
-                  subtitle: e.subtitle,
+                  name: e.title,
+                  artist: e.author,
+                  subtitle: [
+                    if (e.author.isNotEmpty) e.author,
+                    if (e.trackCountText.isNotEmpty)
+                      e.trackCountText,
+                  ].join(' • '),
                   artworkUrl: e.artworkUrl,
-                  entityId: e.playlistId.isNotEmpty
-                      ? e.playlistId
-                      : e.browseId,
+                  entityId: e.id,
                   tab: tab,
                 ))
             .toList();

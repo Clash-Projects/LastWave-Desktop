@@ -3,6 +3,9 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  desktop_drop
+  desktop_webview_window
+  flutter_acrylic
   flutter_secure_storage_linux
   hotkey_manager_linux
   media_kit_libs_linux

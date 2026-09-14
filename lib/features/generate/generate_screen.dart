@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../design_system/icons.dart';
 
+import '../../app/track_actions.dart';
 import '../../design_system/components.dart';
+import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/section.dart';
+import '../../widgets/skeletons.dart';
+import '../../widgets/toast.dart';
+import '../../widgets/track_tile.dart';
 import '../feed/feed_repository.dart';
-import '../home/home_screen.dart' show playGenerated;
 import '../library/playlists.dart';
 import '../player/playback_service.dart';
 
@@ -17,7 +22,8 @@ final _mixProvider = FutureProvider.autoDispose
       .fetchMix(total: args.total);
 });
 
-/// Mix Lab: taste-driven mix generation (mirrors Android Generate).
+/// Editorial Mix Lab: masthead + inline size segments + ledger rows.
+/// Replaces boxed controls + card list with flat lab ledger.
 class GenerateScreen extends ConsumerStatefulWidget {
   const GenerateScreen({super.key});
   @override
@@ -29,118 +35,204 @@ class _GenerateScreenState
     extends ConsumerState<GenerateScreen> {
   int _total = 32;
   int _nonce = 0;
+  final _filter = TextEditingController();
+  String _q = '';
+
+  @override
+  void dispose() {
+    _filter.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final data =
         ref.watch(_mixProvider((total: _total, nonce: _nonce)));
+    final likedKeys = ref
+        .watch(playlistRepositoryProvider.notifier)
+        .likedKeys();
+    final playingKey =
+        ref.watch(playbackServiceProvider.select((s) => s.current?.queueKey));
     return ListView(
       padding: const EdgeInsets.fromLTRB(
-          LwSpacing.lg, LwSpacing.lg, LwSpacing.lg, 96),
+          LwSpacing.xl, LwSpacing.lg, LwSpacing.xl, 96),
       children: [
-        const Text('Mix Lab', style: LwType.display),
-        const SizedBox(height: 4),
-        Text(
-          'A fresh $_total-track mix from your taste profile — recent obsessions, all-time staples and discovery branches.',
-          style: LwType.body
-              .copyWith(color: LwColors.textSecondary),
-        ),
-        const SizedBox(height: LwSpacing.md),
-        Row(
-          children: [
-            for (final n in [24, 32, 40])
-              Padding(
-                padding:
-                    const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text('$n tracks'),
-                  selected: _total == n,
-                  onSelected: (_) =>
-                      setState(() => _total = n),
-                ),
+        EdPage(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              CollectionHeader(
+                kicker: 'Lab',
+                title: 'Mix Lab',
+                meta:
+                    'A fresh $_total-track mix from your taste — obsessions, staples, discovery branches.',
+                fallbackIcon:
+                    LucideIcons.wandSparkles,
+                artworkSize: 96,
+                primaryActions: [
+                  EdSegmented<int>(
+                    value: _total,
+                    options: const [
+                      (24, '24'),
+                      (32, '32'),
+                      (40, '40'),
+                    ],
+                    onChanged: (n) =>
+                        setState(() => _total = n),
+                  ),
+                  LwButton.outline(
+                    onPressed: () =>
+                        setState(() => _nonce++),
+                    leading: const Icon(
+                        LucideIcons.refreshCw,
+                        size: 14),
+                    child:
+                        const Text('Regenerate'),
+                  ),
+                ],
               ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: () =>
-                  setState(() => _nonce++),
-              icon: const Icon(LwIcons.refreshCw,
-                  size: 15),
-              label: const Text('Regenerate'),
-            ),
-          ],
-        ),
-        const SizedBox(height: LwSpacing.md),
-        data.when(
-          loading: () => const SkeletonRow(count: 10),
-          error: (e, _) => EmptyState(
-            icon: LwIcons.cloudOff,
-            title: 'Mix failed',
-            subtitle: e.toString(),
-            actionLabel: 'Retry',
-            onAction: () =>
-                setState(() => _nonce++),
-          ),
-          data: (tracks) {
-            if (tracks.isEmpty) {
-              return const EmptyState(
-                icon: LwIcons.wand2,
-                title: 'No mix yet',
-                subtitle:
-                    'Connect Last.fm or play more music first.',
-              );
-            }
-            return Column(
-              children: [
-                Row(
-                  children: [
-                    FilledButton.icon(
-                      onPressed: () => playGenerated(
-                        ref,
-                        context,
-                        tracks.first,
-                        sourceLabel: 'Mix Lab',
-                        queueAll: tracks,
-                      ),
-                      icon: const Icon(LwIcons.play,
-                          size: 15),
-                      label: const Text('Play mix'),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          _saveAsPlaylist(tracks),
-                      icon: const Icon(
-                          LwIcons.listPlus,
-                          size: 15),
-                      label:
-                          const Text('Save as playlist'),
-                    ),
-                  ],
+              const SizedBox(height: LwSpacing.md),
+              data.when(
+                loading: () =>
+                    const SkeletonRow(count: 10),
+                error: (e, _) => EmptyState(
+                  icon: LucideIcons.cloudOff,
+                  title: 'Mix failed',
+                  subtitle: e.toString(),
+                  actionLabel: 'Retry',
+                  onAction: () =>
+                      setState(() => _nonce++),
                 ),
-                const SizedBox(height: LwSpacing.sm),
-                ...tracks.asMap().entries.map((e) {
-                  final t = e.value;
-                  final playing = ref
-                          .watch(playbackServiceProvider)
-                          .current
-                          ?.queueKey ==
-                      t.key;
-                  return TrackTile(
-                    title: t.name,
-                    subtitle: t.artist,
-                    artworkUrl: t.artworkUrl,
-                    trailing: '${e.key + 1}',
-                    playing: playing,
-                    onTap: () => playGenerated(
-                        ref, context, t,
-                        sourceLabel: 'Mix Lab',
-                        queueAll: tracks,
-                        startIndex: e.key),
+                data: (all) {
+                  final tracks = all
+                      .where((t) => '${t.name} ${t.artist}'
+                          .toLowerCase()
+                          .contains(
+                              _q.toLowerCase()))
+                      .toList();
+                  if (all.isEmpty) {
+                    return const EmptyState(
+                      icon: LucideIcons.wandSparkles,
+                      title: 'No mix yet',
+                      subtitle:
+                          'Connect Last.fm or play more music first.',
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          LwButton(
+                            onPressed: () =>
+                                playGenerated(
+                              ref,
+                              context,
+                              tracks.isNotEmpty
+                                  ? tracks.first
+                                  : all.first,
+                              sourceLabel: 'Mix Lab',
+                              queueAll: tracks.isNotEmpty
+                                  ? tracks
+                                  : all,
+                            ),
+                            leading: const Icon(
+                                LucideIcons.play,
+                                size: 14),
+                            child: const Text(
+                                'Play mix'),
+                          ),
+                          const SizedBox(
+                              width: LwSpacing.xs),
+                          TextButton(
+                            onPressed: () =>
+                                _saveAsPlaylist(all),
+                            child: const Text(
+                                'Save as playlist'),
+                          ),
+                          const Spacer(),
+                          SizedBox(
+                            width: 200,
+                            height: 34,
+                            child: TextField(
+                              controller: _filter,
+                              onChanged: (v) =>
+                                  setState(
+                                      () => _q = v),
+                              style: LwType.body,
+                              decoration:
+                                  InputDecoration(
+                                hintText:
+                                    'Filter mix…',
+                                prefixIcon: Icon(
+                                    LucideIcons
+                                        .search,
+                                    size: 13,
+                                    color: dark
+                                        ? LwColors
+                                            .textTertiary
+                                        : LwColors
+                                            .lightTextTertiary),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(
+                          height: LwSpacing.xs),
+                      const EdLedgerHeader(
+                          metaLabel: ''),
+                      ...tracks
+                          .asMap()
+                          .entries
+                          .map((e) {
+                        final t = e.value;
+                        return TrackTile(
+                          index: e.key + 1,
+                          title: t.name,
+                          subtitle: t.artist,
+                          artworkUrl: t.artworkUrl,
+                          playing:
+                              playingKey == t.key,
+                          showLike: true,
+                          isLiked: likedKeys
+                              .contains(t.key),
+                          onToggleLike: () =>
+                              toggleLike(
+                            ref,
+                            context,
+                            title: t.name,
+                            artist: t.artist,
+                            artworkUrl:
+                                t.artworkUrl,
+                            videoId: t.videoId,
+                          ),
+                          onTap: () =>
+                              playGenerated(
+                                  ref, context, t,
+                                  sourceLabel:
+                                      'Mix Lab',
+                                  queueAll: tracks,
+                                  startIndex: e.key),
+                          menu: trackMenuItems(
+                            ref: ref,
+                            title: t.name,
+                            artist: t.artist,
+                            artworkUrl: t.artworkUrl,
+                            videoId: t.videoId,
+                          ),
+                        );
+                      }),
+                    ],
                   );
-                }),
-              ],
-            );
-          },
+                },
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -166,11 +258,8 @@ class _GenerateScreenState
       );
     }
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(
-                'Saved ${tracks.length} tracks to ${created.title}')),
-      );
+      showToast(context,
+          'Saved ${tracks.length} tracks to ${created.title}.');
     }
   }
 }

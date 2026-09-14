@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../design_system/icons.dart';
 
 import '../../core/storage/prefs.dart';
 import '../../design_system/components.dart';
+import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
+import '../../widgets/cards.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/skeletons.dart';
 import '../common/entity_sheets.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/auth_repository.dart';
@@ -26,17 +29,16 @@ final _albumsProvider =
   final user = viewing ??
       ref.watch(prefsProvider).username;
   if (user.isEmpty) {
-    // Guest fallback: YTM new-release albums.
     try {
-      final songs = await ref
+      final entities = await ref
           .watch(innerTubeProvider)
-          .browseSongs('FEmusic_new_releases', limit: 24);
-      return songs
-          .map((s) => _Album(
-              s.album.isNotEmpty ? s.album : s.title,
-              s.artist,
-              s.artworkUrl))
-          .toList();
+          .browseAlbums('FEmusic_new_releases', limit: 24);
+      return entities.map((e) {
+        final parts =
+            InnerTubeMusicApi.splitSubtitle(e.subtitle);
+        final artist = parts.length > 1 ? parts[1] : e.artist;
+        return _Album(e.name, artist, e.artworkUrl);
+      }).toList();
     } catch (_) {
       return const [];
     }
@@ -82,7 +84,9 @@ String _img(Object? images) {
   return fallback;
 }
 
-/// Top albums grid (personal when signed in, new releases for guests).
+/// Editorial albums ledger: masthead + rank ledger grid.
+/// Replaces boxed grid with header-cell hack; first cell is now a real
+/// masthead, tiles are flat veil artworks with ledger captions.
 class AlbumsScreen extends ConsumerWidget {
   const AlbumsScreen({super.key});
 
@@ -91,58 +95,75 @@ class AlbumsScreen extends ConsumerWidget {
     final albums = ref.watch(_albumsProvider);
     return albums.when(
       loading: () => ListView(
-        padding: const EdgeInsets.all(LwSpacing.lg),
+        padding: const EdgeInsets.all(LwSpacing.xl),
         children: const [
           SkeletonBox(width: 200, height: 26),
           SizedBox(height: 16),
-          SkeletonRow(count: 8),
+          SkeletonRail(),
         ],
       ),
       error: (e, _) => EmptyState(
-        icon: LwIcons.cloudOff,
+        icon: LucideIcons.cloudOff,
         title: 'Could not load albums',
         subtitle: e.toString(),
         actionLabel: 'Retry',
         onAction: () => ref.invalidate(_albumsProvider),
       ),
-      data: (list) => GridView.builder(
-        padding: const EdgeInsets.fromLTRB(
-            LwSpacing.lg, LwSpacing.lg, LwSpacing.lg, 96),
-        gridDelegate:
-            const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 190,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          mainAxisExtent: 236,
-        ),
-        itemCount: list.length + 1,
-        itemBuilder: (context, i) {
-          if (i == 0) {
-            return const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                children: [
-                  Text('Albums',
-                      style: LwType.display),
-                  SizedBox(height: 4),
-                  Text(
+      data: (list) => CustomScrollView(
+        slivers: [
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                  LwSpacing.xl,
+                  LwSpacing.lg,
+                  LwSpacing.xl,
+                  LwSpacing.sm),
+              child: EdPage(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    EdKicker('Collect'),
+                    Text('Albums',
+                        style: LwType.display),
+                    SizedBox(height: 4),
+                    Text(
                       'Your most-played records this month.',
-                      style: LwType.body),
-                ],
+                      style: LwType.body,
+                    ),
+                  ],
+                ),
               ),
-            );
-          }
-          final a = list[i - 1];
-          return MediaCard(
-            title: a.title,
-            subtitle: a.artist,
-            artworkUrl: a.artwork,
-            width: 180,
-            onTap: () => _openAlbum(context, ref, a),
-          );
-        },
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+                LwSpacing.xl, 0, LwSpacing.xl, 96),
+            sliver: SliverGrid(
+              gridDelegate:
+                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 190,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                mainAxisExtent: 240,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, i) {
+                  final a = list[i];
+                  return MediaCard(
+                    title: a.title,
+                    subtitle: a.artist,
+                    artworkUrl: a.artwork,
+                    width: 180,
+                    onTap: () =>
+                        _openAlbum(context, ref, a),
+                  );
+                },
+                childCount: list.length,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

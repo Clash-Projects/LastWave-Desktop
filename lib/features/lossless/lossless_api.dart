@@ -28,6 +28,12 @@ class LosslessMusicApi {
           'X-API-Key': AppEnv.losslessApiKey,
       };
 
+  static bool _isBackendFailure(DioException error) {
+    final status = error.response?.statusCode;
+    return status == null || status == 401 || status == 403 ||
+        status == 429 || status >= 500;
+  }
+
   // -- quality tiers (identical constants) --------------------------------
   static const int qualityMaxHiRes = 27;
   static const int qualityHiRes96 = 7;
@@ -190,6 +196,9 @@ class LosslessMusicApi {
       List<LosslessCandidate> items;
       try {
         items = await _search(q);
+      } on DioException catch (error) {
+        if (_isBackendFailure(error)) rethrow;
+        continue;
       } catch (_) {
         continue;
       }
@@ -290,6 +299,8 @@ class LosslessMusicApi {
             fallback: false,
           );
           if (stream != null) return stream;
+        } on DioException catch (error) {
+          if (_isBackendFailure(error)) rethrow;
         } catch (_) {}
       }
       return await _fetchTrackStreamUrl(
@@ -333,6 +344,8 @@ class LosslessCandidate {
     String performersText = '';
     if (performer is Map) {
       performerName = performer['name']?.toString() ?? '';
+    } else if (performer is String) {
+      performerName = performer;
     } else if (performer is List) {
       final names = performer
           .whereType<Map>()
@@ -352,6 +365,7 @@ class LosslessCandidate {
           .join(' ');
     }
     final album = json['album'];
+    final albumArtist = album is Map ? album['artist'] : null;
     return LosslessCandidate(
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
@@ -362,8 +376,9 @@ class LosslessCandidate {
           performersText.isNotEmpty ? performersText : performersKredit,
       albumTitle:
           album is Map ? album['title']?.toString() ?? '' : '',
-      albumArtist:
-          album is Map ? album['artist']?.toString() ?? '' : '',
+      albumArtist: albumArtist is Map
+          ? albumArtist['name']?.toString() ?? ''
+          : albumArtist?.toString() ?? '',
     );
   }
 }

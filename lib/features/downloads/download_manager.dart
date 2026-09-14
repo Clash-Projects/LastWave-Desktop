@@ -200,7 +200,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         }
       }
       if (stream == null) {
-        final match = await _tube.findBestMatch(title, artist);
+        final match = await _tube.findBestMatchOrNull(title, artist);
         if (match == null) {
           throw Exception('No playable source found');
         }

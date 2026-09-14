@@ -48,6 +48,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   bool _endlessRadio = false;
   final Set<String> _radioSeeds = {};
   bool _resolving = false;
+  int _resolvingIndex = -1;
+  int _resolveGeneration = 0;
+  int _playbackAttempt = 0;
+  int _failedGeneration = -1;
+  String _activeQueueKey = '';
 
   PlaybackService(
     this._tube,
@@ -60,7 +65,40 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   Future<void> ensurePlayer() async {
     if (_player != null) return;
-    _player = Player(configuration: const PlayerConfiguration());
+    // Limusic parity (Dart side): one persistent audio-only libmpv
+    // instance with on-disk demuxer cache + gapless. media_kit already
+    // defaults to vo=null (audio-only) + 32MiB buffer; we set the rest
+    // best-effort via mpv properties. No Rust/C++ involved.
+    _player = Player(
+      configuration: const PlayerConfiguration(
+        vo: 'null',
+        title: 'LastWave',
+        bufferSize: 32 * 1024 * 1024,
+      ),
+    );
+    final created = _player!;
+    try {
+      final platform = created.platform;
+      if (platform != null) {
+        final dyn = platform as dynamic;
+        try {
+          await dyn.setProperty('gapless-audio', 'yes');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('cache', 'yes');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('cache-on-disk', 'yes');
+        } catch (_) {}
+        try {
+          await dyn.setProperty(
+              'demuxer-max-back-bytes', '${8 * 1024 * 1024}');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('vid', 'no');
+        } catch (_) {}
+      }
+    } catch (_) {}
     final p = _player!;
     _subs.addAll([
       p.stream.playing.listen((v) {
@@ -68,27 +106,38 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         _onPlayingChanged(v);
       }),
       p.stream.buffering.listen((v) {
-        state = state.copyWith(isBuffering: v);
+        if (state.error != null) return;
+        state = state.copyWith(isBuffering: _resolving || v);
       }),
       p.stream.position.listen((v) {
+        if (_resolving || state.error != null) return;
         state = state.copyWith(position: v);
         _tickScrobble(v);
       }),
       p.stream.buffer.listen((v) {
+        if (_resolving || state.error != null) return;
         state = state.copyWith(buffered: v);
       }),
       p.stream.duration.listen((v) {
+        if (_resolving || state.error != null) return;
         state = state.copyWith(duration: v);
+      }),
+      p.stream.volume.listen((v) {
+        state = state.copyWith(volume: (v / 100).clamp(0.0, 1.0));
       }),
       p.stream.completed.listen((done) {
         if (done) _onTrackCompleted();
       }),
-      p.stream.error.listen((_) => _onPlayerError()),
+      p.stream.error.listen((_) => unawaited(_onPlayerError())),
     ]);
     await restoreSession();
   }
 
   void disposePlayer() {
+    _resolveGeneration++;
+    _resolving = false;
+    _resolvingIndex = -1;
+    _activeQueueKey = '';
     for (final s in _subs) {
       s.cancel();
     }
@@ -132,6 +181,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _endlessRadio = endlessRadio;
     _radioSeeds.clear();
     _unavailable.clear();
+    _losslessBypass.clear();
     _rebuildShuffleOrder(queue.length, index);
     state = state.copyWith(
       queue: queue,
@@ -194,10 +244,42 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _schedulePersist();
   }
 
+  /// Reorder queue via drag: updates actual playback queue and keeps
+  /// current index pointing at the same track. No re-resolve.
+  Future<void> moveInQueue(int oldIndex, int newIndex) async {
+    final queue = List<PlayableTrack>.of(state.queue);
+    if (oldIndex < 0 ||
+        oldIndex >= queue.length ||
+        newIndex < 0 ||
+        newIndex > queue.length) return;
+    if (oldIndex == newIndex ||
+        oldIndex == newIndex - 1) return;
+    final current = state.current;
+    final item = queue.removeAt(oldIndex);
+    var adjusted = newIndex;
+    if (newIndex > oldIndex) adjusted -= 1;
+    queue.insert(adjusted.clamp(0, queue.length), item);
+    var currentIndex = current == null
+        ? state.currentIndex
+        : queue.indexWhere((t) => t.queueKey == current.queueKey);
+    if (currentIndex < 0) currentIndex = state.currentIndex.clamp(0, queue.length - 1);
+    _rebuildShuffleOrder(queue.length, currentIndex);
+    state = state.copyWith(
+      queue: queue,
+      currentIndex: currentIndex,
+      current: queue.isEmpty ? null : queue[currentIndex.clamp(0, queue.length - 1)],
+    );
+    _schedulePersist();
+  }
+
   // -- transport ---------------------------------------------------------------
 
   Future<void> toggle() async {
     await ensurePlayer();
+    if (state.error != null) {
+      await retry();
+      return;
+    }
     await _player?.playOrPause();
   }
 
@@ -214,6 +296,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   Future<void> seek(Duration position) async {
     await _player?.seek(position);
     state = state.copyWith(position: position);
+  }
+
+  Future<void> setVolume(double volume) async {
+    final v = volume.clamp(0.0, 1.0);
+    state = state.copyWith(volume: v);
+    await _player?.setVolume(v * 100);
   }
 
   Future<void> next() async {
@@ -322,10 +410,16 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   Future<void> retry() async {
     if (state.currentIndex < 0) return;
     state = state.copyWith(clearError: true, isBuffering: true);
-    await _resolveAndOpen(state.currentIndex, forceYoutube: true);
+    _unavailable.remove(state.current!.queueKey);
+    _losslessBypass.remove(state.current!.queueKey);
+    await _resolveAndOpen(state.currentIndex, forceRefresh: true);
   }
 
   Future<void> stopAndClear() async {
+    _resolveGeneration++;
+    _resolving = false;
+    _resolvingIndex = -1;
+    _activeQueueKey = '';
     try {
       await _player?.stop();
     } catch (_) {}
@@ -338,41 +432,93 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     );
   }
 
-  // -- resolution ---------------------------------------------------------------
+  // -- resolution (Limusic fast path) ------------------------------------
+  //
+  // Local files first, then the preferred lossless tier, then YouTube.
+  // Generation and queue identity reject stale results after track changes.
 
   Future<void> _resolveAndOpen(int index,
-      {bool forceYoutube = false, int attempt = 0}) async {
-    if (_resolving) return;
+      {bool forceYoutube = false,
+      bool forceRefresh = false,
+      int attempt = 0}) async {
+    if (index < 0 || index >= state.queue.length) return;
+    // Prevent duplicate resolver requests for the same index.
+    if (_resolving &&
+        _resolvingIndex == index &&
+        _activeQueueKey == state.queue[index].queueKey &&
+        attempt == 0 &&
+        !forceRefresh &&
+        !forceYoutube) {
+      return;
+    }
+    final generation = ++_resolveGeneration;
     _resolving = true;
+    _resolvingIndex = index;
+    _playbackAttempt = attempt;
     try {
       final track = state.queue[index];
-      if (_unavailable.contains(track.mediaId) && attempt == 0) {
+      final wantedQueueKey = track.queueKey;
+      _activeQueueKey = wantedQueueKey;
+      state = state.copyWith(
+        isPlaying: false,
+        isBuffering: true,
+        clearStream: true,
+        clearError: true,
+        position: Duration.zero,
+        buffered: Duration.zero,
+        duration: Duration.zero,
+        bitrateKbps: 0,
+      );
+      await _player?.stop();
+      if (generation != _resolveGeneration) return;
+      if (_unavailable.contains(track.queueKey) && attempt == 0) {
         await _skipUnavailable(index);
         return;
       }
       _beginScrobbleWindow(track);
       final local = _localStream(track);
       if (local != null) {
-        await _open(track, local);
+        _resolving = false;
+        await _open(track, local, generation, wantedQueueKey);
         return;
       }
       final stream = await _resolveRemote(track,
-          forceYoutube: forceYoutube);
+          forceYoutube: forceYoutube, forceRefresh: forceRefresh);
+      // Stale guard: generation + track identity must still match.
+      if (generation != _resolveGeneration) return;
+      if (index >= state.queue.length ||
+          state.queue[index].queueKey != wantedQueueKey) {
+        return;
+      }
       if (stream == null) {
         if (attempt == 0 && !forceYoutube) {
-          _losslessBypass.add(track.mediaId);
+          _losslessBypass.add(track.queueKey);
           await _resolveAndOpen(index,
               forceYoutube: true, attempt: 1);
           return;
         }
-        _unavailable.add(track.mediaId);
+        _unavailable.add(track.queueKey);
         await _skipUnavailable(index);
         return;
       }
-      await _open(track, stream);
-      _maybeRefillRadio();
-    } finally {
       _resolving = false;
+      await _open(track, stream, generation, wantedQueueKey);
+      if (generation != _resolveGeneration) return;
+      _preResolveNext();
+      _maybeRefillRadio();
+    } catch (_) {
+      if (generation != _resolveGeneration) return;
+      state = state.copyWith(
+        isPlaying: false,
+        isBuffering: false,
+        clearStream: true,
+        error: 'Could not load this track. Press Play to retry.',
+      );
+    } finally {
+      if (generation == _resolveGeneration) {
+        _resolving = false;
+        _resolvingIndex = -1;
+      }
     }
   }
 
@@ -404,74 +550,141 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   Future<ResolvedStream?> _resolveRemote(
     PlayableTrack track, {
     bool forceYoutube = false,
+    bool forceRefresh = false,
   }) async {
     final allowLossless = !forceYoutube &&
-        !_losslessBypass.contains(track.mediaId) &&
+        !_losslessBypass.contains(track.queueKey) &&
         _prefs.preferLossless &&
         _prefs.losslessQuality != AudioQualityTiers.youtubeOnly &&
         _lossless.isConfigured &&
         track.artist.isNotEmpty &&
         track.artist.toLowerCase() != 'unknown artist';
     if (!allowLossless) {
-      return _resolveYoutube(track, const {});
+      return _resolveYoutube(track, const {},
+          forceRefresh: forceRefresh);
     }
-    // Race: await lossless first, YouTube resolves in parallel
-    // (mirrors Android `resolveRemoteTrackAudioStream`).
-    Future<ResolvedStream?> youtube = _resolveYoutube(track, const {});
-    ResolvedStream? lossless;
     try {
-      lossless = await _lossless
-          .resolveStream(
-            title: track.title,
-            artist: track.artist,
-            album: track.album,
-            preferredQuality: _prefs.losslessQuality,
-          )
-          .timeout(const Duration(seconds: 25));
+      final stream = await _lossless.resolveStream(
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        preferredQuality: _prefs.losslessQuality,
+      );
+      if (stream != null) return stream;
     } catch (_) {
-      lossless = null;
+      // The backend failed; continue with YouTube for this request.
     }
-    if (lossless != null) return lossless;
-    try {
-      return await youtube.timeout(const Duration(seconds: 30));
-    } catch (_) {
-      return null;
-    }
+    return _resolveYoutube(track, const {}, forceRefresh: forceRefresh);
   }
 
   Future<ResolvedStream?> _resolveYoutube(
     PlayableTrack track,
-    Set<String> excluded,
-  ) async {
-    for (var attempt = 0; attempt < 3; attempt++) {
+    Set<String> excluded, {
+    bool forceRefresh = false,
+  }) async {
+    // Instant playback: a valid videoId goes straight to the resolver
+    // (disk/memory cache or one fast InnerTube client). No search,
+    // no lyrics/artwork/Last.fm/recommendation gating.
+    if (track.videoId.isNotEmpty &&
+        !excluded.contains(track.videoId)) {
       try {
-        String? videoId =
-            track.videoId.isNotEmpty ? track.videoId : null;
-        videoId ??= (await _tube
-                .findBestMatch(
-                  track.title,
-                  track.artist,
-                  excludedVideoIds: excluded,
-                )
-                .timeout(const Duration(seconds: 15)))
-            ?.videoId;
+        final stream = await _tube.resolveAudioStream(track.videoId,
+            forceRefresh: forceRefresh);
+        if (stream != null) return stream;
+      } catch (_) {}
+      // Real failure (e.g. 403): drop the cached URL and try one
+      // limited re-match below instead of fanning out.
+      try {
+        _tube.reportPlaybackFailure(track.videoId);
+      } catch (_) {}
+      excluded = {...excluded, track.videoId};
+    }
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final match = await _tube
+            .findBestMatchOrNull(
+              track.title,
+              track.artist,
+              excludedVideoIds: excluded,
+            )
+            .timeout(const Duration(seconds: 8));
+        final videoId = match?.videoId;
         if (videoId == null || videoId.isEmpty) return null;
         if (excluded.contains(videoId)) continue;
-        final stream = await _tube
-            .resolveAudioStream(videoId)
-            .timeout(const Duration(seconds: 25));
+        // Persist the match so the next play is instant.
+        _adoptVideoId(track, videoId, match!);
+        final stream = await _tube.resolveAudioStream(videoId,
+            forceRefresh: forceRefresh && attempt == 0);
         if (stream != null) return stream;
         _tube.reportPlaybackFailure(videoId);
         excluded = {...excluded, videoId};
-      } catch (_) {
-        await Future<void>.delayed(
-            Duration(milliseconds: 350 * (1 << attempt)));
-      }
+      } catch (_) {}
     }
     return null;
   }
 
-  Future<void> _open(PlayableTrack track, ResolvedStream stream) async {
+  /// Write a newly matched videoId back into the queue entry so future
+  /// plays hit the instant path without another search.
+  void _adoptVideoId(
+      PlayableTrack track, String videoId, YouTubeMusicTrack match) {
+    try {
+      final idx = state.queue
+          .indexWhere((t) => t.mediaId == track.mediaId);
+      if (idx < 0) return;
+      final cur = state.queue[idx];
+      if (cur.videoId.isNotEmpty) return;
+      final updated = cur.copyWith(
+        videoId: videoId,
+        artworkUrl: match.artworkUrl.isNotEmpty
+            ? match.artworkUrl
+            : cur.artworkUrl,
+      );
+      final queue = List<PlayableTrack>.of(state.queue);
+      queue[idx] = updated;
+      state = state.copyWith(
+        queue: queue,
+        current: idx == state.currentIndex ? updated : state.current,
+      );
+    } catch (_) {}
+  }
+
+  /// Pre-resolve only the next likely queue track in the background
+  /// (Limusic 1-track lookahead). Deduped by the resolver.
+  void _preResolveNext() {
+    try {
+      final next = _nextIndex();
+      if (next == null) return;
+      final track = state.queue[next];
+      if (_localStream(track) != null) return;
+      final videoId = track.videoId;
+      if (videoId.isNotEmpty) {
+        _tube.prefetchNextTrack(videoId);
+        return;
+      }
+      // No videoId yet: resolve the match in the background without
+      // opening, so the coming skip is instant.
+      unawaited(_tube
+          .findBestMatchOrNull(track.title, track.artist)
+          .then((m) {
+        if (m == null) return;
+        _adoptVideoId(track, m.videoId, m);
+        _tube.prefetchNextTrack(m.videoId);
+      }, onError: (_) {}));
+    } catch (_) {}
+  }
+
+  Future<void> _open(PlayableTrack track, ResolvedStream stream,
+      int generation, String wantedQueueKey) async {
+    // Stale resolver callbacks must never replace the active track.
+    if (generation != _resolveGeneration) return;
+    if (_activeQueueKey != wantedQueueKey) return;
+    if (state.current?.queueKey != wantedQueueKey &&
+        (state.currentIndex < 0 ||
+            state.currentIndex >= state.queue.length ||
+            state.queue[state.currentIndex].queueKey !=
+                wantedQueueKey)) {
+      return;
+    }
     state = state.copyWith(
       stream: stream,
       bitrateKbps: stream.bitrateKbps,
@@ -483,37 +696,40 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         Media(stream.url, httpHeaders: stream.requestHeaders),
         play: true,
       );
+      if (generation != _resolveGeneration) return;
+      if (_activeQueueKey != wantedQueueKey) return;
       if (state.speed != 1.0) {
         await _player?.setRate(state.speed);
       }
-    } catch (e) {
-      if (stream.cacheKey.startsWith('lossless:')) {
-        _losslessBypass.add(track.mediaId);
-        await _resolveAndOpen(state.currentIndex,
-            forceYoutube: true);
-      } else {
-        _tube.reportPlaybackFailure(track.videoId);
-        _unavailable.add(track.mediaId);
-        await _skipUnavailable(state.currentIndex);
-      }
+    } catch (_) {
+      if (generation != _resolveGeneration) return;
+      await _onPlayerError();
     }
   }
 
-  void _onPlayerError() {
+  Future<void> _onPlayerError() async {
     final track = state.current;
-    if (track == null || _resolving) return;
+    final generation = _resolveGeneration;
+    if (track == null || _resolving || state.error != null ||
+        _activeQueueKey != track.queueKey ||
+        _failedGeneration == generation) return;
+    _failedGeneration = generation;
     if (state.stream?.cacheKey.startsWith('lossless:') ?? false) {
-      _losslessBypass.add(track.mediaId);
-      _resolveAndOpen(state.currentIndex, forceYoutube: true);
-    } else {
-      if (track.videoId.isNotEmpty) {
-        _tube.reportPlaybackFailure(track.videoId);
-      }
-      _unavailable.add(track.mediaId);
-      _skipUnavailable(state.currentIndex);
+      _losslessBypass.add(track.queueKey);
+      await _resolveAndOpen(state.currentIndex, forceYoutube: true);
+      return;
     }
+    if (track.videoId.isNotEmpty) {
+      _tube.reportPlaybackFailure(track.videoId);
+    }
+    if (_playbackAttempt == 0) {
+      await _resolveAndOpen(state.currentIndex,
+          forceYoutube: true, forceRefresh: true, attempt: 1);
+      return;
+    }
+    _unavailable.add(track.queueKey);
+    await _skipUnavailable(state.currentIndex);
   }
-
   Future<void> _skipUnavailable(int failedIndex) async {
     final nextIndex = _nextIndex(skipUnavailable: true);
     if (nextIndex == null) {
@@ -536,6 +752,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   void _onTrackCompleted() {
+    if (_resolving || state.error != null) return;
     _flushScrobble(completed: true);
     if (state.repeatMode == RepeatMode.one) {
       seek(Duration.zero);
@@ -566,44 +783,45 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       if (pos >= 0 && pos + 1 < _shuffleOrder.length) {
         final candidate = _shuffleOrder[pos + 1];
         if (skipUnavailable &&
-            _unavailable.contains(queue[candidate].mediaId)) {
+            _unavailable.contains(queue[candidate].queueKey)) {
           // walk forward past unavailable
           for (var i = pos + 1; i < _shuffleOrder.length; i++) {
             if (!_unavailable
-                .contains(queue[_shuffleOrder[i]].mediaId)) {
+                .contains(queue[_shuffleOrder[i]].queueKey)) {
               return _shuffleOrder[i];
             }
           }
-          return _wrapIndex();
+          return _wrapIndex(skipUnavailable: skipUnavailable);
         }
         return candidate;
       }
-      return _wrapIndex();
+      return _wrapIndex(skipUnavailable: skipUnavailable);
     }
     final next = state.currentIndex + 1;
     if (next < queue.length) {
       if (skipUnavailable &&
-          _unavailable.contains(queue[next].mediaId)) {
+          _unavailable.contains(queue[next].queueKey)) {
         for (var i = next; i < queue.length; i++) {
-          if (!_unavailable.contains(queue[i].mediaId)) return i;
+          if (!_unavailable.contains(queue[i].queueKey)) return i;
         }
-        return _wrapIndex();
+        return _wrapIndex(skipUnavailable: skipUnavailable);
       }
       return next;
     }
-    return _wrapIndex();
+    return _wrapIndex(skipUnavailable: skipUnavailable);
   }
 
-  int? _wrapIndex() {
-    if (state.repeatMode == RepeatMode.all && state.queue.isNotEmpty) {
-      if (state.shuffleEnabled && _shuffleOrder.isNotEmpty) {
-        return _shuffleOrder.first;
-      }
-      return 0;
+  int? _wrapIndex({bool skipUnavailable = false}) {
+    if (state.repeatMode != RepeatMode.all) return null;
+    final order = state.shuffleEnabled && _shuffleOrder.isNotEmpty
+        ? _shuffleOrder
+        : List<int>.generate(state.queue.length, (index) => index);
+    for (final index in order) {
+      if (!skipUnavailable ||
+          !_unavailable.contains(state.queue[index].queueKey)) return index;
     }
     return null;
   }
-
   int? _prevIndex() {
     if (state.shuffleEnabled && _shuffleOrder.isNotEmpty) {
       final pos = _shuffleOrder.indexOf(state.currentIndex);
@@ -635,7 +853,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     try {
       final videoId = seed.videoId.isNotEmpty
           ? seed.videoId
-          : (await _tube.findBestMatch(seed.title, seed.artist))
+          : (await _tube.findBestMatchOrNull(seed.title, seed.artist))
               ?.videoId;
       if (videoId == null) return;
       final related =

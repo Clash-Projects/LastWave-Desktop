@@ -1,100 +1,114 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../design_system/components.dart';
+import '../design_system/icons.dart';
 
 import '../core/audio/stream_models.dart';
 import '../features/downloads/download_manager.dart';
 import '../features/feed/feed_repository.dart';
 import '../features/library/playlists.dart';
 import '../features/player/playback_service.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../widgets/toast.dart';
+import '../widgets/track_tile.dart';
 
-/// Shared track actions: context menu + helpers used across screens.
-Future<void> showTrackMenu({
-  required BuildContext context,
+/// Start the queue; the playback service resolves each track on demand.
+/// Limusic fast path: videoIds are preserved end-to-end so tracks with
+/// a known videoId open instantly (no search, no lyrics/artwork/Last.fm
+/// gating before playback).
+Future<void> playGenerated(
+  WidgetRef ref,
+  BuildContext context,
+  GeneratedTrack track, {
+  String sourceLabel = 'Home',
+  List<GeneratedTrack>? queueAll,
+  int startIndex = 0,
+}) async {
+  final player = ref.read(playbackServiceProvider.notifier);
+  final list = queueAll ?? [track];
+  final index = queueAll == null ? 0 : startIndex;
+  await player.playQueue(
+    list.map(playableFromGenerated).toList(),
+    index,
+    sourceLabel: sourceLabel,
+  );
+}
+
+/// Shared track actions returning shad context-menu items.
+/// Right-click and the row "more" button share this single source.
+List<TrackMenuItem> trackMenuItems({
   required WidgetRef ref,
-  required Offset position,
-  required PlayableTrack Function() toPlayable,
   required String title,
   required String artist,
   String artworkUrl = '',
-}) async {
-  final playlists = ref.read(playlistRepositoryProvider);
-  final likedKeys =
-      ref.read(playlistRepositoryProvider.notifier).likedKeys();
-  final isLiked = likedKeys
-      .contains('${title.toLowerCase()}|${artist.toLowerCase()}');
-  final choice = await showMenu<String>(
-    context: context,
-    position: RelativeRect.fromLTRB(
-      position.dx,
-      position.dy,
-      position.dx + 1,
-      position.dy + 1,
-    ),
-    items: [
-      const PopupMenuItem(value: 'play', child: Text('Play')),
-      const PopupMenuItem(value: 'next', child: Text('Play next')),
-      const PopupMenuItem(
-          value: 'queue', child: Text('Add to queue')),
-      PopupMenuItem(
-        value: 'like',
-        child: Text(isLiked ? 'Unlike' : 'Like'),
-      ),
-      const PopupMenuItem(
-          value: 'download', child: Text('Download')),
-      const PopupMenuDivider(),
-      ...playlists.map((p) => PopupMenuItem(
-            value: 'pl:${p.id}',
-            child: Text('Add to ${p.title}',
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-          )),
-    ],
-  );
-  if (choice == null || !context.mounted) return;
+  String videoId = '',
+  PlayableTrack? playable,
+}) {
   final player = ref.read(playbackServiceProvider.notifier);
-  final track = toPlayable();
-  switch (choice) {
-    case 'play':
-      await player.play(track, sourceLabel: 'Context menu');
-      break;
-    case 'next':
-      await player.playNext(track);
-      break;
-    case 'queue':
-      await player.addToQueue(track);
-      break;
-    case 'like':
-      await ref
-          .read(playlistRepositoryProvider.notifier)
-          .toggleLiked(StoredTrack(
-            name: title,
-            artist: artist,
-            artworkUrl: artworkUrl,
-            videoId: track.videoId,
-          ));
-      break;
-    case 'download':
-      await ref
+  final track = playable ??
+      PlayableTrack(
+        title: title,
+        artist: artist,
+        artworkUrl: artworkUrl,
+        videoId: videoId,
+      );
+  final library = ref.read(playlistRepositoryProvider.notifier);
+  final liked =
+      library.likedKeys().contains(track.queueKey);
+  final playlists = ref.read(playlistRepositoryProvider);
+
+  StoredTrack stored() => StoredTrack(
+        name: title,
+        artist: artist,
+        artworkUrl: artworkUrl,
+        videoId: track.videoId,
+      );
+
+  return [
+    TrackMenuItem(
+      label: 'Play',
+      icon: LucideIcons.play,
+      onSelected: () =>
+          player.play(track, sourceLabel: 'Context menu'),
+    ),
+    TrackMenuItem(
+      label: 'Play next',
+      icon: LucideIcons.plus,
+      onSelected: () => player.playNext(track),
+    ),
+    TrackMenuItem(
+      label: 'Add to queue',
+      icon: LucideIcons.listPlus,
+      onSelected: () => player.addToQueue(track),
+    ),
+    TrackMenuItem(
+      label: liked ? 'Unlike' : 'Like',
+      icon: LucideIcons.heart,
+      onSelected: () => library.toggleLiked(stored()),
+    ),
+    TrackMenuItem(
+      label: 'Download',
+      icon: LucideIcons.download,
+      onSelected: () => ref
           .read(downloadManagerProvider.notifier)
-          .downloadTrack(title: title, artist: artist);
-      break;
-    default:
-      if (choice.startsWith('pl:')) {
-        final id = int.tryParse(choice.substring(3));
-        if (id != null) {
-          await ref
-              .read(playlistRepositoryProvider.notifier)
-              .addTrack(
-                id,
-                StoredTrack(
-                  name: title,
-                  artist: artist,
-                  artworkUrl: artworkUrl,
-                  videoId: track.videoId,
-                ),
-              );
-        }
-      }
-  }
+          .downloadTrack(title: title, artist: artist),
+    ),
+    if (playlists.isNotEmpty)
+      TrackMenuItem(
+        label: 'Add to playlist',
+        icon: LucideIcons.listMusic,
+        onSelected: () {},
+        children: playlists
+            .map((p) => TrackMenuItem(
+                  label: p.title,
+                  icon: p.isLikedSongs
+                      ? LucideIcons.heart
+                      : LucideIcons.listMusic,
+                  onSelected: () => library.addTrack(
+                      p.id, stored()),
+                ))
+            .toList(),
+      ),
+  ];
 }
 
 PlayableTrack playableFromGenerated(GeneratedTrack t) =>
@@ -104,6 +118,30 @@ PlayableTrack playableFromGenerated(GeneratedTrack t) =>
       artworkUrl: t.artworkUrl,
       videoId: t.videoId,
     );
+
+/// Idempotent like toggle + toast. Returns new liked state.
+Future<bool> toggleLike(
+  WidgetRef ref,
+  BuildContext context, {
+  required String title,
+  required String artist,
+  String artworkUrl = '',
+  String videoId = '',
+}) async {
+  final liked = await ref
+      .read(playlistRepositoryProvider.notifier)
+      .toggleLiked(StoredTrack(
+        name: title,
+        artist: artist,
+        artworkUrl: artworkUrl,
+        videoId: videoId,
+      ));
+  if (context.mounted) {
+    showToast(context,
+        liked ? 'Added to Liked Songs' : 'Removed from Liked Songs');
+  }
+  return liked;
+}
 
 String formatDuration(Duration d) {
   final total = d.inSeconds.clamp(0, 1 << 31);

@@ -1,6 +1,8 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/network/lastfm_crypto.dart';
 import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
+import 'package:lastwave_desktop/features/innertube/signature_decipher.dart';
 import 'package:lastwave_desktop/features/lossless/lossless_api.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_models.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_repository.dart';
@@ -55,26 +57,101 @@ void main() {
     });
   });
 
-  group('InnerTube matching', () {
+  group('InnerTube matching (Android parity)', () {
     test('similarity is 100 for identical strings', () {
       expect(
           InnerTubeMusicApi.similarity('hello', 'hello'),
           100);
     });
 
-    test('similarity tolerates small differences', () {
+    test('noise words do not hurt similarity', () {
+      // official/video are MATCH_NOISE_WORDS: token sets equal.
       expect(
           InnerTubeMusicApi.similarity(
               'hello', 'hello (official video)'),
-          lessThan(100));
-      expect(
-          InnerTubeMusicApi.similarity('hello', 'hello'),
-          greaterThan(70));
+          100);
     });
 
-    test('normalize strips punctuation', () {
-      expect(InnerTubeMusicApi.normalize('Hello! (Official)'),
-          'hello official');
+    test('unrelated strings score 0', () {
+      expect(
+          InnerTubeMusicApi.similarity('hello', 'goodbye'),
+          0);
+    });
+
+    test('substring with enough overlap scores >= 85', () {
+      expect(
+          InnerTubeMusicApi.similarity(
+              'midnight memories', 'midnight memories deluxe'),
+          greaterThanOrEqualTo(85));
+    });
+
+    test('normalize strips diacritics and punctuation', () {
+      expect(InnerTubeMusicApi.normalize('Beyoncé!  Hello'),
+          'beyonce hello');
+    });
+
+    test('baseTitle strips featuring clauses', () {
+      expect(
+          InnerTubeMusicApi.baseTitle('Song (feat. Someone)')
+              .trim(),
+          'Song');
+    });
+
+    test('highResolutionArtwork upgrades google hosts', () {
+      expect(
+          InnerTubeMusicApi.highResolutionArtwork(
+              'https://lh3.googleusercontent.com/a=w60-h60-l90-rj'),
+          'https://lh3.googleusercontent.com/a=w512-h512-l90-rj');
+      expect(
+          InnerTubeMusicApi.highResolutionArtwork(
+              'https://i.ytimg.com/vi/x/hqdefault.jpg'),
+          'https://i.ytimg.com/vi/x/hqdefault.jpg');
+    });
+
+    test('parseDuration matches Android fold', () {
+      expect(InnerTubeMusicApi.parseDuration('3:45'), 225);
+      expect(InnerTubeMusicApi.parseDuration('1:02:03'), 3723);
+      expect(InnerTubeMusicApi.parseDuration('views'), isNull);
+      expect(InnerTubeMusicApi.parseDuration('3'), isNull);
+    });
+  });
+
+  group('Signature decipher (offline, synthetic player)', () {
+    // Synthetic base.js exercising reverse + splice + swap ops.
+    const js = 'var Q={r:function(a){a.reverse()},'
+        's:function(a,b){a.splice(0,b)},'
+        'w:function(a,b){var c=a[0];a[0]=a[b%a.length];a[b]=c}};'
+        'QZ=function(a){a=a.split("");Q.r(a);Q.s(a,2);Q.w(a,3);'
+        'return a.join("")}';
+
+    test('parses ops and deciphers signature', () {
+      final decipher = SignatureDecipher(Dio());
+      final script =
+          decipher.parseForTest('https://x/base.js', js);
+      expect(script, isNotNull);
+      expect(script!.sigOps.length, 3);
+      // reverse(abcdef)=fedcba, splice(0,2)->dcba, swap(3): d<->a => acbd
+      final url = decipher.decipherUrl(
+          'url=${Uri.encodeComponent('https://ex.com/v')}&s=abcdef&sp=sig',
+          script);
+      expect(url, 'https://ex.com/v?sig=acbd');
+    });
+
+    test('passes through plain urls without s param', () {
+      final decipher = SignatureDecipher(Dio());
+      final script =
+          decipher.parseForTest('https://x/base.js', js);
+      final url = decipher.decipherUrl(
+          'url=${Uri.encodeComponent('https://ex.com/v')}', script!);
+      expect(url, 'https://ex.com/v');
+    });
+
+    test('returns null when undecipherable', () {
+      final decipher = SignatureDecipher(Dio());
+      expect(
+          decipher.parseForTest(
+              'https://x/base.js', 'var x = 1;'),
+          isNull);
     });
   });
 

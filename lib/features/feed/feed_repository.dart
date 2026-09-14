@@ -37,7 +37,6 @@ class FeedData {
   final List<GeneratedTrack> heavyRotation;
   final List<GeneratedTrack> freshFinds;
   final List<GeneratedTrack> jumpBackIn;
-  final List<GeneratedTrack> newReleases;
   final List<GeneratedTrack> becauseYouListened;
   final List<GeneratedTrack> charts;
   final List<String> tasteTags;
@@ -47,7 +46,6 @@ class FeedData {
     this.heavyRotation = const [],
     this.freshFinds = const [],
     this.jumpBackIn = const [],
-    this.newReleases = const [],
     this.becauseYouListened = const [],
     this.charts = const [],
     this.tasteTags = const [],
@@ -56,7 +54,6 @@ class FeedData {
   bool get isEmpty =>
       quickPicks.isEmpty &&
       heavyRotation.isEmpty &&
-      newReleases.isEmpty &&
       charts.isEmpty;
 }
 
@@ -127,7 +124,7 @@ class FeedRepository {
     final out = <GeneratedTrack>[];
     // YTM radio branch.
     try {
-      final seed = await _tube.findBestMatch(name, artist);
+      final seed = await _tube.findBestMatchOrNull(name, artist);
       if (seed != null) {
         final related = await _tube.fetchRelatedSongs(
           seed.videoId,
@@ -183,7 +180,7 @@ class FeedRepository {
         if (t.videoId.isNotEmpty) return t;
         try {
           final match =
-              await _tube.findBestMatch(t.name, t.artist);
+              await _tube.findBestMatchOrNull(t.name, t.artist);
           if (match == null) return t;
           return GeneratedTrack(
             name: t.name,
@@ -204,18 +201,59 @@ class FeedRepository {
     return out;
   }
 
+  /// New-release records (real albums/singles, no video items).
+  Future<List<YouTubeMusicEntity>> fetchNewReleaseAlbums(
+      {int limit = 15}) async {
+    try {
+      return await _tube.browseAlbums(
+        'FEmusic_new_releases',
+        limit: limit,
+      );
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Resolve an album entity to playable tracks.
+  Future<List<GeneratedTrack>> albumTracks(
+      YouTubeMusicEntity album) async {
+    if (album.browseId.isEmpty) return const [];
+    try {
+      final songs = await _tube.browseSongs(
+        album.browseId,
+        limit: 50,
+      );
+      final parts =
+          InnerTubeMusicApi.splitSubtitle(album.subtitle);
+      final artist =
+          parts.length > 1 ? parts[1] : album.artist;
+      return songs
+          .map((t) => GeneratedTrack(
+                name: t.title,
+                artist: t.artist.isNotEmpty
+                    ? t.artist
+                    : artist,
+                artworkUrl: t.artworkUrl.isNotEmpty
+                    ? t.artworkUrl
+                    : album.artworkUrl,
+                videoId: t.videoId,
+              ))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<FeedData> loadFeed({bool chartsOnly = false}) async {
     try {
       final results = await Future.wait([
         _home.fetchRecentTracks(limit: 30),
         _home.fetchTopTracks(period: '7day', limit: 30),
         _tube.browseSongs('FEmusic_charts', limit: 30).catchError((_) => <YouTubeMusicTrack>[]),
-        _tube.browseSongs('FEmusic_new_releases', limit: 30).catchError((_) => <YouTubeMusicTrack>[]),
       ]);
       final recent = results[0] as List<HomeTrack>;
       final top = results[1] as List<HomeTrack>;
       final charts = results[2] as List<YouTubeMusicTrack>;
-      final releases = results[3] as List<YouTubeMusicTrack>;
       final affinities = await _artistAffinities(top, recent);
 
       GeneratedTrack fromHome(HomeTrack t) => GeneratedTrack(
@@ -295,7 +333,6 @@ class FeedRepository {
         heavyRotation: chartsOnly ? const [] : heavy,
         freshFinds: chartsOnly ? const [] : fresh,
         jumpBackIn: chartsOnly ? const [] : jumpBack,
-        newReleases: releases.take(15).map(fromYt).toList(),
         becauseYouListened: chartsOnly ? const [] : because,
         charts: charts.take(15).map(fromYt).toList(),
         tasteTags: affinities.keys.take(8).toList(),

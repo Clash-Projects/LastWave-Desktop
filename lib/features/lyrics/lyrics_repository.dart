@@ -39,6 +39,7 @@ class LyricsRepository {
     if (!forceRefresh) {
       final cached = _cache[key];
       if (cached != null) {
+        if (!cached.isEmpty) onPartialResult?.call(cached);
         if (!wordByWord || cached.isWordSynced || cached.isInstrumental) {
           return cached;
         }
@@ -47,51 +48,29 @@ class LyricsRepository {
 
     LyricsResult? lineFallback;
 
-    if (wordByWord) {
-      final futures = [
+    final futures = [
+      _fetchLrclib(title, artist, album, durationSeconds),
+      if (wordByWord) ...[
         _fetchLyricsPlus(title, artist, album, durationSeconds),
         _fetchBetterLyrics(title, artist),
         _fetchKugou(title, artist, durationSeconds),
-      ];
-      final pending = futures.map((f) => f.then<LyricsResult?>(
-            (v) => v,
-            onError: (_) => null,
-          )).toList();
-      LyricsResult? wordSynced;
-      for (final f in pending) {
-        LyricsResult? result;
-        try {
-          result = await f.timeout(const Duration(seconds: 12));
-        } catch (_) {
-          result = null;
-        }
-        if (result == null) continue;
-        if (result.isWordSynced) {
-          wordSynced = result;
-          break;
-        }
-        lineFallback ??= result.isSynced || result.plainLyrics.isNotEmpty
-            ? result
-            : null;
-        if (lineFallback != null) {
-          onPartialResult?.call(lineFallback);
-        }
+      ],
+    ];
+    final pending = futures.map((future) => future
+        .timeout(const Duration(seconds: 12))
+        .then<LyricsResult?>((value) => value, onError: (_) => null));
+    await for (final result in Stream.fromFutures(pending)) {
+      if (result == null || result.isEmpty) continue;
+      if (result.isWordSynced || result.isInstrumental) {
+        _cache[key] = result;
+        return result;
       }
-      if (wordSynced != null) {
-        _cache[key] = wordSynced;
-        return wordSynced;
+      if (lineFallback == null ||
+          (result.isSynced && !lineFallback.isSynced)) {
+        lineFallback = result;
+        onPartialResult?.call(result);
       }
     }
-
-    // LRCLIB tiers.
-    try {
-      final lrclib = await _fetchLrclib(
-          title, artist, album, durationSeconds);
-      if (lrclib != null) {
-        _cache[key] = lrclib;
-        return lrclib;
-      }
-    } catch (_) {}
 
     if (lineFallback != null) {
       _cache[key] = lineFallback;

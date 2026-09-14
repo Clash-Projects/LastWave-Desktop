@@ -1,74 +1,150 @@
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
-import '../features/albums/albums_screen.dart';
-import '../features/artists/artists_screen.dart';
-import '../features/downloads/downloads_screen.dart';
-import '../features/friends/friends_screen.dart';
-import '../features/generate/generate_screen.dart';
-import '../features/history/history_screen.dart';
-import '../features/home/home_screen.dart';
-import '../features/lastfm/login_screen.dart';
-import '../features/library/library_screen.dart';
-import '../features/library/liked_screen.dart';
-import '../features/lyrics/lyrics_screen.dart';
-import '../features/player/now_playing_screen.dart';
-import '../features/playlists/playlist_detail_screen.dart';
-import '../features/playlists/playlists_screen.dart';
-import '../features/profile/profile_screen.dart';
-import '../features/search/search_screen.dart';
-import '../features/settings/settings_screen.dart';
-import '../features/shell/desktop_shell.dart';
+import 'auth_gate.dart';
 
-/// Desktop navigation: single shell (sidebar + player bar) with
-/// top-level content routes. Mirrors Android `Screen` destinations
-/// adapted for desktop IA.
-GoRouter buildRouter() {
+import '../ui/app_shell/app_shell.dart';
+import '../ui/auth/welcome_page.dart';
+import '../ui/collections/album_detail_page.dart';
+import '../ui/collections/albums_page.dart';
+import '../ui/collections/artist_detail_page.dart';
+import '../ui/collections/artists_page.dart';
+import '../ui/collections/downloads_page.dart';
+import '../ui/collections/history_page.dart';
+import '../ui/collections/liked_page.dart';
+import '../ui/collections/playlist_detail_page.dart';
+import '../ui/collections/playlists_page.dart';
+import '../ui/discover/discover_page.dart';
+import '../ui/home/home_page.dart';
+import '../ui/library/library_page.dart';
+import '../ui/lyrics/lyrics_screen.dart';
+import '../ui/misc/support_pages.dart';
+import '../ui/now_playing/now_playing_page.dart';
+import '../ui/search/search_page.dart';
+import '../ui/settings/settings_page.dart';
+import '../ui/theme/tokens.dart';
+
+Page<void> _page(Widget child) {
+  return CustomTransitionPage(
+    child: child,
+    transitionsBuilder:
+        (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+      );
+      return FadeTransition(
+        opacity: Tween<double>(begin: 0.6, end: 1)
+            .animate(curved),
+        child: SlideTransition(
+          position: Tween<Offset>(
+                  begin: const Offset(0, 0.012), end: Offset.zero)
+              .animate(curved),
+          child: child,
+        ),
+      );
+    },
+    transitionDuration: WaveMotion.normal,
+  );
+}
+
+/// Rebuilt navigation — music first, no dashboard.
+///
+/// Last.fm authentication is compulsory: [AuthGate] drives a redirect so
+/// unauthenticated users only ever see /welcome (rendered WITHOUT the
+/// main shell), and authenticated users can never sit on /welcome.
+/// The initial gate value comes from synchronously-loaded prefs, so the
+/// first frame already routes correctly — Home never flashes.
+///
+/// Home / Discover / Search · Library / Liked / Albums / Artists /
+/// Playlists · Downloads · Friends / Settings · Now / Lyrics ·
+///
+/// Album / Artist details are first-class music layouts.
+/// History + Mix Lab stay routable but off prime nav.
+GoRouter buildRouter({required AuthGate gate}) {
   return GoRouter(
     initialLocation: '/home',
+    refreshListenable: gate,
+    redirect: (context, state) {
+      final atWelcome = state.uri.path == '/welcome';
+      if (!gate.signedIn && !atWelcome) return '/welcome';
+      if (gate.signedIn && atWelcome) return '/home';
+      return null;
+    },
     routes: [
+      GoRoute(
+        path: '/welcome',
+        pageBuilder: (c, s) =>
+            _page(const WaveWelcomePage()),
+      ),
       ShellRoute(
         builder: (context, state, child) =>
-            DesktopShell(location: state.uri.path, child: child),
+            WaveShell(location: state.uri.path, child: child),
         routes: [
           GoRoute(
             path: '/home',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: HomeScreen()),
+                _page(const WaveHomePage()),
+          ),
+          GoRoute(
+            path: '/discover',
+            pageBuilder: (c, s) =>
+                _page(const WaveDiscoverPage()),
           ),
           GoRoute(
             path: '/search',
-            pageBuilder: (c, s) =>
-                const NoTransitionPage(child: SearchScreen()),
+            pageBuilder: (c, s) => _page(WaveSearchPage(
+              initialQuery:
+                  s.uri.queryParameters['q'] ?? '',
+            )),
           ),
           GoRoute(
             path: '/library',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: LibraryScreen()),
+                _page(const WaveLibraryPage()),
           ),
           GoRoute(
             path: '/liked',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: LikedScreen()),
+                _page(const WaveLikedPage()),
           ),
           GoRoute(
             path: '/albums',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: AlbumsScreen()),
+                _page(const WaveAlbumsPage()),
+          ),
+          GoRoute(
+            path: '/album/:id',
+            pageBuilder: (c, s) => _page(
+              WaveAlbumPage(
+                browseId: Uri.decodeComponent(
+                    s.pathParameters['id'] ?? ''),
+              ),
+            ),
           ),
           GoRoute(
             path: '/artists',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: ArtistsScreen()),
+                _page(const WaveArtistsPage()),
+          ),
+          GoRoute(
+            path: '/artist/:name',
+            pageBuilder: (c, s) => _page(
+              WaveArtistPage(
+                name: Uri.decodeComponent(
+                    s.pathParameters['name'] ?? ''),
+              ),
+            ),
           ),
           GoRoute(
             path: '/playlists',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: PlaylistsScreen()),
+                _page(const WavePlaylistsPage()),
             routes: [
               GoRoute(
                 path: ':id',
-                pageBuilder: (c, s) => NoTransitionPage(
-                  child: PlaylistDetailScreen(
+                pageBuilder: (c, s) => _page(
+                  WavePlaylistDetailPage(
                     id: int.tryParse(
                             s.pathParameters['id'] ?? '') ??
                         0,
@@ -80,47 +156,42 @@ GoRouter buildRouter() {
           GoRoute(
             path: '/mixes',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: GenerateScreen()),
+                _page(const WaveMixLabPage()),
           ),
           GoRoute(
             path: '/downloads',
-            pageBuilder: (c, s) => const NoTransitionPage(
-                child: DownloadsScreen()),
+            pageBuilder: (c, s) =>
+                _page(const WaveDownloadsPage()),
           ),
           GoRoute(
             path: '/history',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: HistoryScreen()),
+                _page(const WaveHistoryPage()),
           ),
           GoRoute(
             path: '/now',
-            pageBuilder: (c, s) => const NoTransitionPage(
-                child: NowPlayingScreen()),
+            pageBuilder: (c, s) =>
+                _page(const WaveNowPlayingPage()),
           ),
           GoRoute(
             path: '/lyrics',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: LyricsScreen()),
+                _page(const WaveLyricsScreen()),
           ),
           GoRoute(
             path: '/friends',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: FriendsScreen()),
+                _page(const WaveFriendsPage()),
           ),
           GoRoute(
             path: '/profile',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: ProfileScreen()),
+                _page(const WaveProfilePage()),
           ),
           GoRoute(
             path: '/settings',
             pageBuilder: (c, s) =>
-                const NoTransitionPage(child: SettingsScreen()),
-          ),
-          GoRoute(
-            path: '/login',
-            pageBuilder: (c, s) =>
-                const NoTransitionPage(child: LoginScreen()),
+                _page(const WaveSettingsPage()),
           ),
         ],
       ),

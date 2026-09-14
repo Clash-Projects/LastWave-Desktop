@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../design_system/icons.dart';
 
 import '../../core/storage/prefs.dart';
 import '../../design_system/components.dart';
+import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
+import '../../widgets/cards.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/skeletons.dart';
 import '../common/entity_sheets.dart';
 import '../lastfm/auth_repository.dart';
 import '../lastfm/home_repository.dart';
@@ -62,7 +65,8 @@ String _img(Object? images) {
   return fallback;
 }
 
-/// Top artists grid (personal when signed in, charts for guests).
+/// Editorial artists ledger: masthead + ranked circle ledger.
+/// Replaces boxed grid + header-cell with flat ranked circles.
 class ArtistsScreen extends ConsumerWidget {
   const ArtistsScreen({super.key});
 
@@ -71,114 +75,76 @@ class ArtistsScreen extends ConsumerWidget {
     final artists = ref.watch(_artistsProvider);
     return artists.when(
       loading: () => ListView(
-        padding: const EdgeInsets.all(LwSpacing.lg),
+        padding: const EdgeInsets.all(LwSpacing.xl),
         children: const [
           SkeletonBox(width: 200, height: 26),
           SizedBox(height: 16),
-          SkeletonRow(count: 8),
+          SkeletonRail(),
         ],
       ),
       error: (e, _) => EmptyState(
-        icon: LwIcons.cloudOff,
+        icon: LucideIcons.cloudOff,
         title: 'Could not load artists',
         subtitle: e.toString(),
         actionLabel: 'Retry',
         onAction: () => ref.invalidate(_artistsProvider),
       ),
-      data: (list) => GridView.builder(
-        padding: const EdgeInsets.fromLTRB(
-            LwSpacing.lg, LwSpacing.lg, LwSpacing.lg, 96),
-        gridDelegate:
-            const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 190,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          mainAxisExtent: 218,
-        ),
-        itemCount: list.length + 1,
-        itemBuilder: (context, i) {
-          if (i == 0) {
-            return const _GridHeader(
-                title: 'Artists',
-                subtitle:
-                    'Your most-played voices this month.');
-          }
-          final a = list[i - 1];
-          return _ArtistCard(name: a.name, artwork: a.artwork);
-        },
-      ),
-    );
-  }
-}
-
-class _GridHeader extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  const _GridHeader(
-      {required this.title, required this.subtitle});
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: LwType.display),
-          const SizedBox(height: 4),
-          Text(subtitle,
-              style: LwType.body.copyWith(
-                  color: LwColors.textSecondary)),
+      data: (list) => CustomScrollView(
+        slivers: [
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                  LwSpacing.xl,
+                  LwSpacing.lg,
+                  LwSpacing.xl,
+                  LwSpacing.sm),
+              child: EdPage(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    EdKicker('Collect'),
+                    Text('Artists',
+                        style: LwType.display),
+                    SizedBox(height: 4),
+                    Text(
+                      'Your most-played voices this month.',
+                      style: LwType.body,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+                LwSpacing.xl, 0, LwSpacing.xl, 96),
+            sliver: SliverGrid(
+              gridDelegate:
+                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 170,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                mainAxisExtent: 190,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, i) {
+                  final a = list[i];
+                  return ArtistCard(
+                    name: a.name,
+                    artworkUrl: a.artwork,
+                    rank: i + 1,
+                    onTap: () => showArtistSheet(
+                        context, ref,
+                        artistName: a.name),
+                  );
+                },
+                childCount: list.length,
+              ),
+            ),
+          ),
         ],
       ),
     );
-  }
-}
-
-class _ArtistCard extends ConsumerWidget {
-  final String name;
-  final String artwork;
-  const _ArtistCard({required this.name, required this.artwork});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return InkWell(
-      onTap: () =>
-          showArtistSheet(context, ref, artistName: name),
-      borderRadius: BorderRadius.circular(LwRadius.md),
-      child: Padding(
-        padding: const EdgeInsets.all(LwSpacing.xs),
-        child: Column(
-          children: [
-            _RoundArt(name: name, url: artwork),
-            const SizedBox(height: 8),
-            Text(name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: LwType.title
-                    .copyWith(fontSize: 12.5)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RoundArt extends StatelessWidget {
-  final String name;
-  final String url;
-  const _RoundArt({required this.name, required this.url});
-  @override
-  Widget build(BuildContext context) {
-    if (url.isEmpty) {
-      return CircleAvatar(
-        radius: 56,
-        backgroundColor: LwColors.surfaceOverlay,
-        child: Text(name.isNotEmpty ? name[0] : '?',
-            style: LwType.display
-                .copyWith(color: LwColors.textTertiary)),
-      );
-    }
-    return CircleAvatar(
-        radius: 56, backgroundImage: NetworkImage(url));
   }
 }

@@ -1,25 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../design_system/icons.dart';
+import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../app/track_actions.dart';
 import '../../design_system/components.dart';
+import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
-import '../feed/feed_repository.dart' show GeneratedTrack;
-import '../home/home_screen.dart' show playGenerated;
+import '../../widgets/empty_state.dart';
+import '../../widgets/section.dart';
+import '../../widgets/track_tile.dart';
+import '../feed/feed_repository.dart';
+import '../library/playlists.dart';
 import '../player/playback_service.dart';
-import 'playlists.dart';
 
-/// Liked Songs: the pinned `liked` playlist, playable end-to-end.
-class LikedScreen extends ConsumerWidget {
+/// Editorial Liked Songs: masthead ledger + filter + indexed ledger rows.
+/// Replaces gradient tile header + boxed list with flat collection
+/// hierarchy (kicker / title / meta / primary Play / ledger header).
+class LikedScreen extends ConsumerStatefulWidget {
   const LikedScreen({super.key});
+  @override
+  ConsumerState<LikedScreen> createState() =>
+      _LikedScreenState();
+}
+
+class _LikedScreenState
+    extends ConsumerState<LikedScreen> {
+  final _filter = TextEditingController();
+  String _q = '';
+  @override
+  void dispose() {
+    _filter.dispose();
+    super.dispose();
+  }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final playlists = ref.watch(playlistRepositoryProvider);
     final liked =
         playlists.where((p) => p.isLikedSongs).firstOrNull;
-    final tracks = liked?.tracks ?? const [];
+    final all = liked?.tracks ?? const [];
+    final tracks = all
+        .where((t) =>
+            '${t.name} ${t.artist}'
+                .toLowerCase()
+                .contains(_q.toLowerCase()))
+        .toList();
+    final likedKeys = ref
+        .watch(playlistRepositoryProvider.notifier)
+        .likedKeys();
+    final playingKey =
+        ref.watch(playbackServiceProvider.select((s) => s.current?.queueKey));
 
     List<GeneratedTrack> asGenerated() => tracks
         .map((t) => GeneratedTrack(
@@ -30,101 +60,142 @@ class LikedScreen extends ConsumerWidget {
             ))
         .toList();
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-          LwSpacing.lg, LwSpacing.lg, LwSpacing.lg, 96),
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [
-                  Theme.of(context).colorScheme.primary,
-                  Theme.of(context)
-                      .colorScheme
-                      .primary
-                      .withValues(alpha: 0.5),
-                ]),
-                borderRadius:
-                    BorderRadius.circular(LwRadius.md),
-              ),
-              child: const Icon(LwIcons.heart,
-                  color: Colors.white, size: 30),
-            ),
-            const SizedBox(width: LwSpacing.md),
-            Expanded(
+    String cover = '';
+    for (final t in all) {
+      if (t.artworkUrl.isNotEmpty) {
+        cover = t.artworkUrl;
+        break;
+      }
+    }
+
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+                LwSpacing.xl, LwSpacing.lg, LwSpacing.xl, 0),
+            child: EdPage(
               child: Column(
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
-                  const Text('Liked Songs',
-                      style: LwType.display),
-                  Text('${tracks.length} tracks',
-                      style: LwType.body.copyWith(
-                          color:
-                              LwColors.textSecondary)),
+                  CollectionHeader(
+                    kicker: 'Collect · Playlist',
+                    title: 'Liked Songs',
+                    meta:
+                        '${all.length} tracks${_q.isNotEmpty ? ' · ${tracks.length} match' : ''}',
+                    artworkUrl: cover,
+                    fallbackIcon: LucideIcons.heart,
+                    primaryActions: [
+                      if (tracks.isNotEmpty)
+                        LwButton(
+                          onPressed: () =>
+                              playGenerated(
+                            ref,
+                            context,
+                            asGenerated().first,
+                            sourceLabel:
+                                'Liked Songs',
+                            queueAll: asGenerated(),
+                          ),
+                          leading: const Icon(
+                              LucideIcons.play,
+                              size: 14),
+                          child:
+                              const Text('Play all'),
+                        ),
+                      LwButton.outline(
+                        onPressed: tracks.isEmpty
+                            ? null
+                            : () {
+                                // Shuffle BEFORE picking first.
+                                final shuffled =
+                                    asGenerated()..shuffle();
+                                playGenerated(
+                                  ref,
+                                  context,
+                                  shuffled.first,
+                                  sourceLabel:
+                                      'Liked Songs',
+                                  queueAll: shuffled,
+                                );
+                              },
+                        child: const Text('Shuffle'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(
+                      height: LwSpacing.md),
+                  LedgerFilterBar(
+                    controller: _filter,
+                    onChanged: (v) =>
+                        setState(() => _q = v),
+                    hint:
+                        'Filter liked songs…',
+                    countLabel:
+                        '${tracks.length} tracks',
+                  ),
+                  const SizedBox(
+                      height: LwSpacing.xs),
+                  const EdLedgerHeader(
+                      metaLabel: ''),
                 ],
               ),
             ),
-            if (tracks.isNotEmpty)
-              FilledButton.icon(
-                onPressed: () => playGenerated(
-                  ref,
-                  context,
-                  asGenerated().first,
-                  sourceLabel: 'Liked Songs',
-                  queueAll: asGenerated(),
-                ),
-                icon: const Icon(LwIcons.play,
-                    size: 15),
-                label: const Text('Play all'),
-              ),
-          ],
+          ),
         ),
-        const SizedBox(height: LwSpacing.md),
         if (tracks.isEmpty)
-          const EmptyState(
-            icon: LwIcons.heart,
-            title: 'No liked songs yet',
-            subtitle:
-                'Tap the heart on any track to save it here.',
+          const SliverToBoxAdapter(
+            child: EmptyState(
+              icon: LucideIcons.heart,
+              title: 'No liked songs yet',
+              subtitle:
+                  'Tap the heart on any track to save it here.',
+            ),
           )
         else
-          ...asGenerated().asMap().entries.map((e) {
-            final t = e.value;
-            final playing = ref
-                    .watch(playbackServiceProvider)
-                    .current
-                    ?.queueKey ==
-                t.key;
-            return TrackTile(
-              title: t.name,
-              subtitle: t.artist,
-              artworkUrl: t.artworkUrl,
-              playing: playing,
-              onTap: () => playGenerated(ref, context, t,
-                  sourceLabel: 'Liked Songs',
-                  queueAll: asGenerated(),
-                  startIndex: e.key),
-              onMore: () => showTrackMenu(
-                context: context,
-                ref: ref,
-                position: const Offset(800, 300),
-                title: t.name,
-                artist: t.artist,
-                artworkUrl: t.artworkUrl,
-                toPlayable: () =>
-                    playableFromGenerated(t),
-              ),
-            );
-          }),
+          SuperSliverList.builder(
+            itemCount: tracks.length,
+            itemBuilder: (context, i) {
+              final t = asGenerated()[i];
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: LwSpacing.lg),
+                child: TrackTile(
+                  index: i + 1,
+                  title: t.name,
+                  subtitle: t.artist,
+                  artworkUrl: t.artworkUrl,
+                  playing: playingKey == t.key,
+                  showLike: true,
+                  isLiked: likedKeys.contains(t.key),
+                  onToggleLike: () => toggleLike(
+                    ref,
+                    context,
+                    title: t.name,
+                    artist: t.artist,
+                    artworkUrl: t.artworkUrl,
+                    videoId: t.videoId,
+                  ),
+                  onTap: () => playGenerated(
+                      ref, context, t,
+                      sourceLabel: 'Liked Songs',
+                      queueAll: asGenerated(),
+                      startIndex: i),
+                  menu: trackMenuItems(
+                    ref: ref,
+                    title: t.name,
+                    artist: t.artist,
+                    artworkUrl: t.artworkUrl,
+                    videoId: t.videoId,
+                  ),
+                ),
+              );
+            },
+          ),
+        const SliverToBoxAdapter(
+            child: SizedBox(height: 96)),
       ],
     );
   }
-}
-
-extension _FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
 }

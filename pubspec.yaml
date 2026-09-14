@@ -33,7 +33,6 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
   flutter_riverpod: 2.6.1
   go_router: ^18.0.1
   dio: ^5.11.1
@@ -45,6 +44,10 @@ dependencies:
   shared_preferences: ^2.5.5
   flutter_secure_storage: ^11.1.1
   sqlite3: ^3.5.2
+  # Single persistent playback backend (Limusic parity, Dart-only):
+  # media_kit/libmpv audio-only, 32MiB demuxer cache, on-disk cache +
+  # gapless configured in PlaybackService.ensurePlayer. Windows bundles
+  # libmpv via media_kit_libs_video — no Rust, no C++.
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_native_event_loop: ^1.0.9
@@ -59,10 +62,19 @@ dependencies:
   palette_generator: ^0.3.3+7
   scrollable_positioned_list: ^0.3.8
   flutter_animate: ^4.5.2
-  animations: ^3.0.0
   archive: ^4.2.0
   synchronized: ^3.4.2
   collection: ^1.19.1
+  sqflite_common_ffi: ^2.4.3
+  fluent_ui: ^4.16.1
+  flutter_acrylic: ^1.1.4
+  super_sliver_list: ^0.4.1
+  audio_video_progress_bar: ^2.0.3
+  desktop_drop: ^0.8.4
+  lucide_icons_flutter: ^3.1.19
+  unorm_dart: ^0.3.2
+  desktop_webview_window: ^0.3.0
+  meta: ^1.19.0
 
 dev_dependencies:
   flutter_test:
@@ -85,6 +97,11 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # BotGuard page for the desktop poToken engine (same asset as
+  # LastWave-native; loaded into a hidden system WebView).
+  assets:
+    - assets/po_token.html
 
   # To add assets to your application, add an assets section, like this:
   # assets:

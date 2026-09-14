@@ -15,7 +15,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// Migrations are additive and never drop user data (no destructive
 /// fallback, unlike the temporary Android `fallbackToDestructiveMigration`).
 class AppDatabase {
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   final Database _db;
 
@@ -47,6 +47,10 @@ class AppDatabase {
     if (version < 1) {
       _createV1();
       _db.execute('PRAGMA user_version=1;');
+    }
+    if (version < 2) {
+      _createV2();
+      _db.execute('PRAGMA user_version=2;');
     }
   }
 
@@ -194,6 +198,187 @@ class AppDatabase {
 
   void clearPlaybackSession() {
     _db.execute('DELETE FROM playback_session WHERE id = 1;');
+  }
+
+  // -- stream disk cache (Limusic fast-path) -------------------------------
+  //
+  // Persistent copy of resolved YouTube stream URLs + match metadata.
+  // Memory cache stays authoritative for speed; disk is warm-start +
+  // cross-restart reuse. Entries are keyed by
+  // (video_id, client_profile, itag, auth_scope) and considered fresh
+  // until `expires_at_ms - margin`. Only expiry or a real playback
+  // failure (403) invalidates — no network probes on the hot path.
+
+  void _createV2() {
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS stream_cache (
+        video_id TEXT NOT NULL,
+        client_profile TEXT NOT NULL DEFAULT '',
+        itag INTEGER NOT NULL DEFAULT -1,
+        url TEXT NOT NULL DEFAULT '',
+        headers_json TEXT NOT NULL DEFAULT '{}',
+        mime TEXT NOT NULL DEFAULT '',
+        bitrate_kbps INTEGER NOT NULL DEFAULT 0,
+        codec TEXT NOT NULL DEFAULT '',
+        expires_at_ms INTEGER NOT NULL DEFAULT 0,
+        cached_at_ms INTEGER NOT NULL DEFAULT 0,
+        auth_scope TEXT NOT NULL DEFAULT 'anonymous',
+        PRIMARY KEY (video_id, client_profile, itag, auth_scope)
+      );
+    ''');
+    _db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_stream_cache_video
+      ON stream_cache(video_id, cached_at_ms DESC);
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS match_cache (
+        key TEXT PRIMARY KEY,
+        video_id TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        artist TEXT NOT NULL DEFAULT '',
+        album TEXT NOT NULL DEFAULT '',
+        artwork_url TEXT NOT NULL DEFAULT '',
+        updated_at_ms INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+  }
+
+  List<Map<String, Object?>> loadStreamEntries({int limit = 256}) {
+    try {
+      return _db
+          .select(
+            'SELECT video_id, client_profile, itag, url, headers_json, '
+            'mime, bitrate_kbps, codec, expires_at_ms, cached_at_ms, '
+            'auth_scope FROM stream_cache '
+            'ORDER BY cached_at_ms DESC LIMIT ?;',
+            [limit],
+          )
+          .map((r) => Map<String, Object?>.from(r))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  void saveStreamEntry({
+    required String videoId,
+    required String clientProfile,
+    required int itag,
+    required String url,
+    required String headersJson,
+    required String mime,
+    required int bitrateKbps,
+    required String codec,
+    required int expiresAtMs,
+    required int cachedAtMs,
+    required String authScope,
+  }) {
+    try {
+      _db.execute(
+        'INSERT INTO stream_cache(video_id, client_profile, itag, url, '
+        'headers_json, mime, bitrate_kbps, codec, expires_at_ms, '
+        'cached_at_ms, auth_scope) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+        'ON CONFLICT(video_id, client_profile, itag, auth_scope) '
+        'DO UPDATE SET url = excluded.url, '
+        'headers_json = excluded.headers_json, mime = excluded.mime, '
+        'bitrate_kbps = excluded.bitrate_kbps, codec = excluded.codec, '
+        'expires_at_ms = excluded.expires_at_ms, '
+        'cached_at_ms = excluded.cached_at_ms;',
+        [
+          videoId,
+          clientProfile,
+          itag,
+          url,
+          headersJson,
+          mime,
+          bitrateKbps,
+          codec,
+          expiresAtMs,
+          cachedAtMs,
+          authScope,
+        ],
+      );
+      _db.execute(
+        'DELETE FROM stream_cache WHERE rowid NOT IN ('
+        'SELECT rowid FROM stream_cache '
+        'ORDER BY cached_at_ms DESC LIMIT 256);',
+      );
+    } catch (_) {}
+  }
+
+  void deleteStreamEntries(String videoId) {
+    try {
+      _db.execute(
+        'DELETE FROM stream_cache WHERE video_id = ?;',
+        [videoId],
+      );
+    } catch (_) {}
+  }
+
+  void pruneExpiredStreams(int nowMs) {
+    try {
+      _db.execute(
+        'DELETE FROM stream_cache WHERE expires_at_ms > 0 AND expires_at_ms < ?;',
+        [nowMs],
+      );
+    } catch (_) {}
+  }
+
+  Map<String, Object?>? loadMatchEntry(String key) {
+    try {
+      final rows = _db.select(
+        'SELECT key, video_id, title, artist, album, artwork_url, '
+        'updated_at_ms FROM match_cache WHERE key = ?;',
+        [key],
+      );
+      if (rows.isEmpty) return null;
+      return Map<String, Object?>.from(rows.first);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void saveMatchEntry({
+    required String key,
+    required String videoId,
+    required String title,
+    required String artist,
+    String album = '',
+    String artworkUrl = '',
+  }) {
+    try {
+      _db.execute(
+        'INSERT INTO match_cache(key, video_id, title, artist, album, '
+        'artwork_url, updated_at_ms) VALUES(?, ?, ?, ?, ?, ?, ?) '
+        'ON CONFLICT(key) DO UPDATE SET video_id = excluded.video_id, '
+        'title = excluded.title, artist = excluded.artist, '
+        'album = excluded.album, artwork_url = excluded.artwork_url, '
+        'updated_at_ms = excluded.updated_at_ms;',
+        [
+          key,
+          videoId,
+          title,
+          artist,
+          album,
+          artworkUrl,
+          DateTime.now().millisecondsSinceEpoch,
+        ],
+      );
+      _db.execute(
+        'DELETE FROM match_cache WHERE key NOT IN ('
+        'SELECT key FROM match_cache '
+        'ORDER BY updated_at_ms DESC LIMIT 1024);',
+      );
+    } catch (_) {}
+  }
+
+  void deleteMatchesForVideo(String videoId) {
+    try {
+      _db.execute(
+        'DELETE FROM match_cache WHERE video_id = ?;',
+        [videoId],
+      );
+    } catch (_) {}
   }
 
   void close() => _db.close();

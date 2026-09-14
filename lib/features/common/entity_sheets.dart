@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../design_system/icons.dart';
 
+import '../../app/track_actions.dart';
 import '../../design_system/components.dart';
+import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
+import '../../widgets/artwork.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/track_tile.dart';
 import '../feed/feed_repository.dart';
-import '../home/home_screen.dart' show playGenerated;
 import '../innertube/innertube_api.dart';
 import '../lastfm/auth_repository.dart';
+import '../library/playlists.dart';
+import '../player/playback_service.dart';
 import '../search/shared_providers.dart';
 
-/// Artist / album detail sheets shared by search, artists and albums
-/// screens. Top tracks come from Last.fm, resolved to playable YTM
-/// streams on demand.
+/// Artist / album detail dialogs as editorial ledgers. Top tracks come
+/// from Last.fm, resolved to playable YTM streams on demand.
 Future<void> showArtistSheet(
   BuildContext context,
   WidgetRef ref, {
@@ -21,15 +25,32 @@ Future<void> showArtistSheet(
 }) async {
   final tracks = await _artistTopTracks(ref, artistName);
   if (!context.mounted) return;
-  await showDialog(
+  await showLwDialog(
     context: context,
-    builder: (context) => _EntityDialog(
-      title: artistName,
-      subtitle:
-          '${tracks.length} top tracks · Last.fm + YouTube Music',
-      artworkUrl: artworkUrl,
-      icon: LwIcons.mic,
-      tracks: tracks,
+    builder: (context) => Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const EdKicker('Artist'),
+        Text(artistName,
+            style: LwType.headline
+                .copyWith(fontSize: 18)),
+        Text(
+            '${tracks.length} top tracks · Last.fm + YouTube Music',
+            style: LwType.caption.copyWith(
+                color: LwColors.textSecondary)),
+        const SizedBox(height: LwSpacing.sm),
+        SizedBox(
+          width: 560,
+          height: 480,
+          child: _EntityTracks(
+            tracks: tracks,
+            sourceLabel: artistName,
+            artworkUrl: artworkUrl,
+            icon: LucideIcons.micVocal,
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -67,14 +88,45 @@ Future<void> showAlbumSheet(
         await _searchAlbumTracks(ref, albumTitle, artist);
   }
   if (!context.mounted) return;
-  await showDialog(
+  await showLwDialog(
     context: context,
-    builder: (context) => _EntityDialog(
-      title: albumTitle,
-      subtitle: artist,
-      artworkUrl: artworkUrl,
-      icon: LwIcons.disc3,
-      tracks: tracks,
+    builder: (context) => Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const EdKicker('Album'),
+        Text(albumTitle,
+            style: LwType.headline
+                .copyWith(fontSize: 18)),
+        Text(artist, style: LwType.caption),
+        const SizedBox(height: LwSpacing.sm),
+        if (tracks.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(
+                bottom: LwSpacing.sm),
+            child: LwButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                playGenerated(ref, context, tracks.first,
+                    sourceLabel: albumTitle,
+                    queueAll: tracks);
+              },
+              leading: const Icon(LucideIcons.play,
+                  size: 14),
+              child: const Text('Play'),
+            ),
+          ),
+        SizedBox(
+          width: 560,
+          height: 440,
+          child: _EntityTracks(
+            tracks: tracks,
+            sourceLabel: albumTitle,
+            artworkUrl: artworkUrl,
+            icon: LucideIcons.disc3,
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -150,118 +202,108 @@ String _image(Object? images) {
   return fallback;
 }
 
-class _EntityDialog extends ConsumerWidget {
-  final String title;
-  final String subtitle;
+class _EntityTracks extends ConsumerWidget {
+  final List<GeneratedTrack> tracks;
+  final String sourceLabel;
   final String artworkUrl;
   final IconData icon;
-  final List<GeneratedTrack> tracks;
-  const _EntityDialog({
-    required this.title,
-    required this.subtitle,
+  const _EntityTracks({
+    required this.tracks,
+    required this.sourceLabel,
     required this.artworkUrl,
     required this.icon,
-    required this.tracks,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Dialog(
-      backgroundColor: LwColors.surfaceRaised,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(LwRadius.lg),
-      ),
-      child: SizedBox(
-        width: 560,
-        height: 560,
-        child: Column(
-          children: [
-            Padding(
-              padding:
-                  const EdgeInsets.all(LwSpacing.md),
-              child: Row(
-                children: [
-                  Artwork(
-                      url: tracks.isNotEmpty &&
-                              tracks.first.artworkUrl
-                                  .isNotEmpty
-                          ? tracks.first.artworkUrl
-                          : artworkUrl,
-                      size: 64,
-                      radius: LwRadius.sm,
-                      fallbackIcon: icon),
-                  const SizedBox(width: LwSpacing.md),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text(title,
-                            style: LwType.headline,
-                            maxLines: 2,
-                            overflow:
-                                TextOverflow.ellipsis),
-                        Text(subtitle,
-                            style: LwType.caption.copyWith(
-                                color: LwColors
-                                    .textSecondary)),
-                      ],
-                    ),
-                  ),
-                  if (tracks.isNotEmpty)
-                    FilledButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        playGenerated(ref, context,
-                            tracks.first,
-                            sourceLabel: title,
-                            queueAll: tracks);
-                      },
-                      icon: const Icon(LwIcons.play,
-                          size: 14),
-                      label: const Text('Play'),
-                    ),
-                ],
+    if (tracks.isEmpty) {
+      return const EmptyState(
+        icon: LucideIcons.cloudOff,
+        title: 'No tracks found',
+        subtitle: 'Try again when you are online.',
+      );
+    }
+    final playingKey =
+        ref.watch(playbackServiceProvider.select((s) => s.current?.queueKey));
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return ListView(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(
+              bottom: LwSpacing.sm),
+          child: Row(
+            children: [
+              Artwork(
+                url: tracks.first.artworkUrl.isNotEmpty
+                    ? tracks.first.artworkUrl
+                    : artworkUrl,
+                size: 56,
+                radius: LwRadius.md,
+                fallbackIcon: icon,
               ),
-            ),
-            const Divider(
-                height: 1, color: LwColors.outlineSoft),
-            Expanded(
-              child: tracks.isEmpty
-                  ? const EmptyState(
-                      icon: LwIcons.cloudOff,
-                      title: 'No tracks found',
-                      subtitle:
-                          'Try again when you are online.',
-                    )
-                  : ListView(
-                      children: tracks
-                          .asMap()
-                          .entries
-                          .map((e) => TrackTile(
-                                title: e.value.name,
-                                subtitle:
-                                    e.value.artist,
-                                artworkUrl: e
-                                    .value.artworkUrl,
-                                onTap: () {
-                                  Navigator.of(context)
-                                      .pop();
-                                  playGenerated(
-                                      ref,
-                                      context,
-                                      e.value,
-                                      sourceLabel: title,
-                                      queueAll: tracks,
-                                      startIndex: e.key);
-                                },
-                              ))
-                          .toList(),
+              const SizedBox(width: LwSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${tracks.length} tracks',
+                      style: LwType.title
+                          .copyWith(fontSize: 14),
                     ),
-            ),
-          ],
+                    Text(
+                      'Tap to play · right-click for more',
+                      style: LwType.caption.copyWith(
+                          color: dark
+                              ? LwColors.textSecondary
+                              : LwColors
+                                  .lightTextSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+        const EdLedgerHeader(),
+        ...tracks.asMap().entries.map((e) {
+          final t = e.value;
+          return TrackTile(
+            index: e.key + 1,
+            title: t.name,
+            subtitle: t.artist,
+            artworkUrl: t.artworkUrl,
+            playing: playingKey == t.key,
+            showLike: true,
+            isLiked: ref
+                .watch(
+                    playlistRepositoryProvider.notifier)
+                .likedKeys()
+                .contains(t.key),
+            onToggleLike: () => toggleLike(
+              ref,
+              context,
+              title: t.name,
+              artist: t.artist,
+              artworkUrl: t.artworkUrl,
+              videoId: t.videoId,
+            ),
+            onTap: () => playGenerated(ref, context, e.value,
+                sourceLabel: sourceLabel,
+                queueAll: tracks,
+                startIndex: e.key),
+            menu: trackMenuItems(
+              ref: ref,
+              title: t.name,
+              artist: t.artist,
+              artworkUrl: t.artworkUrl,
+              videoId: t.videoId,
+            ),
+          );
+        }),
+      ],
     );
   }
 }

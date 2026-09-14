@@ -19,6 +19,7 @@ class PlayerSnapshot {
   final String? error;
   final Duration? sleepRemaining;
   final int bitrateKbps;
+  final double volume;
 
   const PlayerSnapshot({
     this.current,
@@ -37,6 +38,7 @@ class PlayerSnapshot {
     this.error,
     this.sleepRemaining,
     this.bitrateKbps = 0,
+    this.volume = 1.0,
   });
 
   PlayerSnapshot copyWith({
@@ -54,11 +56,13 @@ class PlayerSnapshot {
     RepeatMode? repeatMode,
     double? speed,
     ResolvedStream? stream,
+    bool clearStream = false,
     String? error,
     bool clearError = false,
     Duration? sleepRemaining,
     bool clearSleep = false,
     int? bitrateKbps,
+    double? volume,
   }) =>
       PlayerSnapshot(
         current: clearCurrent ? null : (current ?? this.current),
@@ -73,10 +77,11 @@ class PlayerSnapshot {
         shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
         repeatMode: repeatMode ?? this.repeatMode,
         speed: speed ?? this.speed,
-        stream: stream ?? this.stream,
+        stream: clearStream ? null : (stream ?? this.stream),
         error: clearError ? null : (error ?? this.error),
         sleepRemaining:
             clearSleep ? null : (sleepRemaining ?? this.sleepRemaining),
         bitrateKbps: bitrateKbps ?? this.bitrateKbps,
+        volume: volume ?? this.volume,
       );
 }

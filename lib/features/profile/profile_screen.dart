@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../design_system/icons.dart';
 
 import '../../app/track_actions.dart';
 import '../../design_system/components.dart';
+import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
-import '../feed/feed_repository.dart' show GeneratedTrack;
-import '../home/home_screen.dart' show playGenerated;
+import '../../widgets/artwork.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/skeletons.dart';
+import '../../widgets/track_tile.dart';
+import '../feed/feed_repository.dart';
 import '../lastfm/auth_repository.dart';
 import '../lastfm/home_repository.dart';
+import '../library/playlists.dart';
 
 final _statsProvider =
     FutureProvider.autoDispose<HomeStats>((ref) {
@@ -41,8 +45,8 @@ const _periods = [
   ('overall', 'All time'),
 ];
 
-/// Last.fm profile: stats, top tracks, recent — own or friend
-/// (via [viewingProfileProvider]).
+/// Editorial profile: masthead ledger + inline stat strip + underline
+/// segments + ledger rows. Replaces stat cards + chip tabs + boxed rows.
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
   @override
@@ -56,180 +60,261 @@ class _ProfileScreenState
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final auth = ref.watch(authRepositoryProvider);
     final viewing = ref.watch(viewingProfileProvider);
     final name =
         viewing ?? (auth.username.isEmpty ? null : auth.username);
-    final stats = ref.watch(_statsProvider);
-    final top = ref.watch(_topProvider(_period));
-    final recent = ref.watch(_recentProvider);
-
     if (name == null) {
       return EmptyState(
-        icon: LwIcons.user,
+        icon: LucideIcons.circleUserRound,
         title: 'Not connected',
         subtitle:
             'Connect Last.fm to see your profile, stats and friends.',
         actionLabel: 'Connect Last.fm',
-        onAction: () => context.go('/login'),
+        onAction: () => context.go('/welcome'),
       );
     }
+    final stats = ref.watch(_statsProvider);
+    final top = ref.watch(_topProvider(_period));
+    final recent = ref.watch(_recentProvider);
+    final likedKeys = ref
+        .watch(playlistRepositoryProvider.notifier)
+        .likedKeys();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(
-          LwSpacing.lg, LwSpacing.lg, LwSpacing.lg, 96),
+          LwSpacing.xl, LwSpacing.lg, LwSpacing.xl, 96),
       children: [
-        Row(
-          children: [
-            if (viewing != null)
-              IconButton(
-                onPressed: () => ref
-                    .read(viewingProfileProvider.notifier)
-                    .clear(),
-                icon: const Icon(LwIcons.arrowLeft,
-                    size: 18),
-                tooltip: 'Back to my profile',
-              ),
-            CircleAvatar(
-              radius: 34,
-              backgroundColor: LwColors.surfaceOverlay,
-              backgroundImage:
-                  stats.valueOrNull?.avatarUrl.isNotEmpty ==
-                          true
-                      ? NetworkImage(
-                          stats.value!.avatarUrl)
-                      : null,
-              child: stats.valueOrNull?.avatarUrl
-                          .isNotEmpty ==
-                      true
-                  ? null
-                  : Text(name[0].toUpperCase(),
-                      style: LwType.display),
-            ),
-            const SizedBox(width: LwSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+        EdPage(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text(name, style: LwType.display),
-                  Text(
-                    viewing != null
-                        ? 'Friend · Last.fm'
-                        : 'Your Last.fm profile',
-                    style: LwType.body.copyWith(
-                        color: LwColors.textSecondary),
+                  if (viewing != null)
+                    LwIconButton(
+                      tooltip: 'Back to my profile',
+                      icon: const Icon(
+                          LucideIcons.arrowLeft,
+                          size: 17),
+                      onPressed: () => ref
+                          .read(viewingProfileProvider
+                              .notifier)
+                          .clear(),
+                    ),
+                  _ProfileAvatar(name: name),
+                  const SizedBox(
+                      width: LwSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        EdKicker(viewing != null
+                            ? 'Friend · Last.fm'
+                            : 'Your Last.fm profile'),
+                        Text(name,
+                            style: LwType.display
+                                .copyWith(
+                                    fontSize: 24)),
+                      ],
+                    ),
+                  ),
+                  if (viewing == null)
+                    LwButton.outline(
+                      onPressed: () =>
+                          context.go('/friends'),
+                      leading: const Icon(
+                          LucideIcons.users,
+                          size: 14),
+                      child:
+                          const Text('Friends'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: LwSpacing.md),
+              stats.when(
+                loading: () => const Row(
+                  children: [
+                    Expanded(
+                        child: SkeletonBox(
+                            width: 120,
+                            height: 48)),
+                    SizedBox(width: LwSpacing.md),
+                    Expanded(
+                        child: SkeletonBox(
+                            width: 120,
+                            height: 48)),
+                    SizedBox(width: LwSpacing.md),
+                    Expanded(
+                        child: SkeletonBox(
+                            width: 120,
+                            height: 48)),
+                    SizedBox(width: LwSpacing.md),
+                    Expanded(
+                        child: SkeletonBox(
+                            width: 120,
+                            height: 48)),
+                  ],
+                ),
+                error: (_, _) =>
+                    const SizedBox.shrink(),
+                data: (s) => Container(
+                  padding:
+                      const EdgeInsets.symmetric(
+                          vertical: LwSpacing.sm),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(
+                          color: dark
+                              ? LwColors.outlineSoft
+                              : LwColors
+                                  .lightOutlineSoft),
+                      bottom: BorderSide(
+                          color: dark
+                              ? LwColors.outlineSoft
+                              : LwColors
+                                  .lightOutlineSoft),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      _StatInline(
+                          label: 'Scrobbles',
+                          value: _compact(
+                              s.scrobbles)),
+                      _StatInline(
+                          label: 'Artists',
+                          value: _compact(
+                              s.artistCount)),
+                      _StatInline(
+                          label: 'Albums',
+                          value:
+                              _compact(s.albumCount)),
+                      _StatInline(
+                          label: 'Tracks',
+                          value:
+                              _compact(s.trackCount),
+                          last: true),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: LwSpacing.lg),
+              Row(
+                children: [
+                  const Text('Top tracks',
+                      style: LwType.headline),
+                  const Spacer(),
+                  EdSegmented<String>(
+                    value: _period,
+                    options: [
+                      for (final p in _periods)
+                        (p.$1, p.$2)
+                    ],
+                    onChanged: (p) =>
+                        setState(() => _period = p),
                   ),
                 ],
               ),
-            ),
-            if (viewing == null)
-              OutlinedButton.icon(
-                onPressed: () => context.go('/friends'),
-                icon: const Icon(LwIcons.users,
-                    size: 14),
-                label: const Text('Friends'),
+              const SizedBox(height: LwSpacing.xs),
+              const EdLedgerHeader(
+                  metaLabel: 'Plays'),
+              top.when(
+                loading: () =>
+                    const SkeletonRow(count: 6),
+                error: (e, _) => Text('Failed: $e',
+                    style: LwType.caption),
+                data: (tracks) => Column(
+                  children: tracks
+                      .asMap()
+                      .entries
+                      .map((e) {
+                    final t = e.value;
+                    return TrackTile(
+                      index: e.key + 1,
+                      title: t.name,
+                      subtitle: t.artist,
+                      artworkUrl: t.artworkUrl,
+                      meta: '${t.playCount}',
+                      showLike: true,
+                      isLiked: likedKeys
+                          .contains(t.key),
+                      onToggleLike: () =>
+                          toggleLike(
+                        ref,
+                        context,
+                        title: t.name,
+                        artist: t.artist,
+                        artworkUrl: t.artworkUrl,
+                      ),
+                      onTap: () =>
+                          playGenerated(
+                        ref,
+                        context,
+                        GeneratedTrack(
+                            name: t.name,
+                            artist: t.artist,
+                            artworkUrl:
+                                t.artworkUrl),
+                        sourceLabel:
+                            'Top tracks',
+                      ),
+                      menu: trackMenuItems(
+                        ref: ref,
+                        title: t.name,
+                        artist: t.artist,
+                        artworkUrl: t.artworkUrl,
+                      ),
+                    );
+                  }).toList(),
+                ),
               ),
-          ],
-        ),
-        const SizedBox(height: LwSpacing.lg),
-        stats.when(
-          loading: () => const SkeletonRow(count: 2),
-          error: (_, _) => const SizedBox.shrink(),
-          data: (s) => Row(
-            children: [
-              _Stat(
-                  label: 'Scrobbles',
-                  value: _compact(s.scrobbles)),
-              _Stat(
-                  label: 'Artists',
-                  value: _compact(s.artistCount)),
-              _Stat(
-                  label: 'Albums',
-                  value: _compact(s.albumCount)),
-              _Stat(
-                  label: 'Tracks',
-                  value: _compact(s.trackCount)),
+              const SizedBox(height: LwSpacing.lg),
+              const Text('Recently played',
+                  style: LwType.headline),
+              const SizedBox(height: LwSpacing.xs),
+              recent.when(
+                loading: () =>
+                    const SkeletonRow(count: 4),
+                error: (_, _) =>
+                    const SizedBox.shrink(),
+                data: (tracks) => Column(
+                  children: tracks
+                      .map((t) => TrackTile(
+                            title: t.name,
+                            subtitle: t.artist,
+                            artworkUrl: t.artworkUrl,
+                            meta: t.timestampMillis ==
+                                    null
+                                ? null
+                                : relativeTime(DateTime
+                                    .fromMillisecondsSinceEpoch(
+                                        t.timestampMillis!)),
+                            onTap: () =>
+                                playGenerated(
+                              ref,
+                              context,
+                              GeneratedTrack(
+                                  name: t.name,
+                                  artist: t.artist,
+                                  artworkUrl:
+                                      t.artworkUrl),
+                              sourceLabel: 'Recent',
+                            ),
+                            menu: trackMenuItems(
+                              ref: ref,
+                              title: t.name,
+                              artist: t.artist,
+                              artworkUrl: t.artworkUrl,
+                            ),
+                          ))
+                      .toList(),
+                ),
+              ),
             ],
-          ),
-        ),
-        const SizedBox(height: LwSpacing.lg),
-        Row(
-          children: [
-            const Text('Top tracks',
-                style: LwType.headline),
-            const Spacer(),
-            SegmentedButton<String>(
-              segments: _periods
-                  .map((p) => ButtonSegment(
-                      value: p.$1, label: Text(p.$2)))
-                  .toList(),
-              selected: {_period},
-              onSelectionChanged: (s) =>
-                  setState(() => _period = s.first),
-              style: SegmentedButton.styleFrom(
-                textStyle: LwType.label,
-                visualDensity: VisualDensity.compact,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: LwSpacing.xs),
-        top.when(
-          loading: () => const SkeletonRow(count: 6),
-          error: (e, _) => Text('Failed: $e',
-              style: LwType.caption),
-          data: (tracks) => Column(
-            children: tracks.asMap().entries.map((e) {
-              final t = e.value;
-              return TrackTile(
-                title: t.name,
-                subtitle: t.artist,
-                artworkUrl: t.artworkUrl,
-                trailing: '${e.key + 1} · ${t.playCount}',
-                onTap: () => playGenerated(
-                  ref,
-                  context,
-                  GeneratedTrack(
-                      name: t.name,
-                      artist: t.artist,
-                      artworkUrl: t.artworkUrl),
-                  sourceLabel: 'Top tracks',
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-        const SizedBox(height: LwSpacing.lg),
-        const Text('Recently played',
-            style: LwType.headline),
-        const SizedBox(height: LwSpacing.xs),
-        recent.when(
-          loading: () => const SkeletonRow(count: 4),
-          error: (_, _) => const SizedBox.shrink(),
-          data: (tracks) => Column(
-            children: tracks.map((t) {
-              final when = t.timestampMillis == null
-                  ? ''
-                  : relativeTime(
-                      DateTime.fromMillisecondsSinceEpoch(
-                          t.timestampMillis!));
-              return TrackTile(
-                title: t.name,
-                subtitle: t.artist,
-                artworkUrl: t.artworkUrl,
-                trailing: when,
-                onTap: () => playGenerated(
-                  ref,
-                  context,
-                  GeneratedTrack(
-                      name: t.name,
-                      artist: t.artist,
-                      artworkUrl: t.artworkUrl),
-                  sourceLabel: 'Recent',
-                ),
-              );
-            }).toList(),
           ),
         ),
       ],
@@ -247,31 +332,66 @@ class _ProfileScreenState
   }
 }
 
-class _Stat extends StatelessWidget {
+class _ProfileAvatar extends ConsumerWidget {
+  final String name;
+  const _ProfileAvatar({required this.name});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final url =
+        ref.watch(_statsProvider).valueOrNull?.avatarUrl ?? '';
+    if (url.isEmpty) {
+      return CircleAvatar(
+        radius: 32,
+        backgroundColor: LwColors.surfaceOverlay,
+        child: Text(name[0].toUpperCase(),
+            style: LwType.display),
+      );
+    }
+    return Artwork(
+        url: url, size: 64, radius: LwRadius.pill);
+  }
+}
+
+class _StatInline extends StatelessWidget {
   final String label;
   final String value;
-  const _Stat({required this.label, required this.value});
+  final bool last;
+  const _StatInline(
+      {required this.label,
+      required this.value,
+      this.last = false});
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Expanded(
       child: Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.all(LwSpacing.md),
-        decoration: BoxDecoration(
-          color: LwColors.surfaceRaised,
-          borderRadius:
-              BorderRadius.circular(LwRadius.md),
-          border:
-              Border.all(color: LwColors.outlineSoft),
-        ),
+        decoration: last
+            ? null
+            : BoxDecoration(
+                border: Border(
+                  right: BorderSide(
+                      color: dark
+                          ? LwColors.outlineSoft
+                          : LwColors
+                              .lightOutlineSoft),
+                ),
+              ),
         child: Column(
           crossAxisAlignment:
               CrossAxisAlignment.start,
           children: [
-            Text(value, style: LwType.headline),
+            Text(value,
+                style: LwType.headline.copyWith(
+                    fontSize: 18,
+                    fontFeatures: const [
+                      FontFeature.tabularFigures()
+                    ])),
             Text(label,
                 style: LwType.caption.copyWith(
-                    color: LwColors.textSecondary)),
+                    color: dark
+                        ? LwColors.textTertiary
+                        : LwColors
+                            .lightTextTertiary)),
           ],
         ),
       ),
