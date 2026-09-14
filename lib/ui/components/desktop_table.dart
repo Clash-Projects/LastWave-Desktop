@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -958,9 +960,11 @@ class _WaveEqDotsState extends State<WaveEqDots>
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
-        double h(int i) =>
-            [12.0, 9.0, 11.0][i] *
-            (0.45 + 0.55 * ((_c.value + i * 0.33) % 1.0));
+        double h(int i) {
+          final phase = (_c.value * 2 * math.pi) + (i * 1.85);
+          final norm = (math.sin(phase) + 1.0) / 2.0;
+          return 3.0 + norm * 9.0;
+        }
         return SizedBox(
           width: 22,
           height: 12,
@@ -1012,11 +1016,16 @@ class _HoverGlyphState extends State<_HoverGlyph> {
             : (dark
                 ? WaveColors.textTertiary
                 : WaveColors.lightTextTertiary);
-    final glyph = Container(
-      width: 30,
-      height: 36,
-      color: Colors.transparent,
-      child: Icon(widget.icon, size: 14, color: color),
+    final glyph = AnimatedScale(
+      scale: _hover ? 1.15 : 1.0,
+      duration: WaveMotion.fast,
+      curve: Curves.easeOutCubic,
+      child: Container(
+        width: 30,
+        height: 36,
+        color: Colors.transparent,
+        child: Icon(widget.icon, size: 14, color: color),
+      ),
     );
     final hovered = MouseRegion(
       onEnter: (_) => setState(() => _hover = true),

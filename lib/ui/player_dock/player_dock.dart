@@ -84,76 +84,91 @@ class WavePlayerDock extends ConsumerWidget {
                   // LEFT — identity (290px, placeholder when idle).
                   SizedBox(
                     width: narrow ? 200 : 290,
-                    child: current == null
-                        ? _IdleIdentity(onExpand: onExpand)
-                        : Row(
-                            children: [
-                              GestureDetector(
-                                onTap: onExpand,
-                                child: LWTooltip(
-                                  message: 'Open Now Playing',
-                                  child: WaveArtwork(
-                                    url: current.artworkUrl,
-                                    videoId: current.videoId,
-                                    size: 56,
-                                    radius: WaveRadius.artwork,
-                                    label: current.title,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: onExpand,
-                                  child: Column(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.center,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        current.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style:
-                                            WaveType.trackTitle.copyWith(
-                                          fontSize: 13.5,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                    child: AnimatedSwitcher(
+                      duration: WaveMotion.normal,
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, anim) => FadeTransition(
+                        opacity: anim,
+                        child: child,
+                      ),
+                      child: current == null
+                          ? _IdleIdentity(
+                              key: const ValueKey('idle'),
+                              onExpand: onExpand,
+                            )
+                          : KeyedSubtree(
+                              key: ValueKey(current.queueKey),
+                              child: Row(
+                                children: [
+                                  GestureDetector(
+                                    onTap: onExpand,
+                                    child: LWTooltip(
+                                      message: 'Open Now Playing',
+                                      child: WaveArtwork(
+                                        url: current.artworkUrl,
+                                        videoId: current.videoId,
+                                        size: 56,
+                                        radius: WaveRadius.artwork,
+                                        label: current.title,
                                       ),
-                                      Text(
-                                        current.artist,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: WaveType.meta.copyWith(
-                                          fontSize: 12,
-                                          color: dark
-                                              ? WaveColors.textSecondary
-                                              : WaveColors
-                                                  .lightTextSecondary,
-                                        ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: onExpand,
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            current.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style:
+                                                WaveType.trackTitle.copyWith(
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          Text(
+                                            current.artist,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: WaveType.meta.copyWith(
+                                              fontSize: 12,
+                                              color: dark
+                                                  ? WaveColors.textSecondary
+                                                  : WaveColors
+                                                      .lightTextSecondary,
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                    ],
+                                    ),
                                   ),
-                                ),
+                                  _LikeGlyph(track: current),
+                                  if (!narrow)
+                                    _Glyph(
+                                      tooltip: 'More',
+                                      icon: WaveIcons.more,
+                                      onTap: null,
+                                      menuItems: waveTrackMenuItems(
+                                        ref: ref,
+                                        title: current.title,
+                                        artist: current.artist,
+                                        artworkUrl: current.artworkUrl,
+                                        videoId: current.videoId,
+                                        playable: current,
+                                      ),
+                                    ),
+                                ],
                               ),
-                              _LikeGlyph(track: current),
-                              if (!narrow)
-                                _Glyph(
-                                  tooltip: 'More',
-                                  icon: WaveIcons.more,
-                                  onTap: null,
-                                  menuItems: waveTrackMenuItems(
-                                    ref: ref,
-                                    title: current.title,
-                                    artist: current.artist,
-                                    artworkUrl: current.artworkUrl,
-                                    videoId: current.videoId,
-                                    playable: current,
-                                  ),
-                                ),
-                            ],
-                          ),
+                            ),
+                    ),
                   ),
                   // CENTER — transport + timeline. No minWidth: squeezes
                   // gracefully on tiny windows instead of overflowing.
@@ -312,7 +327,7 @@ class WavePlayerDock extends ConsumerWidget {
 /// Placeholder identity — dock never collapses to zero height.
 class _IdleIdentity extends StatelessWidget {
   final VoidCallback onExpand;
-  const _IdleIdentity({required this.onExpand});
+  const _IdleIdentity({super.key, required this.onExpand});
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
@@ -492,6 +507,8 @@ class _Glyph extends StatefulWidget {
 
 class _GlyphState extends State<_Glyph> {
   bool _hover = false;
+  bool _pressed = false;
+
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
@@ -510,18 +527,29 @@ class _GlyphState extends State<_Glyph> {
                     ? WaveColors.textSecondary
                     : WaveColors.lightTextSecondary);
     Widget glyph = MouseRegion(
-      cursor: SystemMouseCursors.click,
+      cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
       child: GestureDetector(
+        onTapDown: disabled ? null : (_) => setState(() => _pressed = true),
+        onTapUp: disabled ? null : (_) => setState(() => _pressed = false),
+        onTapCancel: disabled ? null : () => setState(() => _pressed = false),
         onTap: widget.onTap,
-        child: Container(
-          width: 34,
-          height: 34,
-          color: Colors.transparent,
-          // Transport icons 18px, utility glyphs 15px (canonical).
-          child: Icon(widget.icon,
-              size: widget.large ? 18 : 15, color: color),
+        child: AnimatedScale(
+          scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
+          duration: WaveMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: Container(
+            width: 34,
+            height: 34,
+            color: Colors.transparent,
+            // Transport icons 18px, utility glyphs 15px (canonical).
+            child: Icon(widget.icon,
+                size: widget.large ? 18 : 15, color: color),
+          ),
         ),
       ),
     );
@@ -532,14 +560,25 @@ class _GlyphState extends State<_Glyph> {
         buttonBuilder: (context, onOpen) => MouseRegion(
           cursor: SystemMouseCursors.click,
           onEnter: (_) => setState(() => _hover = true),
-          onExit: (_) => setState(() => _hover = false),
+          onExit: (_) => setState(() {
+            _hover = false;
+            _pressed = false;
+          }),
           child: GestureDetector(
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapUp: (_) => setState(() => _pressed = false),
+            onTapCancel: () => setState(() => _pressed = false),
             onTap: onOpen,
-            child: Container(
-              width: 34,
-              height: 34,
-              color: Colors.transparent,
-              child: Icon(widget.icon, size: 15, color: color),
+            child: AnimatedScale(
+              scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
+              duration: WaveMotion.fast,
+              curve: Curves.easeOutCubic,
+              child: Container(
+                width: 34,
+                height: 34,
+                color: Colors.transparent,
+                child: Icon(widget.icon, size: 15, color: color),
+              ),
             ),
           ),
         ),
@@ -631,51 +670,71 @@ class _PlayGlyphState extends State<_PlayGlyph> {
             onTapCancel: () =>
                 setState(() => _pressed = false),
             onTap: widget.enabled ? widget.onTap : null,
-            child: AnimatedContainer(
+            child: AnimatedScale(
+              scale: _pressed ? 0.92 : (_hover ? 1.06 : 1.0),
               duration: WaveMotion.fast,
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: bg,
-                border: Border.all(
-                  color: (_focus.hasFocus
-                          ? accent
-                          : (dark
-                              ? Colors.white
-                              : Colors.black))
-                      .withValues(
-                          alpha: _focus.hasFocus ? 0.9 : 0.14),
-                  width: _focus.hasFocus ? 2 : 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                        alpha: dark ? 0.45 : 0.18),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                duration: WaveMotion.fast,
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: bg,
+                  border: Border.all(
+                    color: (_focus.hasFocus
+                            ? accent
+                            : (dark
+                                ? Colors.white
+                                : Colors.black))
+                        .withValues(
+                            alpha: _focus.hasFocus ? 0.9 : 0.14),
+                    width: _focus.hasFocus ? 2 : 1,
                   ),
-                ],
-              ),
-              child: Center(
-                child: widget.buffering
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: ProgressRing(
-                          strokeWidth: 2.5,
-                          activeColor: fg,
-                          backgroundColor:
-                              fg.withValues(alpha: 0.25),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                          alpha: dark ? 0.45 : 0.18),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: widget.buffering
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: ProgressRing(
+                            strokeWidth: 2.5,
+                            activeColor: fg,
+                            backgroundColor:
+                                fg.withValues(alpha: 0.25),
+                          ),
+                        )
+                      : AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          transitionBuilder: (child, animation) =>
+                              ScaleTransition(
+                            scale: CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOutBack,
+                            ),
+                            child: FadeTransition(
+                              opacity: animation,
+                              child: child,
+                            ),
+                          ),
+                          child: Icon(
+                            widget.playing
+                                ? WaveIcons.pause
+                                : WaveIcons.play,
+                            key: ValueKey(widget.playing),
+                            size: 15,
+                            color: fg,
+                          ),
                         ),
-                      )
-                    : Icon(
-                        widget.playing
-                            ? WaveIcons.pause
-                            : WaveIcons.play,
-                        size: 15,
-                        color: fg,
-                      ),
+                ),
               ),
             ),
           ),
@@ -842,29 +901,64 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
   }
 }
 
-class _LikeGlyph extends ConsumerWidget {
+class _LikeGlyph extends ConsumerStatefulWidget {
   final PlayableTrack track;
   const _LikeGlyph({required this.track});
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_LikeGlyph> createState() => _LikeGlyphState();
+}
+
+class _LikeGlyphState extends ConsumerState<_LikeGlyph>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+      lowerBound: 0.8,
+      upperBound: 1.25,
+      value: 1.0,
+    );
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  void _onToggle() {
+    _anim
+        .forward(from: 0.8)
+        .then((_) => _anim.animateTo(1.0, curve: Curves.easeOutBack));
+    ref.read(playlistRepositoryProvider.notifier).toggleLiked(
+          StoredTrack(
+            name: widget.track.title,
+            artist: widget.track.artist,
+            artworkUrl: widget.track.artworkUrl,
+            videoId: widget.track.videoId,
+          ),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final liked = ref
         .watch(playlistRepositoryProvider.notifier)
         .likedKeys()
-        .contains(track.queueKey);
-    return _Glyph(
-      tooltip: liked ? 'Unlike' : 'Like',
-      icon: liked ? WaveIcons.likedFill : WaveIcons.liked,
-      active: liked,
-      onTap: () {
-        ref.read(playlistRepositoryProvider.notifier).toggleLiked(
-              StoredTrack(
-                name: track.title,
-                artist: track.artist,
-                artworkUrl: track.artworkUrl,
-                videoId: track.videoId,
-              ),
-            );
-      },
+        .contains(widget.track.queueKey);
+    return ScaleTransition(
+      scale: _anim,
+      child: _Glyph(
+        tooltip: liked ? 'Unlike' : 'Like',
+        icon: liked ? WaveIcons.likedFill : WaveIcons.liked,
+        active: liked,
+        onTap: _onToggle,
+      ),
     );
   }
 }
