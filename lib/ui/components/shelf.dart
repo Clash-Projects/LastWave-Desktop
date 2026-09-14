@@ -208,6 +208,7 @@ class WaveMediaCard extends ConsumerStatefulWidget {
 
 class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
   bool _hover = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -230,64 +231,96 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
+        onExit: (_) => setState(() {
+          _hover = false;
+          _pressed = false;
+        }),
         child: GestureDetector(
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
           onTap: widget.onTap,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Stack(
-                children: [
-                  WaveArtwork(
-                    url: widget.artworkUrl,
-                    size: 160,
-                    radius: WaveRadius.artwork,
-                  ),
-                  Positioned.fill(
-                    child: AnimatedOpacity(
-                      duration: WaveMotion.fast,
-                      opacity: _hover ? 1 : 0,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: WaveRadius.artworkRadius,
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withValues(alpha: 0.55),
-                            ],
-                          ),
+              AnimatedScale(
+                scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+                duration: WaveMotion.fast,
+                curve: Curves.easeOutCubic,
+                child: AnimatedContainer(
+                  duration: WaveMotion.fast,
+                  curve: Curves.easeOutCubic,
+                  decoration: BoxDecoration(
+                    borderRadius: WaveRadius.artworkRadius,
+                    boxShadow: [
+                      if (_hover)
+                        BoxShadow(
+                          color: Colors.black.withValues(
+                              alpha: dark ? 0.45 : 0.18),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
                         ),
-                        child: Center(
-                          child: GestureDetector(
-                            onTap: widget.onPlay ?? widget.onTap,
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: accent,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black
-                                        .withValues(alpha: 0.4),
-                                    blurRadius: 12,
-                                  ),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      WaveArtwork(
+                        url: widget.artworkUrl,
+                        size: 160,
+                        radius: WaveRadius.artwork,
+                      ),
+                      Positioned.fill(
+                        child: AnimatedOpacity(
+                          duration: WaveMotion.fast,
+                          opacity: _hover ? 1 : 0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: WaveRadius.artworkRadius,
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.55),
                                 ],
                               ),
-                              child: const Icon(
-                                WaveIcons.play,
-                                size: 18,
-                                color: Colors.white,
+                            ),
+                            child: Center(
+                              child: AnimatedScale(
+                                scale: _hover ? 1.0 : 0.70,
+                                duration: WaveMotion.fast,
+                                curve: Curves.easeOutBack,
+                                child: GestureDetector(
+                                  onTap: widget.onPlay ?? widget.onTap,
+                                  child: Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: accent,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.4),
+                                          blurRadius: 12,
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                      WaveIcons.play,
+                                      size: 18,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
               const SizedBox(height: 6),
               Text(
@@ -318,7 +351,7 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
   }
 }
 
-class WaveArtistCard extends StatelessWidget {
+class WaveArtistCard extends StatefulWidget {
   final String name;
   final String artworkUrl;
   final int rank;
@@ -332,50 +365,74 @@ class WaveArtistCard extends StatelessWidget {
   });
 
   @override
+  State<WaveArtistCard> createState() => _WaveArtistCardState();
+}
+
+class _WaveArtistCardState extends State<WaveArtistCard> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Stack(
-            children: [
-              WaveArtwork.circle(url: artworkUrl, size: 120),
-              Positioned(
-                left: 0,
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.7),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    '#$rank',
-                    style: WaveType.label.copyWith(
-                      color: Colors.white,
-                      fontSize: 11,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: widget.onTap,
+        child: Column(
+          children: [
+            AnimatedScale(
+              scale: _pressed ? 0.95 : (_hover ? 1.05 : 1.0),
+              duration: WaveMotion.fast,
+              curve: Curves.easeOutCubic,
+              child: Stack(
+                children: [
+                  WaveArtwork.circle(url: widget.artworkUrl, size: 120),
+                  Positioned(
+                    left: 0,
+                    bottom: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '#${widget.rank}',
+                        style: WaveType.label.copyWith(
+                          color: Colors.white,
+                          fontSize: 11,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: WaveType.trackTitle.copyWith(
-              color: dark
-                  ? WaveColors.textPrimary
-                  : WaveColors.lightTextPrimary,
             ),
-          ),
-        ],
+            const SizedBox(height: 6),
+            Text(
+              widget.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: WaveType.trackTitle.copyWith(
+                color: dark
+                    ? WaveColors.textPrimary
+                    : WaveColors.lightTextPrimary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -405,6 +462,7 @@ class WaveQuickTile extends ConsumerStatefulWidget {
 
 class _WaveQuickTileState extends ConsumerState<WaveQuickTile> {
   bool _hover = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -413,31 +471,41 @@ class _WaveQuickTileState extends ConsumerState<WaveQuickTile> {
     final tile = MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
       child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
-        child: AnimatedContainer(
+        child: AnimatedScale(
+          scale: _pressed ? 0.98 : (_hover ? 1.02 : 1.0),
           duration: WaveMotion.fast,
-          height: 60,
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: widget.playing
-                ? accent.withValues(alpha: 0.14)
-                : _hover
-                    ? (dark ? Colors.white : Colors.black)
-                        .withValues(alpha: WaveState.hoverAlpha)
-                    : (dark
-                        ? WaveColors.surface
-                        : WaveColors.lightSurface),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: WaveMotion.fast,
+            height: 60,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
               color: widget.playing
-                  ? accent.withValues(alpha: 0.5)
-                  : (dark
-                      ? WaveColors.outlineSoft
-                      : WaveColors.lightOutlineSoft),
+                  ? accent.withValues(alpha: 0.14)
+                  : _hover
+                      ? (dark ? Colors.white : Colors.black)
+                          .withValues(alpha: WaveState.hoverAlpha)
+                      : (dark
+                          ? WaveColors.surface
+                          : WaveColors.lightSurface),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: widget.playing
+                    ? accent.withValues(alpha: 0.5)
+                    : (dark
+                        ? WaveColors.outlineSoft
+                        : WaveColors.lightOutlineSoft),
+              ),
             ),
-          ),
           child: Row(
             children: [
               Stack(
@@ -489,6 +557,7 @@ class _WaveQuickTileState extends ConsumerState<WaveQuickTile> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );

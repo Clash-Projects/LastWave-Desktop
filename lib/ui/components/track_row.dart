@@ -369,11 +369,16 @@ class _RowGlyphState extends State<_RowGlyph> {
             onExit: (_) => setState(() => _hover = false),
             child: GestureDetector(
               onTap: onOpen,
-              child: Container(
-                width: 30,
-                height: 36,
-                color: Colors.transparent,
-                child: Icon(widget.icon, size: 14, color: color),
+              child: AnimatedScale(
+                scale: _hover ? 1.15 : 1.0,
+                duration: WaveMotion.fast,
+                curve: Curves.easeOutCubic,
+                child: Container(
+                  width: 30,
+                  height: 36,
+                  color: Colors.transparent,
+                  child: Icon(widget.icon, size: 14, color: color),
+                ),
               ),
             ),
           ),
@@ -387,11 +392,16 @@ class _RowGlyphState extends State<_RowGlyph> {
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(
           onTap: widget.onTap,
-          child: Container(
-            width: 30,
-            height: 36,
-            color: Colors.transparent,
-            child: Icon(widget.icon, size: 14, color: color),
+          child: AnimatedScale(
+            scale: _hover ? 1.15 : 1.0,
+            duration: WaveMotion.fast,
+            curve: Curves.easeOutCubic,
+            child: Container(
+              width: 30,
+              height: 36,
+              color: Colors.transparent,
+              child: Icon(widget.icon, size: 14, color: color),
+            ),
           ),
         ),
       ),

@@ -214,6 +214,7 @@ class _Group extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Expander(
+      initiallyExpanded: true,
       header: Text(title, style: WaveType.sectionTitle),
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

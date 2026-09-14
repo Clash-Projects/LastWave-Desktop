@@ -1,10 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../features/player/playback_service.dart';
-import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -13,10 +9,10 @@ import 'destinations.dart';
 /// Compact secondary navigation — MUSIC stays primary.
 ///
 /// - 200px expanded / 60px collapsed rail
-/// - small 32px rows, no giant rounded rectangles
-/// - selected = subtle wash + 2px accent bar, nothing loud
+/// - small 36px rows, no giant rounded rectangles
+/// - selected = subtle wash + 3px accent bar, nothing loud
 /// - bottom: Friends / Settings pinned, history hidden
-class WaveSideRail extends ConsumerWidget {
+class WaveSideRail extends StatelessWidget {
   final bool expanded;
   final String active;
   final void Function(String) onGo;
@@ -28,7 +24,7 @@ class WaveSideRail extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final width =
         expanded ? WaveDensity.railExpanded : WaveDensity.railCollapsed;
@@ -41,7 +37,9 @@ class WaveSideRail extends ConsumerWidget {
       border: Border(
         right: BorderSide(color: waveDivider(context)),
       ),
-      child: SizedBox(
+      child: AnimatedContainer(
+        duration: WaveMotion.normal,
+        curve: WaveMotion.standard,
         width: width,
       child: Column(
         children: [
@@ -91,7 +89,6 @@ class WaveSideRail extends ConsumerWidget {
                 onTap: () => onGo(d.path),
               ),
             ),
-          _MiniNowPlaying(expanded: expanded),
           const SizedBox(height: 8),
         ],
       ),
@@ -152,7 +149,7 @@ class _RailItemState extends State<_RailItem> {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
     final bg = widget.selected
-        ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.07)
+        ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.08)
         : _hover
             ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.04)
             : Colors.transparent;
@@ -160,6 +157,7 @@ class _RailItemState extends State<_RailItem> {
         ? (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
         : (dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary);
     final hasFocus = _focus.hasFocus;
+    final itemHeight = widget.expanded ? 36.0 : 46.0;
 
     final content = Focus(
       focusNode: _focus,
@@ -185,83 +183,108 @@ class _RailItemState extends State<_RailItem> {
           },
           child: AnimatedContainer(
             duration: WaveMotion.fast,
-            height: widget.expanded ? 32 : 46,
-            margin: const EdgeInsets.symmetric(vertical: 1),
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.expanded ? 10 : 0,
-            ),
+            height: itemHeight,
+            margin: const EdgeInsets.symmetric(vertical: 1.5),
+            padding: EdgeInsets.zero,
             decoration: BoxDecoration(
               color: bg,
-              borderRadius: BorderRadius.circular(WaveRadius.controls),
+              borderRadius: BorderRadius.circular(4),
               border: hasFocus
                   ? Border.all(
                       color: accent.withValues(alpha: 0.6), width: 1)
                   : Border.all(color: Colors.transparent, width: 1),
             ),
             child: Stack(
+              alignment: Alignment.centerLeft,
               children: [
-                if (widget.selected)
-                  Positioned(
-                    left: widget.expanded ? -10 : -6,
-                    top: 8,
-                    bottom: 8,
+                AnimatedPositioned(
+                  duration: WaveMotion.fast,
+                  curve: Curves.easeOutCubic,
+                  left: widget.selected ? 0 : -4,
+                  top: (itemHeight - 16) / 2,
+                  height: 16,
+                  child: AnimatedOpacity(
+                    duration: WaveMotion.fast,
+                    opacity: widget.selected ? 1.0 : 0.0,
                     child: Container(
-                      width: 2,
+                      width: 3,
                       decoration: BoxDecoration(
                         color: accent,
-                        borderRadius: BorderRadius.circular(2),
+                        borderRadius: BorderRadius.circular(1.5),
                       ),
                     ),
                   ),
-                Center(
-                  child: widget.expanded
-                      ? Row(
-                          children: [
-                            Icon(
-                              widget.destination.icon,
-                              size: 16,
-                              color: widget.selected ? accent : fg,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                widget.destination.label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: WaveType.label.copyWith(
-                                  fontSize: 12.5,
-                                  fontWeight: widget.selected
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                  color: fg,
+                ),
+                Positioned.fill(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: widget.expanded ? 14 : 0,
+                    ),
+                    child: Center(
+                      child: widget.expanded
+                          ? Row(
+                              children: [
+                                AnimatedScale(
+                                  scale: widget.selected
+                                      ? 1.05
+                                      : (_hover ? 1.02 : 1.0),
+                                  duration: WaveMotion.fast,
+                                  curve: Curves.easeOutCubic,
+                                  child: Icon(
+                                    widget.destination.icon,
+                                    size: 16,
+                                    color: widget.selected ? accent : fg,
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    widget.destination.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: WaveType.label.copyWith(
+                                      fontSize: 13,
+                                      fontWeight: widget.selected
+                                          ? FontWeight.w600
+                                          : FontWeight.w400,
+                                      color: fg,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                AnimatedScale(
+                                  scale: widget.selected
+                                      ? 1.06
+                                      : (_hover ? 1.03 : 1.0),
+                                  duration: WaveMotion.fast,
+                                  curve: Curves.easeOutCubic,
+                                  child: Icon(
+                                    widget.destination.icon,
+                                    size: 18,
+                                    color: widget.selected ? accent : fg,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  widget.destination.label.split(' ').first,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: WaveType.meta.copyWith(
+                                    fontSize: 9.5,
+                                    fontWeight: widget.selected
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                    color: fg,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        )
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              widget.destination.icon,
-                              size: 17,
-                              color: widget.selected ? accent : fg,
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              widget.destination.label.split(' ').first,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: WaveType.meta.copyWith(
-                                fontSize: 9,
-                                fontWeight: widget.selected
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                                color: fg,
-                              ),
-                            ),
-                          ],
-                        ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -273,91 +296,6 @@ class _RailItemState extends State<_RailItem> {
     return LWTooltip(
       message: widget.destination.label,
       child: content,
-    );
-  }
-}
-
-class _MiniNowPlaying extends ConsumerWidget {
-  final bool expanded;
-  const _MiniNowPlaying({required this.expanded});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final track = ref.watch(
-      playbackServiceProvider.select((s) => s.current),
-    );
-    if (track == null) return const SizedBox.shrink();
-    final art = WaveArtwork(
-      url: track.artworkUrl,
-      size: 30,
-      radius: WaveRadius.artwork,
-    );
-    // Collapsed rail is 60px wide: artwork only, with a tooltip.
-    // Tapping opens Now Playing; keyboard-focusable.
-    Widget inner;
-    if (!expanded) {
-      inner = Container(
-        margin: const EdgeInsets.fromLTRB(0, 6, 0, 0),
-        alignment: Alignment.center,
-        child: art,
-      );
-    } else {
-      inner = Container(
-        margin: const EdgeInsets.fromLTRB(6, 6, 6, 0),
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(WaveRadius.controls),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            art,
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    track.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.label.copyWith(fontSize: 11),
-                  ),
-                  Text(
-                    track.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.meta.copyWith(fontSize: 10.5),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    return LWTooltip(
-      message: '${track.title} — ${track.artist}\nOpen Now Playing',
-      child: Focus(
-        canRequestFocus: true,
-        onKeyEvent: (node, event) {
-          if (event is KeyDownEvent &&
-              (event.logicalKey == LogicalKeyboardKey.enter ||
-                  event.logicalKey == LogicalKeyboardKey.space)) {
-            context.go('/now');
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
-        },
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: () => context.go('/now'),
-            child: inner,
-          ),
-        ),
-      ),
     );
   }
 }

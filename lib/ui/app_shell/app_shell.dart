@@ -174,19 +174,19 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
     ref.read(playbackServiceProvider.notifier).toggle();
   }
 
-  void _maybeTogglePlay() {
-    // Space is the global play/pause shortcut, but never while the
-    // user is typing, editing, or adjusting a focused control.
-    if (_searchFocus.hasFocus) return;
+  bool _isTyping() {
+    if (_searchFocus.hasFocus) return true;
     final focus = FocusManager.instance.primaryFocus;
-    if (focus != null) {
-      final widget = focus.context?.widget;
-      if (widget is EditableText) return;
-      // Focused buttons/sliders already handle Space/Enter themselves;
-      // letting the global shortcut fire too would double-toggle.
-      if (widget is Focus) return;
-    }
-    _togglePlay();
+    if (focus == null) return false;
+    final ctx = focus.context;
+    if (ctx == null) return false;
+    if (ctx.widget is EditableText) return true;
+    if (ctx.findAncestorWidgetOfExactType<EditableText>() != null) return true;
+    if (ctx.findAncestorStateOfType<EditableTextState>() != null) return true;
+    if (ctx.findAncestorWidgetOfExactType<TextBox>() != null) return true;
+    final debugLabel = focus.debugLabel;
+    if (debugLabel != null && debugLabel.contains('EditableText')) return true;
+    return false;
   }
 
   Future<void> _dropFiles(List<String> paths) async {
@@ -246,7 +246,6 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
         const SingleActivator(LogicalKeyboardKey.keyL, control: true): () {
           if (hasTrack) _go('/lyrics');
         },
-        const SingleActivator(LogicalKeyboardKey.space): _maybeTogglePlay,
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (_searchFocus.hasFocus) {
             _searchFocus.unfocus();
@@ -259,6 +258,19 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
       },
       child: Focus(
         autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.space) {
+            if (_isTyping()) {
+              return KeyEventResult.ignored;
+            }
+            if (hasTrack) {
+              _togglePlay();
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
         child: Mica(
           backgroundColor:
               dark ? WaveColors.background : WaveColors.lightBackground,
