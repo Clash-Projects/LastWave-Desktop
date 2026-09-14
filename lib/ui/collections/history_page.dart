@@ -12,7 +12,7 @@ import '../components/track_row.dart';
 import '../theme/tokens.dart';
 
 final _waveHistoryProvider =
-    FutureProvider.autoDispose<List<HomeTrack>>((ref) {
+    FutureProvider<List<HomeTrack>>((ref) {
   final viewing = ref.watch(viewingProfileProvider);
   return ref
       .watch(homeRepositoryProvider)

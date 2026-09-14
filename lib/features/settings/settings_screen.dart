@@ -9,7 +9,6 @@ import '../../core/storage/prefs.dart';
 import '../../design_system/components.dart';
 import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
-import '../../widgets/toast.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/auth_repository.dart';
 import 'theme_controller.dart';

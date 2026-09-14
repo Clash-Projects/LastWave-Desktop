@@ -251,9 +251,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (oldIndex < 0 ||
         oldIndex >= queue.length ||
         newIndex < 0 ||
-        newIndex > queue.length) return;
+        newIndex > queue.length) {
+      return;
+    }
     if (oldIndex == newIndex ||
-        oldIndex == newIndex - 1) return;
+        oldIndex == newIndex - 1) {
+      return;
+    }
     final current = state.current;
     final item = queue.removeAt(oldIndex);
     var adjusted = newIndex;
@@ -712,7 +716,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     final generation = _resolveGeneration;
     if (track == null || _resolving || state.error != null ||
         _activeQueueKey != track.queueKey ||
-        _failedGeneration == generation) return;
+        _failedGeneration == generation) {
+      return;
+    }
     _failedGeneration = generation;
     if (state.stream?.cacheKey.startsWith('lossless:') ?? false) {
       _losslessBypass.add(track.queueKey);
@@ -818,7 +824,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         : List<int>.generate(state.queue.length, (index) => index);
     for (final index in order) {
       if (!skipUnavailable ||
-          !_unavailable.contains(state.queue[index].queueKey)) return index;
+          !_unavailable.contains(state.queue[index].queueKey)) {
+        return index;
+      }
     }
     return null;
   }

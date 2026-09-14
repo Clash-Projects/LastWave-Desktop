@@ -24,6 +24,9 @@ class LastFmApiService {
       final res = await _dio.get<String>(
         '2.0/',
         queryParameters: {'format': 'json', ...query},
+        options: Options(
+          validateStatus: (status) => status != null && status < 500,
+        ),
       );
       _rateGuard.onRequestSucceeded();
       return _decode(res.data);
@@ -41,6 +44,7 @@ class LastFmApiService {
         data: fields,
         options: Options(
           contentType: Headers.formUrlEncodedContentType,
+          validateStatus: (status) => status != null && status < 500,
         ),
       );
       _rateGuard.onRequestSucceeded();

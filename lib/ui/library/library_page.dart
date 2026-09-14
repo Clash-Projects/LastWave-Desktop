@@ -404,7 +404,7 @@ class _SongsTab extends ConsumerWidget {
 
 // -- Albums: artwork grid ---------------------------------------------------
 
-final _libAlbumsProvider = FutureProvider.autoDispose<
+final _libAlbumsProvider = FutureProvider<
     List<({String title, String artist, String art, String browseId})>>(
     (ref) async {
   final api = ref.watch(lastFmApiProvider);
@@ -715,7 +715,7 @@ class _LibraryAlbumCellState
 
 // -- Artists: portrait grid -------------------------------------------------
 
-final _libArtistsProvider = FutureProvider.autoDispose<
+final _libArtistsProvider = FutureProvider<
     List<({String name, String art})>>((ref) async {
   final api = ref.watch(lastFmApiProvider);
   final apiKey = ref.watch(prefsApiKeyProvider);

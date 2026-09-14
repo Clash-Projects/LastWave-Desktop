@@ -814,11 +814,8 @@ class InnerTubeMusicApi {
       // Account surface only when requested AND connected â€”
       // anonymous endpoints stay cookie-free.
       if (authenticated && _connection.connected) ...{
-        if (_cookieHeaderValue() case final cookies?)
-          'Cookie': cookies,
-        if (_authorizationHeaderValue(origin)
-            case final auth?)
-          'Authorization': auth,
+        'Cookie': ?_cookieHeaderValue(),
+        'Authorization': ?_authorizationHeaderValue(origin),
       },
     };
     Object? lastError;
@@ -2300,8 +2297,8 @@ class InnerTubeMusicApi {
       final urlExpiry = _urlExpiryMs(url);
       DateTime? expiresAt;
       final options = [
-        if (urlExpiry != null) urlExpiry,
-        if (responseExpiry != null) responseExpiry,
+        ?urlExpiry,
+        ?responseExpiry,
       ];
       if (options.isNotEmpty) {
         expiresAt = DateTime.fromMillisecondsSinceEpoch(

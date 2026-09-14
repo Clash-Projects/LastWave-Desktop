@@ -10,7 +10,7 @@ import '../components/menus.dart';
 import '../components/states.dart';
 import '../theme/tokens.dart';
 
-final _waveArtistsProvider = FutureProvider.autoDispose<
+final _waveArtistsProvider = FutureProvider<
     List<({String name, String artwork})>>((ref) async {
   final api = ref.watch(lastFmApiProvider);
   final apiKey = ref.watch(prefsApiKeyProvider);

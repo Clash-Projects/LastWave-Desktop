@@ -210,25 +210,33 @@ class HomeRepository {
         .toList();
   }
 
-  Future<List<FriendEntry>> fetchFriends() async {
-    if (_prefs.username.isEmpty || _prefs.sessionKey.isEmpty) {
+  Future<List<FriendEntry>> fetchFriends({String? viewingAs}) async {
+    final user = _effectiveUser(viewingAs);
+    if (user == null) {
       return const [];
     }
-    final json = await _api.get({
-      'method': 'user.getfriends',
-      'user': _prefs.username,
-      'api_key': _apiKey,
-      'sk': _prefs.sessionKey,
-      'limit': '50',
-    });
-    return _asList(_asMap(json['friends'])['user'])
-        .map((u) => FriendEntry(
-              name: u['name']?.toString() ?? '',
-              realName: u['realname']?.toString() ?? '',
-              avatarUrl: _bestImage(u['image']),
-            ))
-        .where((f) => f.name.isNotEmpty)
-        .toList();
+    try {
+      final json = await _api.get({
+        'method': 'user.getfriends',
+        'user': user,
+        'api_key': _apiKey,
+        'limit': '50',
+      });
+      // Last.fm returns error 6 ("no such page") when a user has 0 friends.
+      if (json['error'] == 6) {
+        return const [];
+      }
+      return _asList(_asMap(json['friends'])['user'])
+          .map((u) => FriendEntry(
+                name: u['name']?.toString() ?? '',
+                realName: u['realname']?.toString() ?? '',
+                avatarUrl: _bestImage(u['image']),
+              ))
+          .where((f) => f.name.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
   }
 }
 

@@ -98,7 +98,7 @@ class WaveCollectionHero extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (trailing != null) trailing!,
+                ?trailing,
               ],
             ),
           ],
@@ -246,7 +246,7 @@ class WavePageHeader extends StatelessWidget {
             ],
           ),
         ),
-        if (action != null) action!,
+        ?action,
       ],
     );
   }

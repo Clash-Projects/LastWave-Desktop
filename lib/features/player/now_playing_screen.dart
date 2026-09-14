@@ -14,7 +14,6 @@ import '../lyrics/lyrics_view.dart';
 import 'playback_service.dart';
 import '../../widgets/artwork.dart';
 import '../../widgets/quality_badge.dart';
-import '../../widgets/toast.dart';
 import '../../widgets/track_tile.dart';
 
 /// Editorial Now Playing: ledger (artwork + metadata + single transport)

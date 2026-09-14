@@ -5,6 +5,8 @@
 /// New code must import `components.dart` directly. This file remains only
 /// so any lingering imports keep compiling during migration; it introduces
 /// no second UI kit and no Fluent dependency.
+library;
+
 import 'package:flutter/material.dart';
 
 import 'components.dart';
@@ -42,19 +44,19 @@ enum ShadButtonSize { sm, regular, lg, icon }
 
 // -- Theme ---------------------------------------------------------------
 
-class _ShadColorScheme {
+class ShadColorScheme {
   final Color primary;
-  const _ShadColorScheme(this.primary);
+  const ShadColorScheme(this.primary);
 }
 
-class _ShadThemeData {
-  final _ShadColorScheme colorScheme;
-  const _ShadThemeData(this.colorScheme);
+class ShadThemeData {
+  final ShadColorScheme colorScheme;
+  const ShadThemeData(this.colorScheme);
 }
 
 class ShadTheme {
-  static _ShadThemeData of(BuildContext context) {
-    return _ShadThemeData(_ShadColorScheme(
+  static ShadThemeData of(BuildContext context) {
+    return ShadThemeData(ShadColorScheme(
         Theme.of(context).colorScheme.primary));
   }
 }
@@ -592,11 +594,6 @@ class ShadTabsController<T> extends ChangeNotifier {
     if (v == value) return;
     value = v;
     notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
   }
 }
 
