@@ -53,6 +53,9 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
   bool _draggingFiles = false;
   late final TextEditingController _searchController;
   final FocusNode _searchFocus = FocusNode();
+  final List<String> _backStack = [];
+  final List<String> _forwardStack = [];
+  bool _historyLocked = false;
 
   @override
   void initState() {
@@ -142,12 +145,84 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
     windowManager.show().then((_) => windowManager.focus()).catchError((_) {});
   }
 
-  void _go(String path) {
+  @override
+  void didUpdateWidget(WaveShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.location == widget.location) return;
+    _syncSearchField(widget.location);
+    if (_historyLocked) {
+      _historyLocked = false;
+      return;
+    }
+    _backStack.add(oldWidget.location);
+    if (_backStack.length > 50) _backStack.removeAt(0);
+    _forwardStack.clear();
+  }
+
+  void _syncSearchField(String location) {
+    if (!location.startsWith('/search')) {
+      if (_searchController.text.isNotEmpty) {
+        _searchController.clear();
+      }
+      if (_searchFocus.hasFocus) {
+        _searchFocus.unfocus();
+      }
+      return;
+    }
+    if (_searchFocus.hasFocus) return;
+    final q = Uri.splitQueryString(
+          location.contains('?')
+              ? location.substring(location.indexOf('?') + 1)
+              : '',
+        )['q'] ??
+        '';
+    if (_searchController.text != q) {
+      _searchController.text = q;
+    }
+  }
+
+  void _applyRoute(String path) {
     setState(() {
       _queueOpen = false;
       _lyricsOpen = false;
     });
+    if (path == widget.location) {
+      _historyLocked = false;
+      return;
+    }
     context.go(path);
+  }
+
+  void _go(String path) {
+    if (!path.startsWith('/search?')) {
+      _searchController.clear();
+      if (_searchFocus.hasFocus) _searchFocus.unfocus();
+    }
+    _applyRoute(path);
+  }
+
+  void _goBack() {
+    while (_backStack.isNotEmpty) {
+      final dest = _backStack.removeLast();
+      if (dest == widget.location) continue;
+      _forwardStack.add(widget.location);
+      _historyLocked = true;
+      setState(() {});
+      _applyRoute(dest);
+      return;
+    }
+  }
+
+  void _goForward() {
+    while (_forwardStack.isNotEmpty) {
+      final dest = _forwardStack.removeLast();
+      if (dest == widget.location) continue;
+      _backStack.add(widget.location);
+      _historyLocked = true;
+      setState(() {});
+      _applyRoute(dest);
+      return;
+    }
   }
 
   void _submitSearch(String value) {
@@ -243,11 +318,16 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
     // Responsive: rail collapses at canonical compact breakpoint (900),
     // never a permanent right panel.
     final collapsed = width < 900 ? true : !_railExpanded;
-    final isLyrics = widget.location.startsWith('/lyrics');
-    final isNowPlaying = widget.location.startsWith('/now');
+    final routePath = waveRoutePath(widget.location);
+    final isLyrics = routePath.startsWith('/lyrics');
+    final isNowPlaying = routePath.startsWith('/now');
 
     return CallbackShortcuts(
       bindings: {
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+            _goBack,
+        const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+            _goForward,
         const SingleActivator(LogicalKeyboardKey.keyK, control: true):
             _openPalette,
         const SingleActivator(LogicalKeyboardKey.keyF, control: true):
@@ -305,7 +385,10 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                 onPalette: _openPalette,
                 onToggleRail: () =>
                     setState(() => _railExpanded = !_railExpanded),
-                canGoBack: widget.location != '/home',
+                canGoBack: _backStack.isNotEmpty,
+                canGoForward: _forwardStack.isNotEmpty,
+                onBack: _goBack,
+                onForward: _goForward,
               ),
               const WaveInfoBarHost(),
               Expanded(
@@ -442,31 +525,30 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                               ),
                             ),
                           ),
-                          // Dock is structural: reserves 80px on standard views.
-                          // Hidden when Now Playing is open since Now Playing has its
-                          // own dedicated transport controls.
-                          if (!isNowPlaying)
-                            WavePlayerDock(
-                              onExpand: () => _go('/now'),
-                              lyricsActive: _lyricsOpen || isLyrics,
-                              queueActive: _queueOpen,
-                              onToggleMini: () => setState(
-                                  () => _miniOpen = !_miniOpen),
-                              onToggleLyrics: () {
-                                if (isLyrics) {
-                                  _go('/now');
-                                } else {
-                                  setState(() {
-                                    _lyricsOpen = !_lyricsOpen;
-                                    if (_lyricsOpen) _queueOpen = false;
-                                  });
-                                }
-                              },
-                              onToggleQueue: () => setState(() {
-                                _queueOpen = !_queueOpen;
-                                if (_queueOpen) _lyricsOpen = false;
-                              }),
-                            ),
+                          // Dock is structural: reserves 80px on every view,
+                          // including Now Playing — its in-page transport was
+                          // removed so this dock is the single control surface.
+                          WavePlayerDock(
+                            onExpand: () => _go('/now'),
+                            lyricsActive: _lyricsOpen || isLyrics,
+                            queueActive: _queueOpen,
+                            onToggleMini: () =>
+                                setState(() => _miniOpen = !_miniOpen),
+                            onToggleLyrics: () {
+                              if (isLyrics) {
+                                _go('/now');
+                              } else {
+                                setState(() {
+                                  _lyricsOpen = !_lyricsOpen;
+                                  if (_lyricsOpen) _queueOpen = false;
+                                });
+                              }
+                            },
+                            onToggleQueue: () => setState(() {
+                              _queueOpen = !_queueOpen;
+                              if (_queueOpen) _lyricsOpen = false;
+                            }),
+                          ),
                         ],
                       ),
                     ),

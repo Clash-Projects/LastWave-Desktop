@@ -3,10 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/track_actions.dart'
-    show playGenerated, playableFromGenerated;
+    show formatDuration, playGenerated, playableFromGenerated;
+import '../../../core/audio/stream_models.dart';
+import '../../../core/storage/prefs.dart';
 import '../../../features/downloads/download_manager.dart';
 import '../../../features/feed/feed_repository.dart';
 import '../../../features/innertube/innertube_api.dart';
+import '../../../features/lossless/lossless_api.dart';
 import '../../../features/player/playback_service.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show WaveChip;
@@ -14,36 +17,35 @@ import '../components/command_bar.dart';
 import '../components/desktop_table.dart';
 import '../components/menus.dart';
 import '../components/states.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
 final _albumDetailProvider = FutureProvider.autoDispose
     .family<_AlbumDetail, String>((ref, browseId) async {
   final tube = ref.watch(innerTubeProvider);
-  final songs = await tube.browseSongs(browseId, limit: 50);
-  if (songs.isEmpty) throw Exception('Empty album');
-  // Derive header from first track + artwork.
-  String art = '';
-  for (final s in songs) {
-    if (s.artworkUrl.isNotEmpty) {
-      art = s.artworkUrl;
-      break;
-    }
+  final album = await tube.browseAlbum(browseId, limit: 50);
+  final songs = album?.tracks ?? const <YouTubeMusicTrack>[];
+  if (album == null || songs.isEmpty) {
+    throw Exception('Empty album');
   }
-  String artist = songs.first.artist;
-  String album = songs.first.album.isNotEmpty
-      ? songs.first.album
-      : 'Album';
+  // Header comes from the album page itself; track rows inherit
+  // artist/album/artwork from the header (browseAlbum already did).
+  final art = album.artworkUrl.isNotEmpty
+      ? album.artworkUrl
+      : songs
+          .map((s) => s.artworkUrl)
+          .firstWhere((u) => u.isNotEmpty, orElse: () => '');
   return _AlbumDetail(
-    title: album,
-    artist: artist,
+    title: album.title.isNotEmpty ? album.title : 'Album',
+    artist: album.artist,
     artwork: art,
     tracks: songs
         .map((t) => GeneratedTrack(
             name: t.title,
-            artist: t.artist.isNotEmpty ? t.artist : artist,
-            artworkUrl:
-                t.artworkUrl.isNotEmpty ? t.artworkUrl : art,
-            videoId: t.videoId))
+            artist: t.artist,
+            artworkUrl: art,
+            videoId: t.videoId,
+            durationSeconds: t.durationSeconds))
         .toList(),
   );
 });
@@ -100,9 +102,13 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
         final order = List.of(d.tracks);
         final title =
             d.title.isNotEmpty ? d.title : widget.fallbackTitle;
+        final artist = d.artist.isNotEmpty
+            ? d.artist
+            : widget.fallbackArtist;
         final art =
             d.artwork.isNotEmpty ? d.artwork : widget.fallbackArt;
-        return ListView(
+        return WaveEntranceGroup(
+          child: ListView(
           padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
           children: [
             ConstrainedBox(
@@ -111,7 +117,9 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  LayoutBuilder(builder: (context, c) {
+                  WaveEntrance(
+                    rise: 10,
+                    child: LayoutBuilder(builder: (context, c) {
                     final narrow = c.maxWidth < 640;
                     final header = Column(
                       crossAxisAlignment:
@@ -154,9 +162,12 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                                           context))),
                             ),
                             const SizedBox(width: 8),
-                            const WaveChip(
-                                label: 'OPUS',
-                                highlight: true),
+                            if (order.isNotEmpty)
+                              _AlbumQualityChip(
+                                title: order.first.name,
+                                artist: d.artist,
+                                album: title,
+                              ),
                           ],
                         ),
                         const SizedBox(height: 14),
@@ -213,7 +224,10 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                               url: art,
                               size: 180,
                               radius: WaveRadius.artwork,
-                              label: title),
+                              title: title,
+                              artist: artist,
+                              label: title,
+                              kind: ArtworkKind.album),
                           const SizedBox(height: 16),
                           header,
                         ],
@@ -226,12 +240,16 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                             url: art,
                             size: 200,
                             radius: WaveRadius.artwork,
-                            label: title),
+                            title: title,
+                            artist: artist,
+                            label: title,
+                            kind: ArtworkKind.album),
                         const SizedBox(width: 22),
                         Expanded(child: header),
                       ],
                     );
-                  }),
+                    }),
+                  ),
                   const SizedBox(height: 20),
                   WaveDesktopTable<GeneratedTrack>(
                     items: order,
@@ -239,10 +257,18 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                     titleOf: (t) => t.name,
                     subtitleOf: (t) => t.artist,
                     albumOf: (_) => title,
-                    artworkOf: (t) => t.artworkUrl,
+                    artworkOf: (_) => art,
+                    artworkKind: ArtworkKind.album,
+                    artworkTitleOf: (_) => title,
+                    artworkArtistOf: (_) => artist,
                     playableOf: playableFromGenerated,
+                    durationOf: (t) => t.durationSeconds > 0
+                        ? formatDuration(
+                            Duration(seconds: t.durationSeconds))
+                        : '',
                     titleSortOf: (t) => t.name.toLowerCase(),
                     artistSortOf: (t) => t.artist.toLowerCase(),
+                    durationSortOf: (t) => t.durationSeconds,
                     isCurrent: (t) => playingKey == t.key,
                     isPlaying: (t) {
                       final s = ref.watch(
@@ -270,8 +296,68 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
               ),
             ),
           ],
+          ),
         );
       },
     );
+  }
+}
+
+/// Live quality chip: probes the lossless backend with the album's first
+/// track and shows the tier the album would actually play at (HI-RES /
+/// LOSSLESS). Renders nothing when lossless isn't configured, is
+/// disabled in settings, or the album isn't available on the backend —
+/// a hardcoded codec badge would be a lie.
+class _AlbumQualityChip extends ConsumerStatefulWidget {
+  final String title;
+  final String artist;
+  final String album;
+  const _AlbumQualityChip({
+    required this.title,
+    required this.artist,
+    required this.album,
+  });
+
+  @override
+  ConsumerState<_AlbumQualityChip> createState() =>
+      _AlbumQualityChipState();
+}
+
+class _AlbumQualityChipState extends ConsumerState<_AlbumQualityChip> {
+  String? _badge;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _probe());
+  }
+
+  Future<void> _probe() async {
+    final prefs = ref.read(prefsProvider);
+    final api = ref.read(losslessApiProvider);
+    if (!api.isConfigured ||
+        !prefs.preferLossless ||
+        prefs.losslessQuality == AudioQualityTiers.youtubeOnly) {
+      return;
+    }
+    if (widget.title.isEmpty || widget.artist.isEmpty) return;
+    try {
+      final stream = await api.resolveStream(
+        title: widget.title,
+        artist: widget.artist,
+        album: widget.album,
+        preferredQuality: prefs.losslessQuality,
+      );
+      if (mounted && stream != null && stream.isLossless) {
+        setState(() => _badge = stream.qualityBadge);
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = _badge;
+    if (badge == null) return const SizedBox.shrink();
+    return WaveChip(label: badge, highlight: true);
   }
 }

@@ -13,6 +13,7 @@ import '../library/library_page.dart'
         showWaveCreatePlaylist,
         showWaveDeletePlaylist,
         showWaveRenamePlaylist;
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
 /// Playlists browser: hero + filter + cover grid (never track rows).
@@ -47,9 +48,10 @@ class _WavePlaylistsPageState
               p.title.toLowerCase().contains(_q.toLowerCase()),
         )
         .toList();
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-      children: [
+    return WaveEntranceGroup(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        children: [
         ConstrainedBox(
           constraints: const BoxConstraints(
             maxWidth: WaveDensity.contentMax,
@@ -57,7 +59,9 @@ class _WavePlaylistsPageState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              WaveCollectionHero(
+              WaveEntrance(
+                rise: 10,
+                child: WaveCollectionHero(
                 overline: 'Collect',
                 title: 'Playlists',
                 meta: '${all.length} playlists',
@@ -74,6 +78,7 @@ class _WavePlaylistsPageState
                     ),
                   ),
                 ],
+              ),
               ),
               const SizedBox(height: 12),
               WaveFilterBar(
@@ -115,14 +120,19 @@ class _WavePlaylistsPageState
                     ),
                     itemCount: shown.length,
                     itemBuilder: (context, i) =>
-                        _PlaylistCard(
-                            playlist: shown[i]),
+                        WaveEntrance(
+                      index: i,
+                      rise: 10,
+                      child: _PlaylistCard(
+                          playlist: shown[i]),
+                    ),
                   );
                 }),
             ],
           ),
         ),
       ],
+      ),
     );
   }
 }

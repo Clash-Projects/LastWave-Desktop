@@ -48,18 +48,21 @@ List<WaveDestination> get allWaveDestinations => [
       ...waveSystemDestinations,
     ];
 
+String waveRoutePath(String location) => location.split('?').first;
+
 String waveActivePath(String location) {
+  final path = waveRoutePath(location);
   for (final d in allWaveDestinations) {
-    if (location == d.path || location.startsWith('${d.path}/')) {
+    if (path == d.path || path.startsWith('${d.path}/')) {
       return d.path;
     }
   }
-  if (location.startsWith('/album')) return '/albums';
-  if (location.startsWith('/artist')) return '/artists';
-  if (location.startsWith('/now')) return '/home';
-  if (location.startsWith('/lyrics')) return '/home';
-  if (location.startsWith('/history')) return '/library';
-  if (location.startsWith('/mixes')) return '/discover';
-  if (location.startsWith('/profile')) return '/friends';
+  if (path.startsWith('/album')) return '/albums';
+  if (path.startsWith('/artist')) return '/artists';
+  if (path.startsWith('/now')) return '/home';
+  if (path.startsWith('/lyrics')) return '/home';
+  if (path.startsWith('/history')) return '/library';
+  if (path.startsWith('/mixes')) return '/discover';
+  if (path.startsWith('/profile')) return '/friends';
   return '/home';
 }

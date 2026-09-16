@@ -6,6 +6,8 @@ import 'package:media_kit/media_kit.dart';
 
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
+import '../audio_output/pcm_format.dart';
+import '../audio_output/wasapi_engine.dart';
 import '../downloads/download_manager.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/scrobble_repository.dart';
@@ -55,6 +57,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   int _playbackAttempt = 0;
   int _failedGeneration = -1;
   String _activeQueueKey = '';
+  bool _lockSoftwareVolume = false;
+  bool exclusiveApplied = false;
+  String? wasapiError;
+  String? _forcedAoFormat;
 
   PlaybackService(
     this._tube,
@@ -127,12 +133,16 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         state = state.copyWith(duration: v);
       }),
       p.stream.volume.listen((v) {
+        if (_lockSoftwareVolume) return;
         state = state.copyWith(volume: (v / 100).clamp(0.0, 1.0));
       }),
       p.stream.completed.listen((done) {
         if (done) _onTrackCompleted();
       }),
       p.stream.error.listen((_) => unawaited(_onPlayerError())),
+      p.stream.audioParams.listen((_) {
+        unawaited(_refreshAoFormat());
+      }),
     ]);
     await restoreSession();
   }
@@ -306,10 +316,123 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     state = state.copyWith(position: position);
   }
 
-  Future<void> setVolume(double volume) async {
+  Future<void> setVolume(double volume, {bool software = true}) async {
     final v = volume.clamp(0.0, 1.0);
     state = state.copyWith(volume: v);
+    if (!software || _lockSoftwareVolume) {
+      await _player?.setVolume(100);
+      return;
+    }
     await _player?.setVolume(v * 100);
+  }
+
+  /// Apply WASAPI exclusive / device to the existing libmpv player.
+  /// PCM still flows through media_kit; this only sets mpv AO properties.
+  Future<void> configureWasapi({
+    required bool exclusive,
+    String mpvDevice = 'auto',
+    bool lockSoftwareVolume = false,
+    PcmFormat? outputFormat,
+  }) async {
+    await ensurePlayer();
+    _lockSoftwareVolume = lockSoftwareVolume;
+    final player = _player;
+    if (player == null) {
+      exclusiveApplied = false;
+      wasapiError = 'Player unavailable';
+      return;
+    }
+    exclusiveApplied = false;
+    wasapiError = null;
+    _forcedAoFormat =
+        exclusive && outputFormat != null ? mpvSampleFormat(outputFormat.bitDepth) : null;
+    try {
+      final dyn = player.platform as dynamic;
+      try {
+        await dyn.setProperty('ao', 'wasapi');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('audio-exclusive', exclusive ? 'yes' : 'no');
+      } catch (e) {
+        if (exclusive) {
+          wasapiError = 'Exclusive Mode denied: $e';
+        }
+      }
+      // weak = keep the device open only when the next file matches.
+      // yes would resample to hold the old exclusive format open.
+      try {
+        await dyn.setProperty(
+            'gapless-audio', exclusive ? 'weak' : 'yes');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('audio-format', _forcedAoFormat ?? 'no');
+      } catch (e) {
+        if (exclusive) {
+          wasapiError = 'audio-format failed: $e';
+        }
+      }
+      if (exclusive) {
+        try {
+          await dyn.setProperty('af', '');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('replaygain', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('audio-normalize-downmix', 'no');
+        } catch (_) {}
+      }
+      exclusiveApplied = exclusive && wasapiError == null;
+    } catch (e) {
+      exclusiveApplied = false;
+      wasapiError = 'WASAPI init failed: $e';
+    }
+    try {
+      if (mpvDevice.isEmpty || mpvDevice == 'auto') {
+        await player.setAudioDevice(AudioDevice.auto());
+      } else {
+        await player.setAudioDevice(AudioDevice(mpvDevice, ''));
+      }
+    } catch (_) {}
+    if (lockSoftwareVolume) {
+      await player.setVolume(100);
+    }
+    if (outputFormat != null && exclusive) {
+      state = state.copyWith(
+        outputFormat: outputFormat,
+        outputIsFloat: false,
+      );
+    }
+    unawaited(_refreshAoFormat());
+  }
+
+  Future<void> _refreshAoFormat() async {
+    final player = _player;
+    if (player == null) return;
+    try {
+      final dyn = player.platform as dynamic;
+      final raw = await dyn.getProperty('audio-out-params') as String? ?? '';
+      if (raw.isEmpty) return;
+      if (mpvFormatIsFloat(RegExp(r'format=([^\s,}]+)').firstMatch(raw)?.group(1))) {
+        final rateMatch = RegExp(r'samplerate=(\d+)').firstMatch(raw);
+        final rate = int.tryParse(rateMatch?.group(1) ?? '') ?? 0;
+        state = state.copyWith(
+          outputIsFloat: true,
+          outputFormat: rate > 0
+              ? PcmFormat(
+                  sampleRateHz: rate,
+                  bitDepth: 32,
+                  channels: 2,
+                )
+              : state.outputFormat,
+        );
+        wasapiLog('AO is float — not bit-perfect');
+        return;
+      }
+      final parsed = pcmFromMpvOutParams(raw, forcedFormat: _forcedAoFormat);
+      if (parsed == null) return;
+      state = state.copyWith(outputFormat: parsed, outputIsFloat: false);
+    } catch (_) {}
   }
 
   Future<void> next() async {
@@ -712,6 +835,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           current: idx == state.currentIndex ? effectiveTrack : state.current,
         );
       }
+    }
+    if (OfficialArtworkService.isOfficialArtwork(effectiveTrack.artworkUrl)) {
+      OfficialArtworkService.instance.rememberTrack(
+        title: effectiveTrack.title,
+        artist: effectiveTrack.artist,
+        artworkUrl: effectiveTrack.artworkUrl,
+        album: effectiveTrack.album,
+      );
     }
 
     state = state.copyWith(

@@ -186,6 +186,107 @@ void main() {
     });
   });
 
+  group('Apple word-by-word parsing (paxsenix)', () {
+    test('parses word timings and joins part words', () {
+      final result = LyricsRepository.parseAppleWordByWord({
+        'type': 'Syllable',
+        'plain': 'a conversation\n',
+        'content': [
+          {
+            'timestamp': 1000,
+            'endtime': 3000,
+            'duration': 2000,
+            'background': false,
+            'text': [
+              {'text': 'a', 'timestamp': 1000, 'duration': 100, 'part': false},
+              {'text': 'conver', 'timestamp': 1100, 'duration': 300, 'part': true},
+              {'text': 'sation', 'timestamp': 1400, 'duration': 600, 'part': false},
+            ],
+          },
+        ],
+      });
+      expect(result, isNotNull);
+      expect(result!.isWordSynced, isTrue);
+      expect(result.source, 'Apple Music');
+      expect(result.plainLyrics, 'a conversation\n');
+      expect(result.lines.length, 1);
+      final line = result.lines.first;
+      expect(line.text, 'a conversation');
+      expect(line.timeMs, 1000);
+      expect(line.durationMs, 2000);
+      expect(line.syllables.length, 3);
+      expect(line.syllables[1].text, 'conver');
+      expect(line.syllables[1].timeMs, 1100);
+    });
+
+    test('marks background vocal lines', () {
+      final result = LyricsRepository.parseAppleWordByWord({
+        'type': 'Syllable',
+        'content': [
+          {
+            'timestamp': 500,
+            'endtime': 900,
+            'duration': 400,
+            'background': true,
+            'text': [
+              {'text': 'ooh', 'timestamp': 500, 'duration': 400, 'part': false},
+            ],
+          },
+        ],
+      });
+      expect(result, isNotNull);
+      expect(result!.lines.first.syllables.first.isBackground, isTrue);
+    });
+
+    test('line-synced payloads stay syllable-free for interpolated karaoke',
+        () {
+      final result = LyricsRepository.parseAppleWordByWord({
+        'type': 'Line',
+        'content': [
+          {
+            'timestamp': 1409,
+            'endtime': 3060,
+            'duration': 1651,
+            'background': false,
+            'text': [
+              {
+                'text': "I'm tweakin', I'm geekin'",
+                'timestamp': 1409,
+                'duration': 1651,
+                'part': false,
+              },
+            ],
+          },
+        ],
+      });
+      expect(result, isNotNull);
+      expect(result!.isSynced, isTrue);
+      expect(result.isWordSynced, isFalse);
+      expect(result.lines.first.text, "I'm tweakin', I'm geekin'");
+      expect(result.lines.first.timeMs, 1409);
+      expect(result.lines.first.durationMs, 1651);
+      // No whole-line pseudo syllable — the adapter interpolates per-word
+      // timing so the karaoke wipe still animates.
+      expect(result.lines.first.hasSyllables, isFalse);
+    });
+
+    test('error payload yields null', () {
+      expect(
+        LyricsRepository.parseAppleWordByWord(
+          const {'message': 'No lyrics for this track', 'error': true},
+        ),
+        isNull,
+      );
+    });
+
+    test('empty content yields null', () {
+      expect(
+        LyricsRepository.parseAppleWordByWord(const {'content': []}),
+        isNull,
+      );
+    });
+  });
+
   group('RTL detection', () {
     test('detects Arabic text', () {
       expect(isRtlText('مرحبا بالعالم'), isTrue);

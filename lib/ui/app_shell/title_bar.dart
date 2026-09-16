@@ -22,6 +22,9 @@ class WaveTitleBar extends ConsumerWidget {
   final VoidCallback onPalette;
   final VoidCallback onToggleRail;
   final bool canGoBack;
+  final bool canGoForward;
+  final VoidCallback? onBack;
+  final VoidCallback? onForward;
   const WaveTitleBar({
     super.key,
     required this.searchController,
@@ -30,6 +33,9 @@ class WaveTitleBar extends ConsumerWidget {
     required this.onPalette,
     required this.onToggleRail,
     required this.canGoBack,
+    this.canGoForward = false,
+    this.onBack,
+    this.onForward,
   });
 
   @override
@@ -63,14 +69,13 @@ class WaveTitleBar extends ConsumerWidget {
                 _BarBtn(
                   tooltip: 'Back',
                   icon: WaveIcons.back,
-                  onTap: canGoBack ? () => context.pop() : null,
+                  onTap: canGoBack ? onBack : null,
                 ),
-                if (!compact)
-                  _BarBtn(
-                    tooltip: 'Forward',
-                    icon: WaveIcons.forward,
-                    onTap: null,
-                  ),
+                _BarBtn(
+                  tooltip: 'Forward',
+                  icon: WaveIcons.forward,
+                  onTap: canGoForward ? onForward : null,
+                ),
                 const SizedBox(width: 8),
                 SizedBox(
                   width: searchMax,

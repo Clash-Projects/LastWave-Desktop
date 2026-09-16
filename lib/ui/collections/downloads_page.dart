@@ -13,6 +13,7 @@ import '../components/buttons.dart';
 import '../components/hero.dart';
 import '../components/menus.dart';
 import '../components/states.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
 /// Downloads: Offline hero + 40px-artwork rows
@@ -42,8 +43,9 @@ class WaveDownloadsPage extends ConsumerWidget {
         entries.where((e) => e.status == DownloadStatus.done);
     final failed =
         entries.where((e) => e.status == DownloadStatus.error).toList();
-    return CustomScrollView(
-      slivers: [
+    return WaveEntranceGroup(
+      child: CustomScrollView(
+        slivers: [
         SliverToBoxAdapter(
           child: Padding(
             padding:
@@ -56,13 +58,16 @@ class WaveDownloadsPage extends ConsumerWidget {
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
-                  WaveCollectionHero(
+                  WaveEntrance(
+                    rise: 10,
+                    child: WaveCollectionHero(
                     overline: 'Offline',
                     title: 'Downloads',
                     meta:
                         '${done.length} ${done.length == 1 ? 'track' : 'tracks'} available offline · ${entries.length} total',
                     fallbackIcon: FluentIcons.download,
                     artworkSize: 120,
+                  ),
                   ),
                   const SizedBox(height: 12),
                   // Local InfoBar for failures — never breaks the list.
@@ -112,18 +117,23 @@ class WaveDownloadsPage extends ConsumerWidget {
             itemBuilder: (context, i) {
               final e = entries[i];
               final art = _artworkFor(ref, e);
-              return Padding(
+              return WaveEntrance(
+                index: i,
+                rise: 10,
+                child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                 ),
                 child: _DownloadRow(entry: e, artwork: art),
+              ),
               );
             },
           ),
         const SliverToBoxAdapter(
           child: SizedBox(height: 24),
         ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -213,7 +223,9 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
                         url: art,
                         size: 40,
                         radius: 6,
-                        label: e.title),
+                        label: e.title,
+                        title: e.title,
+                        artist: e.artist),
                     if (downloading || queued)
                       Positioned.fill(
                         child: Container(

@@ -9,6 +9,7 @@ import '../../widgets/cards.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/skeletons.dart';
 import '../common/entity_sheets.dart';
+import '../innertube/album_match.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/auth_repository.dart';
 import '../lastfm/home_repository.dart';
@@ -174,17 +175,11 @@ class AlbumsScreen extends ConsumerWidget {
     try {
       final results = await ref
           .read(innerTubeProvider)
-          .searchAlbums('${a.artist} ${a.title}', limit: 3);
-      for (final r in results) {
-        if (r.name.toLowerCase() ==
-            a.title.toLowerCase()) {
-          browseId = r.browseId;
-          break;
-        }
-      }
-      browseId = browseId.isEmpty && results.isNotEmpty
-          ? results.first.browseId
-          : browseId;
+          .searchAlbums('${a.artist} ${a.title}', limit: 6);
+      browseId = pickBestAlbumMatch(results,
+                  title: a.title, artist: a.artist)
+              ?.browseId ??
+          '';
     } catch (_) {}
     if (!context.mounted) return;
     await showAlbumSheet(

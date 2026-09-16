@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../widgets/ambient.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import 'artwork.dart';
@@ -170,9 +171,15 @@ class WaveShelf extends StatelessWidget {
             itemCount: children.length,
             separatorBuilder: (_, _) =>
                 const SizedBox(width: WaveSpacing.x8),
-            itemBuilder: (context, i) => SizedBox(
-              width: cardWidth,
-              child: children[i],
+            // Staggered entrance per card (group-gated when the page
+            // provides a WaveEntranceGroup).
+            itemBuilder: (context, i) => WaveEntrance(
+              index: i,
+              rise: 10,
+              child: SizedBox(
+                width: cardWidth,
+                child: children[i],
+              ),
             ),
           ),
         ),
@@ -279,6 +286,8 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
                         url: widget.artworkUrl,
                         size: 160,
                         radius: WaveRadius.artwork,
+                        title: widget.title,
+                        artist: widget.artist,
                       ),
                       Positioned.fill(
                         child: AnimatedOpacity(
@@ -407,7 +416,12 @@ class _WaveArtistCardState extends State<WaveArtistCard> {
               curve: Curves.easeOutCubic,
               child: Stack(
                 children: [
-                  WaveArtwork.circle(url: widget.artworkUrl, size: 120),
+                  WaveArtwork.circle(
+                      url: widget.artworkUrl,
+                      size: 120,
+                      label: widget.name,
+                      title: widget.name,
+                      artist: widget.name),
                   Positioned(
                     left: 0,
                     bottom: 0,

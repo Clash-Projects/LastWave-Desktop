@@ -89,6 +89,68 @@ void main() {
       expect(OfficialArtworkService.isOfficialArtwork(''), isFalse);
     });
 
+    test('isOfficialArtistPhoto is Deezer artist CDN only', () {
+      expect(
+          OfficialArtworkService.isOfficialArtistPhoto(
+              'https://cdn-images.dzcdn.net/images/artist/abc/1000x1000.jpg'),
+          isTrue);
+      expect(
+          OfficialArtworkService.isOfficialArtistPhoto(
+              'https://cdn-images.dzcdn.net/images/cover/abc/1000x1000.jpg'),
+          isFalse);
+      expect(
+          OfficialArtworkService.isOfficialArtistPhoto(
+              'https://is1-ssl.mzstatic.com/image/thumb/cover.jpg/100x100bb.jpg'),
+          isFalse);
+      expect(OfficialArtworkService.isOfficialArtistPhoto(''), isFalse);
+    });
+
+    test('primaryArtistName and splitArtistCredits', () {
+      expect(
+          OfficialArtworkService.primaryArtistName(
+              'Drake, Future & Metro Boomin'),
+          'Drake');
+      expect(
+          OfficialArtworkService.primaryArtistName('Tyler, The Creator'),
+          'Tyler, The Creator');
+      expect(
+          OfficialArtworkService.primaryArtistName('Metro Boomin'),
+          'Metro Boomin');
+      expect(
+          OfficialArtworkService.splitArtistCredits(
+                  'Drake, Future & Metro Boomin')
+              .toList(),
+          ['Drake', 'Future', 'Metro Boomin']);
+      expect(
+          OfficialArtworkService.splitArtistCredits('Tyler, The Creator')
+              .toList(),
+          ['Tyler, The Creator']);
+      expect(
+          OfficialArtworkService.splitArtistCredits('Madvillain').toList(),
+          ['Madvillain']);
+    });
+
+    test('stale YouTube cache is ignored so All Caps can resolve iTunes art',
+        () async {
+      final db = AppDatabase.inMemory();
+      final service = OfficialArtworkService(null, db);
+      db.saveArtworkEntry(
+        cacheKey: 't3|madvillain|all caps',
+        url: 'https://i.ytimg.com/vi/video12345/hqdefault.jpg',
+        provider: 'innertube',
+      );
+      final result = await service.resolveOfficialArtwork(
+        title: 'All Caps',
+        artist: 'Madvillain',
+      );
+      expect(result, isNotNull);
+      expect(
+          OfficialArtworkService.isOfficialArtwork(result!.artworkUrl),
+          isTrue);
+      expect(result.artworkUrl.contains('ytimg.com'), isFalse);
+      db.close();
+    }, timeout: const Timeout(Duration(seconds: 15)));
+
     test('normalizeForSearch strips noise and featured artists', () {
       expect(
           OfficialArtworkService.normalizeForSearch(
@@ -100,6 +162,25 @@ void main() {
           'space cadet');
     });
 
+    test('live lookup: Metro Boomin and Madvillain return Deezer artist photos', () async {
+      final service = OfficialArtworkService();
+      final metro = await service.resolveArtistArtwork('Metro Boomin');
+      expect(metro, isNotNull);
+      expect(metro!.artworkUrl, contains('dzcdn.net'));
+      expect(
+          OfficialArtworkService.isOfficialArtistPhoto(metro.artworkUrl),
+          isTrue);
+
+      final mad = await service.resolveArtistArtwork('Madvillain');
+      expect(mad, isNotNull);
+      expect(mad!.artworkUrl, contains('dzcdn.net'));
+      expect(
+          OfficialArtworkService.isOfficialArtistPhoto(mad.artworkUrl),
+          isTrue);
+      // Must not be an album sleeve.
+      expect(mad.artworkUrl.contains('/images/cover/'), isFalse);
+    }, timeout: const Timeout(Duration(seconds: 20)));
+
     test('live lookup: Metro Boomin - Overdue returns official album cover', () async {
       final service = OfficialArtworkService();
       final result = await service.resolveOfficialArtwork(
@@ -108,8 +189,10 @@ void main() {
       );
 
       expect(result, isNotNull);
-      expect(result!.artworkUrl, contains('mzstatic.com'));
-      expect(result.artworkUrl, contains('1400x1400bb'));
+      expect(
+          OfficialArtworkService.isOfficialArtwork(result!.artworkUrl),
+          isTrue);
+      expect(result.artworkUrl.contains('ytimg.com'), isFalse);
       expect(result.albumTitle.toLowerCase(),
           contains('not all heroes wear capes'));
     }, timeout: const Timeout(Duration(seconds: 15)));
@@ -122,8 +205,10 @@ void main() {
       );
 
       expect(result, isNotNull);
-      expect(result!.artworkUrl, contains('mzstatic.com'));
-      expect(result.artworkUrl, contains('1400x1400bb'));
+      expect(
+          OfficialArtworkService.isOfficialArtwork(result!.artworkUrl),
+          isTrue);
+      expect(result.artworkUrl.contains('ytimg.com'), isFalse);
       expect(result.albumTitle.toLowerCase(), contains('madvillainy'));
     }, timeout: const Timeout(Duration(seconds: 15)));
 
@@ -131,14 +216,14 @@ void main() {
       final db = AppDatabase.inMemory();
       final service = OfficialArtworkService(null, db);
 
-      // Save an entry
+      // Save an entry (track cache keys are versioned: t3|artist|title)
       db.saveArtworkEntry(
-        cacheKey: 'madvillain|all caps',
+        cacheKey: 't3|madvillain|all caps',
         url: 'https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/madvillainy.jpg/1400x1400bb.jpg',
         provider: 'itunes',
       );
 
-      final loaded = db.loadArtworkEntry('madvillain|all caps');
+      final loaded = db.loadArtworkEntry('t3|madvillain|all caps');
       expect(loaded, isNotNull);
       expect(loaded!['url'], contains('madvillainy.jpg'));
       expect(loaded['provider'], 'itunes');

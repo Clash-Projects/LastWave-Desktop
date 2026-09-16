@@ -175,6 +175,10 @@ class AppDatabase {
     _db.execute('DELETE FROM search_history;');
   }
 
+  void removeSearchHistory(String query) {
+    _db.execute('DELETE FROM search_history WHERE query = ?;', [query]);
+  }
+
   // -- playback session -------------------------------------------------
 
   Map<String, dynamic> loadPlaybackSession() {

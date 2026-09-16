@@ -8,6 +8,7 @@ import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/audio_output/output_controller.dart';
 import '../../widgets/ambient.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, LWVolumeSlider;
@@ -130,6 +131,8 @@ class WavePlayerDock extends ConsumerWidget {
                                         size: 56,
                                         radius: WaveRadius.artwork,
                                         label: current.title,
+                                        title: current.title,
+                                        artist: current.artist,
                                       ),
                                     ),
                                   ),
@@ -280,14 +283,16 @@ class WavePlayerDock extends ConsumerWidget {
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          if (showQuality)
+                          if (showQuality) ...[
                             Padding(
                               padding:
-                                  const EdgeInsets.only(right: 6),
+                                  const EdgeInsets.only(right: 2),
                               child: _QualityFlyout(
                                 stream: player.stream!,
                               ),
                             ),
+                            const _StreamPathGlyph(),
+                          ],
                           if (showLyrics)
                             _Glyph(
                               tooltip: 'Lyrics (Ctrl+L)',
@@ -389,7 +394,7 @@ class _IdleIdentity extends StatelessWidget {
   }
 }
 
-/// Compact quality status → Fluent Haze flyout.
+/// Compact quality status → Fluent MenuFlyout.
 ///
 /// Badge stays tiny (LOSSLESS / HI-RES / AAC / OPUS). Click opens
 /// format · sample rate · bit depth · codec · stream/download prefs.
@@ -430,42 +435,32 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
                 builder: (context) => MenuFlyout(
                   items: [
                     MenuFlyoutItem(
-                      leading:
-                          const Icon(WaveIcons.gauge, size: 15),
-                      text: Text(
-                          '${s.qualityBadge} · ${s.audioCodec}'),
+                      leading: const Icon(WaveIcons.gauge, size: 15),
+                      text: Text('${s.qualityBadge} · ${s.audioCodec}'),
                       onPressed: () {},
                     ),
                     const MenuFlyoutSeparator(),
                     MenuFlyoutItem(
-                      leading:
-                          const Icon(WaveIcons.music, size: 15),
-                      text: Text(
-                          'Sample rate · ${s.samplingRateKhz} kHz'),
+                      leading: const Icon(WaveIcons.music, size: 15),
+                      text: Text('Sample rate · ${s.samplingRateKhz} kHz'),
                       onPressed: () {},
                     ),
                     MenuFlyoutItem(
-                      leading:
-                          const Icon(WaveIcons.mixes, size: 15),
-                      text:
-                          Text('Bit depth · ${s.bitDepth}-bit'),
+                      leading: const Icon(WaveIcons.mixes, size: 15),
+                      text: Text('Bit depth · ${s.bitDepth}-bit'),
                       onPressed: () {},
                     ),
                     if (s.bitrateKbps > 0)
                       MenuFlyoutItem(
-                        leading: const Icon(
-                            WaveIcons.clock, size: 15),
-                        text: Text(
-                            'Bitrate · ${s.bitrateKbps} kbps'),
+                        leading: const Icon(WaveIcons.clock, size: 15),
+                        text: Text('Bitrate · ${s.bitrateKbps} kbps'),
                         onPressed: () {},
                       ),
                     const MenuFlyoutSeparator(),
                     MenuFlyoutItem(
-                      leading: const Icon(
-                          WaveIcons.settings, size: 15),
+                      leading: const Icon(WaveIcons.settings, size: 15),
                       text: const Text('Quality settings'),
-                      onPressed: () =>
-                          context.go('/settings'),
+                      onPressed: () => context.go('/settings'),
                     ),
                   ],
                 ),
@@ -500,6 +495,70 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Compact WASAPI / bit-perfect path — WinUI 3 MenuFlyout, dock-sized.
+class _StreamPathGlyph extends ConsumerWidget {
+  const _StreamPathGlyph();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final path = ref.watch(audioOutputProvider.select((s) => s.path));
+    final outputLabel = path.outputLabel;
+    return _Glyph(
+      tooltip: path.bitPerfect
+          ? '$outputLabel · Bit-Perfect'
+          : '$outputLabel · Stream path',
+      icon: WaveIcons.streamPath,
+      active: path.bitPerfect,
+      menuItems: [
+        MenuFlyoutItem(
+          leading: const Icon(WaveIcons.music, size: 15),
+          text: Text('Source · ${path.sourceLabel}'),
+          onPressed: () {},
+        ),
+        MenuFlyoutItem(
+          leading: const Icon(WaveIcons.device, size: 15),
+          text: Text('DAC · ${path.outputLabel}'),
+          onPressed: () {},
+        ),
+        MenuFlyoutItem(
+          leading: const Icon(WaveIcons.speaker, size: 15),
+          text: Text(
+            path.exclusiveActive
+                ? 'WASAPI · Exclusive'
+                : 'WASAPI · Shared',
+          ),
+          onPressed: () {},
+        ),
+        MenuFlyoutItem(
+          leading: const Icon(WaveIcons.volume, size: 15),
+          text: Text(
+            path.hardwareVolume
+                ? 'Volume · DAC hardware'
+                : (path.softwareVolume
+                    ? 'Volume · Software'
+                    : 'Volume · Unity'),
+          ),
+          onPressed: () {},
+        ),
+        const MenuFlyoutSeparator(),
+        MenuFlyoutItem(
+          leading: Icon(
+            path.bitPerfect ? WaveIcons.likedFill : WaveIcons.streamPath,
+            size: 15,
+          ),
+          text: Text(path.bitPerfect ? 'Bit-Perfect' : path.reason.label),
+          onPressed: () {},
+        ),
+        MenuFlyoutItem(
+          leading: const Icon(WaveIcons.settings, size: 15),
+          text: const Text('Output settings'),
+          onPressed: () => context.go('/settings'),
+        ),
+      ],
     );
   }
 }
@@ -982,19 +1041,39 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
   }
 }
 
-/// Output device — system default for now (no multi-device backend yet).
-class _DeviceGlyph extends StatelessWidget {
+/// Output device — WASAPI endpoints from the isolated engine.
+class _DeviceGlyph extends ConsumerWidget {
   const _DeviceGlyph();
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final output = ref.watch(audioOutputProvider);
+    final name = output.selected?.displayName ?? 'System default';
     return _Glyph(
-      tooltip: 'Output: System default',
+      tooltip: 'Output: $name',
       icon: WaveIcons.device,
       menuItems: [
         MenuFlyoutItem(
           leading: const Icon(WaveIcons.device, size: 15),
-          text: const Text('System default'),
-          onPressed: () {},
+          text: const Text('Default Windows device'),
+          onPressed: () =>
+              ref.read(audioOutputProvider.notifier).selectDevice(''),
+        ),
+        for (final d in output.devices.take(8))
+          MenuFlyoutItem(
+            leading: Icon(
+              WaveIcons.device,
+              size: 15,
+              color: d.id == output.selectedId ? waveAccent(context) : null,
+            ),
+            text: Text(d.displayName, maxLines: 1),
+            onPressed: () =>
+                ref.read(audioOutputProvider.notifier).selectDevice(d.id),
+          ),
+        const MenuFlyoutSeparator(),
+        MenuFlyoutItem(
+          leading: const Icon(WaveIcons.settings, size: 15),
+          text: const Text('Output settings'),
+          onPressed: () => context.go('/settings'),
         ),
       ],
     );
@@ -1009,11 +1088,11 @@ class _VolumeSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final volume =
         ref.watch(playbackServiceProvider.select((s) => s.volume));
-    final notifier = ref.read(playbackServiceProvider.notifier);
+    final output = ref.read(audioOutputProvider.notifier);
     return _VolumeGlyph(
       volume: volume,
-      onMute: () => notifier.setVolume(volume == 0 ? 1 : 0),
-      onVolume: notifier.setVolume,
+      onMute: () => output.setVolume(volume == 0 ? 1 : 0),
+      onVolume: output.setVolume,
     );
   }
 }
@@ -1025,11 +1104,11 @@ class _VolumeFlyoutSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final volume =
         ref.watch(playbackServiceProvider.select((s) => s.volume));
-    final notifier = ref.read(playbackServiceProvider.notifier);
+    final output = ref.read(audioOutputProvider.notifier);
     return _VolumeFlyoutGlyph(
       volume: volume,
-      onMute: () => notifier.setVolume(volume == 0 ? 1 : 0),
-      onVolume: notifier.setVolume,
+      onMute: () => output.setVolume(volume == 0 ? 1 : 0),
+      onVolume: output.setVolume,
     );
   }
 }
@@ -1203,6 +1282,16 @@ class _DockOverflow extends ConsumerWidget {
             leading: const Icon(WaveIcons.gauge, size: 15),
             text: Text(
                 '${stream.qualityBadge} · ${stream.audioCodec}'),
+            onPressed: () => context.go('/settings'),
+          ),
+        if (showQualityItem)
+          MenuFlyoutItem(
+            leading: const Icon(WaveIcons.streamPath, size: 15),
+            text: Text(
+              ref.watch(audioOutputProvider.select((s) => s.path.bitPerfect))
+                  ? 'Stream path · Bit-Perfect'
+                  : 'Stream path',
+            ),
             onPressed: () => context.go('/settings'),
           ),
         if (showDeviceItem)

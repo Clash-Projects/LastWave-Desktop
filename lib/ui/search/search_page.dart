@@ -1,21 +1,25 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../components/buttons.dart' show LWTooltip, WaveChip;
+import '../components/buttons.dart' show LWTooltip;
 import '../theme/wave_icons.dart';
 
-import '../../app/track_actions.dart' show playGenerated;
+import '../../app/track_actions.dart'
+    show formatDuration, playGenerated;
 import '../../core/audio/stream_models.dart';
 import '../../features/feed/feed_repository.dart';
+import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../components/desktop_table.dart';
 import '../components/states.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
 /// Live search providers, shared with the Ctrl+K palette.
@@ -24,7 +28,7 @@ import '../theme/tokens.dart';
 /// the same query resolve instantly and a new query never blanks the page —
 /// [_CombinedResults] keeps the previous lists on screen with skeleton rows
 /// for sections still pending.
-final waveSearchSongsProvider = FutureProvider.family<
+final waveSearchSongsProvider = FutureProvider.autoDispose.family<
     List<SearchResultItem>, String>((ref, q) {
   if (q.trim().isEmpty) return Future.value(const <SearchResultItem>[]);
   return ref.watch(searchRepositoryProvider).search(SearchTab.tracks, q);
@@ -45,18 +49,33 @@ final waveSearchPlaylistsProvider = FutureProvider.family<
   return ref.watch(searchRepositoryProvider).search(SearchTab.playlists, q);
 });
 final waveSuggestionsProvider =
-    FutureProvider.family<List<String>, String>((ref, q) async {
-  if (q.trim().length < 2) return const <String>[];
+    FutureProvider.family<List<SearchSuggestion>, String>((ref, q) async {
+  if (q.trim().length < 2) return const <SearchSuggestion>[];
   return ref.watch(searchRepositoryProvider).getSuggestions(q.trim());
 });
 
-const _tryHints = <String>[
-  'Taylor Swift',
-  'Lo-fi beats',
-  'A. R. Rahman',
-  '70s rock anthems',
-  'Jazz piano',
-  'Workout mix',
+final waveSearchPreviewProvider = FutureProvider.autoDispose
+    .family<SearchResultItem?, String>((ref, q) {
+  if (q.trim().isEmpty) return Future.value(null);
+  return ref.watch(searchRepositoryProvider).previewForQuery(q.trim());
+});
+
+const _browseCategories = <({String name, Color tint, String query})>[
+  (name: 'Hip-Hop/Rap', tint: Color(0xFFC45C1A), query: 'hip hop'),
+  (name: 'Pop', tint: Color(0xFFC45A88), query: 'pop'),
+  (name: 'R&B', tint: Color(0xFF7A4FC4), query: 'r&b soul'),
+  (name: 'Electronic', tint: Color(0xFF1A8A8A), query: 'electronic'),
+  (name: 'Rock', tint: Color(0xFFB03A4A), query: 'rock'),
+  (name: 'Jazz', tint: Color(0xFF2E6B8A), query: 'jazz'),
+  (name: 'Indie', tint: Color(0xFF3D8A62), query: 'indie'),
+  (name: 'K-Pop', tint: Color(0xFFC44A7A), query: 'k-pop'),
+  (name: 'Latin', tint: Color(0xFFC46A2A), query: 'latin'),
+  (name: 'Classical', tint: Color(0xFF5A6A7A), query: 'classical'),
+  (name: 'Country', tint: Color(0xFF8A6A2E), query: 'country'),
+  (name: 'Afrobeats', tint: Color(0xFFC48A1A), query: 'afrobeats'),
+  (name: 'Charts', tint: Color(0xFF4A6AC4), query: 'top hits'),
+  (name: 'Chill', tint: Color(0xFF3A7A8A), query: 'chill'),
+  (name: 'Workout', tint: Color(0xFFC43A3A), query: 'workout'),
 ];
 
 /// Search result → playable (queue key = title|artist, matching playback).
@@ -68,12 +87,9 @@ PlayableTrack playableFromSearch(SearchResultItem e) => PlayableTrack(
       videoId: e.videoId,
     );
 
-/// Rebuilt Search — Top Result + Songs + Albums + Artists + Playlists.
-///
-/// Typing debounce 150ms, suggestions debounce 350ms (query >= 2 chars).
-/// Empty state is Recent pills (clearable) + "Try…" hints — never dead
-/// space. Results never blank the page: previous lists stay visible while
-/// pending sections show skeleton rows.
+/// Search — live results when a query is submitted; empty state is
+/// Recently Searched cards + a browse-category mosaic. The search field
+/// stays left-pinned so clearing recents cannot re-center the page.
 class WaveSearchPage extends ConsumerStatefulWidget {
   final String initialQuery;
   const WaveSearchPage({super.key, this.initialQuery = ''});
@@ -152,9 +168,11 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
       _suggestDismissed = true;
     });
     _focus.unfocus();
+    context.go('/search?q=${Uri.encodeComponent(q)}');
   }
 
-  KeyEventResult _onPageKey(KeyEvent event, List<String> suggestions) {
+  KeyEventResult _onPageKey(
+      KeyEvent event, List<SearchSuggestion> suggestions) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final showSuggestions = _query.isNotEmpty &&
         _submitted != _query &&
@@ -190,215 +208,129 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
     final dark = waveIsDark(context);
     final suggestions =
         ref.watch(waveSuggestionsProvider(_suggestQuery)).valueOrNull ??
-            const <String>[];
+            const <SearchSuggestion>[];
     final showSuggestions = _query.isNotEmpty &&
         _submitted != _query &&
         !_suggestDismissed &&
         suggestions.isNotEmpty;
     final history = ref.watch(searchRepositoryProvider).history();
 
+    final viewport = MediaQuery.sizeOf(context).width;
+    final pad = viewport < 900 ? 16.0 : viewport < 1300 ? 24.0 : 28.0;
+    final side =
+        ((viewport - WaveDensity.contentMax) / 2).clamp(0, double.infinity) +
+            pad;
+    final fieldWidth = math.min(420.0, math.max(0.0, viewport - side * 2));
+
     return Focus(
       onKeyEvent: (_, e) => _onPageKey(e, suggestions),
       child: ListView(
         physics: const ClampingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(28, 22, 28, 32),
+        padding: EdgeInsets.fromLTRB(side, 22, side, 32),
         children: [
-          Center(
-            child: ConstrainedBox(
-              constraints:
-                  const BoxConstraints(maxWidth: WaveDensity.contentMax),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Search',
-                      style: WaveType.pageTitle.copyWith(fontSize: 22)),
-                  const SizedBox(height: 12),
-                  LayoutBuilder(
-                    builder: (context, c) => ConstrainedBox(
-                      constraints: BoxConstraints(
-                        // 420 + page gutters (28×2) = 476: below that the
-                        // box fills content instead of overflowing.
-                        maxWidth: c.maxWidth < 476 ? c.maxWidth : 420,
-                      ),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: TextBox(
-                          controller: _controller,
-                          focusNode: _focus,
-                          autofocus: true,
-                          placeholder: 'Songs, artists, albums…',
-                          prefix: Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: Icon(WaveIcons.search,
-                                size: 15,
-                                color: dark
-                                    ? WaveColors.textTertiary
-                                    : WaveColors.lightTextTertiary),
-                          ),
-                          onChanged: _onChanged,
-                          onSubmitted: (v) {
-                            if (showSuggestions &&
-                                _suggestIndex >= 0) {
-                              final pick = suggestions[
-                                  _suggestIndex.clamp(
-                                      0, suggestions.length - 1)];
-                              _controller.text = pick;
-                              _submit(pick);
-                            } else {
-                              _submit(v);
-                            }
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                if (showSuggestions) ...[
-                  const SizedBox(height: 6),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (var i = 0;
-                            i < suggestions.take(6).length;
-                            i++)
-                          _SuggestionRow(
-                            text: suggestions[i],
-                            highlighted: i == _suggestIndex,
-                            onTap: () {
-                              _controller.text = suggestions[i];
-                              _submit(suggestions[i]);
-                            },
-                            onHover: () => setState(
-                              () => _suggestIndex = i,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-                if (_submitted.isEmpty) ...[
-                  const SizedBox(height: 16),
-                  if (history.isNotEmpty) ...[
-                    Row(
-                      children: [
-                        Text('Recent',
-                            style: WaveType.label.copyWith(
-                                color:
-                                    waveTextTertiary(context))),
-                        const Spacer(),
-                        HyperlinkButton(
-                          onPressed: () {
-                            ref
-                                .read(searchRepositoryProvider)
-                                .clearHistory();
-                            setState(() {});
-                          },
-                          child: const Text('Clear'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: history.take(10).map((h) {
-                        return LWTooltip(
-                          message: 'Search "$h"',
-                          child: Focus(
-                            canRequestFocus: true,
-                            onKeyEvent: (node, event) {
-                              if (event is KeyDownEvent &&
-                                  (event.logicalKey ==
-                                          LogicalKeyboardKey.enter ||
-                                      event.logicalKey ==
-                                          LogicalKeyboardKey.space)) {
-                                _controller.text = h;
-                                _submit(h);
-                                return KeyEventResult.handled;
-                              }
-                              return KeyEventResult.ignored;
-                            },
-                            child: MouseRegion(
-                              cursor: SystemMouseCursors.click,
-                              child: GestureDetector(
-                                onTap: () {
-                                  _controller.text = h;
-                                  _submit(h);
-                                },
-                                child: WaveChip(label: h),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  Text('Try…',
-                      style: WaveType.label.copyWith(
-                          color: waveTextTertiary(context))),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _tryHints.map((h) {
-                      return LWTooltip(
-                        message: 'Try "$h"',
-                        child: Focus(
-                          canRequestFocus: true,
-                          onKeyEvent: (node, event) {
-                            if (event is KeyDownEvent &&
-                                (event.logicalKey ==
-                                        LogicalKeyboardKey.enter ||
-                                    event.logicalKey ==
-                                        LogicalKeyboardKey.space)) {
-                              _controller.text = h;
-                              _submit(h);
-                              return KeyEventResult.handled;
-                            }
-                            return KeyEventResult.ignored;
-                          },
-                          child: MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: GestureDetector(
-                              onTap: () {
-                                _controller.text = h;
-                                _submit(h);
-                              },
-                              child: WaveChip(label: h),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ] else ...[
-                  const SizedBox(height: 20),
-                  _CombinedResults(query: _submitted),
-                ],
-              ],
+          WaveEntrance(
+            rise: 10,
+            child: Text('Search',
+                style: WaveType.pageTitle.copyWith(fontSize: 22)),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(
+              width: fieldWidth,
+              child: TextBox(
+                controller: _controller,
+                focusNode: _focus,
+                autofocus: true,
+                placeholder: 'Songs, artists, albums…',
+                prefix: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Icon(WaveIcons.search,
+                      size: 15,
+                      color: dark
+                          ? WaveColors.textTertiary
+                          : WaveColors.lightTextTertiary),
+                ),
+                onChanged: _onChanged,
+                onSubmitted: (v) {
+                  if (showSuggestions && _suggestIndex >= 0) {
+                    final pick = suggestions[
+                        _suggestIndex.clamp(0, suggestions.length - 1)];
+                    _controller.text = pick.text;
+                    _submit(pick.text);
+                  } else {
+                    _submit(v);
+                  }
+                },
+              ),
             ),
           ),
-          ),
+          if (showSuggestions) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: fieldWidth,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < suggestions.take(6).length; i++)
+                      _SuggestionRow(
+                        suggestion: suggestions[i],
+                        highlighted: i == _suggestIndex,
+                        onTap: () {
+                          _controller.text = suggestions[i].text;
+                          _submit(suggestions[i].text);
+                        },
+                        onHover: () => setState(() => _suggestIndex = i),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          if (_submitted.isEmpty) ...[
+            if (history.isNotEmpty) ...[
+              const SizedBox(height: 28),
+              _RecentlySearched(
+                queries: history.take(8).toList(),
+                onOpen: (q) {
+                  _controller.text = q;
+                  _submit(q);
+                },
+                onClear: () {
+                  ref.read(searchRepositoryProvider).clearHistory();
+                  setState(() {});
+                },
+                onRemove: (q) {
+                  ref.read(searchRepositoryProvider).removeHistory(q);
+                  setState(() {});
+                },
+              ),
+            ],
+            const SizedBox(height: 28),
+            _BrowseCategories(onOpen: (q) {
+              _controller.text = q;
+              _submit(q);
+            }),
+          ] else ...[
+            const SizedBox(height: 20),
+            _CombinedResults(query: _submitted),
+          ],
         ],
       ),
     );
   }
 }
 
-/// Suggestion row with artwork tile — not a bare text row.
-///
-/// `getSuggestions` returns plain strings (no art endpoint), so the tile
-/// is the standard music placeholder at 32px; layout matches result rows
-/// so the dropdown reads as results, not a text list.
+/// Suggestion row — catalog artist/song hits, not YouTube video complete.
 class _SuggestionRow extends StatefulWidget {
-  final String text;
+  final SearchSuggestion suggestion;
   final bool highlighted;
   final VoidCallback onTap;
   final VoidCallback onHover;
   const _SuggestionRow({
-    required this.text,
+    required this.suggestion,
     required this.highlighted,
     required this.onTap,
     required this.onHover,
@@ -413,6 +345,8 @@ class _SuggestionRowState extends State<_SuggestionRow> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final active = widget.highlighted || _hover;
+    final s = widget.suggestion;
+    final isArtist = s.tab == SearchTab.artists;
     return MouseRegion(
       onEnter: (_) {
         setState(() => _hover = true);
@@ -435,19 +369,364 @@ class _SuggestionRowState extends State<_SuggestionRow> {
           child: Row(
             children: [
               WaveArtwork(
-                  url: '', size: 32, radius: WaveRadius.artwork, label: widget.text),
+                url: s.artworkUrl,
+                size: 32,
+                radius: isArtist ? 999 : WaveRadius.artwork,
+                isCircle: isArtist,
+                label: s.text,
+                title: s.text,
+                artist: s.artist,
+                kind: isArtist ? ArtworkKind.artist : ArtworkKind.track,
+              ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  widget.text,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WaveType.body,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      s.text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.body,
+                    ),
+                    if (s.subtitle.isNotEmpty)
+                      Text(
+                        s.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: WaveType.meta.copyWith(
+                            color: waveTextTertiary(context)),
+                      ),
+                  ],
                 ),
               ),
-              Icon(WaveIcons.mixes,
-                  size: 15, color: waveTextTertiary(context)),
+              Icon(
+                  isArtist ? WaveIcons.artists : WaveIcons.mixes,
+                  size: 15,
+                  color: waveTextTertiary(context)),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentlySearched extends StatelessWidget {
+  final List<String> queries;
+  final ValueChanged<String> onOpen;
+  final VoidCallback onClear;
+  final ValueChanged<String> onRemove;
+  const _RecentlySearched({
+    required this.queries,
+    required this.onOpen,
+    required this.onClear,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Recently Searched', style: WaveType.sectionTitle),
+            const Spacer(),
+            HyperlinkButton(
+              onPressed: onClear,
+              child: Text('Clear',
+                  style: WaveType.label.copyWith(color: WaveColors.danger)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        LayoutBuilder(builder: (context, c) {
+          final cols = c.maxWidth < 560
+              ? 1
+              : c.maxWidth < 860
+                  ? 2
+                  : c.maxWidth < 1140
+                      ? 3
+                      : 4;
+          const gap = 10.0;
+          final width = (c.maxWidth - gap * (cols - 1)) / cols;
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: [
+              for (final q in queries)
+                SizedBox(
+                  width: width,
+                  child: _RecentSearchCard(
+                    query: q,
+                    onOpen: () => onOpen(q),
+                    onRemove: () => onRemove(q),
+                  ),
+                ),
+            ],
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class _RecentSearchCard extends ConsumerStatefulWidget {
+  final String query;
+  final VoidCallback onOpen;
+  final VoidCallback onRemove;
+  const _RecentSearchCard({
+    required this.query,
+    required this.onOpen,
+    required this.onRemove,
+  });
+  @override
+  ConsumerState<_RecentSearchCard> createState() =>
+      _RecentSearchCardState();
+}
+
+class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
+  bool _hover = false;
+
+  String _kindLine(SearchResultItem? hit) {
+    if (hit == null) return 'Search';
+    switch (hit.tab) {
+      case SearchTab.artists:
+        return 'Artist';
+      case SearchTab.tracks:
+        return hit.artist.isEmpty ? 'Song' : 'Song · ${hit.artist}';
+      case SearchTab.albums:
+        return hit.artist.isEmpty ? 'Album' : 'Album · ${hit.artist}';
+      case SearchTab.playlists:
+        return 'Playlist';
+      case SearchTab.users:
+        return 'Listener';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final hit =
+        ref.watch(waveSearchPreviewProvider(widget.query)).valueOrNull;
+    final title = hit?.name.isNotEmpty == true ? hit!.name : widget.query;
+    final isArtist = hit?.tab == SearchTab.artists;
+    return Focus(
+      canRequestFocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space)) {
+          widget.onOpen();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onOpen,
+          child: AnimatedContainer(
+            duration: WaveMotion.fast,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: _hover
+                  ? (dark ? WaveColors.surfaceOverlay : WaveColors.lightOverlay)
+                  : (dark ? WaveColors.surface : WaveColors.lightSurface),
+              borderRadius: BorderRadius.circular(WaveRadius.controls),
+            ),
+            child: Row(
+              children: [
+                WaveArtwork(
+                  url: hit?.artworkUrl ?? '',
+                  size: 48,
+                  radius: isArtist ? 999 : WaveRadius.artwork,
+                  isCircle: isArtist,
+                  label: title,
+                  title: title,
+                  artist: hit?.artist ?? '',
+                  kind: isArtist ? ArtworkKind.artist : ArtworkKind.track,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.trackTitle),
+                      Text(_kindLine(hit),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.meta.copyWith(
+                              color: waveTextTertiary(context))),
+                    ],
+                  ),
+                ),
+                if (_hover)
+                  LWTooltip(
+                    message: 'Remove',
+                    child: IconButton(
+                      icon: Icon(WaveIcons.close,
+                          size: 12, color: waveTextTertiary(context)),
+                      onPressed: widget.onRemove,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BrowseCategories extends ConsumerWidget {
+  final ValueChanged<String> onOpen;
+  const _BrowseCategories({required this.onOpen});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final charts =
+        ref.watch(feedProvider).valueOrNull?.charts ?? const <GeneratedTrack>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Browse Categories', style: WaveType.sectionTitle),
+        const SizedBox(height: 12),
+        LayoutBuilder(builder: (context, c) {
+          final cols = c.maxWidth < 560
+              ? 2
+              : c.maxWidth < 860
+                  ? 3
+                  : c.maxWidth < 1140
+                      ? 4
+                      : 5;
+          const gap = 10.0;
+          final width = (c.maxWidth - gap * (cols - 1)) / cols;
+          final height = (width / 1.72).clamp(96.0, 128.0);
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: [
+              for (var i = 0; i < _browseCategories.length; i++)
+                SizedBox(
+                  width: width,
+                  height: height,
+                  child: _BrowseTile(
+                    name: _browseCategories[i].name,
+                    tint: _browseCategories[i].tint,
+                    artworkUrl: charts.isEmpty
+                        ? ''
+                        : charts[i % charts.length].artworkUrl,
+                    onTap: () => onOpen(_browseCategories[i].query),
+                  ),
+                ),
+            ],
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class _BrowseTile extends StatefulWidget {
+  final String name;
+  final Color tint;
+  final String artworkUrl;
+  final VoidCallback onTap;
+  const _BrowseTile({
+    required this.name,
+    required this.tint,
+    required this.artworkUrl,
+    required this.onTap,
+  });
+  @override
+  State<_BrowseTile> createState() => _BrowseTileState();
+}
+
+class _BrowseTileState extends State<_BrowseTile> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _hover ? 1.015 : 1,
+          duration: WaveMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(WaveRadius.menu),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ColoredBox(color: widget.tint),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        widget.tint,
+                        Color.lerp(widget.tint, Colors.black, 0.35)!,
+                      ],
+                    ),
+                  ),
+                ),
+                if (widget.artworkUrl.isNotEmpty)
+                  Positioned(
+                    right: -18,
+                    bottom: -22,
+                    child: Transform.rotate(
+                      angle: 0.22,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius:
+                              BorderRadius.circular(WaveRadius.artwork),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              blurRadius: 12,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: WaveArtwork(
+                          url: widget.artworkUrl,
+                          size: 92,
+                          radius: WaveRadius.artwork,
+                          title: widget.name,
+                        ),
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  left: 12,
+                  right: 56,
+                  bottom: 12,
+                  child: Text(
+                    widget.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.trackTitle.copyWith(
+                      fontSize: 16,
+                      color: Colors.white,
+                      height: 1.15,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -479,7 +758,8 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
             name: e.name,
             artist: e.artist,
             artworkUrl: e.artworkUrl,
-            videoId: e.videoId))
+            videoId: e.videoId,
+            durationSeconds: e.durationSeconds))
         .toList();
     final at = start.clamp(0, generated.length - 1);
     await playGenerated(ref, context, generated[at],
@@ -608,13 +888,22 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
       );
     }
 
-    return Column(
+    // Stagger slots for the results cascade (one per section).
+    var e = 0;
+    int slot() => e++;
+    return WaveEntranceGroup(
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (_songs.isNotEmpty ||
             _artists.isNotEmpty ||
             _albums.isNotEmpty) ...[
-          Text('Top Result', style: WaveType.sectionTitle),
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child:
+                Text('Top Result', style: WaveType.sectionTitle),
+          ),
           const SizedBox(height: 10),
           if (_songs.isEmpty &&
               _artists.isEmpty &&
@@ -622,7 +911,9 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               anyLoading)
             const _SkeletonRows(count: 1, rowHeight: 64)
           else
-            _TopResult(
+            WaveEntrance(
+              index: slot(),
+              child: _TopResult(
               song: _songs.isNotEmpty ? _songs.first : null,
               artist:
                   _artists.isNotEmpty ? _artists.first : null,
@@ -631,12 +922,17 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               onPrimary: _primary,
               onPlay: (h) => _playSingle(ref, context, h),
             ),
+            ),
           const SizedBox(height: 24),
         ],
         // Songs — canonical desktop table (5 rows, shrink-wrapped).
         if (_songs.isNotEmpty || songsAsync.isLoading) ...[
-          _SectionHead(
-              label: 'Songs', loading: songsAsync.isLoading),
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+                label: 'Songs', loading: songsAsync.isLoading),
+          ),
           const SizedBox(height: 4),
           if (_songs.isEmpty)
             const _SkeletonRows(count: 5)
@@ -648,9 +944,13 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
           const SizedBox(height: 24),
         ],
         if (_albums.isNotEmpty || albumsAsync.isLoading) ...[
-          _SectionHead(
-              label: 'Albums',
-              loading: albumsAsync.isLoading),
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+                label: 'Albums',
+                loading: albumsAsync.isLoading),
+          ),
           const SizedBox(height: 10),
           if (_albums.isEmpty)
             const _SkeletonCards(count: 5, size: 124)
@@ -664,7 +964,10 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                     const SizedBox(width: 12),
                 itemBuilder: (context, i) {
                   final a = _albums[i];
-                  return _CoverCard(
+                  return WaveEntrance(
+                    index: i,
+                    rise: 10,
+                    child: _CoverCard(
                     title: a.name,
                     subtitle: a.artist.isNotEmpty
                         ? a.artist
@@ -677,6 +980,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                             '/album/${Uri.encodeComponent(a.entityId)}');
                       }
                     },
+                  ),
                   );
                 },
               ),
@@ -684,9 +988,13 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
           const SizedBox(height: 24),
         ],
         if (_artists.isNotEmpty || artistsAsync.isLoading) ...[
-          _SectionHead(
-              label: 'Artists',
-              loading: artistsAsync.isLoading),
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+                label: 'Artists',
+                loading: artistsAsync.isLoading),
+          ),
           const SizedBox(height: 10),
           if (_artists.isEmpty)
             const _SkeletonCards(
@@ -701,7 +1009,10 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                     const SizedBox(width: 16),
                 itemBuilder: (context, i) {
                   final a = _artists[i];
-                  return GestureDetector(
+                  return WaveEntrance(
+                    index: i,
+                    rise: 10,
+                    child: GestureDetector(
                     onTap: () => context.go(
                         '/artist/${Uri.encodeComponent(a.name)}'),
                     child: SizedBox(
@@ -712,6 +1023,8 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                             url: a.artworkUrl,
                             size: 96,
                             label: a.name,
+                            title: a.name,
+                            artist: a.name,
                           ),
                           const SizedBox(height: 6),
                           Text(a.name,
@@ -723,6 +1036,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                         ],
                       ),
                     ),
+                  ),
                   );
                 },
               ),
@@ -730,9 +1044,13 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
           const SizedBox(height: 24),
         ],
         if (_playlists.isNotEmpty || playlistsAsync.isLoading) ...[
-          _SectionHead(
-              label: 'Playlists',
-              loading: playlistsAsync.isLoading),
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+                label: 'Playlists',
+                loading: playlistsAsync.isLoading),
+          ),
           const SizedBox(height: 10),
           if (_playlists.isEmpty)
             const _SkeletonCards(count: 5, size: 124)
@@ -746,18 +1064,23 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                     const SizedBox(width: 12),
                 itemBuilder: (context, i) {
                   final p = _playlists[i];
-                  return _CoverCard(
+                  return WaveEntrance(
+                    index: i,
+                    rise: 10,
+                    child: _CoverCard(
                     title: p.name,
                     subtitle: p.subtitle,
                     art: p.artworkUrl,
                     size: 124,
                     onTap: () => _openPlaylist(p),
+                  ),
                   );
                 },
               ),
             ),
         ],
       ],
+      ),
     );
   }
 }
@@ -925,12 +1248,18 @@ class _TopResult extends StatelessWidget {
           children: [
             isArtist
                 ? WaveArtwork.circle(
-                    url: hero.artworkUrl, size: 48, label: hero.name)
+                    url: hero.artworkUrl,
+                    size: 48,
+                    label: hero.name,
+                    title: hero.name,
+                    artist: hero.name)
                 : WaveArtwork(
                     url: hero.artworkUrl,
                     size: 48,
                     radius: WaveRadius.artwork,
                     label: hero.name,
+                    title: hero.name,
+                    artist: hero.artist,
                   ),
             const SizedBox(width: 12),
             Expanded(
@@ -1016,8 +1345,11 @@ class _SongsTable extends ConsumerWidget {
       albumOf: (e) => e.subtitle,
       artworkOf: (e) => e.artworkUrl,
       playableOf: (e) => playableFromSearch(e),
+      durationOf: (e) => e.durationSeconds > 0
+          ? formatDuration(Duration(seconds: e.durationSeconds))
+          : '',
+      durationSortOf: (e) => e.durationSeconds,
       titleSortOf: (e) => e.name.toLowerCase(),
-      artistSortOf: (e) => e.artist.toLowerCase(),
       isCurrent: (e) => playingKey == keyOf(e),
       isPlaying: (e) =>
           playingKey == keyOf(e) &&

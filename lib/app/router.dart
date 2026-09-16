@@ -24,6 +24,8 @@ import '../ui/search/search_page.dart';
 import '../ui/settings/settings_page.dart';
 import '../ui/theme/tokens.dart';
 
+/// WinUI 3 page navigation — "Entrance" transition: full fade-in with a
+/// short upward drift, decelerating hard (easeOutCubic) over [WaveMotion.slow].
 Page<void> _page(Widget child) {
   return CustomTransitionPage(
     child: child,
@@ -34,17 +36,16 @@ Page<void> _page(Widget child) {
         curve: Curves.easeOutCubic,
       );
       return FadeTransition(
-        opacity: Tween<double>(begin: 0.6, end: 1)
-            .animate(curved),
+        opacity: Tween<double>(begin: 0, end: 1).animate(curved),
         child: SlideTransition(
           position: Tween<Offset>(
-                  begin: const Offset(0, 0.012), end: Offset.zero)
+                  begin: const Offset(0, 0.02), end: Offset.zero)
               .animate(curved),
           child: child,
         ),
       );
     },
-    transitionDuration: WaveMotion.normal,
+    transitionDuration: WaveMotion.slow,
   );
 }
 
@@ -78,8 +79,12 @@ GoRouter buildRouter({required AuthGate gate}) {
             _page(const WaveWelcomePage()),
       ),
       ShellRoute(
-        builder: (context, state, child) =>
-            WaveShell(location: state.uri.path, child: child),
+        builder: (context, state, child) => WaveShell(
+          location: state.uri.hasQuery
+              ? '${state.uri.path}?${state.uri.query}'
+              : state.uri.path,
+          child: child,
+        ),
         routes: [
           GoRoute(
             path: '/home',

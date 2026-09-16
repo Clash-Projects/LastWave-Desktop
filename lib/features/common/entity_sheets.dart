@@ -66,19 +66,22 @@ Future<void> showAlbumSheet(
   List<GeneratedTrack> tracks = const [];
   try {
     if (browseId.isNotEmpty) {
-      final songs = await ref
+      final album = await ref
           .read(innerTubeProvider)
-          .browseSongs(browseId, limit: 50);
+          .browseAlbum(browseId, limit: 50);
+      final songs = album?.tracks ?? const [];
       tracks = songs
           .map((t) => GeneratedTrack(
                 name: t.title,
-                artist: t.artist.isNotEmpty
+                artist: t.artist.isNotEmpty &&
+                        t.artist != 'Unknown artist'
                     ? t.artist
                     : artist,
                 artworkUrl: t.artworkUrl.isNotEmpty
                     ? t.artworkUrl
                     : artworkUrl,
                 videoId: t.videoId,
+                durationSeconds: t.durationSeconds,
               ))
           .toList();
     }

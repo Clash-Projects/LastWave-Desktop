@@ -11,6 +11,8 @@ import '../../core/storage/prefs.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/settings/theme_controller.dart';
+import '../../features/audio_output/output_controller.dart';
+import '../../features/audio_output/output_path_sheet.dart';
 import '../theme/tokens.dart';
 
 const _waveSettingsSections = [
@@ -90,9 +92,14 @@ class _WaveSettingsPageState
                 ],
               ),
               const SizedBox(height: 12),
-              _SectionBody(
-                section: _section,
-                onUpdate: _update,
+              _SectionSwap(
+                child: RepaintBoundary(
+                  key: ValueKey(_section),
+                  child: _SectionBody(
+                    section: _section,
+                    onUpdate: _update,
+                  ),
+                ),
               ),
             ],
           );
@@ -148,9 +155,14 @@ class _WaveSettingsPageState
                     constraints: const BoxConstraints(
                       maxWidth: 640,
                     ),
-                    child: _SectionBody(
-                      section: _section,
-                      onUpdate: _update,
+                    child: _SectionSwap(
+                      child: RepaintBoundary(
+                        key: ValueKey(_section),
+                        child: _SectionBody(
+                          section: _section,
+                          onUpdate: _update,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -168,6 +180,7 @@ class _SectionBody extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs))
       onUpdate;
   const _SectionBody({
+    super.key,
     required this.section,
     required this.onUpdate,
   });
@@ -201,6 +214,49 @@ class _SectionBody extends ConsumerWidget {
   }
 }
 
+/// Section swap: fade only, size from the incoming pane, outgoing overlaid
+/// at the top so it cannot re-center or relayout the list mid-transition.
+class _SectionSwap extends StatelessWidget {
+  final Widget child;
+  const _SectionSwap({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: WaveMotion.normal,
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topLeft,
+      child: AnimatedSwitcher(
+        duration: WaveMotion.fast,
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeOutCubic,
+        layoutBuilder: (currentChild, previousChildren) {
+          return Stack(
+            alignment: Alignment.topLeft,
+            children: [
+              for (final previous in previousChildren)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  child: IgnorePointer(
+                    child: ExcludeSemantics(child: previous),
+                  ),
+                ),
+              if (currentChild != null) currentChild,
+            ],
+          );
+        },
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: child,
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
 class _Group extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -213,22 +269,48 @@ class _Group extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expander(
-      initiallyExpanded: true,
-      header: Text(title, style: WaveType.sectionTitle),
-      content: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            subtitle,
-            style: WaveType.meta.copyWith(
-              color: waveTextSecondary(context),
-            ),
+    final theme = FluentTheme.of(context);
+    final stroke = theme.resources.cardStrokeColorDefault;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          decoration: BoxDecoration(
+            color: theme.resources.cardBackgroundFillColorDefault,
+            border: Border.all(color: stroke),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
           ),
-          const SizedBox(height: 8),
-          child,
-        ],
-      ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: WaveType.sectionTitle),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: WaveType.meta.copyWith(
+                  color: waveTextSecondary(context),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.resources.cardBackgroundFillColorSecondary,
+            border: Border(
+              left: BorderSide(color: stroke),
+              right: BorderSide(color: stroke),
+              bottom: BorderSide(color: stroke),
+            ),
+            borderRadius:
+                const BorderRadius.vertical(bottom: Radius.circular(6)),
+          ),
+          child: child,
+        ),
+      ],
     );
   }
 }
@@ -320,6 +402,12 @@ class _Audio extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          title: 'Audio output',
+          subtitle: 'WASAPI Exclusive bypasses the Windows mixer',
+          child: _WasapiOutputSettings(onUpdate: onUpdate),
+        ),
+        const SizedBox(height: 8),
+        _Group(
           title: 'Output',
           subtitle: 'Playback and offline behaviour',
           child: Column(
@@ -332,14 +420,6 @@ class _Audio extends ConsumerWidget {
                 title: 'Prefer lossless',
                 subtitle:
                     'Try lossless first, fall back to Opus',
-              ),
-              _SwitchRow(
-                value: prefs.bitPerfect,
-                onChanged: (v) =>
-                    onUpdate((p) => p.setBitPerfect(v)),
-                title: 'Bit-perfect output',
-                subtitle:
-                    'Bypass processing for untouched audio',
               ),
               _SwitchRow(
                 value: prefs.downloadLyrics,
@@ -596,14 +676,25 @@ class _Lyrics extends ConsumerWidget {
   }
 }
 
-class _Scrobbler extends ConsumerWidget {
+class _Scrobbler extends ConsumerStatefulWidget {
   final Future<void> Function(Future<void> Function(Prefs))
       onUpdate;
   const _Scrobbler({required this.onUpdate});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_Scrobbler> createState() => _ScrobblerState();
+}
+
+class _ScrobblerState extends ConsumerState<_Scrobbler> {
+  double? _dragPercent;
+
+  @override
+  Widget build(BuildContext context) {
     final prefs = ref.watch(prefsProvider);
+    final percent =
+        (_dragPercent ?? prefs.scrobblePercent.toDouble())
+            .clamp(25, 90)
+            .toDouble();
     return _Group(
       title: 'Last.fm scrobbling',
       subtitle: 'Thresholds mirror Last.fm rules',
@@ -611,7 +702,7 @@ class _Scrobbler extends ConsumerWidget {
         children: [
           _SwitchRow(
             value: prefs.scrobblerEnabled,
-            onChanged: (v) => onUpdate(
+            onChanged: (v) => widget.onUpdate(
               (p) => p.setScrobbler(enabled: v),
             ),
             title: 'Enable scrobbling',
@@ -620,7 +711,7 @@ class _Scrobbler extends ConsumerWidget {
           ),
           _SwitchRow(
             value: prefs.scrobbleNowPlaying,
-            onChanged: (v) => onUpdate(
+            onChanged: (v) => widget.onUpdate(
               (p) => p.setScrobbler(nowPlaying: v),
             ),
             title: 'Now playing updates',
@@ -631,23 +722,24 @@ class _Scrobbler extends ConsumerWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Scrobble at ${prefs.scrobblePercent}% of track',
+                    'Scrobble at ${percent.round()}% of track',
                     style: WaveType.trackTitle,
                   ),
                 ),
                 SizedBox(
                   width: 180,
                   child: Slider(
-                    value: prefs.scrobblePercent
-                        .toDouble()
-                        .clamp(25, 90),
+                    value: percent,
                     min: 25,
                     max: 90,
-                    onChanged: (v) => onUpdate(
-                      (p) => p.setScrobbler(
-                        percent: v.round(),
-                      ),
-                    ),
+                    onChanged: (v) =>
+                        setState(() => _dragPercent = v),
+                    onChangeEnd: (v) {
+                      setState(() => _dragPercent = null);
+                      widget.onUpdate(
+                        (p) => p.setScrobbler(percent: v.round()),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -849,18 +941,13 @@ class _Playback extends ConsumerWidget {
         children: [
           _SwitchRow(
             value: prefs.crossfadeEnabled,
-            onChanged: (v) =>
-                onUpdate((p) => p.setCrossfade(v)),
+            onChanged: (v) async {
+              await onUpdate((p) => p.setCrossfade(v));
+              ref.read(audioOutputProvider.notifier).refreshPath();
+            },
             title: 'Crossfade',
             subtitle:
                 '${prefs.crossfadeSeconds}s · gapless otherwise',
-          ),
-          _SwitchRow(
-            value: prefs.bitPerfect,
-            onChanged: (v) =>
-                onUpdate((p) => p.setBitPerfect(v)),
-            title: 'Bit-perfect output',
-            subtitle: 'Bypass processing for untouched audio',
           ),
         ],
       ),
@@ -972,6 +1059,70 @@ class _Experimental extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _WasapiOutputSettings extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _WasapiOutputSettings({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final output = ref.watch(audioOutputProvider);
+    final notifier = ref.read(audioOutputProvider.notifier);
+    final devices = output.devices;
+    final selected = output.selectedId.isEmpty ? '' : output.selectedId;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Device', style: WaveType.trackTitle),
+        const SizedBox(height: 6),
+        ComboBox<String>(
+          isExpanded: true,
+          value: devices.any((d) => d.id == selected) ? selected : '',
+          items: [
+            const ComboBoxItem(value: '', child: Text('Default Windows device')),
+            for (final d in devices)
+              ComboBoxItem(
+                value: d.id,
+                child: Text(
+                  d.isDefault ? '${d.displayName} (default)' : d.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: (v) async {
+            if (v == null) return;
+            await notifier.selectDevice(v);
+            await onUpdate((_) async {});
+          },
+        ),
+        const SizedBox(height: 10),
+        _SwitchRow(
+          value: output.exclusiveRequested,
+          onChanged: (v) async {
+            await notifier.setExclusive(v);
+            await onUpdate((_) async {});
+          },
+          title: 'WASAPI Exclusive',
+          subtitle: output.path.bitPerfect
+              ? 'Mixer bypassed · bit-perfect when the DAC matches the source'
+              : (output.exclusiveRequested
+                  ? output.path.reason.label
+                  : 'Shared mode — mixer may resample'),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          output.selected == null
+              ? 'Probe the DAC after connecting it to see exclusive PCM rates.'
+              : output.selected!.supportedSummary,
+          style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+        ),
+        const SizedBox(height: 12),
+        WaveStreamPathPanel(path: output.path),
+      ],
     );
   }
 }

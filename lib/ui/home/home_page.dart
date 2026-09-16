@@ -8,6 +8,7 @@ import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../app/track_actions.dart'
     show playGenerated, playableFromGenerated;
+import '../../core/artwork/official_artwork_service.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
@@ -16,6 +17,7 @@ import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
 import '../components/menus.dart';
 import '../components/states.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -76,16 +78,24 @@ class WaveHomePage extends ConsumerWidget {
         : '';
     final date = DateFormat('EEEE, MMM d').format(DateTime.now());
 
-    return CustomScrollView(
-      slivers: [
+    // One shared WinUI entrance timeline for the whole page: it starts
+    // the moment feed data lands, so sections cascade in together and
+    // lazily-built rows never replay the animation during scroll.
+    return WaveEntranceGroup(
+      start: feed.hasValue,
+      child: CustomScrollView(
+        slivers: [
         SliverPadding(
           padding: EdgeInsets.fromLTRB(side, 22, side, 0),
           sliver: SliverToBoxAdapter(
-            child: _Header(
-              greeting: _greeting,
-              username: username,
-              date: date,
-              signedIn: auth.status == AuthStatus.signedIn,
+            child: WaveEntrance(
+              local: true,
+              child: _Header(
+                greeting: _greeting,
+                username: username,
+                date: date,
+                signedIn: auth.status == AuthStatus.signedIn,
+              ),
             ),
           ),
         ),
@@ -133,7 +143,8 @@ class WaveHomePage extends ConsumerWidget {
           padding: EdgeInsets.fromLTRB(side, 0, side, 32),
           sliver: const SliverToBoxAdapter(child: _NewReleasesDense()),
         ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -143,6 +154,10 @@ class WaveHomePage extends ConsumerWidget {
     void gap(double h) {
       slivers.add(SliverToBoxAdapter(child: SizedBox(height: h)));
     }
+
+    // Stagger slots for the page entrance cascade (one slot per section).
+    var e = 0;
+    int slot() => e++;
 
     // Editorial hero: large personal pick (35–45% artwork) + 2–4 compact
     // companions on the right. Structure, not one giant banner.
@@ -170,7 +185,10 @@ class WaveHomePage extends ConsumerWidget {
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
-          child: _FeaturedHero(track: heroTrack, upNext: companions),
+          child: WaveEntrance(
+            index: slot(),
+            child: _FeaturedHero(track: heroTrack, upNext: companions),
+          ),
         ),
       ));
     }
@@ -181,10 +199,14 @@ class WaveHomePage extends ConsumerWidget {
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
-          child: _SectionHead(
-            kicker: 'Jump back in',
-            title: 'Quick Picks',
-            count: picks.length,
+          child: WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              kicker: 'Jump back in',
+              title: 'Quick Picks',
+              count: picks.length,
+            ),
           ),
         ),
       ));
@@ -198,7 +220,11 @@ class WaveHomePage extends ConsumerWidget {
             mainAxisExtent: 56,
           ),
           delegate: SliverChildBuilderDelegate(
-            (context, i) => _QuickTile(track: picks[i], queueAll: picks, index: i),
+            (context, i) => WaveEntrance(
+              index: i,
+              rise: 10,
+              child: _QuickTile(track: picks[i], queueAll: picks, index: i),
+            ),
             childCount: picks.length,
           ),
         ),
@@ -211,12 +237,16 @@ class WaveHomePage extends ConsumerWidget {
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
-          child: _SectionHead(
-            kicker: 'History',
-            title: 'Continue Listening',
-            count: recent.length,
-            actionLabel: 'See all',
-            actionPath: '/history',
+          child: WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              kicker: 'History',
+              title: 'Continue Listening',
+              count: recent.length,
+              actionLabel: 'See all',
+              actionPath: '/history',
+            ),
           ),
         ),
       ));
@@ -234,12 +264,16 @@ class WaveHomePage extends ConsumerWidget {
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
-          child: _SectionHead(
-            kicker: 'Generated',
-            title: 'Made For You',
-            count: mixes.length,
-            actionLabel: 'Open Mix Lab',
-            actionPath: '/mixes',
+          child: WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              kicker: 'Generated',
+              title: 'Made For You',
+              count: mixes.length,
+              actionLabel: 'Open Mix Lab',
+              actionPath: '/mixes',
+            ),
           ),
         ),
       ));
@@ -257,12 +291,16 @@ class WaveHomePage extends ConsumerWidget {
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
-          child: _SectionHead(
-            kicker: 'Rotation',
-            title: 'Albums For You',
-            count: albums.length,
-            actionLabel: 'See all',
-            actionPath: '/albums',
+          child: WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              kicker: 'Rotation',
+              title: 'Albums For You',
+              count: albums.length,
+              actionLabel: 'See all',
+              actionPath: '/albums',
+            ),
           ),
         ),
       ));
@@ -274,7 +312,9 @@ class WaveHomePage extends ConsumerWidget {
       ));
     }
 
-    // Artists For You — distinct artists from rotation + charts.
+    // Artists For You — distinct billed artists (collabs split so
+    // "Drake, Future & Metro Boomin" becomes three portrait tiles,
+    // never a single tile showing an album sleeve).
     {
       final seen = <String>{};
       final artists = <GeneratedTrack>[];
@@ -283,10 +323,19 @@ class WaveHomePage extends ConsumerWidget {
         ...data.charts,
         ...data.quickPicks
       ]) {
-        final key = t.artist.toLowerCase();
-        if (key.isEmpty || seen.contains(key)) continue;
-        seen.add(key);
-        artists.add(t);
+        for (final name
+            in OfficialArtworkService.splitArtistCredits(t.artist)) {
+          final key = name.toLowerCase();
+          if (key.isEmpty || seen.contains(key)) continue;
+          seen.add(key);
+          artists.add(GeneratedTrack(
+            name: name,
+            artist: name,
+            artworkUrl: '',
+            videoId: t.videoId,
+          ));
+          if (artists.length >= 6) break;
+        }
         if (artists.length >= 6) break;
       }
       if (artists.isNotEmpty) {
@@ -294,12 +343,16 @@ class WaveHomePage extends ConsumerWidget {
         slivers.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side),
           sliver: SliverToBoxAdapter(
-            child: _SectionHead(
-              kicker: 'Artists',
-              title: 'Artists For You',
-              count: artists.length,
-              actionLabel: 'See all',
-              actionPath: '/artists',
+            child: WaveEntrance(
+              index: slot(),
+              rise: 8,
+              child: _SectionHead(
+                kicker: 'Artists',
+                title: 'Artists For You',
+                count: artists.length,
+                actionLabel: 'See all',
+                actionPath: '/artists',
+              ),
             ),
           ),
         ));
@@ -320,19 +373,27 @@ class WaveHomePage extends ConsumerWidget {
         slivers.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side),
           sliver: SliverToBoxAdapter(
-            child: _SectionHead(
-              kicker: 'Social',
-              title: 'Friends Listening',
-              count: friends.length,
-              actionLabel: 'See all',
-              actionPath: '/friends',
+            child: WaveEntrance(
+              index: slot(),
+              rise: 8,
+              child: _SectionHead(
+                kicker: 'Social',
+                title: 'Friends Listening',
+                count: friends.length,
+                actionLabel: 'See all',
+                actionPath: '/friends',
+              ),
             ),
           ),
         ));
         slivers.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side, top: 10),
           sliver: SliverToBoxAdapter(
-            child: _FriendsStrip(tracks: friends),
+            child: WaveEntrance(
+              index: slot(),
+              rise: 10,
+              child: _FriendsStrip(tracks: friends),
+            ),
           ),
         ));
       }
@@ -344,12 +405,16 @@ class WaveHomePage extends ConsumerWidget {
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
-          child: _SectionHead(
-            kicker: 'Charts',
-            title: 'Trending Now',
-            count: charts.length,
-            actionLabel: 'See all',
-            actionPath: '/discover',
+          child: WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              kicker: 'Charts',
+              title: 'Trending Now',
+              count: charts.length,
+              actionLabel: 'See all',
+              actionPath: '/discover',
+            ),
           ),
         ),
       ));
@@ -357,8 +422,12 @@ class WaveHomePage extends ConsumerWidget {
         padding: EdgeInsets.only(left: side, right: side, top: 6),
         sliver: SuperSliverList.builder(
           itemCount: charts.length,
-          itemBuilder: (context, i) =>
-              _ChartRow(track: charts[i], rank: i + 1, queueAll: charts, index: i),
+          itemBuilder: (context, i) => WaveEntrance(
+            index: i,
+            rise: 10,
+            child: _ChartRow(
+                track: charts[i], rank: i + 1, queueAll: charts, index: i),
+          ),
         ),
       ));
     }
@@ -369,12 +438,16 @@ class WaveHomePage extends ConsumerWidget {
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
-          child: _SectionHead(
-            kicker: 'Discovery',
-            title: 'Fresh Finds',
-            count: fresh.length,
-            actionLabel: 'See all',
-            actionPath: '/discover',
+          child: WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              kicker: 'Discovery',
+              title: 'Fresh Finds',
+              count: fresh.length,
+              actionLabel: 'See all',
+              actionPath: '/discover',
+            ),
           ),
         ),
       ));
@@ -382,8 +455,11 @@ class WaveHomePage extends ConsumerWidget {
         padding: EdgeInsets.only(left: side, right: side, top: 6),
         sliver: SuperSliverList.builder(
           itemCount: fresh.length,
-          itemBuilder: (context, i) =>
-              _FreshRow(track: fresh[i], queueAll: fresh, index: i),
+          itemBuilder: (context, i) => WaveEntrance(
+            index: i,
+            rise: 10,
+            child: _FreshRow(track: fresh[i], queueAll: fresh, index: i),
+          ),
         ),
       ));
     }
@@ -992,11 +1068,15 @@ class _CoverShelf extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: side),
         itemCount: tracks.length,
         separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, i) => _CoverCard(
-          track: tracks[i],
-          queueAll: tracks,
+        itemBuilder: (context, i) => WaveEntrance(
           index: i,
-          source: source,
+          rise: 10,
+          child: _CoverCard(
+            track: tracks[i],
+            queueAll: tracks,
+            index: i,
+            source: source,
+          ),
         ),
       ),
     );
@@ -1107,13 +1187,17 @@ class _MixShelf extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 14),
         itemBuilder: (context, i) {
           final t = tracks[i];
-          return _MixCard(
-            track: t,
-            title: _titles[i % _titles.length],
-            blurb: _blurs[i % _blurs.length],
-            badge: 'MIX 0${i + 1}',
-            queueAll: tracks,
+          return WaveEntrance(
             index: i,
+            rise: 10,
+            child: _MixCard(
+              track: t,
+              title: _titles[i % _titles.length],
+              blurb: _blurs[i % _blurs.length],
+              badge: 'MIX 0${i + 1}',
+              queueAll: tracks,
+              index: i,
+            ),
           );
         },
       ),
@@ -1270,11 +1354,15 @@ class _AlbumShelf extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: side),
         itemCount: tracks.length,
         separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, i) => _AlbumCard(
-          track: tracks[i],
-          queueAll: tracks,
+        itemBuilder: (context, i) => WaveEntrance(
           index: i,
-          source: source,
+          rise: 10,
+          child: _AlbumCard(
+            track: tracks[i],
+            queueAll: tracks,
+            index: i,
+            source: source,
+          ),
         ),
       ),
     );
@@ -1549,7 +1637,11 @@ class _NewReleasesDense extends ConsumerWidget {
       data: (list) {
         if (list.isEmpty) return const SizedBox.shrink();
         final items = list.take(12).toList();
-        return Column(
+        // Own provider timeline — animate locally when this section lands.
+        return WaveEntrance(
+          local: true,
+          rise: 10,
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _SectionHead(
@@ -1584,6 +1676,7 @@ class _NewReleasesDense extends ConsumerWidget {
                             title: a.name,
                             artist: a.artist.isNotEmpty ? a.artist : a.subtitle,
                             label: a.name,
+                            kind: ArtworkKind.album,
                           ),
                           const SizedBox(height: 5),
                           Text(a.name,
@@ -1607,6 +1700,7 @@ class _NewReleasesDense extends ConsumerWidget {
               ),
             ),
           ],
+          ),
         );
       },
     );
@@ -1638,7 +1732,7 @@ class _ArtistShelf extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 16),
         itemBuilder: (context, i) {
           final t = tracks[i];
-          return _ArtistTile(track: t);
+          return WaveEntrance(index: i, rise: 10, child: _ArtistTile(track: t));
         },
       ),
     );

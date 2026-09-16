@@ -8,6 +8,7 @@ import '../../features/search/shared_providers.dart';
 import '../components/artwork.dart';
 import '../components/menus.dart';
 import '../components/states.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
 final _waveArtistsProvider = FutureProvider<
@@ -85,24 +86,28 @@ class WaveArtistsPage extends ConsumerWidget {
                 'Your most-played voices will appear here once you scrobble.',
           );
         }
-        return CustomScrollView(
-          slivers: [
+        return WaveEntranceGroup(
+          child: CustomScrollView(
+            slivers: [
             SliverToBoxAdapter(
               child: Padding(
                 padding:
                     const EdgeInsets.fromLTRB(28, 22, 28, 12),
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Text('Artists',
-                        style: WaveType.pageTitle
-                            .copyWith(fontSize: 24)),
-                    Text('${list.length} voices',
-                        style: WaveType.meta.copyWith(
-                            color: waveTextSecondary(
-                                context))),
-                  ],
+                child: WaveEntrance(
+                  rise: 10,
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text('Artists',
+                          style: WaveType.pageTitle
+                              .copyWith(fontSize: 24)),
+                      Text('${list.length} voices',
+                          style: WaveType.meta.copyWith(
+                              color: waveTextSecondary(
+                                  context))),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -120,18 +125,23 @@ class WaveArtistsPage extends ConsumerWidget {
                 delegate: SliverChildBuilderDelegate(
                   (context, i) {
                     final a = list[i];
-                    return _ArtistCell(
-                        name: a.artwork.isNotEmpty
-                            ? a.name
-                            : a.name,
-                        artwork: a.artwork,
-                        rank: i + 1);
+                    return WaveEntrance(
+                      index: i,
+                      rise: 10,
+                      child: _ArtistCell(
+                          name: a.artwork.isNotEmpty
+                              ? a.name
+                              : a.name,
+                          artwork: a.artwork,
+                          rank: i + 1),
+                    );
                   },
                   childCount: list.length,
                 ),
               ),
             ),
           ],
+          ),
         );
       },
     );
@@ -198,7 +208,9 @@ class _ArtistCellState extends State<_ArtistCell> {
                     child: WaveArtwork.circle(
                         url: widget.artwork,
                         size: 120,
-                        label: widget.name),
+                        label: widget.name,
+                        title: widget.name,
+                        artist: widget.name),
                   ),
                   Positioned(
                     left: 8,

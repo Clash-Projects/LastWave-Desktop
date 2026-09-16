@@ -317,6 +317,8 @@ class _NowRow extends ConsumerWidget {
             size: 44,
             radius: WaveRadius.artwork,
             label: track.title,
+            title: track.title,
+            artist: track.artist,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -466,6 +468,8 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
                 size: 36,
                 radius: WaveRadius.artwork,
                 label: widget.track.title,
+                title: widget.track.title,
+                artist: widget.track.artist,
               ),
               const SizedBox(width: 10),
               Expanded(

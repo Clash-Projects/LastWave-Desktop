@@ -68,9 +68,18 @@ class DioFactory {
       dio.interceptors.add(
         InterceptorsWrapper(
           onError: (e, handler) {
+            final host = e.requestOptions.uri.host;
+            final code = e.response?.statusCode;
+            // iTunes Search 403s when burst-queried; artwork code
+            // handles that with a Deezer fallback. Don't dump a stack
+            // per tile.
+            if (code == 403 && host.contains('itunes.apple.com')) {
+              handler.next(e);
+              return;
+            }
             logger.w(
-              'HTTP ${e.response?.statusCode} ${e.requestOptions.method} '
-              '${e.requestOptions.uri.host}${e.requestOptions.uri.path}',
+              'HTTP $code ${e.requestOptions.method} '
+              '$host${e.requestOptions.uri.path}',
             );
             handler.next(e);
           },

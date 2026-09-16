@@ -1,21 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/env/app_env.dart';
 import '../../core/network/dio_factory.dart';
 import 'lyrics_models.dart';
 
-/// Lyrics orchestrator with word-by-word racing.
+/// Lyrics orchestrator with Apple Music word-by-word lyrics.
 ///
 /// Ported from LastWave-native `LyricsRepository.kt`:
 /// - in-memory cache (word-synced entries preferred)
-/// - when `wordByWord` is requested, race LyricsPlus / BetterLyrics /
-///   Kugou and return the first word-synced result immediately while
-///   keeping a line-synced fallback
+/// - when `wordByWord` is requested, fetch Apple Music word-by-word
+///   (syllable-timed) lyrics via lyrics.paxsenix.org and return them
+///   immediately while keeping a line-synced LRCLIB fallback
 /// - LRCLIB tiers: instrumental → synced LRC → plain → empty
 String cleanSongTitle(String title) {
   var t = title;
@@ -44,6 +42,87 @@ String cleanSongArtist(String artist) {
   a = a.replaceAll(
       RegExp(r'\s*(?:feat\.|ft\.|featuring).*$', caseSensitive: false), '');
   return a.trim().isNotEmpty ? a.trim() : artist;
+}
+
+/// Drop featuring clauses, bracketed noise, and punctuation so "ALL CAPS"
+/// and "All Caps [Official Audio]" compare equal.
+String normalizeLyricsTitle(String s) {
+  var t = s.toLowerCase();
+  t = t.replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
+  t = t.replaceAll(RegExp(r'\b(?:feat\.?|ft\.?|featuring)\b.*$'), ' ');
+  t = t.replaceAll(RegExp(r'\(\s*\)'), ' ');
+  t = t.replaceAll(RegExp(r'[\(\[]\s*$'), ' ');
+  t = t.replaceAll(RegExp(r'[‘’`]'), "'");
+  t = t.replaceAll(RegExp(r"[^\w\s()'&]"), ' ');
+  t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return t;
+}
+
+String _lyricsCoreTitle(String normalized) {
+  return normalized
+      .replaceAll(RegExp(r'\s*[\(\[].*?[\)\]]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+/// True only when [query] and [candidate] are the same song title.
+/// Substring matches ("All Caps" ⊂ "Scene Three"? no; "All" ⊂ "All Caps"?
+/// also no) are rejected so a different track cannot steal lyrics.
+bool lyricsTitlesMatch(String query, String candidate) {
+  final q = normalizeLyricsTitle(query);
+  final c = normalizeLyricsTitle(candidate);
+  if (q.isEmpty || c.isEmpty) return false;
+  if (q == c) return true;
+  final qCore = _lyricsCoreTitle(q);
+  final cCore = _lyricsCoreTitle(c);
+  if (qCore.isEmpty || cCore.isEmpty || qCore != cCore) return false;
+  final qExtra = q.replaceAll(qCore, '').trim();
+  final cExtra = c.replaceAll(cCore, '').trim();
+  // Query named a specific cut the candidate does not have
+  // ("Song (Interlude)" must not match "Song").
+  if (qExtra.isNotEmpty && cExtra.isEmpty) return false;
+  if (qExtra.isNotEmpty && cExtra.isNotEmpty && qExtra != cExtra) {
+    return false;
+  }
+  return true;
+}
+
+/// Artists match when equal, or the shorter name is a full token in the
+/// longer billing ("Madvillain" in "Madvillain & MF DOOM").
+bool lyricsArtistsMatch(String query, String candidate) {
+  final q = cleanSongArtist(query).toLowerCase().trim();
+  final c = cleanSongArtist(candidate).toLowerCase().trim();
+  if (q.isEmpty || c.isEmpty) return false;
+  if (q == c) return true;
+  final shorter = q.length <= c.length ? q : c;
+  final longer = q.length <= c.length ? c : q;
+  if (shorter.length < 2) return false;
+  return RegExp(
+    '(^|[\\s&/,;+])${RegExp.escape(shorter)}(\$|[\\s&/,;+])',
+  ).hasMatch(longer);
+}
+
+bool lyricsIsAlternateRecording(String title, {String album = ''}) {
+  final blob = '${title.toLowerCase()} ${album.toLowerCase()}';
+  const alt = [
+    'instrumental',
+    'karaoke',
+    'a cappella',
+    'acapella',
+    'minus one',
+    'backing track',
+  ];
+  return alt.any(blob.contains);
+}
+
+bool lyricsDurationPlausible(int? querySeconds, num? candidateSeconds) {
+  if (querySeconds == null || querySeconds <= 0) return true;
+  if (candidateSeconds == null) return true;
+  final candidate = candidateSeconds.round();
+  if (candidate <= 0) return true;
+  final diff = (candidate - querySeconds).abs();
+  if (diff <= 12) return true;
+  return diff / querySeconds <= 0.2;
 }
 
 class LyricsRepository {
@@ -79,12 +158,8 @@ class LyricsRepository {
 
     final futures = [
       _fetchLrclib(title, artist, album, durationSeconds),
-      if (wordByWord) ...[
-        _fetchBiniLyrics(title, artist, album, durationSeconds),
-        _fetchLyricsPlus(title, artist, album, durationSeconds),
-        _fetchBetterLyrics(title, artist),
-        _fetchKugou(title, artist, durationSeconds),
-      ],
+      if (wordByWord)
+        _fetchAppleWordByWord(title, artist, album, durationSeconds),
     ];
     final pending = futures.map((future) => future
         .timeout(const Duration(seconds: 12))
@@ -120,14 +195,10 @@ class LyricsRepository {
     if (newRes.isSynced && !current.isSynced) return true;
     if (!newRes.isSynced && current.isSynced) return false;
 
-    // 3. Official curated sources (Apple Music, LyricsPlus, BetterLyrics)
-    // beat crowdsourced user submissions (lrclib)
-    final newIsCurated = newRes.source.toLowerCase().contains('apple') ||
-        newRes.source.toLowerCase().contains('lyricsplus') ||
-        newRes.source.toLowerCase().contains('betterlyrics');
-    final curIsCurated = current.source.toLowerCase().contains('apple') ||
-        current.source.toLowerCase().contains('lyricsplus') ||
-        current.source.toLowerCase().contains('betterlyrics');
+    // 3. Official curated sources (Apple Music) beat crowdsourced
+    // user submissions (lrclib)
+    final newIsCurated = newRes.source.toLowerCase().contains('apple');
+    final curIsCurated = current.source.toLowerCase().contains('apple');
     if (newIsCurated && !curIsCurated) return true;
     if (!newIsCurated && curIsCurated) return false;
 
@@ -175,7 +246,24 @@ class LyricsRepository {
           }),
         );
         if (res.statusCode == 200 && res.data != null) {
-          record = res.data;
+          final data = res.data!;
+          final recTitle =
+              (data['trackName'] ?? data['name'])?.toString() ?? '';
+          final recArtist = data['artistName']?.toString() ?? '';
+          if (!lyricsTitlesMatch(cleanT, recTitle) ||
+              !lyricsArtistsMatch(cleanA, recArtist)) {
+            continue;
+          }
+          if (!lyricsDurationPlausible(
+              durationSeconds, data['duration'] as num?)) {
+            continue;
+          }
+          if (!cleanT.toLowerCase().contains('instrumental') &&
+              lyricsIsAlternateRecording(recTitle,
+                  album: data['albumName']?.toString() ?? '')) {
+            continue;
+          }
+          record = data;
           break;
         }
       } on DioException catch (e) {
@@ -183,9 +271,9 @@ class LyricsRepository {
       }
     }
     // cleaned-title retry
-    record ??= await _lrclibSearch(cleanT, cleanA);
+    record ??= await _lrclibSearch(cleanT, cleanA, durationSeconds);
     if (record == null && (cleanT != title || cleanA != artist)) {
-      record = await _lrclibSearch(title, artist);
+      record = await _lrclibSearch(title, artist, durationSeconds);
     }
     if (record == null) return null;
     final recordName = record['name']?.toString() ?? '';
@@ -229,7 +317,10 @@ class LyricsRepository {
   }
 
   Future<Map<String, dynamic>?> _lrclibSearch(
-      String title, String artist) async {
+    String title,
+    String artist, [
+    int? durationSeconds,
+  ]) async {
     try {
       final res = await _dio.get<List<dynamic>>(
         'https://lrclib.net/api/search',
@@ -240,27 +331,47 @@ class LyricsRepository {
         }),
       );
       final list = res.data ?? const [];
+      Map<String, dynamic>? best;
+      var bestDiff = 1 << 30;
+      final wantsAlt = lyricsIsAlternateRecording(title);
       for (final item in list) {
         if (item is! Map<String, dynamic>) continue;
-        final a =
-            (item['artistName']?.toString() ?? '').toLowerCase();
-        final t =
-            (item['trackName']?.toString() ?? '').toLowerCase();
-        if (a.contains(artist.toLowerCase()) ||
-            artist.toLowerCase().contains(a)) {
-          if (t.contains(title.toLowerCase()) ||
-              title.toLowerCase().contains(t)) {
-            return item;
-          }
+        final recTitle =
+            (item['trackName'] ?? item['name'])?.toString() ?? '';
+        final recArtist = item['artistName']?.toString() ?? '';
+        if (!lyricsTitlesMatch(title, recTitle)) continue;
+        if (!lyricsArtistsMatch(artist, recArtist)) continue;
+        if (!wantsAlt &&
+            lyricsIsAlternateRecording(recTitle,
+                album: item['albumName']?.toString() ?? '')) {
+          continue;
+        }
+        if (!lyricsDurationPlausible(
+            durationSeconds, item['duration'] as num?)) {
+          continue;
+        }
+        final dur = (item['duration'] as num?)?.round() ?? 0;
+        final diff = durationSeconds != null && durationSeconds > 0 && dur > 0
+            ? (dur - durationSeconds).abs()
+            : 0;
+        if (best == null || diff < bestDiff) {
+          best = item;
+          bestDiff = diff;
         }
       }
+      return best;
     } catch (_) {}
     return null;
   }
 
-  // -- BiniLyrics (Apple Music TTML → exact word timing) ---------------------
+  // -- Apple Music word-by-word (lyrics.paxsenix.org) --------------------------
 
-  Future<LyricsResult?> _fetchBiniLyrics(
+  /// Apple's word-by-word (syllable-timed) lyrics via lyrics.paxsenix.org.
+  ///
+  /// The endpoint requires an Apple Music track ID, resolved through the
+  /// iTunes Search API (catalog IDs match), preferring a result whose artist
+  /// and duration line up with the playing track.
+  Future<LyricsResult?> _fetchAppleWordByWord(
     String title,
     String artist,
     String album,
@@ -268,200 +379,182 @@ class LyricsRepository {
   ) async {
     final cleanT = cleanSongTitle(title);
     final cleanA = cleanSongArtist(artist);
-    final attempts = [
-      {'track': cleanT, 'artist': cleanA},
-      if (cleanT != title || cleanA != artist)
-        {'track': title, 'artist': artist},
-    ];
-    for (final p in attempts) {
+    var trackIds = await _resolveAppleTrackIds(cleanT, cleanA, durationSeconds);
+    if (trackIds.isEmpty && (cleanT != title || cleanA != artist)) {
+      trackIds = await _resolveAppleTrackIds(title, artist, durationSeconds);
+    }
+    if (trackIds.isEmpty) return null;
+    // Try the best-scoring candidates in order — different album pressings of
+    // the same song have separate catalog IDs and not all carry lyrics.
+    for (final trackId in trackIds.take(3)) {
       try {
-        final qp = Map<String, String>.from(p);
-        if (album.isNotEmpty) qp['album'] = album;
-        if (durationSeconds != null && durationSeconds > 0) {
-          qp['duration'] = '$durationSeconds';
-        }
         final res = await _dio.get<Map<String, dynamic>>(
-          'https://lyrics-api.binimum.org/',
-          queryParameters: qp,
+          'https://lyrics.paxsenix.org/apple-music/lyrics',
+          queryParameters: {'id': trackId},
           options: Options(headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'User-Agent': DioFactory.desktopUserAgent,
             'Accept': 'application/json',
           }),
         );
-        final results = res.data?['results'];
-        if (results is! List || results.isEmpty) continue;
-        final first = results.first;
-        if (first is! Map<String, dynamic>) continue;
-        final lyricsUrl = first['lyricsUrl']?.toString() ?? '';
-        if (lyricsUrl.isEmpty) continue;
-        final ttmlRes = await _dio.get<String>(
-          lyricsUrl,
-          options: Options(
-            responseType: ResponseType.plain,
-            headers: {
-              'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            },
-          ),
-        );
-        final ttml = ttmlRes.data ?? '';
-        if (ttml.isEmpty) continue;
-        final lines = parseTtml(ttml);
-        if (lines.isNotEmpty) {
-          return LyricsResult(
-            lines: lines,
-            isSynced: true,
-            isWordSynced: lines.any((l) => l.hasSyllables),
-            source: 'Apple Music',
-          );
-        }
+        final parsed = parseAppleWordByWord(res.data ?? const {});
+        if (parsed != null && !parsed.isEmpty) return parsed;
       } catch (_) {}
     }
     return null;
   }
 
-  // -- LyricsPlus (word-synced) -----------------------------------------------
-
-  static const _lyricsPlusEndpoints = [
-    'https://lyricsplus.binimum.org/v2/lyrics/get',
-    'https://lyricsplus-seven.vercel.app/v2/lyrics/get',
-  ];
-
-  Future<LyricsResult?> _fetchLyricsPlus(
+  /// iTunes Search API → Apple Music catalog track IDs, best match first.
+  ///
+  /// Identity is strict: the candidate must be the same title and artist.
+  /// Instrumental / karaoke / a-cappella albums and titles are skipped
+  /// unless the query itself asks for them. Covers and other songs on the
+  /// same album are never used just because the artist matched.
+  Future<List<String>> _resolveAppleTrackIds(
     String title,
     String artist,
-    String album,
     int? durationSeconds,
   ) async {
-    final cleanT = cleanSongTitle(title);
-    final cleanA = cleanSongArtist(artist);
-    final attempts = [
-      {'title': cleanT, 'artist': cleanA},
-      if (cleanT != title || cleanA != artist)
-        {'title': title, 'artist': artist},
-    ];
-    for (final endpoint in _lyricsPlusEndpoints) {
-      for (final p in attempts) {
-        final qp = Map<String, String>.from(p);
-        if (album.isNotEmpty) qp['album'] = album;
-        if (durationSeconds != null && durationSeconds > 0) {
-          qp['duration'] = '$durationSeconds';
+    try {
+      // iTunes answers with Content-Type: text/javascript, which Dio will
+      // not auto-decode even with ResponseType.json — fetch the raw body
+      // and decode it manually.
+      final res = await _dio.get<String>(
+        'https://itunes.apple.com/search',
+        queryParameters: {
+          'term': '$artist $title',
+          'media': 'music',
+          'entity': 'song',
+          'limit': '10',
+        },
+        options: Options(
+          headers: {'User-Agent': DioFactory.desktopUserAgent},
+          responseType: ResponseType.plain,
+        ),
+      );
+      final decoded = jsonDecode(res.data ?? '');
+      final results =
+          decoded is Map<String, dynamic> ? decoded['results'] : null;
+      if (results is! List || results.isEmpty) return const [];
+
+      final wantsAlt = lyricsIsAlternateRecording(title);
+      final targetMs = (durationSeconds ?? 0) * 1000;
+
+      final scored = <(String id, int score)>[];
+      for (final item in results) {
+        if (item is! Map<String, dynamic>) continue;
+        final id = item['trackId']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        final rawTitle = item['trackName']?.toString() ?? '';
+        final rawArtist = item['artistName']?.toString() ?? '';
+        final album = item['collectionName']?.toString() ?? '';
+        if (!wantsAlt &&
+            lyricsIsAlternateRecording(rawTitle, album: album)) {
+          continue;
         }
-        try {
-          final res = await _dio.get<Map<String, dynamic>>(
-            endpoint,
-            queryParameters: qp,
-            options: Options(headers: {
-              'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-              'Accept': 'application/json',
-              if (AppEnv.lyricsApiKey.isNotEmpty)
-                'x-api-key': AppEnv.lyricsApiKey,
-            }),
-          );
-          final parsed = _parseLyricsPlus(res.data ?? const {});
-          if (parsed != null) return parsed;
-        } catch (_) {}
+        if (!lyricsTitlesMatch(title, rawTitle)) continue;
+        if (!lyricsArtistsMatch(artist, rawArtist)) continue;
+
+        var score = 10;
+        final ms = (item['trackTimeMillis'] as num?)?.toInt() ?? 0;
+        if (targetMs > 0 && ms > 0) {
+          final diff = (ms - targetMs).abs();
+          if (diff > 25000 && diff / targetMs > 0.25) continue;
+          if (diff <= 4000) {
+            score += 3;
+          } else if (diff <= 10000) {
+            score += 1;
+          }
+        }
+        scored.add((id, score));
       }
+      // Stable sort keeps iTunes relevance order among equal scores.
+      scored.sort((a, b) => b.$2.compareTo(a.$2));
+      return scored.map((e) => e.$1).toList();
+    } catch (_) {
+      return const [];
     }
-    return null;
   }
 
-  LyricsResult? _parseLyricsPlus(Map<String, dynamic> json) {
-    final lyrics = json['lyrics'];
-    if (lyrics is! List || lyrics.isEmpty) return null;
-    final type = json['type']?.toString().toUpperCase() ?? 'LINE';
-    final winner = json['winnerSource']?.toString().toLowerCase() ?? '';
-    final sourceName = winner.contains('apple')
-        ? 'Apple Music'
-        : winner.isNotEmpty
-            ? winner
-            : 'LyricsPlus';
-    final lines = <LyricLine>[];
-    var hasNativeSyllables = false;
-    for (final item in lyrics) {
+  /// Parse the paxsenix Apple payload (`content[]` lines with per-word
+  /// `text`/`timestamp`/`duration`/`part`) into [LyricLine]s.
+  ///
+  /// `part: true` marks a word fragment that continues into the next one
+  /// without a space ("conver" + "sation" → "conversation"). Syllable text
+  /// carries no added spaces — the karaoke view's `groupSyllablesIntoWords`
+  /// re-derives word boundaries against the full line text.
+  ///
+  /// Syllables are attached ONLY for true word-by-word (`type: "Syllable"`)
+  /// payloads. Line-synced payloads (`type: "Line"`) ship one whole-line
+  /// "word" per line; keeping it would suppress the karaoke wipe, so those
+  /// lines stay syllable-free and the adapter interpolates per-word timing.
+  static LyricsResult? parseAppleWordByWord(Map<String, dynamic> json) {
+    final content = json['content'];
+    if (content is! List || content.isEmpty) return null;
+    final type = json['type']?.toString().toLowerCase() ?? '';
+    final parsed = <({
+      int start,
+      int duration,
+      String text,
+      List<LyricSyllable> syllables,
+    })>[];
+    var sawMultiWordLine = false;
+    for (final item in content) {
       if (item is! Map<String, dynamic>) continue;
-      final time = (item['time'] as num?)?.toInt() ?? 0;
-      final duration = (item['duration'] as num?)?.toInt() ?? 0;
-      final text = item['text']?.toString() ?? '';
-      if (text.isEmpty) continue;
-      final syllabus = item['syllabus'];
+      final start = (item['timestamp'] as num?)?.toInt() ?? 0;
+      final end = (item['endtime'] as num?)?.toInt() ?? 0;
+      final duration = (item['duration'] as num?)?.toInt() ??
+          (end - start).clamp(0, 1 << 31);
+      final isBackground = item['background'] == true;
+      final rawWords = item['text'];
+      if (rawWords is! List) continue;
+      final words = rawWords.whereType<Map<String, dynamic>>().toList();
+      if (words.isEmpty) continue;
+      if (words.length > 1) sawMultiWordLine = true;
       final syllables = <LyricSyllable>[];
-      if (syllabus is List && syllabus.isNotEmpty) {
-        hasNativeSyllables = true;
-        for (final s in syllabus) {
-          if (s is! Map<String, dynamic>) continue;
-          syllables.add(LyricSyllable(
-            timeMs: (s['time'] as num?)?.toInt() ?? time,
-            durationMs: (s['duration'] as num?)?.toInt() ?? 0,
-            text: s['text']?.toString() ?? '',
-            isBackground: s['isBackground'] == true,
-          ));
-        }
-      } else {
-        // Synthesize word syllables if not provided
-        syllables.addAll(interpolateLineSyllables(
-          text: text,
-          startTimeMs: time,
-          durationMs: duration > 0 ? duration : 4000,
+      final buf = StringBuffer();
+      for (var i = 0; i < words.length; i++) {
+        final w = words[i];
+        final wt = w['text']?.toString() ?? '';
+        if (wt.isEmpty) continue;
+        final ws = (w['timestamp'] as num?)?.toInt() ?? start;
+        final wd = (w['duration'] as num?)?.toInt() ?? 0;
+        final isPart = w['part'] == true;
+        syllables.add(LyricSyllable(
+          timeMs: ws,
+          durationMs: wd,
+          text: wt,
+          isBackground: isBackground,
         ));
+        buf.write(wt);
+        if (!isPart && i < words.length - 1) buf.write(' ');
       }
-      lines.add(LyricLine(
-        timeMs: time,
-        durationMs: duration,
+      final text = buf.toString().trim();
+      if (text.isEmpty) continue;
+      parsed.add((
+        start: start,
+        duration: duration,
         text: text,
         syllables: syllables,
       ));
     }
-    if (lines.isEmpty) return null;
-    lines.sort((a, b) => a.timeMs.compareTo(b.timeMs));
+    if (parsed.isEmpty) return null;
+    final wordSynced = type == 'syllable' || sawMultiWordLine;
+    final lines = [
+      for (final p in parsed)
+        LyricLine(
+          timeMs: p.start,
+          durationMs: p.duration,
+          text: p.text,
+          syllables: wordSynced ? p.syllables : const [],
+        ),
+    ]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
     return LyricsResult(
       lines: lines,
       isSynced: true,
-      isWordSynced: type == 'WORD' || hasNativeSyllables,
-      source: sourceName,
+      isWordSynced: wordSynced,
+      plainLyrics: json['plain']?.toString() ?? '',
+      source: 'Apple Music',
     );
-  }
-
-  // -- BetterLyrics (TTML → word timing) -----------------------------------------
-
-  Future<LyricsResult?> _fetchBetterLyrics(
-      String title, String artist) async {
-    const base = 'https://lyrics-api.boidu.dev';
-    final cleanT = cleanSongTitle(title);
-    final cleanA = cleanSongArtist(artist);
-    final attempts = [
-      '$base/getLyrics',
-      '$base/ttml/getLyrics',
-    ];
-    for (final url in attempts) {
-      try {
-        final res = await _dio.get<Map<String, dynamic>>(
-          url,
-          queryParameters: {'s': cleanT, 'a': cleanA},
-          options: Options(headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-          }),
-        );
-        final ttml = res.data?['ttml']?.toString() ??
-            res.data?['lyrics']?.toString() ??
-            '';
-        if (ttml.isEmpty) continue;
-        final parsed = parseTtml(ttml);
-        if (parsed.isNotEmpty) {
-          return LyricsResult(
-            lines: parsed,
-            isSynced: true,
-            isWordSynced: parsed.any((l) => l.hasSyllables),
-            source: 'BetterLyrics',
-          );
-        }
-      } catch (_) {}
-    }
-    return null;
   }
 
   /// Parse TTML (`<p begin end>` lines, `<span begin end>` words).
@@ -610,119 +703,6 @@ class LyricsRepository {
       .replaceAll('&quot;', '"')
       .replaceAll('&apos;', "'")
       .replaceAll('&#39;', "'");
-
-  // -- Kugou (KRC → word timing) -----------------------------------------------------
-
-  static const _krcKey = [
-    0x40, 0x47, 0x61, 0x77, 0x5E, 0x32, 0x74, 0x47,
-    0x51, 0x36, 0x31, 0x2D, 0xCE, 0xD2, 0x6E, 0x69,
-  ];
-
-  Future<LyricsResult?> _fetchKugou(
-    String title,
-    String artist,
-    int? durationSeconds,
-  ) async {
-    try {
-      final search = await _dio.get<Map<String, dynamic>>(
-        'https://lyrics.kugou.com/search',
-        queryParameters: {
-          'ver': '1',
-          'man': 'yes',
-          'client': 'pc',
-          'keyword': '$artist - $title',
-          if (durationSeconds != null && durationSeconds > 0)
-            'duration': '${durationSeconds * 1000}',
-          'hash': '',
-        },
-        options: Options(headers: {'User-Agent': DioFactory.desktopUserAgent}),
-      );
-      final candidates =
-          (search.data?['candidates'] as List?) ?? const [];
-      if (candidates.isEmpty) return null;
-      final first = candidates.first as Map<String, dynamic>;
-      final dl = await _dio.get<Map<String, dynamic>>(
-        'https://lyrics.kugou.com/download',
-        queryParameters: {
-          'ver': '1',
-          'client': 'pc',
-          'id': '${first['id']}',
-          'accesskey': '${first['accesskey']}',
-          'fmt': 'krc',
-          'charset': 'utf8',
-        },
-        options: Options(headers: {'User-Agent': DioFactory.desktopUserAgent}),
-      );
-      final content = dl.data?['content']?.toString() ?? '';
-      if (content.isEmpty) return null;
-      final lines = parseKrc(decryptKrc(content));
-      if (lines.isEmpty) return null;
-      return LyricsResult(
-        lines: lines,
-        isSynced: true,
-        isWordSynced: lines.any((l) => l.hasSyllables),
-        source: 'kugou',
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// KRC decrypt: base64 → skip `krc1` header → XOR key → zlib inflate.
-  /// Mirrors `KugouLyricsApi.decryptKrc`.
-  static String decryptKrc(String base64Content) {
-    try {
-      var bytes = base64.decode(base64Content);
-      if (bytes.length > 4) bytes = bytes.sublist(4);
-      final xored = List<int>.generate(
-        bytes.length,
-        (i) => bytes[i] ^ _krcKey[i % _krcKey.length],
-      );
-      // zlib inflate via dart:io codec
-      final inflated = zlib.decode(xored);
-      return utf8.decode(inflated, allowMalformed: true);
-    } catch (_) {
-      return '';
-    }
-  }
-
-  /// Parse decrypted KRC: `[start,dur]` lines with
-  /// `<offset,dur,?>text` syllables. Mirrors `parseKrc`.
-  static List<LyricLine> parseKrc(String krc) {
-    final lineRegex = RegExp(r'^\[(\d+),(\d+)\](.*)$');
-    final sylRegex = RegExp(r'<(\d+),(\d+),\d+>([^<]*)');
-    final lines = <LyricLine>[];
-    for (final raw in krc.split('\n')) {
-      final m = lineRegex.firstMatch(raw.trim());
-      if (m == null) continue;
-      final start = int.tryParse(m.group(1) ?? '') ?? 0;
-      final dur = int.tryParse(m.group(2) ?? '') ?? 0;
-      final body = m.group(3) ?? '';
-      final syllables = <LyricSyllable>[];
-      final buf = StringBuffer();
-      for (final s in sylRegex.allMatches(body)) {
-        final off = int.tryParse(s.group(1) ?? '') ?? 0;
-        final sd = int.tryParse(s.group(2) ?? '') ?? 0;
-        final text = s.group(3) ?? '';
-        syllables.add(LyricSyllable(
-          timeMs: start + off,
-          durationMs: sd,
-          text: text,
-        ));
-        buf.write(text);
-      }
-      final text = buf.toString().trim();
-      if (text.isEmpty) continue;
-      lines.add(LyricLine(
-        timeMs: start,
-        durationMs: dur,
-        text: text,
-        syllables: syllables,
-      ));
-    }
-    lines.sort((a, b) => a.timeMs.compareTo(b.timeMs));
-    return lines;
-  }
 }
 
 final lyricsRepositoryProvider =

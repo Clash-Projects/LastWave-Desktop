@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/track_actions.dart'
-    show playGenerated, playableFromGenerated;
+    show formatDuration, playGenerated, playableFromGenerated;
 import '../../features/feed/feed_repository.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
@@ -10,6 +10,7 @@ import '../components/buttons.dart';
 import '../components/desktop_table.dart';
 import '../components/hero.dart';
 import '../components/states.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -110,8 +111,9 @@ class _WaveLikedPageState
         ],
       );
     }
-    return CustomScrollView(
-      slivers: [
+    return WaveEntranceGroup(
+      child: CustomScrollView(
+        slivers: [
         SliverToBoxAdapter(
           child: Padding(
             padding:
@@ -124,7 +126,9 @@ class _WaveLikedPageState
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
-                  WaveCollectionHero(
+                  WaveEntrance(
+                    rise: 10,
+                    child: WaveCollectionHero(
                     overline: 'Playlist',
                     title: 'Liked Songs',
                     meta:
@@ -165,6 +169,7 @@ class _WaveLikedPageState
                               },
                       ),
                     ],
+                  ),
                   ),
                   const SizedBox(height: 12),
                   WaveFilterBar(
@@ -237,6 +242,11 @@ class _WaveLikedPageState
                 albumOf: (_) => '',
                 artworkOf: (t) => t.artworkUrl,
                 playableOf: playableFromGenerated,
+                durationOf: (t) => t.durationSeconds > 0
+                    ? formatDuration(
+                        Duration(seconds: t.durationSeconds))
+                    : '',
+                durationSortOf: (t) => t.durationSeconds,
                 titleSortOf: (t) => t.name.toLowerCase(),
                 artistSortOf: (t) => t.artist.toLowerCase(),
                 isCurrent: (t) => playingKey == t.key,
@@ -264,6 +274,7 @@ class _WaveLikedPageState
           child: SizedBox(height: 24),
         ),
       ],
+      ),
     );
   }
 }

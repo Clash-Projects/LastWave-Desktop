@@ -128,6 +128,29 @@ class YouTubePlaylistResult {
   });
 }
 
+/// Album browse result: page header metadata plus its tracks.
+///
+/// Album track rows omit per-track artist/album/artwork (they are
+/// implied by the header), so [browseAlbum] inherits those fields
+/// onto every track that lacks them.
+class YouTubeAlbumResult {
+  final String browseId;
+  final String title;
+  final String artist;
+  final String artworkUrl;
+  final String year;
+  final List<YouTubeMusicTrack> tracks;
+
+  const YouTubeAlbumResult({
+    required this.browseId,
+    required this.title,
+    this.artist = '',
+    this.artworkUrl = '',
+    this.year = '',
+    this.tracks = const [],
+  });
+}
+
 class YouTubePlaylistSummary {
   final String id;
   final String title;
@@ -960,23 +983,52 @@ class InnerTubeMusicApi {
     return _parsePlaylistRenderers(root).take(limit).toList();
   }
 
+  /// YouTube Music autocomplete — not the public YouTube (`ds=yt`)
+  /// complete API, which mixes in games, TV, and unrelated videos.
   Future<List<String>> getSuggestions(String query) async {
+    final q = query.trim();
+    if (q.length < 2) return const [];
     try {
-      final res = await _dio.get<String>(
-        'https://suggestqueries.google.com/complete/search',
-        queryParameters: {
-          'client': 'firefox',
-          'ds': 'yt',
-          'q': query,
+      await _ensureConfig();
+      final root = await _post(
+        '$musicApi/music/get_search_suggestions?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'input': q,
         },
-        options: Options(headers: {'User-Agent': webUserAgent}),
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
       );
-      final decoded = jsonDecode(res.data ?? '[]');
-      if (decoded is List && decoded.length > 1 && decoded[1] is List) {
-        return (decoded[1] as List).map((e) => e.toString()).toList();
+      final out = <String>[];
+      final seen = <String>{};
+      void walk(Object? node) {
+        if (node is Map) {
+          final endpoint = node['searchEndpoint'] ??
+              (node['navigationEndpoint'] is Map
+                  ? (node['navigationEndpoint'] as Map)['searchEndpoint']
+                  : null);
+          if (endpoint is Map) {
+            final text = endpoint['query']?.toString().trim() ?? '';
+            if (text.isNotEmpty && seen.add(text.toLowerCase())) {
+              out.add(text);
+            }
+          }
+          for (final v in node.values) {
+            walk(v);
+          }
+        } else if (node is List) {
+          for (final v in node) {
+            walk(v);
+          }
+        }
       }
-    } catch (_) {}
-    return const [];
+
+      walk(root['contents'] ?? root);
+      return out;
+    } catch (_) {
+      return const [];
+    }
   }
 
   // -- browse ------------------------------------------------------------------------
@@ -1004,6 +1056,107 @@ class InnerTubeMusicApi {
     );
     final result = await _collectBrowseSongPages(root, limit);
     return result.tracks;
+  }
+
+  /// Browse an album page: header metadata (title/artist/artwork/year)
+  /// plus tracks with header metadata inherited where the per-row
+  /// renderer omits it (artist, album, artwork) — which is the norm
+  /// for single-artist album pages.
+  Future<YouTubeAlbumResult?> browseAlbum(
+    String browseId, {
+    int? limit,
+  }) async {
+    if (browseId.trim().isEmpty) return null;
+    await _ensureConfig();
+    Map<String, dynamic> root;
+    try {
+      root = await _post(
+        '$musicApi/browse?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'browseId': browseId,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+      );
+    } catch (_) {
+      return null;
+    }
+    final header = _playlistHeader(root);
+    final title = _extractTitleFromHeader(header, root) ?? '';
+    final artist = _albumHeaderArtist(header) ?? '';
+    final artwork = _extractArtworkFromHeader(header, root) ?? '';
+    var year = '';
+    final subtitleRuns =
+        ((header?['subtitle']) as Map?)?['runs'];
+    if (subtitleRuns is List) {
+      for (final run in subtitleRuns.whereType<Map>()) {
+        final text = run['text']?.toString().trim() ?? '';
+        if (RegExp(r'^\d{4}$').hasMatch(text)) {
+          year = text;
+          break;
+        }
+      }
+    }
+    final pages = await _collectBrowseSongPages(root, limit);
+    final tracks = pages.tracks
+        .map((t) => YouTubeMusicTrack(
+              videoId: t.videoId,
+              title: t.title,
+              artist: t.artist.isEmpty || t.artist == 'Unknown artist'
+                  ? (artist.isNotEmpty ? artist : t.artist)
+                  : t.artist,
+              album: t.album.isEmpty ? title : t.album,
+              artworkUrl: t.artworkUrl.isNotEmpty
+                  ? t.artworkUrl
+                  : artwork,
+              durationSeconds: t.durationSeconds,
+            ))
+        .toList();
+    return YouTubeAlbumResult(
+      browseId: browseId,
+      title: title,
+      artist: artist,
+      artworkUrl: artwork,
+      year: year,
+      tracks: tracks,
+    );
+  }
+
+  /// Album header subtitle runs look like ["Album", " • ", "Future",
+  /// " • ", "2015"] — the artist is the run whose browse endpoint is a
+  /// channel (UC…). Falls back to the first non-label run.
+  String? _albumHeaderArtist(Map<String, dynamic>? header) {
+    if (header == null) return null;
+    const labels = {'album', 'single', 'ep', 'song', 'playlist'};
+    for (final key in ['subtitle', 'straplineTextOne']) {
+      final runs = (header[key] as Map?)?['runs'];
+      if (runs is! List) continue;
+      // Prefer a run linked to an artist channel.
+      for (final run in runs.whereType<Map>()) {
+        final bid = ((run['navigationEndpoint'] as Map?)?[
+                'browseEndpoint'] as Map?)?['browseId']
+            ?.toString();
+        if (bid != null && bid.startsWith('UC')) {
+          final text = run['text']?.toString().trim() ?? '';
+          if (text.isNotEmpty) return text;
+        }
+      }
+      // Otherwise the first run that is not a type label/separator.
+      for (final run in runs.whereType<Map>()) {
+        final text = run['text']?.toString().trim() ?? '';
+        if (text.isEmpty) continue;
+        final lower = text.toLowerCase();
+        if (labels.contains(lower) ||
+            lower == '•' ||
+            RegExp(r'^\d{4}$').hasMatch(text)) {
+          continue;
+        }
+        return text;
+      }
+    }
+    return null;
   }
 
   Future<_BrowsePages> _collectBrowseSongPages(
@@ -2915,22 +3068,59 @@ class InnerTubeMusicApi {
         break;
       }
     }
-    var duration = 0;
-    for (final run in details) {
-      final d = parseDuration(run['text']?.toString() ?? '');
-      if (d != null) {
-        duration = d;
-        break;
-      }
-    }
     return YouTubeMusicTrack(
       videoId: videoId,
       title: title,
       artist: artist,
       album: album,
       artworkUrl: _rendererArtwork(r),
-      durationSeconds: duration,
+      durationSeconds: _durationFromRenderer(r),
     );
+  }
+
+  /// Duration lives in different places depending on the page:
+  /// search rows often use `text.simpleText` on a flex/fixed column,
+  /// album pages use `runs` on `fixedColumns`, queue panels use
+  /// `lengthText`. Any `m:ss` / `h:mm:ss` token wins.
+  int _durationFromRenderer(Map<String, dynamic> r) {
+    int? fromText(Object? text) {
+      if (text is String) return parseDuration(text);
+      if (text is! Map) return null;
+      final simple = text['simpleText']?.toString();
+      if (simple != null) {
+        final d = parseDuration(simple);
+        if (d != null) return d;
+      }
+      final runs = text['runs'];
+      if (runs is List) {
+        for (final run in runs.whereType<Map>()) {
+          final d = parseDuration(run['text']?.toString() ?? '');
+          if (d != null) return d;
+        }
+      }
+      return null;
+    }
+
+    for (final key in const ['flexColumns', 'fixedColumns']) {
+      final cols = r[key];
+      if (cols is! List) continue;
+      for (final col in cols.whereType<Map>()) {
+        for (final renderer in col.values) {
+          if (renderer is! Map) continue;
+          final d = fromText(renderer['text']);
+          if (d != null) return d;
+        }
+      }
+    }
+    final length = fromText(r['lengthText']);
+    if (length != null) return length;
+    final overlays = <Map<String, dynamic>>[];
+    _collectObjects(r, 'thumbnailOverlayTimeStatusRenderer', overlays);
+    for (final o in overlays) {
+      final d = fromText(o['text']);
+      if (d != null) return d;
+    }
+    return 0;
   }
 
   List<YouTubeMusicEntity> _parseEntityRenderers(

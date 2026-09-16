@@ -6,6 +6,8 @@ import '../../core/artwork/official_artwork_service.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
+export '../../core/artwork/artwork_resolver.dart' show ArtworkKind;
+
 /// Canonical artwork primitive — pure image, no dashboard borders.
 ///
 /// All artwork flows through [ArtworkResolver]: URL normalization, per-
@@ -14,6 +16,13 @@ import '../theme/wave_icons.dart';
 /// fallback chain (primary → [fallbackUrls] → generated tonal visual).
 /// Rapid track switches carry a generation counter so stale requests can
 /// never overwrite the current image. No stars, no generic error icons.
+///
+/// Official-source upgrade: when the primary URL is NOT from an official
+/// store CDN (YouTube video still, Last.fm crowd photo, …) and the widget
+/// carries title/artist metadata, the official cover/photo is resolved in
+/// the background (iTunes store covers for tracks/albums, Deezer press
+/// photos for artists) and hot-swapped in — the original image keeps
+/// showing until then and remains as fallback.
 class WaveArtwork extends StatefulWidget {
   final String url;
   final String videoId;
@@ -24,6 +33,11 @@ class WaveArtwork extends StatefulWidget {
   final String label;
   final String title;
   final String artist;
+
+  /// Optional content hint: [ArtworkKind.album] resolves via the album
+  /// catalog (exact collection match), [ArtworkKind.artist] via artist
+  /// photos. Defaults to artist when [isCircle], else track.
+  final ArtworkKind? kind;
 
   const WaveArtwork({
     super.key,
@@ -36,6 +50,7 @@ class WaveArtwork extends StatefulWidget {
     this.label = '',
     this.title = '',
     this.artist = '',
+    this.kind,
   });
 
   const WaveArtwork.circle({
@@ -48,7 +63,8 @@ class WaveArtwork extends StatefulWidget {
     this.title = '',
     this.artist = '',
   })  : radius = 999,
-        isCircle = true;
+        isCircle = true,
+        kind = ArtworkKind.artist;
 
   @override
   State<WaveArtwork> createState() => _WaveArtworkState();
@@ -63,6 +79,13 @@ class _WaveArtworkState extends State<WaveArtwork> {
   String? _handledError;
   String? _resolvedUrl;
   bool _isResolving = false;
+  bool _upgradeAttempted = false;
+  bool _resolveFailed = false;
+
+  /// Effective content kind: explicit hint, else circle ⇒ artist.
+  ArtworkKind get _kind =>
+      widget.kind ??
+      (widget.isCircle ? ArtworkKind.artist : ArtworkKind.track);
 
   bool _fallbacksEqual(List<String> a, List<String> b) {
     if (identical(a, b)) return true;
@@ -76,6 +99,50 @@ class _WaveArtworkState extends State<WaveArtwork> {
   @override
   void initState() {
     super.initState();
+    OfficialArtworkService.instance.addListener(_onArtworkCache);
+  }
+
+  @override
+  void dispose() {
+    OfficialArtworkService.instance.removeListener(_onArtworkCache);
+    super.dispose();
+  }
+
+  /// Playback / another tile found a studio cover — swap this one too.
+  void _onArtworkCache() {
+    if (!mounted) return;
+    if (_kind == ArtworkKind.artist) return;
+    final title = widget.title.isNotEmpty ? widget.title : widget.label;
+    final artist = widget.artist;
+    if (title.isEmpty) return;
+    final hit = OfficialArtworkService.instance.peekTrack(
+      title: title,
+      artist: artist,
+    );
+    if (hit == null || hit.artworkUrl.isEmpty) return;
+    if (_resolvedUrl == hit.artworkUrl) return;
+    setState(() {
+      _resolvedUrl = hit.artworkUrl;
+      _resolveFailed = false;
+      _isResolving = false;
+      final target =
+          (widget.size * _lastDpr).clamp(64, 1024).toDouble();
+      _chain = ArtworkResolver.resolve(
+        ArtworkRequest(
+          kind: _kind,
+          candidates: [
+            hit.artworkUrl,
+            widget.url,
+            ...widget.fallbackUrls,
+          ],
+          label: widget.label,
+          targetPx: target,
+          videoId: widget.videoId,
+        ),
+      ).urls;
+      _chainIndex = 0;
+      _attempt = 0;
+    });
   }
 
   @override
@@ -103,6 +170,8 @@ class _WaveArtworkState extends State<WaveArtwork> {
           old.artist != widget.artist) {
         _resolvedUrl = null;
         _isResolving = false;
+        _upgradeAttempted = false;
+        _resolveFailed = false;
       }
       _rebuildChain(_lastDpr);
     }
@@ -123,7 +192,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
       ?_resolvedUrl,
     ];
     final req = ArtworkRequest(
-      kind: widget.isCircle ? ArtworkKind.artist : ArtworkKind.track,
+      kind: _kind,
       candidates: candidates,
       label: widget.label,
       targetPx: target,
@@ -131,41 +200,102 @@ class _WaveArtworkState extends State<WaveArtwork> {
     );
     _chain = ArtworkResolver.resolve(req).urls;
 
-    if (_chain.isEmpty && !_isResolving) {
-      _checkAndResolveArtwork();
+    _maybeUpgradeOfficial();
+  }
+
+  /// Proactive official-source upgrade: when the primary image is NOT
+  /// from an official store CDN (YouTube video still, Last.fm crowd
+  /// photo, …) resolve the official cover/photo in the background and
+  /// hot-swap it in. The current image keeps showing until then and
+  /// stays in the chain as fallback if the official source has no match.
+  void _maybeUpgradeOfficial() {
+    if (_upgradeAttempted || _resolveFailed || _isResolving) return;
+    if (_resolvedUrl != null) return;
+    final title = widget.title.isNotEmpty ? widget.title : widget.label;
+    final artist = widget.artist;
+    // Per-kind metadata requirements — a bare label (e.g. a playlist
+    // name) must never trigger a store search that could swap in an
+    // unrelated "official" cover.
+    switch (_kind) {
+      case ArtworkKind.track:
+        if (title.isEmpty || artist.isEmpty) return;
+      case ArtworkKind.album:
+        if (title.isEmpty) return;
+      case ArtworkKind.artist:
+        if (artist.isEmpty && title.isEmpty) return;
     }
+    // Album/track: skip if we already have a store sleeve.
+    // Artist circles: skip only if we already have a Deezer *artist*
+    // press photo — an iTunes album cover is official, but it is the
+    // wrong kind of image for an artist tile.
+    if (_kind == ArtworkKind.artist) {
+      if (OfficialArtworkService.isOfficialArtistPhoto(widget.url)) {
+        return;
+      }
+    } else if (OfficialArtworkService.isOfficialArtwork(widget.url)) {
+      return;
+    }
+    _upgradeAttempted = true;
+    _checkAndResolveArtwork();
   }
 
   void _checkAndResolveArtwork() {
+    if (_isResolving || _resolveFailed) return;
     final title = widget.title.isNotEmpty ? widget.title : widget.label;
     final artist = widget.artist;
     if (title.isEmpty && artist.isEmpty) return;
 
     _isResolving = true;
-    OfficialArtworkService.instance
-        .resolveOfficialArtwork(title: title, artist: artist)
-        .then((res) {
+    final service = OfficialArtworkService.instance;
+    // Route by content kind: artist circles → Deezer press photos,
+    // albums → iTunes album catalog, tracks → iTunes song catalog.
+    final Future<OfficialArtworkResult?> task = switch (_kind) {
+      ArtworkKind.artist => service
+          .resolveArtistArtwork(artist.isNotEmpty ? artist : title),
+      ArtworkKind.album =>
+        service.resolveAlbumArtwork(album: title, artist: artist),
+      ArtworkKind.track =>
+        service.resolveOfficialArtwork(title: title, artist: artist),
+    };
+    task.then((res) {
       if (!mounted) return;
       _isResolving = false;
       if (res != null && res.artworkUrl.isNotEmpty) {
+        final usable = _kind == ArtworkKind.artist
+            ? OfficialArtworkService.isOfficialArtistPhoto(res.artworkUrl)
+            : OfficialArtworkService.isOfficialArtwork(res.artworkUrl);
+        if (!usable) {
+          _resolveFailed = true;
+          return;
+        }
+        if (res.artworkUrl == _resolvedUrl) return;
         setState(() {
           _resolvedUrl = res.artworkUrl;
-          final dpr = _lastDpr;
-          final target = (widget.size * dpr).clamp(64, 1024).toDouble();
+          final target =
+              (widget.size * _lastDpr).clamp(64, 1024).toDouble();
+          // Official URL leads; previous candidates stay as fallbacks.
           final req = ArtworkRequest(
-            kind: widget.isCircle ? ArtworkKind.artist : ArtworkKind.track,
-            candidates: [res.artworkUrl],
+            kind: _kind,
+            candidates: [
+              res.artworkUrl,
+              widget.url,
+              ...widget.fallbackUrls,
+            ],
             label: widget.label,
             targetPx: target,
+            videoId: widget.videoId,
           );
           _chain = ArtworkResolver.resolve(req).urls;
           _chainIndex = 0;
           _attempt = 0;
         });
+      } else {
+        _resolveFailed = true;
       }
     }).catchError((_) {
       if (mounted) {
         _isResolving = false;
+        _resolveFailed = true;
       }
     });
   }

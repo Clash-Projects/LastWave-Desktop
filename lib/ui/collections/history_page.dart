@@ -9,6 +9,7 @@ import '../../features/lastfm/home_repository.dart';
 import '../../features/player/playback_service.dart';
 import '../components/states.dart';
 import '../components/track_row.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
 final _waveHistoryProvider =
@@ -71,8 +72,9 @@ class WaveHistoryPage extends ConsumerWidget {
             'Yesterday',
           if (groups.containsKey('Earlier')) 'Earlier',
         ];
-        return CustomScrollView(
-          slivers: [
+        return WaveEntranceGroup(
+          child: CustomScrollView(
+            slivers: [
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(
@@ -81,7 +83,9 @@ class WaveHistoryPage extends ConsumerWidget {
                   24,
                   4,
                 ),
-                child: Column(
+                child: WaveEntrance(
+                  rise: 10,
+                  child: Column(
                   crossAxisAlignment:
                       CrossAxisAlignment.start,
                   children: [
@@ -107,6 +111,7 @@ class WaveHistoryPage extends ConsumerWidget {
                       showAlbum: false,
                     ),
                   ],
+                  ),
                 ),
               ),
             ),
@@ -125,9 +130,13 @@ class WaveHistoryPage extends ConsumerWidget {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(
                         24, 12, 24, 2),
-                    child: Text(g,
-                        style: WaveType.sectionTitle
-                            .copyWith(fontSize: 13)),
+                    child: WaveEntrance(
+                      index: groups[g]!.first,
+                      rise: 8,
+                      child: Text(g,
+                          style: WaveType.sectionTitle
+                              .copyWith(fontSize: 13)),
+                    ),
                   ),
                 ),
                 SuperSliverList.builder(
@@ -144,7 +153,10 @@ class WaveHistoryPage extends ConsumerWidget {
                               t.timestampMillis!,
                             ),
                           );
-                    return Padding(
+                    return WaveEntrance(
+                      index: i,
+                      rise: 10,
+                      child: Padding(
                       padding:
                           const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -168,6 +180,7 @@ class WaveHistoryPage extends ConsumerWidget {
                           sourceLabel: 'History',
                         ),
                       ),
+                      ),
                     );
                   },
                 ),
@@ -175,7 +188,8 @@ class WaveHistoryPage extends ConsumerWidget {
             const SliverToBoxAdapter(
               child: SizedBox(height: 24),
             ),
-          ],
+            ],
+          ),
         );
       },
     );

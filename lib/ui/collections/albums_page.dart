@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/track_actions.dart' show playGenerated;
 import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart';
+import '../../features/innertube/album_match.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/lastfm/auth_repository.dart' show lastFmApiProvider;
 import '../../features/player/playback_service.dart';
@@ -12,6 +13,7 @@ import '../../features/search/shared_providers.dart' show prefsApiKeyProvider;
 import '../components/artwork.dart';
 import '../components/menus.dart';
 import '../components/states.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -110,24 +112,28 @@ class WaveAlbumsPage extends ConsumerWidget {
                 'Your most-played records will appear here once you scrobble.',
           );
         }
-        return CustomScrollView(
-          slivers: [
+        return WaveEntranceGroup(
+          child: CustomScrollView(
+            slivers: [
             SliverToBoxAdapter(
               child: Padding(
                 padding:
                     const EdgeInsets.fromLTRB(28, 22, 28, 12),
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Text('Albums',
-                        style: WaveType.pageTitle
-                            .copyWith(fontSize: 24)),
-                    Text('${list.length} records',
-                        style: WaveType.meta.copyWith(
-                            color: waveTextSecondary(
-                                context))),
-                  ],
+                child: WaveEntrance(
+                  rise: 10,
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text('Albums',
+                          style: WaveType.pageTitle
+                              .copyWith(fontSize: 24)),
+                      Text('${list.length} records',
+                          style: WaveType.meta.copyWith(
+                              color: waveTextSecondary(
+                                  context))),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -145,13 +151,18 @@ class WaveAlbumsPage extends ConsumerWidget {
                 delegate: SliverChildBuilderDelegate(
                   (context, i) {
                     final a = list[i];
-                    return _AlbumCard(album: a);
+                    return WaveEntrance(
+                      index: i,
+                      rise: 10,
+                      child: _AlbumCard(album: a),
+                    );
                   },
                   childCount: list.length,
                 ),
               ),
             ),
           ],
+          ),
         );
       },
     );
@@ -168,17 +179,25 @@ class _AlbumCard extends ConsumerStatefulWidget {
 class _AlbumCardState extends ConsumerState<_AlbumCard> {
   bool _hover = false;
 
+  Future<String> _resolveBrowseId() async {
+    final a = widget.album;
+    if (a.browseId.isNotEmpty) return a.browseId;
+    try {
+      final results = await ref
+          .read(innerTubeProvider)
+          .searchAlbums('${a.artist} ${a.title}', limit: 6);
+      return pickBestAlbumMatch(results,
+              title: a.title, artist: a.artist)
+              ?.browseId ??
+          '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   Future<void> _open() async {
     final a = widget.album;
-    String bid = a.browseId;
-    if (bid.isEmpty) {
-      try {
-        final results = await ref
-            .read(innerTubeProvider)
-            .searchAlbums('${a.artist} ${a.title}', limit: 3);
-        if (results.isNotEmpty) bid = results.first.browseId;
-      } catch (_) {}
-    }
+    final bid = await _resolveBrowseId();
     if (!mounted) return;
     if (bid.isEmpty) {
       context.go(
@@ -191,27 +210,25 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
   Future<void> _quickPlay() async {
     final a = widget.album;
     try {
-      String bid = a.browseId;
-      if (bid.isEmpty) {
-        final results = await ref
-            .read(innerTubeProvider)
-            .searchAlbums('${a.artist} ${a.title}', limit: 3);
-        if (results.isNotEmpty) bid = results.first.browseId;
-      }
+      final bid = await _resolveBrowseId();
       if (bid.isNotEmpty) {
-        final songs = await ref
+        final album = await ref
             .read(innerTubeProvider)
-            .browseSongs(bid, limit: 50);
+            .browseAlbum(bid, limit: 50);
+        final songs = album?.tracks ?? const [];
         if (songs.isNotEmpty && mounted) {
           final tracks = songs
               .map((t) => GeneratedTrack(
                     name: t.title,
-                    artist:
-                        t.artist.isNotEmpty ? t.artist : a.artist,
+                    artist: t.artist.isNotEmpty &&
+                            t.artist != 'Unknown artist'
+                        ? t.artist
+                        : a.artist,
                     artworkUrl: t.artworkUrl.isNotEmpty
                         ? t.artworkUrl
                         : a.artwork,
                     videoId: t.videoId,
+                    durationSeconds: t.durationSeconds,
                   ))
               .toList();
           await playGenerated(ref, context, tracks.first,
@@ -259,7 +276,10 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                       url: a.artwork,
                       size: 160,
                       radius: 6,
-                      label: a.title),
+                      label: a.title,
+                      title: a.title,
+                      artist: a.artist,
+                      kind: ArtworkKind.album),
                   Positioned.fill(
                     child: AnimatedOpacity(
                       opacity: _hover ? 1 : 0,

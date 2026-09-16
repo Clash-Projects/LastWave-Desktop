@@ -76,4 +76,5 @@ class WaveIcons {
   static const IconData expand = FluentIcons.full_screen;
   static const IconData miniPlayer = FluentIcons.mini_expand;
   static const IconData device = FluentIcons.speakers;
+  static const IconData streamPath = FluentIcons.equalizer;
 }

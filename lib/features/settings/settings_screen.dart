@@ -342,14 +342,6 @@ class _Audio extends ConsumerWidget {
                     'Try lossless first, fall back to Opus',
               ),
               _SwitchLedger(
-                value: prefs.bitPerfect,
-                onChanged: (v) =>
-                    onUpdate((p) => p.setBitPerfect(v)),
-                title: 'Bit-perfect output',
-                subtitle:
-                    'Bypass processing for untouched audio',
-              ),
-              _SwitchLedger(
                 value: prefs.downloadLyrics,
                 onChanged: (v) => onUpdate(
                     (p) => p.setDownloadLyrics(v)),

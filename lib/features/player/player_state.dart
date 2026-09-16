@@ -1,4 +1,5 @@
 import '../../core/audio/stream_models.dart';
+import '../audio_output/pcm_format.dart';
 
 /// Immutable playback snapshot consumed by the UI.
 /// Mirrors Android `MusicPlayerState` (tracker-friendly subset).
@@ -20,6 +21,8 @@ class PlayerSnapshot {
   final Duration? sleepRemaining;
   final int bitrateKbps;
   final double volume;
+  final PcmFormat? outputFormat;
+  final bool outputIsFloat;
 
   const PlayerSnapshot({
     this.current,
@@ -39,6 +42,8 @@ class PlayerSnapshot {
     this.sleepRemaining,
     this.bitrateKbps = 0,
     this.volume = 1.0,
+    this.outputFormat,
+    this.outputIsFloat = false,
   });
 
   PlayerSnapshot copyWith({
@@ -63,6 +68,9 @@ class PlayerSnapshot {
     bool clearSleep = false,
     int? bitrateKbps,
     double? volume,
+    PcmFormat? outputFormat,
+    bool clearOutputFormat = false,
+    bool? outputIsFloat,
   }) =>
       PlayerSnapshot(
         current: clearCurrent ? null : (current ?? this.current),
@@ -83,5 +91,8 @@ class PlayerSnapshot {
             clearSleep ? null : (sleepRemaining ?? this.sleepRemaining),
         bitrateKbps: bitrateKbps ?? this.bitrateKbps,
         volume: volume ?? this.volume,
+        outputFormat:
+            clearOutputFormat ? null : (outputFormat ?? this.outputFormat),
+        outputIsFloat: outputIsFloat ?? this.outputIsFloat,
       );
 }

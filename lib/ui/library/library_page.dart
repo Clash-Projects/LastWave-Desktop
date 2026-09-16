@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/track_actions.dart' show playGenerated;
 import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart';
+import '../../features/innertube/album_match.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/lastfm/auth_repository.dart' show lastFmApiProvider;
 import '../../features/library/playlists.dart';
@@ -15,6 +16,7 @@ import '../components/buttons.dart' show LWTooltip;
 import '../components/menus.dart';
 import '../components/states.dart';
 import '../components/track_row.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -44,8 +46,9 @@ class _WaveLibraryPageState extends ConsumerState<WaveLibraryPage> {
 
   @override
   Widget build(BuildContext context) {
-    return CustomScrollView(
-      slivers: [
+    return WaveEntranceGroup(
+      child: CustomScrollView(
+        slivers: [
         SliverToBoxAdapter(
           child: Padding(
             padding:
@@ -57,19 +60,22 @@ class _WaveLibraryPageState extends ConsumerState<WaveLibraryPage> {
                 child: Row(
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text('Your Library',
-                            style: WaveType.pageTitle
-                                .copyWith(fontSize: 24)),
-                        const SizedBox(height: 2),
-                        Text('Songs, albums, artists and playlists.',
-                            style: WaveType.meta.copyWith(
-                                color: waveTextSecondary(
-                                    context))),
-                      ],
+                    child: WaveEntrance(
+                      rise: 10,
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          Text('Your Library',
+                              style: WaveType.pageTitle
+                                  .copyWith(fontSize: 24)),
+                          const SizedBox(height: 2),
+                          Text('Songs, albums, artists and playlists.',
+                              style: WaveType.meta.copyWith(
+                                  color: waveTextSecondary(
+                                      context))),
+                        ],
+                      ),
                     ),
                   ),
                   GestureDetector(
@@ -138,6 +144,7 @@ class _WaveLibraryPageState extends ConsumerState<WaveLibraryPage> {
           ),
         ),
       ],
+      ),
     );
   }
 }
@@ -374,7 +381,10 @@ class _SongsTab extends ConsumerWidget {
         const SizedBox(height: 6),
         const WaveTrackTableHeader(showAlbum: false),
         for (var i = 0; i < tracks.length; i++)
-          WaveContextMenu(
+          WaveEntrance(
+            index: i,
+            rise: 10,
+            child: WaveContextMenu(
             items: () => waveTrackMenuItems(
               ref: ref,
               title: tracks[i].name,
@@ -396,6 +406,7 @@ class _SongsTab extends ConsumerWidget {
                   queueAll: generated,
                   startIndex: i),
             ),
+          ),
           ),
       ],
     );
@@ -527,11 +538,15 @@ class _AlbumsTab extends ConsumerWidget {
             itemCount: filtered.length,
             itemBuilder: (context, i) {
               final a = filtered[i];
-              return _LibraryAlbumCell(
-                  title: a.title,
-                  artist: a.artist,
-                  art: a.art,
-                  browseId: a.browseId);
+              return WaveEntrance(
+                index: i,
+                rise: 10,
+                child: _LibraryAlbumCell(
+                    title: a.title,
+                    artist: a.artist,
+                    art: a.art,
+                    browseId: a.browseId),
+              );
             },
           );
         }),
@@ -552,8 +567,11 @@ class _AlbumsTab extends ConsumerWidget {
       try {
         final results = await ref
             .read(innerTubeProvider)
-            .searchAlbums('$artist $title', limit: 3);
-        if (results.isNotEmpty) bid = results.first.browseId;
+            .searchAlbums('$artist $title', limit: 6);
+        bid = pickBestAlbumMatch(results,
+                    title: title, artist: artist)
+                ?.browseId ??
+            '';
       } catch (_) {}
     }
     if (!context.mounted) return;
@@ -593,8 +611,11 @@ class _LibraryAlbumCellState
           .read(innerTubeProvider)
           .searchAlbums(
               '${widget.artist} ${widget.title}',
-              limit: 3);
-      if (results.isNotEmpty) return results.first.browseId;
+              limit: 6);
+      return pickBestAlbumMatch(results,
+                  title: widget.title, artist: widget.artist)
+              ?.browseId ??
+          '';
     } catch (_) {}
     return '';
   }
@@ -603,20 +624,23 @@ class _LibraryAlbumCellState
     try {
       final bid = await _browseId();
       if (bid.isNotEmpty) {
-        final songs = await ref
+        final album = await ref
             .read(innerTubeProvider)
-            .browseSongs(bid, limit: 50);
+            .browseAlbum(bid, limit: 50);
+        final songs = album?.tracks ?? const [];
         if (songs.isNotEmpty && mounted) {
           final tracks = songs
               .map((t) => GeneratedTrack(
                     name: t.title,
-                    artist: t.artist.isNotEmpty
+                    artist: t.artist.isNotEmpty &&
+                            t.artist != 'Unknown artist'
                         ? t.artist
                         : widget.artist,
                     artworkUrl: t.artworkUrl.isNotEmpty
                         ? t.artworkUrl
                         : widget.art,
                     videoId: t.videoId,
+                    durationSeconds: t.durationSeconds,
                   ))
               .toList();
           await playGenerated(ref, context, tracks.first,
@@ -655,7 +679,10 @@ class _LibraryAlbumCellState
                     url: widget.art,
                     size: 150,
                     radius: 6,
-                    label: widget.title),
+                    label: widget.title,
+                    title: widget.title,
+                    artist: widget.artist,
+                    kind: ArtworkKind.album),
                 Positioned.fill(
                   child: AnimatedOpacity(
                     opacity: _hover ? 1 : 0,
@@ -802,7 +829,10 @@ class _ArtistsTab extends ConsumerWidget {
             itemCount: filtered.length,
             itemBuilder: (context, i) {
               final a = filtered[i];
-              return GestureDetector(
+              return WaveEntrance(
+                index: i,
+                rise: 10,
+                child: GestureDetector(
                 onTap: () => context.go(
                     '/artist/${Uri.encodeComponent(a.name)}'),
                 child: Column(
@@ -810,7 +840,9 @@ class _ArtistsTab extends ConsumerWidget {
                     WaveArtwork.circle(
                         url: a.art,
                         size: 112,
-                        label: a.name),
+                        label: a.name,
+                        title: a.name,
+                        artist: a.name),
                     const SizedBox(height: 6),
                     Text(a.name,
                         maxLines: 1,
@@ -820,6 +852,7 @@ class _ArtistsTab extends ConsumerWidget {
                             .copyWith(fontSize: 12.5)),
                   ],
                 ),
+              ),
               );
             },
           );
@@ -869,8 +902,12 @@ class _PlaylistsTab extends ConsumerWidget {
                   color: waveTextTertiary(context))),
           const SizedBox(height: 6),
           for (var i = 0; i < customs.length; i++)
-            _PlaylistListRow(
-                playlist: customs[i], index: i + 1),
+            WaveEntrance(
+              index: i,
+              rise: 10,
+              child: _PlaylistListRow(
+                  playlist: customs[i], index: i + 1),
+            ),
         ],
       );
     }
@@ -903,7 +940,10 @@ class _PlaylistsTab extends ConsumerWidget {
               break;
             }
           }
-          return GestureDetector(
+          return WaveEntrance(
+            index: i,
+            rise: 10,
+            child: GestureDetector(
             onTap: () =>
                 context.go('/playlists/${p.id}'),
             child: Column(
@@ -926,6 +966,7 @@ class _PlaylistsTab extends ConsumerWidget {
                         .copyWith(fontSize: 11.5)),
               ],
             ),
+          ),
           );
         },
       );

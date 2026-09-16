@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/track_actions.dart'
-    show playGenerated, playableFromGenerated;
+    show formatDuration, playGenerated, playableFromGenerated;
 import '../../features/downloads/download_manager.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/library/playlists.dart';
@@ -16,6 +16,7 @@ import '../library/library_page.dart'
     show
         showWaveDeletePlaylist,
         showWaveRenamePlaylist;
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -95,7 +96,8 @@ class _WavePlaylistDetailPageState
       }
     }
 
-    return CustomScrollView(
+    return WaveEntranceGroup(
+      child: CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
@@ -105,7 +107,9 @@ class _WavePlaylistDetailPageState
               constraints: const BoxConstraints(
                 maxWidth: WaveDensity.contentMax,
               ),
-              child: Column(
+              child: WaveEntrance(
+                rise: 10,
+                child: Column(
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
@@ -262,6 +266,7 @@ class _WavePlaylistDetailPageState
                   ),
                   const SizedBox(height: 8),
                 ],
+                ),
               ),
             ),
           ),
@@ -286,6 +291,11 @@ class _WavePlaylistDetailPageState
                 albumOf: (_) => '',
                 artworkOf: (t) => t.artworkUrl,
                 playableOf: playableFromGenerated,
+                durationOf: (t) => t.durationSeconds > 0
+                    ? formatDuration(
+                        Duration(seconds: t.durationSeconds))
+                    : '',
+                durationSortOf: (t) => t.durationSeconds,
                 titleSortOf: (t) => t.name.toLowerCase(),
                 artistSortOf: (t) => t.artist.toLowerCase(),
                 isCurrent: (t) => playingKey == t.key,
@@ -317,7 +327,8 @@ class _WavePlaylistDetailPageState
         const SliverToBoxAdapter(
           child: SizedBox(height: 24),
         ),
-      ],
+        ],
+      ),
     );
   }
 }

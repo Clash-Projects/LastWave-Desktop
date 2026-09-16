@@ -286,4 +286,50 @@ void main() {
       expect(LyricsRepository.isBetterCandidate(lineSynced, wordSynced), isFalse);
     });
   });
+
+  group('Lyrics identity matching', () {
+    test('All Caps matches itself, not other Madvillain tracks', () {
+      expect(lyricsTitlesMatch('All Caps', 'All Caps'), isTrue);
+      expect(lyricsTitlesMatch('All Caps', 'ALL CAPS'), isTrue);
+      expect(lyricsTitlesMatch('All Caps', 'Scene Three'), isFalse);
+      expect(lyricsTitlesMatch('All Caps', 'Never Go Pop'), isFalse);
+      expect(lyricsTitlesMatch('All Caps', 'Caps'), isFalse);
+      expect(lyricsTitlesMatch('All Caps', 'All'), isFalse);
+    });
+
+    test('parenthetical cuts do not steal the main track', () {
+      expect(lyricsTitlesMatch('Song (Interlude)', 'Song'), isFalse);
+      expect(lyricsTitlesMatch('Song', 'Song (Album Version)'), isTrue);
+      expect(lyricsTitlesMatch('All Caps', 'All Caps (feat. Doom)'), isTrue);
+    });
+
+    test('artist must be the same act, not a cover', () {
+      expect(lyricsArtistsMatch('Madvillain', 'Madvillain'), isTrue);
+      expect(lyricsArtistsMatch('Madvillain', 'Madvillain & MF DOOM'), isTrue);
+      expect(lyricsArtistsMatch('Madvillain', 'Abstract Orchestra'), isFalse);
+      expect(lyricsArtistsMatch('Madvillain', 'SERAPHINE NOIR'), isFalse);
+    });
+
+    test('instrumental albums are treated as alternate recordings', () {
+      expect(
+        lyricsIsAlternateRecording('All Caps',
+            album: 'Madvillainy Instrumentals'),
+        isTrue,
+      );
+      expect(
+        lyricsIsAlternateRecording('All Caps (Instrumental)', album: 'EP'),
+        isTrue,
+      );
+      expect(
+        lyricsIsAlternateRecording('All Caps', album: 'Madvillainy'),
+        isFalse,
+      );
+    });
+
+    test('duration rejects a 4-minute listing for a 2-minute track', () {
+      expect(lyricsDurationPlausible(132, 138), isTrue);
+      expect(lyricsDurationPlausible(132, 257), isFalse);
+      expect(lyricsDurationPlausible(null, 257), isTrue);
+    });
+  });
 }

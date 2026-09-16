@@ -18,6 +18,7 @@ class GeneratedTrack {
   final String videoId;
   final String listeners;
   final String match;
+  final int durationSeconds;
 
   const GeneratedTrack({
     required this.name,
@@ -26,6 +27,7 @@ class GeneratedTrack {
     this.videoId = '',
     this.listeners = '',
     this.match = '',
+    this.durationSeconds = 0,
   });
 
   String get key => '${name.toLowerCase()}|${artist.toLowerCase()}';
@@ -201,6 +203,9 @@ class FeedRepository {
             videoId: match.videoId,
             listeners: t.listeners,
             match: t.match,
+            durationSeconds: t.durationSeconds > 0
+                ? t.durationSeconds
+                : match.durationSeconds,
           );
         } catch (_) {
           return t;
@@ -247,6 +252,7 @@ class FeedRepository {
                     ? t.artworkUrl
                     : album.artworkUrl,
                 videoId: t.videoId,
+                durationSeconds: t.durationSeconds,
               ))
           .toList();
     } catch (_) {

@@ -12,6 +12,7 @@ import '../components/artwork.dart';
 import '../components/hero.dart';
 import '../components/menus.dart';
 import '../components/states.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -82,12 +83,20 @@ class _WaveDiscoverPageState extends ConsumerState<WaveDiscoverPage> {
             pad;
     final trendCols = viewport < 900 ? 1 : 2;
 
-    return CustomScrollView(
-      slivers: [
+    // One shared WinUI entrance timeline for the page: it starts when
+    // the feed (or the albums feed) lands, so sections cascade together
+    // and lazily-built rows never replay during scroll.
+    return WaveEntranceGroup(
+      start: feed.hasValue || albums.hasValue,
+      child: CustomScrollView(
+        slivers: [
         SliverPadding(
           padding: EdgeInsets.fromLTRB(side, 22, side, 0),
           sliver: SliverToBoxAdapter(
-            child: Column(
+            child: WaveEntrance(
+              local: true,
+              rise: 10,
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
@@ -106,6 +115,7 @@ class _WaveDiscoverPageState extends ConsumerState<WaveDiscoverPage> {
                     style: WaveType.meta.copyWith(
                         color: waveTextSecondary(context))),
               ],
+            ),
             ),
           ),
         ),
@@ -171,7 +181,8 @@ class _WaveDiscoverPageState extends ConsumerState<WaveDiscoverPage> {
             ),
           ),
         ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -181,12 +192,19 @@ class _WaveDiscoverPageState extends ConsumerState<WaveDiscoverPage> {
       slivers.add(SliverToBoxAdapter(child: SizedBox(height: h)));
     }
 
+    // Stagger slots for the page entrance cascade (one per section).
+    var e = 0;
+    int slot() => e++;
+
     if (d.charts.isNotEmpty) {
       gap(18);
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
-          child: _SpotlightHero(track: d.charts.first),
+          child: WaveEntrance(
+            index: slot(),
+            child: _SpotlightHero(track: d.charts.first),
+          ),
         ),
       ));
     }
@@ -196,11 +214,15 @@ class _WaveDiscoverPageState extends ConsumerState<WaveDiscoverPage> {
       gap(26);
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
-        sliver: const SliverToBoxAdapter(
-          child: _DiscoverHead(
+        sliver: SliverToBoxAdapter(
+          child: WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: const _DiscoverHead(
             kicker: 'Charts',
             title: 'Trending Now',
             subtitle: 'Ranked by the charts feed right now.',
+          ),
           ),
         ),
       ));
@@ -214,11 +236,15 @@ class _WaveDiscoverPageState extends ConsumerState<WaveDiscoverPage> {
             mainAxisExtent: 58,
           ),
           delegate: SliverChildBuilderDelegate(
-            (context, i) => _TrendCell(
-              track: trending[i],
-              rank: i + 1,
-              queueAll: trending,
+            (context, i) => WaveEntrance(
               index: i,
+              rise: 10,
+              child: _TrendCell(
+                track: trending[i],
+                rank: i + 1,
+                queueAll: trending,
+                index: i,
+              ),
             ),
             childCount: trending.length,
           ),
@@ -230,18 +256,26 @@ class _WaveDiscoverPageState extends ConsumerState<WaveDiscoverPage> {
     slivers.add(SliverPadding(
       padding: EdgeInsets.only(left: side, right: side),
       sliver: SliverToBoxAdapter(
-        child: _DiscoverHead(
+        child: WaveEntrance(
+          index: slot(),
+          rise: 8,
+          child: const _DiscoverHead(
           kicker: 'Moods',
           title: 'Genres & Moods',
           subtitle:
               'Artwork from what is charting — tap a tile to search it.',
+        ),
         ),
       ),
     ));
     slivers.add(SliverPadding(
       padding: EdgeInsets.only(left: side, right: side, top: 10),
       sliver: SliverToBoxAdapter(
-        child: _GenreMosaic(charts: d.charts),
+        child: WaveEntrance(
+          index: slot(),
+          rise: 10,
+          child: _GenreMosaic(charts: d.charts),
+        ),
       ),
     ));
 
@@ -315,7 +349,12 @@ class _SpotlightHero extends ConsumerWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          WaveArtwork(url: track.artworkUrl, size: artSize, radius: 6),
+          WaveArtwork(
+              url: track.artworkUrl,
+              size: artSize,
+              radius: 6,
+              title: track.name,
+              artist: track.artist),
           const SizedBox(width: 18),
           Expanded(
             child: Column(
@@ -458,7 +497,12 @@ class _TrendCell extends ConsumerWidget {
                               : WaveColors.lightTextTertiary),
                     )),
               ),
-              WaveArtwork(url: track.artworkUrl, size: 42, radius: 6),
+              WaveArtwork(
+                  url: track.artworkUrl,
+                  size: 42,
+                  radius: 6,
+                  title: track.name,
+                  artist: track.artist),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -768,7 +812,11 @@ class _NewReleasesExplorer extends StatelessWidget {
           });
         }
         final shown = items.take(10).toList();
-        return Column(
+        // Own provider timeline — animate locally when this section lands.
+        return WaveEntrance(
+          local: true,
+          rise: 10,
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 26),
@@ -829,7 +877,12 @@ class _NewReleasesExplorer extends StatelessWidget {
                             WaveArtwork(
                                 url: a.artworkUrl,
                                 size: 136,
-                                radius: 6),
+                                radius: 6,
+                                title: a.name,
+                                artist: a.artist.isNotEmpty
+                                    ? a.artist
+                                    : a.subtitle,
+                                kind: ArtworkKind.album),
                             const SizedBox(height: 6),
                             Text(a.name,
                                 maxLines: 1,
@@ -855,6 +908,7 @@ class _NewReleasesExplorer extends StatelessWidget {
                 ),
               ),
           ],
+          ),
         );
       },
     );
@@ -909,15 +963,22 @@ class _PopularShelves extends ConsumerWidget {
     if (artists.isEmpty && extraAlbums.isEmpty && rotation.isEmpty) {
       return const SizedBox.shrink();
     }
+    // Stagger slots for the shelf cascade (one per section head).
+    var e = 0;
+    int slot() => e++;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (extraAlbums.isNotEmpty) ...[
           const SizedBox(height: 26),
-          const _DiscoverHead(
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: const _DiscoverHead(
             kicker: 'Catalogue',
             title: 'Popular Albums',
             subtitle: 'More from the new-releases feed.',
+          ),
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -929,7 +990,10 @@ class _PopularShelves extends ConsumerWidget {
                   const SizedBox(width: 12),
               itemBuilder: (context, i) {
                 final a = extraAlbums[i];
-                return GestureDetector(
+                return WaveEntrance(
+                  index: i,
+                  rise: 10,
+                  child: GestureDetector(
                   onTap: () {
                     if (a.browseId.isNotEmpty) {
                       context.go(
@@ -945,7 +1009,12 @@ class _PopularShelves extends ConsumerWidget {
                         WaveArtwork(
                             url: a.artworkUrl,
                             size: 136,
-                            radius: 6),
+                            radius: 6,
+                            title: a.name,
+                            artist: a.artist.isNotEmpty
+                                ? a.artist
+                                : a.subtitle,
+                            kind: ArtworkKind.album),
                         const SizedBox(height: 6),
                         Text(a.name,
                             maxLines: 1,
@@ -963,6 +1032,7 @@ class _PopularShelves extends ConsumerWidget {
                       ],
                     ),
                   ),
+                ),
                 );
               },
             ),
@@ -970,10 +1040,14 @@ class _PopularShelves extends ConsumerWidget {
         ],
         if (rotation.isNotEmpty) ...[
           const SizedBox(height: 26),
-          const _DiscoverHead(
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: const _DiscoverHead(
             kicker: 'Rotation',
             title: 'Popular Right Now',
             subtitle: 'Heavy rotation from your taste blend.',
+          ),
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -985,7 +1059,10 @@ class _PopularShelves extends ConsumerWidget {
                   const SizedBox(width: 14),
               itemBuilder: (context, i) {
                 final t = rotation[i];
-                return GestureDetector(
+                return WaveEntrance(
+                  index: i,
+                  rise: 10,
+                  child: GestureDetector(
                   onTap: () => playGenerated(ref, context, t,
                       sourceLabel: 'Popular right now',
                       queueAll: rotation,
@@ -999,7 +1076,9 @@ class _PopularShelves extends ConsumerWidget {
                         WaveArtwork(
                             url: t.artworkUrl,
                             size: 152,
-                            radius: 6),
+                            radius: 6,
+                            title: t.name,
+                            artist: t.artist),
                         const SizedBox(height: 6),
                         Text(t.name,
                             maxLines: 1,
@@ -1014,6 +1093,7 @@ class _PopularShelves extends ConsumerWidget {
                       ],
                     ),
                   ),
+                ),
                 );
               },
             ),
@@ -1021,10 +1101,14 @@ class _PopularShelves extends ConsumerWidget {
         ],
         if (artists.isNotEmpty) ...[
           const SizedBox(height: 26),
-          const _DiscoverHead(
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: const _DiscoverHead(
             kicker: 'Voices',
             title: 'Popular Artists',
             subtitle: 'Most present across charts and rotation.',
+          ),
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -1036,7 +1120,10 @@ class _PopularShelves extends ConsumerWidget {
                   const SizedBox(width: 16),
               itemBuilder: (context, i) {
                 final a = artists[i];
-                return GestureDetector(
+                return WaveEntrance(
+                  index: i,
+                  rise: 10,
+                  child: GestureDetector(
                   onTap: () => context.go(
                       '/artist/${Uri.encodeComponent(a.name)}'),
                   child: SizedBox(
@@ -1046,7 +1133,11 @@ class _PopularShelves extends ConsumerWidget {
                         Stack(
                           children: [
                             WaveArtwork.circle(
-                                url: a.artwork, size: 120),
+                                url: a.artwork,
+                                size: 120,
+                                label: a.name,
+                                title: a.name,
+                                artist: a.name),
                             Positioned(
                               left: 0,
                               top: 0,
@@ -1081,6 +1172,7 @@ class _PopularShelves extends ConsumerWidget {
                       ],
                     ),
                   ),
+                ),
                 );
               },
             ),

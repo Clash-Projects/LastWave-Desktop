@@ -78,6 +78,16 @@ class Prefs {
   Future<void> setBitPerfect(bool v) =>
       _sp.setBool('lw_bit_perfect', v);
 
+  /// Empty = Windows default render endpoint.
+  String get audioDeviceId => _sp.getString('lw_audio_device_id') ?? '';
+  Future<void> setAudioDeviceId(String v) =>
+      _sp.setString('lw_audio_device_id', v);
+
+  bool get wasapiExclusive =>
+      _sp.getBool('lw_wasapi_exclusive') ?? false;
+  Future<void> setWasapiExclusive(bool v) =>
+      _sp.setBool('lw_wasapi_exclusive', v);
+
   bool get downloadLyrics => _sp.getBool('lw_download_lyrics') ?? true;
   Future<void> setDownloadLyrics(bool v) =>
       _sp.setBool('lw_download_lyrics', v);

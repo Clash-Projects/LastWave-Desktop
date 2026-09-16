@@ -7,11 +7,15 @@ import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../features/player/playback_service.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import 'artwork.dart';
 import 'buttons.dart' show LWTooltip;
 import 'menus.dart';
+
+const _kDurationCol = 72.0;
+const _kRowActions = 60.0;
 
 // two_dimensional_scrollables evaluation (Agent 6):
 // NOT added. The table scrolls on one axis only (vertical); columns are
@@ -50,6 +54,13 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
   final String Function(T item) albumOf;
   final String Function(T item) artworkOf;
   final PlayableTrack Function(T item) playableOf;
+
+  /// When set, row art is resolved as this kind (album pages must pass
+  /// [ArtworkKind.album] so every row shares the album cover instead of
+  /// looking up each track and swapping in a single/video still).
+  final ArtworkKind? artworkKind;
+  final String Function(T item)? artworkTitleOf;
+  final String Function(T item)? artworkArtistOf;
 
   /// Display strings. Quality/date columns render only when provided.
   final String Function(T item)? durationOf;
@@ -100,6 +111,9 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
     required this.artworkOf,
     required this.playableOf,
     required this.onPlay,
+    this.artworkKind,
+    this.artworkTitleOf,
+    this.artworkArtistOf,
     this.durationOf,
     this.qualityOf,
     this.dateAddedOf,
@@ -416,7 +430,12 @@ class _WaveDesktopTableState<T extends Object>
     final item = widget.items[index];
     final current = widget.isCurrent?.call(item) ?? false;
     final playing = widget.isPlaying?.call(item) ?? false;
-    return _TableRow<T>(
+    // Staggered WinUI entrance: driven by the page's WaveEntranceGroup
+    // timeline, so rows built lazily during scroll render fully visible.
+    return WaveEntrance(
+      index: index,
+      rise: 10,
+      child: _TableRow<T>(
       index: index,
       hovered: _hover == index,
       focused: _focusIndex == index,
@@ -435,6 +454,11 @@ class _WaveDesktopTableState<T extends Object>
       showAdded: showAdded,
       duration: widget.durationOf?.call(item) ?? '',
       artworkUrl: widget.artworkOf(item),
+      artworkKind: widget.artworkKind,
+      artworkTitle: widget.artworkTitleOf?.call(item) ??
+          widget.titleOf(item),
+      artworkArtist: widget.artworkArtistOf?.call(item) ??
+          widget.subtitleOf(item),
       showLike: widget.showLike,
       liked: widget.isLiked?.call(item) ?? false,
       onHover: (v) => setState(
@@ -460,6 +484,7 @@ class _WaveDesktopTableState<T extends Object>
                 ? null
                 : () => widget.onRemove!(index),
           ),
+      ),
     );
   }
 }
@@ -564,9 +589,9 @@ class _HeaderRow extends StatelessWidget {
           if (showQuality)
             cell('QUALITY', -1, false, width: 64),
           if (showAdded) cell('ADDED', 4, sortableAdded, width: 92),
-          const SizedBox(width: 60),
+          const SizedBox(width: _kRowActions),
           cell('DURATION', 3, sortableDuration,
-              width: 44, numeric: true),
+              width: _kDurationCol, numeric: true),
         ],
       ),
     );
@@ -619,6 +644,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
   final bool showAdded;
   final String duration;
   final String artworkUrl;
+  final ArtworkKind? artworkKind;
+  final String artworkTitle;
+  final String artworkArtist;
   final bool showLike;
   final bool liked;
   final void Function(bool) onHover;
@@ -646,6 +674,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
     required this.showAdded,
     required this.duration,
     required this.artworkUrl,
+    this.artworkKind,
+    this.artworkTitle = '',
+    this.artworkArtist = '',
     required this.showLike,
     required this.liked,
     required this.onHover,
@@ -738,8 +769,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
               // 40px art, radius 4, hover play overlay.
               _ArtPlay(
                 url: artworkUrl,
-                title: title,
-                artist: artist,
+                title: artworkTitle.isNotEmpty ? artworkTitle : title,
+                artist: artworkArtist.isNotEmpty ? artworkArtist : artist,
+                kind: artworkKind,
                 hovered: hovered,
                 playing: playing,
                 onPlay: onPlayOverlay,
@@ -840,11 +872,14 @@ class _TableRow<T extends Object> extends StatelessWidget {
                   ),
                 ),
               // Hover-only like + more.
-              AnimatedOpacity(
+              SizedBox(
+                width: _kRowActions,
+                child: AnimatedOpacity(
                 duration: WaveMotion.fast,
                 opacity: (hovered || current || liked) ? 1 : 0,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     if (showLike && onToggleLike != null)
                       _HoverGlyph(
@@ -861,12 +896,13 @@ class _TableRow<T extends Object> extends StatelessWidget {
                   ],
                 ),
               ),
+              ),
               SizedBox(
-                width: 44,
+                width: _kDurationCol,
                 child: Text(
                   duration,
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  overflow: TextOverflow.clip,
                   textAlign: TextAlign.right,
                   style: WaveType.meta.copyWith(
                     fontFeatures: const [
@@ -890,6 +926,7 @@ class _ArtPlay extends StatelessWidget {
   final String url;
   final String title;
   final String artist;
+  final ArtworkKind? kind;
   final bool hovered;
   final bool playing;
   final VoidCallback onPlay;
@@ -897,6 +934,7 @@ class _ArtPlay extends StatelessWidget {
     required this.url,
     this.title = '',
     this.artist = '',
+    this.kind,
     required this.hovered,
     required this.playing,
     required this.onPlay,
@@ -914,6 +952,7 @@ class _ArtPlay extends StatelessWidget {
             title: title,
             artist: artist,
             label: title,
+            kind: kind,
           ),
           if (hovered || playing)
             Positioned.fill(

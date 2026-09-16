@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../components/buttons.dart' show LWTooltip;
 import '../theme/haze.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'destinations.dart';
 
@@ -41,35 +42,67 @@ class WaveSideRail extends StatelessWidget {
         duration: WaveMotion.normal,
         curve: WaveMotion.standard,
         width: width,
-      child: Column(
+      // The rail persists across navigation, so this group's timeline
+      // runs exactly once — a startup cascade for the destinations.
+      child: WaveEntranceGroup(
+        child: Column(
         children: [
           const SizedBox(height: 6),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 6),
               children: [
-                for (final d in waveListenDestinations)
-                  _RailItem(
-                    destination: d,
-                    expanded: expanded,
-                    selected: active == d.path,
-                    onTap: () => onGo(d.path),
+                // One-shot startup cascade — standalone entrances run once
+                // on mount; in-place rebuilds (selection/hover) never replay.
+                for (var i = 0; i < waveListenDestinations.length; i++)
+                  WaveEntrance(
+                    index: i,
+                    rise: 6,
+                    child: _RailItem(
+                      destination: waveListenDestinations[i],
+                      expanded: expanded,
+                      selected: active == waveListenDestinations[i].path,
+                      onTap: () =>
+                          onGo(waveListenDestinations[i].path),
+                    ),
                   ),
-                _RailSeparator(expanded: expanded),
-                for (final d in waveCollectionDestinations)
-                  _RailItem(
-                    destination: d,
-                    expanded: expanded,
-                    selected: active == d.path,
-                    onTap: () => onGo(d.path),
+                WaveEntrance(
+                  index: waveListenDestinations.length,
+                  rise: 4,
+                  child: _RailSeparator(expanded: expanded),
+                ),
+                for (var i = 0; i < waveCollectionDestinations.length; i++)
+                  WaveEntrance(
+                    index: waveListenDestinations.length + i,
+                    rise: 6,
+                    child: _RailItem(
+                      destination: waveCollectionDestinations[i],
+                      expanded: expanded,
+                      selected:
+                          active == waveCollectionDestinations[i].path,
+                      onTap: () =>
+                          onGo(waveCollectionDestinations[i].path),
+                    ),
                   ),
-                _RailSeparator(expanded: expanded),
-                for (final d in waveOfflineDestinations)
-                  _RailItem(
-                    destination: d,
-                    expanded: expanded,
-                    selected: active == d.path,
-                    onTap: () => onGo(d.path),
+                WaveEntrance(
+                  index: waveListenDestinations.length +
+                      waveCollectionDestinations.length,
+                  rise: 4,
+                  child: _RailSeparator(expanded: expanded),
+                ),
+                for (var i = 0; i < waveOfflineDestinations.length; i++)
+                  WaveEntrance(
+                    index: waveListenDestinations.length +
+                        waveCollectionDestinations.length +
+                        i,
+                    rise: 6,
+                    child: _RailItem(
+                      destination: waveOfflineDestinations[i],
+                      expanded: expanded,
+                      selected: active == waveOfflineDestinations[i].path,
+                      onTap: () =>
+                          onGo(waveOfflineDestinations[i].path),
+                    ),
                   ),
               ],
             ),
@@ -79,18 +112,26 @@ class WaveSideRail extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             color: waveDivider(context),
           ),
-          for (final d in waveSystemDestinations)
+          for (var i = 0; i < waveSystemDestinations.length; i++)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: _RailItem(
-                destination: d,
-                expanded: expanded,
-                selected: active == d.path,
-                onTap: () => onGo(d.path),
+              child: WaveEntrance(
+                index: waveListenDestinations.length +
+                    waveCollectionDestinations.length +
+                    waveOfflineDestinations.length +
+                    i,
+                rise: 6,
+                child: _RailItem(
+                  destination: waveSystemDestinations[i],
+                  expanded: expanded,
+                  selected: active == waveSystemDestinations[i].path,
+                  onTap: () => onGo(waveSystemDestinations[i].path),
+                ),
               ),
             ),
           const SizedBox(height: 8),
         ],
+      ),
       ),
       ),
     );

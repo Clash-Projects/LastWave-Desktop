@@ -11,6 +11,7 @@ import '../../features/lastfm/auth_repository.dart';
 import '../../ui/theme/fluent_theme.dart';
 import '../../ui/theme/haze.dart';
 import '../player/playback_service.dart';
+import '../audio_output/output_controller.dart';
 import 'theme_controller.dart';
 
 /// LastWave desktop application root.
@@ -50,6 +51,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     Future.microtask(() {
       try {
         ref.read(playbackServiceProvider.notifier).ensurePlayer();
+        ref.read(audioOutputProvider.notifier).attach();
       } catch (_) {}
     });
   }

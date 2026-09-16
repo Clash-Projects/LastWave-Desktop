@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/track_actions.dart'
-    show playGenerated, playableFromGenerated;
+    show formatDuration, playGenerated, playableFromGenerated;
 import '../../../features/feed/feed_repository.dart';
 import '../../../features/innertube/innertube_api.dart';
 import '../../../features/lastfm/auth_repository.dart'
@@ -16,6 +16,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, WaveChip, WaveGhostButton, WavePrimaryButton;
 import '../components/desktop_table.dart';
 import '../components/states.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -91,6 +92,7 @@ final _artistDetailProvider = FutureProvider.autoDispose
               artworkUrl:
                   t.artworkUrl.isNotEmpty ? t.artworkUrl : art,
               videoId: t.videoId,
+              durationSeconds: t.durationSeconds,
             ))
         .toList();
   } catch (_) {}
@@ -103,7 +105,8 @@ final _artistDetailProvider = FutureProvider.autoDispose
               artist: t.artist.isNotEmpty ? t.artist : q,
               artworkUrl:
                   t.artworkUrl.isNotEmpty ? t.artworkUrl : art,
-              videoId: t.videoId))
+              videoId: t.videoId,
+              durationSeconds: t.durationSeconds))
           .toList();
     } catch (_) {}
   }
@@ -197,7 +200,8 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
         final visiblePopular = _showAllPopular
             ? d.popular
             : d.popular.take(5).toList();
-        return ListView(
+        return WaveEntranceGroup(
+          child: ListView(
           padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
           children: [
             ConstrainedBox(
@@ -206,7 +210,9 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  LayoutBuilder(builder: (context, c) {
+                  WaveEntrance(
+                    rise: 10,
+                    child: LayoutBuilder(builder: (context, c) {
                     final meta = Column(
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
@@ -275,7 +281,9 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                           WaveArtwork.circle(
                               url: d.artwork,
                               size: 140,
-                              label: d.name),
+                              label: d.name,
+                              title: d.name,
+                              artist: d.name),
                           const SizedBox(height: 16),
                           meta,
                         ],
@@ -288,12 +296,15 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                         WaveArtwork.circle(
                             url: d.artwork,
                             size: 168,
-                            label: d.name),
+                            label: d.name,
+                            title: d.name,
+                            artist: d.name),
                         const SizedBox(width: 22),
                         Expanded(child: meta),
                       ],
                     );
-                  }),
+                    }),
+                  ),
                   if (d.popular.isNotEmpty) ...[
                     const SizedBox(height: 26),
                     Row(
@@ -323,6 +334,11 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                       albumOf: (_) => '',
                       artworkOf: (t) => t.artworkUrl,
                       playableOf: playableFromGenerated,
+                      durationOf: (t) => t.durationSeconds > 0
+                          ? formatDuration(
+                              Duration(seconds: t.durationSeconds))
+                          : '',
+                      durationSortOf: (t) => t.durationSeconds,
                       titleSortOf: (t) => t.name.toLowerCase(),
                       artistSortOf: (t) => t.artist.toLowerCase(),
                       isCurrent: (t) => playingKey == t.key,
@@ -359,14 +375,19 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                             const SizedBox(width: 12),
                         itemBuilder: (context, i) {
                           final a = d.albums[i];
-                          return _ArtistAlbumCard(
-                            artworkUrl: a.artworkUrl,
-                            title: a.name,
-                            subtitle: a.subtitle,
-                            width: 136,
-                            artSize: 136,
-                            onTap: () => context.go(
-                                '/album/${Uri.encodeComponent(a.browseId)}'),
+                          return WaveEntrance(
+                            index: i,
+                            rise: 10,
+                            child: _ArtistAlbumCard(
+                              artworkUrl: a.artworkUrl,
+                              title: a.name,
+                              subtitle: a.subtitle,
+                              width: 136,
+                              artSize: 136,
+                              artist: d.name,
+                              onTap: () => context.go(
+                                  '/album/${Uri.encodeComponent(a.browseId)}'),
+                            ),
                           );
                         },
                       ),
@@ -386,15 +407,20 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                             const SizedBox(width: 12),
                         itemBuilder: (context, i) {
                           final a = d.singles[i];
-                          return _ArtistAlbumCard(
-                            artworkUrl: a.artworkUrl,
-                            title: a.name,
-                            subtitle: '',
-                            width: 118,
-                            artSize: 118,
-                            titleSize: 12,
-                            onTap: () => context.go(
-                                '/album/${Uri.encodeComponent(a.browseId)}'),
+                          return WaveEntrance(
+                            index: i,
+                            rise: 10,
+                            child: _ArtistAlbumCard(
+                              artworkUrl: a.artworkUrl,
+                              title: a.name,
+                              subtitle: '',
+                              width: 118,
+                              artSize: 118,
+                              titleSize: 12,
+                              artist: d.name,
+                              onTap: () => context.go(
+                                  '/album/${Uri.encodeComponent(a.browseId)}'),
+                            ),
                           );
                         },
                       ),
@@ -446,6 +472,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
               ),
             ),
           ],
+          ),
         );
       },
     );
@@ -461,6 +488,7 @@ class _ArtistAlbumCard extends StatefulWidget {
   final double artSize;
   final double titleSize;
   final VoidCallback onTap;
+  final String artist;
   const _ArtistAlbumCard({
     required this.artworkUrl,
     required this.title,
@@ -469,6 +497,7 @@ class _ArtistAlbumCard extends StatefulWidget {
     required this.artSize,
     this.titleSize = 12.5,
     required this.onTap,
+    this.artist = '',
   });
   @override
   State<_ArtistAlbumCard> createState() => _ArtistAlbumCardState();
@@ -536,7 +565,10 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
                           url: widget.artworkUrl,
                           size: widget.artSize,
                           radius: WaveRadius.artwork,
-                          label: widget.title),
+                          label: widget.title,
+                          title: widget.title,
+                          artist: widget.artist,
+                          kind: ArtworkKind.album),
                       if (_hover)
                         Positioned.fill(
                           child: Container(
