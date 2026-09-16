@@ -568,7 +568,14 @@ class _FeaturedHero extends ConsumerWidget {
               ),
             ],
           ),
-          child: WaveArtwork(url: track.artworkUrl, size: artSize, radius: 8),
+          child: WaveArtwork(
+            url: track.artworkUrl,
+            size: artSize,
+            radius: 8,
+            title: track.name,
+            artist: track.artist,
+            label: track.name,
+          ),
         ),
         const SizedBox(width: 20),
         Expanded(
@@ -757,7 +764,13 @@ class _HeroCompanionState extends ConsumerState<_HeroCompanion> {
               Stack(
                 children: [
                   WaveArtwork(
-                      url: widget.track.artworkUrl, size: 44, radius: 6),
+                    url: widget.track.artworkUrl,
+                    size: 44,
+                    radius: 6,
+                    title: widget.track.name,
+                    artist: widget.track.artist,
+                    label: widget.track.name,
+                  ),
                   if (_hover)
                     Positioned.fill(
                       child: Container(
@@ -897,7 +910,13 @@ class _QuickTileState extends ConsumerState<_QuickTile> {
               Stack(
                 children: [
                   WaveArtwork(
-                      url: widget.track.artworkUrl, size: 48, radius: 6),
+                    url: widget.track.artworkUrl,
+                    size: 48,
+                    radius: 6,
+                    title: widget.track.name,
+                    artist: widget.track.artist,
+                    label: widget.track.name,
+                  ),
                   if (_hover || playing)
                     Positioned.fill(
                       child: Container(
@@ -1019,7 +1038,13 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
               Stack(
                 children: [
                   WaveArtwork(
-                      url: widget.track.artworkUrl, size: 140, radius: 6),
+                    url: widget.track.artworkUrl,
+                    size: 140,
+                    radius: 6,
+                    title: widget.track.name,
+                    artist: widget.track.artist,
+                    label: widget.track.name,
+                  ),
                   if (_hover)
                     Positioned.fill(
                       child: Container(
@@ -1136,7 +1161,13 @@ class _MixCardState extends ConsumerState<_MixCard> {
               Stack(
                 children: [
                   WaveArtwork(
-                      url: widget.track.artworkUrl, size: 220, radius: 8),
+                    url: widget.track.artworkUrl,
+                    size: 220,
+                    radius: 8,
+                    title: widget.track.name,
+                    artist: widget.track.artist,
+                    label: widget.track.name,
+                  ),
                   Positioned.fill(
                     child: Container(
                       decoration: BoxDecoration(
@@ -1285,7 +1316,13 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
               Stack(
                 children: [
                   WaveArtwork(
-                      url: widget.track.artworkUrl, size: 152, radius: 6),
+                    url: widget.track.artworkUrl,
+                    size: 152,
+                    radius: 6,
+                    title: widget.track.name,
+                    artist: widget.track.artist,
+                    label: widget.track.name,
+                  ),
                   if (_hover)
                     Positioned.fill(
                       child: Container(
@@ -1389,7 +1426,14 @@ class _ChartRow extends ConsumerWidget {
                               : WaveColors.lightTextTertiary),
                     )),
               ),
-              WaveArtwork(url: track.artworkUrl, size: 42, radius: 6),
+              WaveArtwork(
+                url: track.artworkUrl,
+                size: 42,
+                radius: 6,
+                title: track.name,
+                artist: track.artist,
+                label: track.name,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -1454,7 +1498,14 @@ class _FreshRow extends ConsumerWidget {
           color: Colors.transparent,
           child: Row(
             children: [
-              WaveArtwork(url: track.artworkUrl, size: 40, radius: 6),
+              WaveArtwork(
+                url: track.artworkUrl,
+                size: 40,
+                radius: 6,
+                title: track.name,
+                artist: track.artist,
+                label: track.name,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -1527,9 +1578,13 @@ class _NewReleasesDense extends ConsumerWidget {
                             CrossAxisAlignment.start,
                         children: [
                           WaveArtwork(
-                              url: a.artworkUrl,
-                              size: 124,
-                              radius: 6),
+                            url: a.artworkUrl,
+                            size: 124,
+                            radius: 6,
+                            title: a.name,
+                            artist: a.artist.isNotEmpty ? a.artist : a.subtitle,
+                            label: a.name,
+                          ),
                           const SizedBox(height: 5),
                           Text(a.name,
                               maxLines: 1,
@@ -1624,9 +1679,12 @@ class _ArtistTileState extends State<_ArtistTile> {
                   ),
                 ),
                 child: WaveArtwork.circle(
-                    url: widget.track.artworkUrl,
-                    size: 112,
-                    label: widget.track.artist),
+                  url: widget.track.artworkUrl,
+                  size: 112,
+                  label: widget.track.artist,
+                  title: widget.track.artist,
+                  artist: widget.track.artist,
+                ),
               ),
               const SizedBox(height: 8),
               Text(widget.track.artist,
@@ -1664,9 +1722,13 @@ class _FriendsStrip extends StatelessWidget {
                 Stack(
                   children: [
                     WaveArtwork(
-                        url: tracks[i].artworkUrl,
-                        size: 44,
-                        radius: WaveRadius.artwork),
+                      url: tracks[i].artworkUrl,
+                      size: 44,
+                      radius: WaveRadius.artwork,
+                      title: tracks[i].name,
+                      artist: tracks[i].artist,
+                      label: tracks[i].name,
+                    ),
                     Positioned(
                       right: 0,
                       bottom: 0,

@@ -738,6 +738,8 @@ class _TableRow<T extends Object> extends StatelessWidget {
               // 40px art, radius 4, hover play overlay.
               _ArtPlay(
                 url: artworkUrl,
+                title: title,
+                artist: artist,
                 hovered: hovered,
                 playing: playing,
                 onPlay: onPlayOverlay,
@@ -886,11 +888,15 @@ class _TableRow<T extends Object> extends StatelessWidget {
 
 class _ArtPlay extends StatelessWidget {
   final String url;
+  final String title;
+  final String artist;
   final bool hovered;
   final bool playing;
   final VoidCallback onPlay;
   const _ArtPlay({
     required this.url,
+    this.title = '',
+    this.artist = '',
     required this.hovered,
     required this.playing,
     required this.onPlay,
@@ -901,7 +907,14 @@ class _ArtPlay extends StatelessWidget {
       onTap: onPlay,
       child: Stack(
         children: [
-          WaveArtwork(url: url, size: WaveDensity.trackArt, radius: 4),
+          WaveArtwork(
+            url: url,
+            size: WaveDensity.trackArt,
+            radius: 4,
+            title: title,
+            artist: artist,
+            label: title,
+          ),
           if (hovered || playing)
             Positioned.fill(
               child: Container(
@@ -1016,15 +1029,17 @@ class _HoverGlyphState extends State<_HoverGlyph> {
             : (dark
                 ? WaveColors.textTertiary
                 : WaveColors.lightTextTertiary);
-    final glyph = AnimatedScale(
-      scale: _hover ? 1.15 : 1.0,
-      duration: WaveMotion.fast,
-      curve: Curves.easeOutCubic,
-      child: Container(
-        width: 30,
-        height: 36,
-        color: Colors.transparent,
-        child: Icon(widget.icon, size: 14, color: color),
+    final glyph = Container(
+      width: 30,
+      height: 36,
+      color: Colors.transparent,
+      child: Center(
+        child: AnimatedScale(
+          scale: _hover ? 1.15 : 1.0,
+          duration: WaveMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: Icon(widget.icon, size: 14, color: color),
+        ),
       ),
     );
     final hovered = MouseRegion(

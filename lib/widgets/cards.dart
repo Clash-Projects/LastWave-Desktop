@@ -60,6 +60,8 @@ class MediaCard extends StatelessWidget {
       child: _HoverPlayCard(
         artworkUrl: artworkUrl,
         size: width,
+        title: title,
+        artist: subtitle,
         onPlay: onPlay ?? onTap,
       ),
     );
@@ -111,10 +113,14 @@ class MediaCard extends StatelessWidget {
 class _HoverPlayCard extends StatefulWidget {
   final String artworkUrl;
   final double size;
+  final String title;
+  final String artist;
   final VoidCallback? onPlay;
   const _HoverPlayCard({
     required this.artworkUrl,
     required this.size,
+    this.title = '',
+    this.artist = '',
     this.onPlay,
   });
 
@@ -136,6 +142,9 @@ class _HoverPlayCardState extends State<_HoverPlayCard> {
             url: widget.artworkUrl,
             size: widget.size,
             radius: WaveRadius.artwork,
+            title: widget.title,
+            artist: widget.artist,
+            label: widget.title,
           ),
           Positioned.fill(
             child: AnimatedOpacity(
@@ -196,6 +205,9 @@ class ArtistCard extends StatelessWidget {
                   WaveArtwork.circle(
                     url: artworkUrl,
                     size: 112,
+                    label: name,
+                    title: name,
+                    artist: name,
                   ),
                   if (rank != null)
                     Positioned(
@@ -299,6 +311,9 @@ class _QuickPickTileState extends State<QuickPickTile> {
                     url: widget.artworkUrl,
                     size: 44,
                     radius: WaveRadius.artwork,
+                    title: widget.title,
+                    artist: widget.subtitle,
+                    label: widget.title,
                   ),
                   if (_hover || widget.playing)
                     Positioned.fill(

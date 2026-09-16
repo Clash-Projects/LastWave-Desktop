@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app/window.dart';
+import 'core/artwork/official_artwork_service.dart';
 import 'core/storage/app_database.dart';
 import 'core/storage/prefs.dart';
 import 'features/settings/app.dart';
@@ -28,6 +29,7 @@ Future<void> main(List<String> args) async {
   // Secrets are compiled in (obfuscated) via `dart tool/obfuscate_secrets.dart`.
   final prefs = await Prefs.load();
   final database = await AppDatabase.open();
+  OfficialArtworkService.instance.init(db: database);
 
   await setupWindow();
 

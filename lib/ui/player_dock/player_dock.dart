@@ -8,6 +8,7 @@ import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
+import '../../widgets/ambient.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, LWVolumeSlider;
 import '../components/menus.dart';
@@ -60,15 +61,33 @@ class WavePlayerDock extends ConsumerWidget {
         )));
     final notifier = ref.read(playbackServiceProvider.notifier);
     final current = player.current;
+    final artworkUrl = player.current?.artworkUrl ?? '';
+    final dockTint = ref.watch(artworkSeedProvider(artworkUrl)).valueOrNull;
 
-    return WaveHaze(
-      level: LwHazeLevel.l1,
-      base: dark
+    final targetBase = () {
+      final baseColor = dark
           ? WaveColors.dockTranslucent
-          : WaveColors.lightSurface.withValues(alpha: 0.97),
-      border: Border(
-        top: BorderSide(color: waveDivider(context)),
-      ),
+          : WaveColors.lightSurface.withValues(alpha: 0.97);
+      if (dockTint != null && dark) {
+        return Color.lerp(baseColor, dockTint, 0.05) ?? baseColor;
+      }
+      return baseColor;
+    }();
+
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(begin: targetBase, end: targetBase),
+      duration: WaveMotion.normal,
+      curve: Curves.easeOutCubic,
+      builder: (context, animatedBase, child) {
+        return WaveHaze(
+          level: LwHazeLevel.l1,
+          base: animatedBase ?? targetBase,
+          border: Border(
+            top: BorderSide(color: waveDivider(context)),
+          ),
+          child: child!,
+        );
+      },
       child: SizedBox(
         height: WaveDensity.dock,
         child: Padding(

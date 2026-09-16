@@ -178,6 +178,34 @@ class Prefs {
       await _sp.setInt('lw_scrobble_percent', percent.clamp(25, 90));
     }
   }
+
+  // -- Desktop-app Parity (Karaoke Lyrics & Visualizer & CD Mode) ------------
+  int getLyricsOffset(String trackKey) =>
+      _sp.getInt('lw_lyrics_offset_$trackKey') ?? 0;
+
+  Future<void> setLyricsOffset(String trackKey, int offsetMs) =>
+      _sp.setInt('lw_lyrics_offset_$trackKey', offsetMs);
+
+  Future<void> resetLyricsOffset(String trackKey) =>
+      _sp.remove('lw_lyrics_offset_$trackKey');
+
+  bool get lyricsTransliteration =>
+      _sp.getBool('lw_lyrics_transliteration') ?? true;
+
+  Future<void> setLyricsTransliteration(bool v) =>
+      _sp.setBool('lw_lyrics_transliteration', v);
+
+  bool get visualizerEnabled =>
+      _sp.getBool('lw_visualizer_enabled') ?? true;
+
+  Future<void> setVisualizerEnabled(bool v) =>
+      _sp.setBool('lw_visualizer_enabled', v);
+
+  bool get cdMode =>
+      _sp.getBool('lw_cd_mode') ?? false;
+
+  Future<void> setCdMode(bool v) =>
+      _sp.setBool('lw_cd_mode', v);
 }
 
 final prefsProvider = Provider<Prefs>((_) {

@@ -381,5 +381,42 @@ class AppDatabase {
     } catch (_) {}
   }
 
+  // -- artwork cache ---------------------------------------------------
+
+  Map<String, String>? loadArtworkEntry(String cacheKey) {
+    try {
+      final rows = _db.select(
+        'SELECT url, provider FROM artwork_cache WHERE cache_key = ?;',
+        [cacheKey],
+      );
+      if (rows.isEmpty) return null;
+      return {
+        'url': rows.first['url'] as String,
+        'provider': rows.first['provider'] as String,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void saveArtworkEntry({
+    required String cacheKey,
+    required String url,
+    String provider = 'official',
+  }) {
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      _db.execute(
+        'INSERT INTO artwork_cache(cache_key, url, provider, timestamp_millis) '
+        'VALUES(?, ?, ?, ?) '
+        'ON CONFLICT(cache_key) DO UPDATE SET '
+        'url = excluded.url, '
+        'provider = excluded.provider, '
+        'timestamp_millis = excluded.timestamp_millis;',
+        [cacheKey, url, provider, now],
+      );
+    } catch (_) {}
+  }
+
   void close() => _db.close();
 }

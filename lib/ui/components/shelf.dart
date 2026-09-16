@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/ambient.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import 'artwork.dart';
@@ -214,6 +215,9 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
+    final seedColor =
+        ref.watch(artworkSeedProvider(widget.artworkUrl)).valueOrNull ??
+            const Color(0xFF232838);
     return WaveContextMenu(
       items: widget.artist.isEmpty && widget.videoId.isEmpty
           ? () => const []
@@ -240,6 +244,7 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
           onTapUp: (_) => setState(() => _pressed = false),
           onTapCancel: () => setState(() => _pressed = false),
           onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -248,18 +253,24 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
                 duration: WaveMotion.fast,
                 curve: Curves.easeOutCubic,
                 child: AnimatedContainer(
-                  duration: WaveMotion.fast,
+                  duration: WaveMotion.normal,
                   curve: Curves.easeOutCubic,
                   decoration: BoxDecoration(
                     borderRadius: WaveRadius.artworkRadius,
                     boxShadow: [
-                      if (_hover)
+                      if (_hover) ...[
                         BoxShadow(
                           color: Colors.black.withValues(
                               alpha: dark ? 0.45 : 0.18),
                           blurRadius: 16,
                           offset: const Offset(0, 6),
                         ),
+                        BoxShadow(
+                          color: seedColor.withValues(alpha: 0.20),
+                          blurRadius: 16,
+                          spreadRadius: 2,
+                        ),
+                      ],
                     ],
                   ),
                   child: Stack(
@@ -387,6 +398,7 @@ class _WaveArtistCardState extends State<WaveArtistCard> {
         onTapUp: (_) => setState(() => _pressed = false),
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
         child: Column(
           children: [
             AnimatedScale(
@@ -480,6 +492,7 @@ class _WaveQuickTileState extends ConsumerState<WaveQuickTile> {
         onTapUp: (_) => setState(() => _pressed = false),
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
         child: AnimatedScale(
           scale: _pressed ? 0.98 : (_hover ? 1.02 : 1.0),
           duration: WaveMotion.fast,

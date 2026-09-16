@@ -189,6 +189,9 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
                   videoId: widget.videoId,
                   size: WaveDensity.trackArt,
                   radius: 6,
+                  title: widget.title,
+                  artist: widget.artist,
+                  label: widget.title,
                 ),
                 const SizedBox(width: 12),
                 Expanded(

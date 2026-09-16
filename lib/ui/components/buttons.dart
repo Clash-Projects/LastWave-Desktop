@@ -8,8 +8,9 @@ import '../theme/wave_icons.dart';
 ///
 /// - 38px hit areas, 16-20px glyphs, optical alignment.
 /// - Native hover / pressed / disabled / focus via Fluent ButtonStyle.
+/// - Smooth spring / cubic micro-interactions.
 /// - Tooltips on every icon-only control.
-class WaveIconButton extends StatelessWidget {
+class WaveIconButton extends StatefulWidget {
   final String tooltip;
   final Widget icon;
   final VoidCallback? onPressed;
@@ -25,16 +26,28 @@ class WaveIconButton extends StatelessWidget {
   });
 
   @override
+  State<WaveIconButton> createState() => _WaveIconButtonState();
+}
+
+class _WaveIconButtonState extends State<WaveIconButton> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final accent = waveAccent(context);
     final dark = waveIsDark(context);
+    final disabled = widget.onPressed == null;
+
     final style = ButtonStyle(
       padding: const WidgetStatePropertyAll(
         EdgeInsets.all(9),
       ),
       backgroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.isDisabled) return Colors.transparent;
-        if (filled && selected) return accent.withValues(alpha: 0.22);
+        if (widget.filled && widget.selected) {
+          return accent.withValues(alpha: 0.22);
+        }
         if (states.isPressed) {
           return (dark ? Colors.white : Colors.black)
               .withValues(alpha: WaveState.pressedAlpha);
@@ -43,7 +56,7 @@ class WaveIconButton extends StatelessWidget {
           return (dark ? Colors.white : Colors.black)
               .withValues(alpha: WaveState.hoverAlpha);
         }
-        if (selected) return accent.withValues(alpha: 0.14);
+        if (widget.selected) return accent.withValues(alpha: 0.14);
         return Colors.transparent;
       }),
       foregroundColor: WidgetStateProperty.resolveWith((states) {
@@ -53,7 +66,7 @@ class WaveIconButton extends StatelessWidget {
                   : WaveColors.lightTextTertiary)
               .withValues(alpha: 0.5);
         }
-        if (selected) return accent;
+        if (widget.selected) return accent;
         return dark
             ? WaveColors.textSecondary
             : WaveColors.lightTextSecondary;
@@ -65,24 +78,44 @@ class WaveIconButton extends StatelessWidget {
         ),
       ),
     );
-    final button = SizedBox(
-      width: WaveDensity.hitArea,
-      height: WaveDensity.hitArea,
-      child: IconButton(
-        icon: icon,
-        onPressed: onPressed,
-        style: style,
+
+    final button = MouseRegion(
+      cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: Listener(
+        onPointerDown: disabled ? null : (_) => setState(() => _pressed = true),
+        onPointerUp: disabled ? null : (_) => setState(() => _pressed = false),
+        onPointerCancel: disabled ? null : (_) => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: disabled ? 1.0 : (_pressed ? 0.93 : (_hover ? 1.05 : 1.0)),
+          duration: WaveMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: SizedBox(
+            width: WaveDensity.hitArea,
+            height: WaveDensity.hitArea,
+            child: IconButton(
+              icon: widget.icon,
+              onPressed: widget.onPressed,
+              style: style,
+            ),
+          ),
+        ),
       ),
     );
+
     return LWTooltip(
-      message: tooltip,
+      message: widget.tooltip,
       child: button,
     );
   }
 }
 
 /// Large circular transport button (play/pause only).
-class WavePlayButton extends StatelessWidget {
+class WavePlayButton extends StatefulWidget {
   final bool playing;
   final bool buffering;
   final bool large;
@@ -98,59 +131,104 @@ class WavePlayButton extends StatelessWidget {
   });
 
   @override
+  State<WavePlayButton> createState() => _WavePlayButtonState();
+}
+
+class _WavePlayButtonState extends State<WavePlayButton> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final accent = waveAccent(context);
     final dark = waveIsDark(context);
     // Black glyph on light (off-white) accents, white on dark ones.
     final onAccent =
         accent.computeLuminance() > 0.5 ? Colors.black : Colors.white;
-    final size = large ? 48.0 : 40.0;
-    final glyphSize = large ? 22.0 : 19.0;
-    return LWTooltip(
-      message: playing ? 'Pause' : 'Play',
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: FilledButton(
-          onPressed: onPressed,
-          style: ButtonStyle(
-            padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-            backgroundColor: WidgetStateProperty.resolveWith((states) {
-              if (states.isDisabled) {
-                return (dark ? Colors.white : Colors.black)
-                    .withValues(alpha: 0.08);
-              }
-              if (states.isPressed) return accent.withValues(alpha: 0.85);
-              if (states.isHovered) return accent.withValues(alpha: 0.92);
-              return accent;
-            }),
-            foregroundColor: WidgetStatePropertyAll(onAccent),
-            shape: const WidgetStatePropertyAll(
-              RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(999)),
+    final size = widget.large ? 48.0 : 40.0;
+    final glyphSize = widget.large ? 22.0 : 19.0;
+    final disabled = widget.onPressed == null;
+
+    final button = MouseRegion(
+      cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: Listener(
+        onPointerDown: disabled ? null : (_) => setState(() => _pressed = true),
+        onPointerUp: disabled ? null : (_) => setState(() => _pressed = false),
+        onPointerCancel: disabled ? null : (_) => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: disabled ? 1.0 : (_pressed ? 0.92 : (_hover ? 1.06 : 1.0)),
+          duration: WaveMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: FilledButton(
+              onPressed: widget.onPressed,
+              style: ButtonStyle(
+                padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                backgroundColor: WidgetStateProperty.resolveWith((states) {
+                  if (states.isDisabled) {
+                    return (dark ? Colors.white : Colors.black)
+                        .withValues(alpha: 0.08);
+                  }
+                  if (states.isPressed) return accent.withValues(alpha: 0.85);
+                  if (states.isHovered) return accent.withValues(alpha: 0.92);
+                  return accent;
+                }),
+                foregroundColor: WidgetStatePropertyAll(onAccent),
+                shape: const WidgetStatePropertyAll(
+                  RoundedRectangleBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(999)),
+                  ),
+                ),
+              ),
+              child: Center(
+                child: widget.buffering
+                    ? SizedBox(
+                        width: glyphSize,
+                        height: glyphSize,
+                        child: ProgressRing(
+                          strokeWidth: 2.5,
+                          activeColor: onAccent,
+                          backgroundColor:
+                              onAccent.withValues(alpha: 0.25),
+                        ),
+                      )
+                    : AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        transitionBuilder: (child, animation) =>
+                            ScaleTransition(
+                          scale: CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.easeOutBack,
+                          ),
+                          child: FadeTransition(
+                            opacity: animation,
+                            child: child,
+                          ),
+                        ),
+                        child: Icon(
+                          widget.playing ? WaveIcons.pause : WaveIcons.play,
+                          key: ValueKey(widget.playing),
+                          size: glyphSize,
+                          color: onAccent,
+                        ),
+                      ),
               ),
             ),
           ),
-          child: Center(
-            child: buffering
-                ? SizedBox(
-                    width: glyphSize,
-                    height: glyphSize,
-                    child: ProgressRing(
-                      strokeWidth: 2.5,
-                      activeColor: onAccent,
-                      backgroundColor:
-                          onAccent.withValues(alpha: 0.25),
-                    ),
-                  )
-                : Icon(
-                    playing ? WaveIcons.pause : WaveIcons.play,
-                    size: glyphSize,
-                    color: onAccent,
-                  ),
-          ),
         ),
       ),
+    );
+
+    return LWTooltip(
+      message: widget.playing ? 'Pause' : 'Play',
+      child: button,
     );
   }
 }
@@ -387,22 +465,24 @@ class LWProgressSlider extends StatelessWidget {
   }
 }
 
-/// Canonical volume slider: 3px track, 84px wide, 10px thumb on hover only.
+/// Canonical volume slider: 3px track, configurable width (defaults to 84px), 10px thumb on hover only.
 class LWVolumeSlider extends StatelessWidget {
   final double value;
   final ValueChanged<double>? onChanged;
   final ValueChanged<double>? onChangeEnd;
+  final double width;
   const LWVolumeSlider({
     super.key,
     required this.value,
     this.onChanged,
     this.onChangeEnd,
+    this.width = 84,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 84,
+      width: width,
       child: _WaveSliderBase(
         value: value,
         onChanged: onChanged,

@@ -116,9 +116,11 @@ class ArtworkResolver {
       final n = normalize(raw);
       if (n == null) continue;
       final host = Uri.parse(n).host;
-      final youtube = ['ytimg.com', 'googleusercontent.com', 'ggpht.com']
+      final isYoutube = ['ytimg.com', 'googleusercontent.com', 'ggpht.com']
           .any((domain) => host == domain || host.endsWith('.$domain'));
-      final target = youtube ? primary : fallback;
+      // High-authority official artwork CDNs (Apple/iTunes, Qobuz, Spotify, Deezer)
+      // take primary priority; YouTube video stills and thumbnails are fallbacks.
+      final target = isYoutube ? fallback : primary;
       target.add(sized(n, request.targetPx));
       target.add(n);
       if (host == 'i.ytimg.com' || host.endsWith('.ytimg.com')) {
@@ -126,7 +128,7 @@ class ArtworkResolver {
         if (uri.pathSegments.length == 3) {
           final id = uri.pathSegments[1];
           if (RegExp(r'^[\w-]{11}$').hasMatch(id)) {
-            target.add('https://i.ytimg.com/vi/$id/hqdefault.jpg');
+            fallback.add('https://i.ytimg.com/vi/$id/hqdefault.jpg');
           }
         }
       }
@@ -134,9 +136,9 @@ class ArtworkResolver {
     final id = request.videoId.trim();
     if (RegExp(r'^[\w-]{11}$').hasMatch(id)) {
       if (request.targetPx >= 400) {
-        primary.add('https://i.ytimg.com/vi/$id/maxresdefault.jpg');
+        fallback.add('https://i.ytimg.com/vi/$id/maxresdefault.jpg');
       }
-      primary.add('https://i.ytimg.com/vi/$id/hqdefault.jpg');
+      fallback.add('https://i.ytimg.com/vi/$id/hqdefault.jpg');
     }
     final urls = {...primary, ...fallback}.toList();
     return ResolvedArtwork(urls, isFallback: urls.isEmpty);
@@ -147,7 +149,13 @@ class ArtworkResolver {
   static String? normalize(String raw) {
     var s = raw.trim().replaceAll(RegExp(r'\s+'), '');
     if (s.isEmpty) return null;
-    if (_badTokens.contains(s.toLowerCase())) return null;
+    final lower = s.toLowerCase();
+    if (_badTokens.contains(lower)) return null;
+    if (lower.contains('2a96cbd8') ||
+        lower.contains('default_album') ||
+        lower.contains('noimage')) {
+      return null;
+    }
     if (s.startsWith('//')) s = 'https:$s';
     Uri? uri;
     try {
@@ -187,11 +195,31 @@ class ArtworkResolver {
     'mzstatic.com',
     'apple.com',
     'i.scdn.co',
+    'qobuz.com',
+    'static.qobuz.com',
   ];
 
   /// Pick an appropriate rendition for recognized patterns only.
   static String sized(String url, double targetPx) {
     final px = targetPx.clamp(64, 1024).round();
+    // Apple Music / iTunes: is1-ssl.mzstatic.com or apple.com /100x100bb.jpg or /{w}x{h}bb.jpg
+    if (url.contains('mzstatic.com') || url.contains('apple.com')) {
+      var next = url.replaceAllMapped(
+        RegExp(r'\d+x\d+bb'),
+        (_) => '${px}x${px}bb',
+      );
+      next = next
+          .replaceAll('{w}', '$px')
+          .replaceAll('{h}', '$px')
+          .replaceAll('{f}', 'jpg');
+      return next;
+    }
+    // Qobuz: static.qobuz.com/images/covers/..._\d+.jpg
+    if (url.contains('qobuz.com')) {
+      if (px >= 400) {
+        return url.replaceAll(RegExp(r'_\d+\.jpg$'), '_600.jpg');
+      }
+    }
     // googleusercontent / ggpht: =wX-hY[-c] or /wX-hY/.
     if (url.contains('googleusercontent.com') ||
         url.contains('ggpht.com')) {

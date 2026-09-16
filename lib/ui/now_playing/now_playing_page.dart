@@ -1,67 +1,80 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 import 'package:fluent_ui/fluent_ui.dart' hide RepeatMode;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../theme/wave_icons.dart';
 
 import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
-import '../../design_system/fluent/lw_viewport.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/library/playlists.dart';
+import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
-import '../theme/haze.dart';
 import '../../widgets/ambient.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip;
+import '../components/buttons.dart' show LWTooltip, LWVolumeSlider;
 import '../components/menus.dart';
 import '../components/states.dart';
-import '../lyrics/lyrics_panel.dart';
-import '../queue/queue_panel.dart' show QueueBodyPublic;
+import '../queue/queue_panel.dart';
 import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
-/// Dedicated Now Playing — visual centerpiece with strict scroll ownership.
+/// Centerpiece Fullscreen Player — Apple Music Split View & Cinematic Centering.
 ///
-/// ```
-/// ┌─────────────────────────────────────────────┐
-/// │ mode segmented (fixed)                      │
-/// ├───────────────────┬─────────────────────────┤
-/// │ ARTWORK + META +  │ LYRICS / CONTEXT        │
-/// │ CONTROLS (fixed,  │ (independently          │
-/// │ art fits viewport)│  scrollable)            │
-/// └───────────────────┴─────────────────────────┘
-/// ```
-/// Left never forces whole-screen scroll: artwork derives from
-/// constraints (`LwViewport.artworkFor`). Right owns its scroll.
-/// Now Playing, Lyrics, and Queue share one fixed transport area.
+/// Mirrored directly from `desktop-app`'s `#fullscreen-cover-overlay`:
+/// - 2-Column Split: Left media column (Large artwork, title/artist, Up Next,
+///   timeline, transport, volume) + Right karaoke lyrics column.
+/// - Cinematic Centering: Smoothly animates the artwork and controls to center
+///   when lyrics are toggled off.
+/// - Top Actions: Lyrics toggle, Queue drawer toggle, Visualizer toggle, Close button.
+/// - Inactivity Auto-Hide: Fades controls and hides cursor after 3.5s of idle mouse.
 class WaveNowPlayingPage extends ConsumerStatefulWidget {
   const WaveNowPlayingPage({super.key});
+
   @override
-  ConsumerState<WaveNowPlayingPage> createState() =>
-      _WaveNowPlayingPageState();
+  ConsumerState<WaveNowPlayingPage> createState() => _WaveNowPlayingPageState();
 }
 
 class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
-  // now | lyrics | queue — three primary modes only. Default shows the
-  // complete essentials without scrolling (art, title, artist, album /
-  // quality, actions, progress, transport, lyrics preview).
-  String _pane = 'now';
+  bool _lyricsVisible = true;
+  bool _queueVisible = false;
+  bool _controlsIdle = false;
+  Timer? _idleTimer;
   String _preloadedKey = '';
 
-  String get _normPane => switch (_pane) {
-        'overview' || 'details' || 'artwork' => 'now',
-        'up next' => 'queue',
-        _ => _pane,
-      };
+  @override
+  void initState() {
+    super.initState();
+    _resetIdleTimer();
+  }
+
+  @override
+  void dispose() {
+    _idleTimer?.cancel();
+    super.dispose();
+  }
+
+  void _resetIdleTimer() {
+    if (_controlsIdle) {
+      setState(() => _controlsIdle = false);
+    }
+    _idleTimer?.cancel();
+    _idleTimer = Timer(const Duration(milliseconds: 3500), () {
+      if (mounted) {
+        setState(() => _controlsIdle = true);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final current = ref.watch(
       playbackServiceProvider.select((s) => s.current),
     );
-    // Preload current + next artwork off the critical path (deduped,
-    // best-effort). The select returns stable string keys (not a fresh
-    // List) so 1Hz position ticks don't rebuild this page (perf audit).
+
     final upcomingKeys = ref.watch(
       playbackServiceProvider.select((s) {
         final q = s.queue;
@@ -72,6 +85,9 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
         return (a, b);
       }),
     );
+
+    final visualizerEnabled = ref.watch(visualizerEnabledProvider);
+
     if (current == null) {
       return Center(
         child: ConstrainedBox(
@@ -87,6 +103,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
         ),
       );
     }
+
     if (current.queueKey != _preloadedKey) {
       _preloadedKey = current.queueKey;
       final warm = [
@@ -101,543 +118,425 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
         });
       }
     }
-    final pane = _normPane;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Canonical compact breakpoint (900): content-aware, not window.
-        // At 1024 window with expanded rail, content is ~824 → narrow.
-        // At 1024 with collapsed rail, content is ~964 → wide. Correct.
-        final wide = constraints.maxWidth > 900;
-        if (wide) {
-          final gutter = LwViewport.pageGutter(constraints.maxWidth);
-          return _WideSplit(
-            gutter: gutter,
-            pane: pane,
-            onPane: (v) => setState(() => _pane = v),
-            maxHeight: constraints.maxHeight,
-            maxWidth: constraints.maxWidth,
-          );
-        }
-        // Narrow: artwork derives from BOTH width and height so the
-        // essentials (art + transport) fit without scrolling the page.
-        final narrowArt = LwViewport.artworkFor(
-          availableHeight: constraints.maxHeight,
-          availableWidth: constraints.maxWidth,
-          reservedForMetadata: 380,
-          desired: (constraints.maxWidth - 40).clamp(220.0, 340.0).toDouble(),
-          min: 160,
-          max: 320,
-          widthRatio: 0.9,
-        );
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_queueVisible) {
+            setState(() => _queueVisible = false);
+          } else {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/home');
+            }
+          }
+        },
+      },
+      child: MouseRegion(
+        cursor: _controlsIdle ? SystemMouseCursors.none : SystemMouseCursors.basic,
+        onHover: (_) => _resetIdleTimer(),
+        child: Stack(
           children: [
-            if (pane != 'now') Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-              child: _CompactHeader(track: current),
+            // Background Visualizer
+            Positioned.fill(
+              child: _NowAmbient(artworkUrl: current.artworkUrl),
             ),
-            const SizedBox(height: 12),
-            Center(
-              child: _ModeSegmented(
-                pane: pane,
-                onPane: (v) => setState(() => _pane = v),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: Padding(
-                padding:
-                    const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                child: pane == 'now'
-                    ? Column(
-                        children: [
-                          Expanded(
-                            child: SingleChildScrollView(
-                              physics: const ClampingScrollPhysics(),
-                              child: Center(
-                                child: ConstrainedBox(
-                                  constraints: const BoxConstraints(maxWidth: 480),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    children: [
-                                      Center(
-                                        child: SizedBox(
-                                          width: narrowArt,
-                                          child: _MainColumn(
-                                            artSize: narrowArt,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 24),
-                                      const _LyricPreviewStatic(),
-                                      const SizedBox(height: 16),
-                                    ],
-                                  ),
-                                ),
-                              ),
+
+            // Main Layout Content
+            Positioned.fill(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth > 860;
+
+                  return Column(
+                    children: [
+                      // Top Actions Bar (Fadeable on idle)
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 350),
+                        opacity: _controlsIdle ? 0.0 : 1.0,
+                        child: ExcludeFocus(
+                          excluding: _controlsIdle,
+                          child: IgnorePointer(
+                            ignoring: _controlsIdle,
+                            child: _TopActionsBar(
+                              lyricsVisible: _lyricsVisible,
+                              queueVisible: _queueVisible,
+                              visualizerEnabled: visualizerEnabled,
+                              onToggleLyrics: () {
+                                _resetIdleTimer();
+                                setState(() => _lyricsVisible = !_lyricsVisible);
+                              },
+                              onToggleQueue: () {
+                                _resetIdleTimer();
+                                setState(() => _queueVisible = !_queueVisible);
+                              },
+                              onToggleVisualizer: () {
+                                _resetIdleTimer();
+                                ref.read(visualizerEnabledProvider.notifier).toggle();
+                              },
+                              onClose: () {
+                                if (context.canPop()) {
+                                  context.pop();
+                                } else {
+                                  context.go('/home');
+                                }
+                              },
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 480),
-                            child: const _PlayerFooter(),
-                          ),
-                        ],
-                      )
-                    : pane == 'lyrics'
-                        ? _ContextCard(
-                            pane: 'lyrics',
-                            onPane: (_) {},
-                            hideTabs: true)
-                        : const QueueBodyPublic(embedded: true),
+                        ),
+                      ),
+
+                      // Body
+                      Expanded(
+                        child: isWide
+                            ? _DesktopDualPane(
+                                track: current,
+                                lyricsVisible: _lyricsVisible,
+                                controlsIdle: _controlsIdle,
+                                maxHeight: constraints.maxHeight - 64,
+                                maxWidth: constraints.maxWidth,
+                              )
+                            : _NarrowCenteredPane(
+                                track: current,
+                                lyricsVisible: _lyricsVisible,
+                                controlsIdle: _controlsIdle,
+                              ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+
+            // Scrim backdrop when queue drawer is active
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: !_queueVisible,
+                child: AnimatedOpacity(
+                  duration: WaveMotion.normal,
+                  curve: Curves.easeOutCubic,
+                  opacity: _queueVisible ? 1.0 : 0.0,
+                  child: GestureDetector(
+                    onTap: () => setState(() => _queueVisible = false),
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.45),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Contextual Queue drawer smoothly sliding from right
+            AnimatedPositioned(
+              duration: WaveMotion.normal,
+              curve: Curves.easeOutCubic,
+              top: 0,
+              bottom: 0,
+              right: _queueVisible ? 0 : -380,
+              width: 360,
+              child: ExcludeFocus(
+                excluding: !_queueVisible,
+                child: IgnorePointer(
+                  ignoring: !_queueVisible,
+                  child: WaveQueuePanel(
+                    onClose: () => setState(() => _queueVisible = false),
+                  ),
+                ),
               ),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 }
 
-class _NowAmbient extends ConsumerWidget {
-  const _NowAmbient();
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final url = ref.watch(
-      playbackServiceProvider.select((s) => s.current?.artworkUrl ?? ''),
-    );
-    if (url.isEmpty) return const SizedBox.shrink();
-    return AmbientWash(artworkUrl: url, height: 320);
-  }
-}
+class _TopActionsBar extends StatelessWidget {
+  final bool lyricsVisible;
+  final bool queueVisible;
+  final bool visualizerEnabled;
+  final VoidCallback onToggleLyrics;
+  final VoidCallback onToggleQueue;
+  final VoidCallback onToggleVisualizer;
+  final VoidCallback onClose;
 
-/// Wide split: fixed mode bar + LEFT fixed artwork pane + RIGHT
-/// independently scrollable context. Artwork derives from constraints
-/// so it NEVER requires whole-screen scroll, never clips, never runs
-/// under the player (shell already reserves dock height).
-class _WideSplit extends StatelessWidget {
-  final double gutter;
-  final String pane;
-  final ValueChanged<String> onPane;
-  final double maxHeight;
-  final double maxWidth;
-  const _WideSplit({
-    required this.gutter,
-    required this.pane,
-    required this.onPane,
-    required this.maxHeight,
-    required this.maxWidth,
+  const _TopActionsBar({
+    required this.lyricsVisible,
+    required this.queueVisible,
+    required this.visualizerEnabled,
+    required this.onToggleLyrics,
+    required this.onToggleQueue,
+    required this.onToggleVisualizer,
+    required this.onClose,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Mode bar (~34) + page padding (22+20) + inter-gap (12).
-    const chromeReserved = 34.0 + 42.0 + 12.0;
-    final rowHeight =
-        (maxHeight - chromeReserved).clamp(320.0, double.infinity).toDouble();
-    final isLyrics = pane == 'lyrics';
-    // Left column: responsive — min(380, 38%) so 900–1300 windows don't
-    // force left scroll; lyrics mode shrinks so words dominate.
-    final contentW = maxWidth - gutter * 2;
-    final leftWidth = isLyrics
-        ? 280.0.clamp(240.0, contentW * 0.32)
-        : (contentW * 0.38).clamp(300.0, 380.0).toDouble();
-    final art = LwViewport.artworkFor(
-      availableHeight: rowHeight,
-      availableWidth: maxWidth,
-      reservedForMetadata: isLyrics ? 260 : 330,
-      desired: isLyrics ? 200 : 360,
-      min: isLyrics ? 160 : 200,
-      max: isLyrics ? 240 : 420,
-      widthRatio: 0.34,
-    );
-    return Stack(
-      children: [
-        const Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: _NowAmbient(),
-        ),
-        Positioned.fill(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(gutter, 22, gutter, 20),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: WaveDensity.contentMax,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(child: Text('Now Playing', style: WaveType.sectionTitle)),
-                        _ModeSegmented(pane: pane, onPane: onPane),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            width: leftWidth,
-                            // LEFT is fixed: art shrinks first via
-                            // LwViewport; transport/actions anchored.
-                            // Only extremely short windows scroll this
-                            // pane — never the whole screen.
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(
-                                  child: SingleChildScrollView(
-                                    physics: const ClampingScrollPhysics(),
-                                    child: _MainColumn(
-                                      artSize: art.clamp(0.0, leftWidth).toDouble(),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                _PlayerFooter(pane: pane),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 24),
-                          Expanded(
-                            child: _ContextCard(
-                              pane: pane,
-                              onPane: onPane,
-                              hideTabs: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Wide artwork mode: centred statement, art constrained by viewport
-/// (never 480px-forced scroll). Single scroll owner, only when needed.
-/// Underline segmented tabs for the wide context card (legacy path —
-/// wide layout now uses [_ModeSegmented] above).
-class _UnderlineTabs extends StatelessWidget {
-  final String pane;
-  final ValueChanged<String> onPane;
-  const _UnderlineTabs({required this.pane, required this.onPane});
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _UTab(
-          label: 'Lyrics',
-          selected: pane == 'lyrics',
-          onTap: () => onPane('lyrics'),
-        ),
-        const SizedBox(width: 20),
-        _UTab(
-          label: 'Up Next',
-          selected: pane == 'queue',
-          onTap: () => onPane('queue'),
-        ),
-      ],
-    );
-  }
-}
-
-class _UTab extends StatefulWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _UTab(
-      {required this.label, required this.selected, required this.onTap});
-  @override
-  State<_UTab> createState() => _UTabState();
-}
-
-class _UTabState extends State<_UTab> {
-  bool _hover = false;
-  @override
-  Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    final accent = waveAccent(context);
-    final color = widget.selected
-        ? (dark
-            ? WaveColors.textPrimary
-            : WaveColors.lightTextPrimary)
-        : _hover
-            ? (dark
-                ? WaveColors.textPrimary
-                : WaveColors.lightTextPrimary)
-            : (dark
-                ? WaveColors.textTertiary
-                : WaveColors.lightTextTertiary);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          padding: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color:
-                    widget.selected ? accent : Colors.transparent,
-                width: 2,
-              ),
-            ),
-          ),
-          child: Text(
-            widget.label,
-            style: WaveType.label.copyWith(color: color),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CompactHeader extends ConsumerWidget {
-  final PlayableTrack track;
-  const _CompactHeader({required this.track});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Row(
-      children: [
-        WaveArtwork(
-          url: track.artworkUrl,
-          videoId: track.videoId,
-          size: 88,
-          radius: WaveRadius.artwork,
-          label: track.title,
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(track.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WaveType.sectionTitle),
-              Text(track.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WaveType.body
-                      .copyWith(color: waveTextSecondary(context))),
-            ],
-          ),
-        ),
-        _LikeGlyph(track: track),
-      ],
-    );
-  }
-}
-
-class _MainColumn extends ConsumerWidget {
-  final double artSize;
-  const _MainColumn({this.artSize = 400});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final current = ref.watch(
-      playbackServiceProvider.select((s) => s.current),
-    )!;
-    final dark = waveIsDark(context);
-    final source = ref.watch(
-      playbackServiceProvider.select((s) => s.sourceLabel),
-    );
-    // Fixed geometry: art reserves its box so metadata/quality arrival
-    // never jumps the layout (spec §24–25).
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (source.isNotEmpty)
-          Text(source.toUpperCase(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: WaveType.overline.copyWith(
-                  fontSize: 9.5,
-                  color: dark
-                      ? WaveColors.textTertiary
-                      : WaveColors.lightTextTertiary)),
-        if (source.isNotEmpty) const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius:
-                BorderRadius.circular(WaveRadius.artwork),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(
-                    alpha: dark ? 0.45 : 0.18),
-                blurRadius: dark ? 32 : 20,
-                offset: const Offset(0, 12),
-              ),
-            ],
-          ),
-          child: WaveArtwork(
-            url: current.artworkUrl,
-            videoId: current.videoId,
-            size: artSize,
-            radius: WaveRadius.artwork,
-            label: current.title,
-          ),
-        ),
-        const SizedBox(height: 18),
-        Text(current.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: WaveType.pageTitle.copyWith(fontSize: 24)),
-        const SizedBox(height: 3),
-        GestureDetector(
-          onTap: () => context.go(
-              '/search?q=${Uri.encodeComponent(current.artist)}'),
-          child: Text(current.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: WaveType.body.copyWith(
-                  fontSize: 15,
-                  color: dark
-                      ? WaveColors.textSecondary
-                      : WaveColors.lightTextSecondary)),
-        ),
-        if (current.album.isNotEmpty)
-          Text(current.album,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: WaveType.meta.copyWith(
-                  color: dark
-                      ? WaveColors.textTertiary
-                      : WaveColors.lightTextTertiary)),
-        const SizedBox(height: 12),
-        const _QualityLine(),
-      ],
-    );
-  }
-}
-
-class _PlayerFooter extends ConsumerWidget {
-  final String pane;
-  const _PlayerFooter({this.pane = 'now'});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final current = ref.watch(
-      playbackServiceProvider.select((state) => state.current),
-    );
-    if (current == null) return const SizedBox.shrink();
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(height: 1, color: waveDivider(context)),
-        const SizedBox(height: 16),
-        const _MainTransport(),
-        const SizedBox(height: 8),
-        Center(
-          child: _MainActions(track: current, pane: pane),
-        ),
-      ],
-    );
-  }
-}
-/// Compact Fluent segmented control — Now Playing / Lyrics / Queue.
-/// Three primary modes only; small, never giant tabs.
-class _ModeSegmented extends StatelessWidget {
-  final String pane;
-  final ValueChanged<String> onPane;
-  const _ModeSegmented({required this.pane, required this.onPane});
-  @override
-  Widget build(BuildContext context) {
-    const modes = [
-      ('now', 'Now Playing'),
-      ('lyrics', 'Lyrics'),
-      ('queue', 'Queue'),
-    ];
-    final dark = waveIsDark(context);
     return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: (dark ? Colors.white : Colors.black)
-            .withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: waveDivider(context)),
-      ),
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          for (var i = 0; i < modes.length; i++) ...[
-            _ModeSeg(
-              label: modes[i].$2,
-              selected: pane == modes[i].$1,
-              onTap: () => onPane(modes[i].$1),
+          LWTooltip(
+            message: 'Back',
+            child: _FsIconButton(
+              icon: FluentIcons.chevron_left,
+              onTap: onClose,
             ),
-            if (i < modes.length - 1) const SizedBox(width: 2),
-          ],
+          ),
+          const Spacer(),
+          LWTooltip(
+            message: lyricsVisible ? 'Hide lyrics' : 'Show lyrics',
+            child: _FsIconButton(
+              icon: WaveIcons.lyrics,
+              active: lyricsVisible,
+              onTap: onToggleLyrics,
+            ),
+          ),
+          const SizedBox(width: 10),
+          LWTooltip(
+            message: queueVisible ? 'Hide queue' : 'Show queue',
+            child: _FsIconButton(
+              icon: WaveIcons.queue,
+              active: queueVisible,
+              onTap: onToggleQueue,
+            ),
+          ),
+          const SizedBox(width: 10),
+          LWTooltip(
+            message: visualizerEnabled ? 'Disable visualizer' : 'Enable visualizer',
+            child: _FsIconButton(
+              icon: WaveIcons.mixes,
+              active: visualizerEnabled,
+              onTap: onToggleVisualizer,
+            ),
+          ),
+          const SizedBox(width: 10),
+          LWTooltip(
+            message: 'Close (Esc)',
+            child: _FsIconButton(
+              icon: WaveIcons.close,
+              onTap: onClose,
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _ModeSeg extends StatefulWidget {
-  final String label;
-  final bool selected;
+class _FsIconButton extends StatefulWidget {
+  final IconData icon;
+  final bool active;
   final VoidCallback onTap;
-  const _ModeSeg(
-      {required this.label, required this.selected, required this.onTap});
+
+  const _FsIconButton({
+    required this.icon,
+    this.active = false,
+    required this.onTap,
+  });
+
   @override
-  State<_ModeSeg> createState() => _ModeSegState();
+  State<_FsIconButton> createState() => _FsIconButtonState();
 }
 
-class _ModeSegState extends State<_ModeSeg> {
+class _FsIconButtonState extends State<_FsIconButton> {
   bool _hover = false;
+
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    final accent = waveAccent(context);
+    final color = widget.active
+        ? accent
+        : _hover
+            ? (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
+            : (dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary);
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: WaveMotion.fast,
-          padding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
-            color: widget.selected
-                ? (dark ? Colors.white : Colors.black)
-                    .withValues(alpha: 0.12)
+            color: widget.active
+                ? accent.withValues(alpha: 0.15)
                 : _hover
-                    ? (dark ? Colors.white : Colors.black)
-                        .withValues(alpha: WaveState.hoverAlpha)
+                    ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.10)
                     : Colors.transparent,
-            borderRadius:
-                BorderRadius.circular(WaveRadius.controls),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: widget.active
+                  ? accent.withValues(alpha: 0.35)
+                  : Colors.transparent,
+            ),
           ),
-          child: Text(
-            widget.label,
-            style: WaveType.label.copyWith(
-              fontSize: 12,
-              fontWeight: widget.selected
-                  ? FontWeight.w700
-                  : FontWeight.w500,
-              color: widget.selected
-                  ? (dark
-                      ? WaveColors.textPrimary
-                      : WaveColors.lightTextPrimary)
-                  : (dark
-                      ? WaveColors.textSecondary
-                      : WaveColors.lightTextSecondary),
+          child: Center(
+            child: Icon(widget.icon, size: 16, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Desktop Dual-Pane split layout with smooth cinematic centering when lyrics are hidden.
+class _DesktopDualPane extends StatelessWidget {
+  final PlayableTrack track;
+  final bool lyricsVisible;
+  final bool controlsIdle;
+  final double maxHeight;
+  final double maxWidth;
+
+  const _DesktopDualPane({
+    required this.track,
+    required this.lyricsVisible,
+    required this.controlsIdle,
+    required this.maxHeight,
+    required this.maxWidth,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Symmetrical desktop dual pane layout:
+    // When lyrics are visible, media column and lyrics column have harmonious, balanced
+    // widths, leaving identical horizontal margins (emptiness) on both sides.
+    final colWidth = lyricsVisible
+        ? math.min(maxWidth * 0.36, maxHeight * 0.48).clamp(340.0, 420.0)
+        : math.min(maxWidth * 0.55, maxHeight * 0.52).clamp(360.0, 480.0);
+
+    final gap = lyricsVisible ? (maxWidth * 0.04).clamp(40.0, 64.0) : 0.0;
+
+    // Harmonized lyrics column width, balancing the visual weight of the left column
+    final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
+    final maxAllowedLyricsWidth = math.max(320.0, maxWidth - colWidth - gap - 48.0);
+    final lyricsWidth = lyricsVisible
+        ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
+        : 0.0;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const ClampingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: maxWidth),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Left Column (Media Player)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeInOutCubic,
+                  width: colWidth,
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: lyricsVisible
+                          ? CrossAxisAlignment.start
+                          : CrossAxisAlignment.center,
+                      children: [
+                        // Artwork Card
+                        _HeroArtworkCard(
+                          track: track,
+                          size: colWidth,
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Track Info
+                        _TrackMetadataSection(
+                          track: track,
+                          alignCenter: !lyricsVisible,
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Up Next Pill
+                        _UpNextPill(alignCenter: !lyricsVisible),
+                        const SizedBox(height: 18),
+
+                        // Transport & Controls (fades when idle)
+                        AnimatedOpacity(
+                          duration: const Duration(milliseconds: 350),
+                          opacity: controlsIdle ? 0.0 : 1.0,
+                          child: ExcludeFocus(
+                            excluding: controlsIdle,
+                            child: IgnorePointer(
+                              ignoring: controlsIdle,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  const _FullscreenTimeline(),
+                                  const SizedBox(height: 14),
+                                  _FullscreenTransportControls(track: track),
+                                  const SizedBox(height: 16),
+                                  const Center(
+                                    child: _FullscreenVolumeSection(sliderWidth: 240),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Gap
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeInOutCubic,
+                  width: gap,
+                ),
+
+                // Right Column (Apple Music Karaoke Lyrics Pane)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeInOutCubic,
+                  width: lyricsWidth,
+                  child: ClipRect(
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 350),
+                      curve: Curves.easeInOutCubic,
+                      opacity: lyricsVisible ? 1.0 : 0.0,
+                      child: ExcludeFocus(
+                        excluding: !lyricsVisible,
+                        child: IgnorePointer(
+                          ignoring: !lyricsVisible,
+                          child: Container(
+                            height: maxHeight,
+                            width: lyricsWidth,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: WaveKaraokeLyricsView(
+                                track: track,
+                                compact: false,
+                                showHeaderControls: true,
+                                fontSize: 32.0,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -646,51 +545,338 @@ class _ModeSegState extends State<_ModeSeg> {
   }
 }
 
-class _QualityLine extends ConsumerWidget {
-  const _QualityLine();
+/// Narrow window presentation.
+class _NarrowCenteredPane extends StatelessWidget {
+  final PlayableTrack track;
+  final bool lyricsVisible;
+  final bool controlsIdle;
+
+  const _NarrowCenteredPane({
+    required this.track,
+    required this.lyricsVisible,
+    required this.controlsIdle,
+  });
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final error = ref.watch(
-      playbackServiceProvider.select((state) => state.error),
-    );
-    if (error != null) {
-      return Text(error,
-          style: WaveType.meta.copyWith(color: waveTextSecondary(context)));
-    }
-    final stream = ref.watch(
-      playbackServiceProvider.select((s) => s.stream),
-    );
-    final dark = waveIsDark(context);
-    // Reserve one line so transport never jumps when stream resolves.
-    if (stream == null) {
-      return Text(
-        'Loading audio…',
-        style: WaveType.overline.copyWith(
-          fontSize: 9.5,
-          color: (dark
-                  ? WaveColors.textTertiary
-                  : WaveColors.lightTextTertiary)
-              .withValues(alpha: 0.7),
+  Widget build(BuildContext context) {
+    if (lyricsVisible) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: WaveKaraokeLyricsView(
+          track: track,
+          compact: true,
+          showHeaderControls: true,
         ),
       );
     }
-    return Text(
-      '${stream.qualityBadge} · ${stream.audioCodec}${stream.bitrateKbps > 0 ? ' · ${stream.bitrateKbps} kbps' : ''}',
-      style: WaveType.overline.copyWith(
-        fontSize: 9.5,
-        color: dark ? WaveColors.textTertiary : WaveColors.lightTextTertiary,
+
+    return SingleChildScrollView(
+      physics: const ClampingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _HeroArtworkCard(
+                track: track,
+                size: 260,
+              ),
+              const SizedBox(height: 20),
+              _TrackMetadataSection(track: track, alignCenter: true),
+              const SizedBox(height: 12),
+              const _UpNextPill(alignCenter: true),
+              const SizedBox(height: 20),
+              AnimatedOpacity(
+                duration: const Duration(milliseconds: 350),
+                opacity: controlsIdle ? 0.0 : 1.0,
+                child: ExcludeFocus(
+                  excluding: controlsIdle,
+                  child: IgnorePointer(
+                    ignoring: controlsIdle,
+                    child: Column(
+                      children: [
+                        const _FullscreenTimeline(),
+                        const SizedBox(height: 12),
+                        _FullscreenTransportControls(track: track),
+                        const SizedBox(height: 14),
+                        const _FullscreenVolumeSection(sliderWidth: 220),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
-class _MainTransport extends ConsumerWidget {
-  const _MainTransport();
+/// Large Artwork Card with rounded corners and deep drop shadow.
+class _HeroArtworkCard extends StatelessWidget {
+  final PlayableTrack track;
+  final double size;
+
+  const _HeroArtworkCard({
+    required this.track,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: dark ? 0.58 : 0.30),
+            blurRadius: 48,
+            offset: const Offset(0, 22),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: dark ? 0.35 : 0.15),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: WaveArtwork(
+          url: track.artworkUrl,
+          videoId: track.videoId,
+          size: size,
+          radius: 18,
+          label: track.title,
+        ),
+      ),
+    );
+  }
+}
+
+class _TrackMetadataSection extends ConsumerWidget {
+  final PlayableTrack track;
+  final bool alignCenter;
+
+  const _TrackMetadataSection({
+    required this.track,
+    this.alignCenter = false,
+  });
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
-    // Transport state only — clock isolated below so position ticks
-    // don't rebuild the buttons.
+    final stream = ref.watch(
+      playbackServiceProvider.select((s) => s.stream),
+    );
+
+    return Column(
+      crossAxisAlignment:
+          alignCenter ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      children: [
+        Text(
+          track.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: alignCenter ? TextAlign.center : TextAlign.start,
+          style: WaveType.pageTitle.copyWith(
+            fontSize: 26,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 4),
+        GestureDetector(
+          onTap: () => context.go(
+            '/search?q=${Uri.encodeComponent(track.artist)}',
+          ),
+          child: Text(
+            track.artist,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: alignCenter ? TextAlign.center : TextAlign.start,
+            style: WaveType.body.copyWith(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary,
+            ),
+          ),
+        ),
+        if (track.album.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            track.album,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: alignCenter ? TextAlign.center : TextAlign.start,
+            style: WaveType.meta.copyWith(
+              fontSize: 13,
+              color: dark ? WaveColors.textTertiary : WaveColors.lightTextTertiary,
+            ),
+          ),
+        ],
+        if (stream != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: waveDivider(context)),
+            ),
+            child: Text(
+              '${stream.qualityBadge} · ${stream.audioCodec}${stream.bitrateKbps > 0 ? ' · ${stream.bitrateKbps} kbps' : ''}',
+              style: WaveType.overline.copyWith(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w700,
+                color: dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _UpNextPill extends ConsumerWidget {
+  final bool alignCenter;
+
+  const _UpNextPill({this.alignCenter = false});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dark = waveIsDark(context);
+    final queue = ref.watch(playbackServiceProvider.select((s) => s.queue));
+    final index = ref.watch(playbackServiceProvider.select((s) => s.currentIndex));
+
+    final hasNext = index >= 0 && index + 1 < queue.length;
+    if (!hasNext) return const SizedBox.shrink();
+
+    final nextTrack = queue[index + 1];
+
+    return Align(
+      alignment: alignCenter ? Alignment.center : Alignment.centerLeft,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: () => ref.read(playbackServiceProvider.notifier).next(),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: waveDivider(context)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'UP NEXT',
+                  style: WaveType.overline.copyWith(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: waveAccent(context),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 180),
+                  child: Text(
+                    '${nextTrack.title} · ${nextTrack.artist}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.meta.copyWith(
+                      fontSize: 11,
+                      color: dark
+                          ? WaveColors.textSecondary
+                          : WaveColors.lightTextSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  FluentIcons.chevron_right,
+                  size: 10,
+                  color: waveTextTertiary(context),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FullscreenTimeline extends ConsumerWidget {
+  const _FullscreenTimeline();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dark = waveIsDark(context);
+    final clock = ref.watch(
+      playbackServiceProvider.select((s) => (
+        position: s.position,
+        buffered: s.buffered,
+        duration: s.duration,
+      )),
+    );
+    final notifier = ref.read(playbackServiceProvider.notifier);
+
+    return avp.ProgressBar(
+      progress: clock.position,
+      buffered: clock.buffered,
+      total: clock.duration,
+      onSeek: notifier.seek,
+      barHeight: 4,
+      thumbRadius: 6,
+      thumbColor: dark ? Colors.white : Colors.black,
+      thumbGlowColor: Colors.transparent,
+      progressBarColor: dark ? Colors.white : Colors.black,
+      bufferedBarColor:
+          (dark ? Colors.white : Colors.black).withValues(alpha: 0.20),
+      baseBarColor:
+          (dark ? Colors.white : Colors.black).withValues(alpha: 0.12),
+      timeLabelLocation: avp.TimeLabelLocation.sides,
+      timeLabelTextStyle: WaveType.meta.copyWith(
+        fontFeatures: const [FontFeature.tabularFigures()],
+        color: dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary,
+      ),
+    );
+  }
+}
+
+class _FullscreenTransportControls extends ConsumerStatefulWidget {
+  final PlayableTrack track;
+
+  const _FullscreenTransportControls({required this.track});
+
+  @override
+  ConsumerState<_FullscreenTransportControls> createState() =>
+      _FullscreenTransportControlsState();
+}
+
+class _FullscreenTransportControlsState
+    extends ConsumerState<_FullscreenTransportControls> {
+  final _moreFlyout = FlyoutController();
+
+  @override
+  void dispose() {
+    _moreFlyout.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final player = ref.watch(
       playbackServiceProvider.select((s) => (
         shuffleEnabled: s.shuffleEnabled,
@@ -700,104 +886,276 @@ class _MainTransport extends ConsumerWidget {
       )),
     );
     final notifier = ref.read(playbackServiceProvider.notifier);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+
+    ref.watch(playlistRepositoryProvider);
+    final liked = ref
+        .read(playlistRepositoryProvider.notifier)
+        .likedKeys()
+        .contains(widget.track.queueKey);
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Consumer(builder: (context, ref, _) {
-          final clock = ref.watch(
-            playbackServiceProvider.select((s) => (
-              position: s.position,
-              buffered: s.buffered,
-              duration: s.duration,
-            )),
-          );
-          return avp.ProgressBar(
-            progress: clock.position,
-            buffered: clock.buffered,
-            total: clock.duration,
-            onSeek: notifier.seek,
-            barHeight: 4,
-            thumbRadius: 6,
-            thumbColor: dark ? Colors.white : Colors.black,
-            thumbGlowColor: Colors.transparent,
-            progressBarColor: dark ? Colors.white : Colors.black,
-            bufferedBarColor: (dark ? Colors.white : Colors.black)
-                .withValues(alpha: 0.18),
-            baseBarColor: (dark ? Colors.white : Colors.black)
-                .withValues(alpha: 0.12),
-            timeLabelLocation: avp.TimeLabelLocation.sides,
-            timeLabelTextStyle: WaveType.meta.copyWith(
-              fontFeatures: const [FontFeature.tabularFigures()],
-              color: dark
-                  ? WaveColors.textSecondary
-                  : WaveColors.lightTextSecondary,
-            ),
-          );
-        }),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _TBtn(
-                tooltip: 'Shuffle',
-                icon: WaveIcons.shuffle,
-                active: player.shuffleEnabled,
-                onTap: notifier.toggleShuffle),
-            _TBtn(
-                tooltip: 'Previous',
-                icon: WaveIcons.previous,
-                large: true,
-                onTap: notifier.previous),
-            const SizedBox(width: 6),
-            LWTooltip(
-              message: player.isPlaying ? 'Pause' : 'Play',
-              child: IconButton(
-              onPressed: notifier.toggle,
-              icon: Container(
-                width: 52,
-                height: 52,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: WaveColors.defaultAccent,
+        // 1. Like
+        _TBtn(
+          tooltip: liked ? 'Unlike' : 'Like',
+          icon: WaveIcons.liked,
+          active: liked,
+          onTap: () => ref.read(playlistRepositoryProvider.notifier).toggleLiked(
+                StoredTrack(
+                  name: widget.track.title,
+                  artist: widget.track.artist,
+                  artworkUrl: widget.track.artworkUrl,
+                  videoId: widget.track.videoId,
                 ),
-                child: player.isBuffering
-                    ? const Center(
-                        child: SizedBox(
-                          width: 17,
-                          height: 17,
-                          child: ProgressRing(
-                            strokeWidth: 2.5,
-                            activeColor: Colors.black,
-                            backgroundColor: Color(0x40000000),
-                          ),
+              ),
+        ),
+        // 2. Download
+        _TBtn(
+          tooltip: 'Download',
+          icon: WaveIcons.downloadAction,
+          onTap: () {
+            ref.read(downloadManagerProvider.notifier).downloadTrack(
+                  title: widget.track.title,
+                  artist: widget.track.artist,
+                  album: widget.track.album,
+                  artworkUrl: widget.track.artworkUrl,
+                );
+          },
+        ),
+        // 3. Shuffle
+        _TBtn(
+          tooltip: 'Shuffle',
+          icon: WaveIcons.shuffle,
+          active: player.shuffleEnabled,
+          onTap: notifier.toggleShuffle,
+        ),
+        // 4. Previous
+        _TBtn(
+          tooltip: 'Previous',
+          icon: WaveIcons.previous,
+          large: true,
+          onTap: notifier.previous,
+        ),
+        const SizedBox(width: 8),
+        // 5. Play / Pause (dead center)
+        _PlayPauseDiscButton(
+          isPlaying: player.isPlaying,
+          isBuffering: player.isBuffering,
+          onTap: notifier.toggle,
+        ),
+        const SizedBox(width: 8),
+        // 6. Next
+        _TBtn(
+          tooltip: 'Next',
+          icon: WaveIcons.next,
+          large: true,
+          onTap: notifier.next,
+        ),
+        // 7. Repeat
+        _TBtn(
+          tooltip: 'Repeat',
+          icon: player.repeatMode == RepeatMode.one
+              ? WaveIcons.repeatOne
+              : WaveIcons.repeat,
+          active: player.repeatMode != RepeatMode.off,
+          onTap: notifier.cycleRepeat,
+        ),
+        // 8. Add to playlist
+        _TBtn(
+          tooltip: 'Add to playlist',
+          icon: WaveIcons.addTo,
+          onTap: () => showWaveAddToPlaylist(
+            context,
+            ref,
+            title: widget.track.title,
+            artist: widget.track.artist,
+            artworkUrl: widget.track.artworkUrl,
+            videoId: widget.track.videoId,
+          ),
+        ),
+        // 9. More actions
+        FlyoutTarget(
+          controller: _moreFlyout,
+          child: _TBtn(
+            tooltip: 'More options',
+            icon: WaveIcons.more,
+            onTap: () {
+              _moreFlyout.showFlyout(
+                barrierColor: Colors.transparent,
+                placementMode: FlyoutPlacementMode.topCenter,
+                builder: (context) => MenuFlyout(
+                  items: waveTrackMenuItems(
+                    ref: ref,
+                    title: widget.track.title,
+                    artist: widget.track.artist,
+                    artworkUrl: widget.track.artworkUrl,
+                    videoId: widget.track.videoId,
+                    playable: widget.track,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlayPauseDiscButton extends StatefulWidget {
+  final bool isPlaying;
+  final bool isBuffering;
+  final VoidCallback onTap;
+
+  const _PlayPauseDiscButton({
+    required this.isPlaying,
+    required this.isBuffering,
+    required this.onTap,
+  });
+
+  @override
+  State<_PlayPauseDiscButton> createState() => _PlayPauseDiscButtonState();
+}
+
+class _PlayPauseDiscButtonState extends State<_PlayPauseDiscButton> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = waveAccent(context);
+    final onAccent =
+        accent.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+
+    return LWTooltip(
+      message: widget.isPlaying ? 'Pause (Space)' : 'Play (Space)',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedScale(
+            scale: _pressed ? 0.92 : (_hover ? 1.05 : 1.0),
+            duration: WaveMotion.fast,
+            curve: Curves.easeOutCubic,
+            child: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accent,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: widget.isBuffering
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: ProgressRing(
+                          strokeWidth: 2.5,
+                          activeColor: onAccent,
+                          backgroundColor: onAccent.withValues(alpha: 0.25),
                         ),
                       )
                     : Icon(
-                        player.isPlaying
-                            ? WaveIcons.pause
-                            : WaveIcons.play,
-                        size: 24,
-                        color: Colors.black,
+                        widget.isPlaying ? WaveIcons.pause : WaveIcons.play,
+                        size: 22,
+                        color: onAccent,
                       ),
               ),
-              ),
             ),
-            const SizedBox(width: 6),
-            _TBtn(
-                tooltip: 'Next',
-                icon: WaveIcons.next,
-                large: true,
-                onTap: notifier.next),
-            _TBtn(
-                tooltip: 'Repeat',
-                icon: player.repeatMode == RepeatMode.one
-                    ? WaveIcons.repeatOne
-                    : WaveIcons.repeat,
-                active: player.repeatMode != RepeatMode.off,
-                onTap: notifier.cycleRepeat),
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FullscreenVolumeSection extends ConsumerWidget {
+  final double sliderWidth;
+
+  const _FullscreenVolumeSection({this.sliderWidth = 240});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final volume = ref.watch(
+      playbackServiceProvider.select((s) => s.volume),
+    );
+    final notifier = ref.read(playbackServiceProvider.notifier);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _VolumeMuteButton(
+          volume: volume,
+          onMute: () => notifier.setVolume(volume == 0 ? 1 : 0),
+        ),
+        const SizedBox(width: 8),
+        LWVolumeSlider(
+          value: volume,
+          width: sliderWidth,
+          onChanged: notifier.setVolume,
         ),
       ],
+    );
+  }
+}
+
+class _VolumeMuteButton extends StatefulWidget {
+  final double volume;
+  final VoidCallback onMute;
+
+  const _VolumeMuteButton({
+    required this.volume,
+    required this.onMute,
+  });
+
+  @override
+  State<_VolumeMuteButton> createState() => _VolumeMuteButtonState();
+}
+
+class _VolumeMuteButtonState extends State<_VolumeMuteButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final icon = widget.volume == 0
+        ? WaveIcons.volumeMute
+        : WaveIcons.volume;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onMute,
+        child: Container(
+          width: 32,
+          height: 32,
+          color: Colors.transparent,
+          child: Icon(
+            icon,
+            size: 16,
+            color: _hover
+                ? (dark ? Colors.white : Colors.black)
+                : (dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -808,31 +1166,32 @@ class _TBtn extends StatefulWidget {
   final bool active;
   final bool large;
   final VoidCallback onTap;
-  const _TBtn(
-      {required this.tooltip,
-      required this.icon,
-      this.active = false,
-      this.large = false,
-      required this.onTap});
+
+  const _TBtn({
+    required this.tooltip,
+    required this.icon,
+    this.active = false,
+    this.large = false,
+    required this.onTap,
+  });
+
   @override
   State<_TBtn> createState() => _TBtnState();
 }
 
 class _TBtnState extends State<_TBtn> {
   bool _hover = false;
+  bool _pressed = false;
+
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final color = widget.active
         ? waveAccent(context)
         : _hover
-            ? (dark
-                ? WaveColors.textPrimary
-                : WaveColors.lightTextPrimary)
-            : (dark
-                ? WaveColors.textSecondary
-                : WaveColors.lightTextSecondary);
-    // Canonical 36px hit target (was 42px, drifted from WaveDensity).
+            ? (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
+            : (dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary);
+
     return LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
@@ -840,13 +1199,26 @@ class _TBtnState extends State<_TBtn> {
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
           onTap: widget.onTap,
-          child: Container(
-            width: 36,
+          behavior: HitTestBehavior.opaque,
+          child: SizedBox(
+            width: 34,
             height: 36,
-            color: Colors.transparent,
-            child: Icon(widget.icon,
-                size: widget.large ? 18 : 15, color: color),
+            child: Center(
+              child: AnimatedScale(
+                scale: _pressed ? 0.92 : (_hover ? 1.08 : 1.0),
+                duration: WaveMotion.fast,
+                curve: WaveMotion.standard,
+                child: Icon(
+                  widget.icon,
+                  size: widget.large ? 18 : 15,
+                  color: color,
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -854,309 +1226,14 @@ class _TBtnState extends State<_TBtn> {
   }
 }
 
-class _LikeGlyph extends ConsumerWidget {
-  final PlayableTrack track;
-  const _LikeGlyph({required this.track});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    ref.watch(playlistRepositoryProvider);
-    final liked = ref
-        .read(playlistRepositoryProvider.notifier)
-        .likedKeys()
-        .contains(track.queueKey);
-    return _TBtn(
-      tooltip: liked ? 'Unlike' : 'Like',
-      icon: WaveIcons.liked,
-      active: liked,
-      onTap: () => ref
-          .read(playlistRepositoryProvider.notifier)
-          .toggleLiked(StoredTrack(
-              name: track.title,
-              artist: track.artist,
-              artworkUrl: track.artworkUrl,
-              videoId: track.videoId)),
-    );
-  }
-}
+class _NowAmbient extends StatelessWidget {
+  final String artworkUrl;
 
-class _MainActions extends ConsumerWidget {
-  final PlayableTrack track;
-  final String pane;
-  const _MainActions({required this.track, this.pane = 'now'});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    ref.watch(playlistRepositoryProvider);
-    final liked = ref
-        .read(playlistRepositoryProvider.notifier)
-        .likedKeys()
-        .contains(track.queueKey);
-    final isLyrics = pane == 'lyrics';
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _TBtn(
-          tooltip: liked ? 'Unlike' : 'Like',
-          icon: WaveIcons.liked,
-          active: liked,
-          onTap: () => ref
-              .read(playlistRepositoryProvider.notifier)
-              .toggleLiked(StoredTrack(
-                  name: track.title,
-                  artist: track.artist,
-                  artworkUrl: track.artworkUrl,
-                  videoId: track.videoId)),
-        ),
-        _TBtn(
-          tooltip: 'Download',
-          icon: WaveIcons.downloadAction,
-          onTap: () {
-            ref.read(downloadManagerProvider.notifier).downloadTrack(
-                  title: track.title,
-                  artist: track.artist,
-                  album: track.album,
-                  artworkUrl: track.artworkUrl,
-                );
-          },
-        ),
-        _TBtn(
-          tooltip: 'Add to playlist',
-          icon: WaveIcons.addTo,
-          onTap: () => showWaveAddToPlaylist(context, ref,
-              title: track.title,
-              artist: track.artist,
-              artworkUrl: track.artworkUrl,
-              videoId: track.videoId),
-        ),
-        _TBtn(
-          tooltip: isLyrics
-              ? 'Back to Now Playing'
-              : 'Lyrics (Ctrl+L)',
-          icon: WaveIcons.lyrics,
-          active: isLyrics,
-          onTap: () {
-            if (isLyrics) {
-              context.go('/now');
-            } else {
-              context.go('/lyrics');
-            }
-          },
-        ),
-      ],
-    );
-  }
-}
+  const _NowAmbient({required this.artworkUrl});
 
-class _ContextCard extends StatelessWidget {
-  final String pane;
-  final ValueChanged<String> onPane;
-  final bool hideTabs;
-  const _ContextCard(
-      {required this.pane, required this.onPane, this.hideTabs = false});
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (!hideTabs) _UnderlineTabs(pane: pane, onPane: onPane),
-        if (!hideTabs) const SizedBox(height: 10),
-        Expanded(
-          child: AnimatedSwitcher(
-            duration: WaveMotion.normal,
-            child: switch (pane) {
-              'queue' => const QueueBodyPublic(
-                  key: ValueKey('queue'), embedded: true),
-              'lyrics' => const _ContextLyrics(key: ValueKey('lyrics')),
-              // 'now' + legacy fallthrough → essentials + preview.
-              _ => const _OverviewPane(key: ValueKey('now')),
-            },
-          ),
-        ),
-      ],
-    );
+    if (artworkUrl.isEmpty) return const SizedBox.shrink();
+    return WaveAmbientMesh(artworkUrl: artworkUrl, isFullBleed: true);
   }
 }
-
-/// Overview: static lyric preview (NO nested scroll) + Up Next preview.
-/// Single scroll owner = this ListView. Full lyrics live in Lyrics mode.
-class _OverviewPane extends ConsumerWidget {
-  const _OverviewPane({super.key});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final queue = ref.watch(playbackServiceProvider.select((s) => s.queue));
-    final index =
-        ref.watch(playbackServiceProvider.select((s) => s.currentIndex));
-    final upcoming = index >= 0 && queue.length > index + 1
-        ? queue.sublist(index + 1).take(3).toList()
-        : const [];
-    return ListView(
-      physics: const ClampingScrollPhysics(),
-      padding: EdgeInsets.zero,
-      children: [
-        Row(
-          children: [
-            Text('LYRICS PREVIEW',
-                style: WaveType.overline.copyWith(
-                    fontSize: 9.5,
-                    color: waveTextTertiary(context))),
-            const Spacer(),
-            HyperlinkButton(
-              onPressed: () => context.go('/lyrics'),
-              child: const Text('Open full lyrics'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        const _LyricPreviewStatic(),
-        if (upcoming.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          Text('UP NEXT',
-              style: WaveType.overline.copyWith(
-                  fontSize: 9.5, color: waveTextTertiary(context))),
-          const SizedBox(height: 8),
-          for (var i = 0; i < upcoming.length; i++)
-            _UpNextPreview(
-                track: upcoming[i],
-                queueIndex: index + 1 + i),
-        ],
-      ],
-    );
-  }
-}
-
-/// Static first-lines preview: reserves fixed geometry (no jump when
-/// lyrics load), never scrolls — eliminates nested-scroll chaos.
-class _LyricPreviewStatic extends ConsumerWidget {
-  const _LyricPreviewStatic();
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final current =
-        ref.watch(playbackServiceProvider.select((s) => s.current))!;
-    final async = ref.watch(waveLyricsProvider(current.queueKey));
-    return WaveHaze.panel(
-      base: waveIsDark(context)
-          ? WaveColors.surface
-          : WaveColors.lightContent,
-      border: Border.all(color: waveDivider(context)),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 180),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: async.when(
-            loading: () => Text('Finding lyrics…',
-                style: WaveType.meta.copyWith(
-                    color: waveTextTertiary(context))),
-            error: (_, _) => Text('Lyrics unavailable',
-                style: WaveType.meta.copyWith(
-                    color: waveTextTertiary(context))),
-            data: (result) {
-              if (result.isEmpty || result.isInstrumental) {
-                return Text(
-                  result.isInstrumental
-                      ? 'Instrumental — no lyrics.'
-                      : 'No lyrics found.',
-                  style: WaveType.meta.copyWith(
-                      color: waveTextTertiary(context)),
-                );
-              }
-              final lines = result.isSynced
-                  ? result.lines.take(8).map((l) => l.text).toList()
-                  : result.plainLyrics.split('\n').take(8).toList();
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var i = 0; i < lines.length; i++)
-                    Padding(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 3),
-                      child: Text(
-                        lines[i],
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: (i == 0
-                                ? WaveType.lyricActive
-                                : WaveType.lyricIdle)
-                            .copyWith(
-                          fontSize: i == 0 ? 17 : 14,
-                          color: i == 0
-                              ? waveTextPrimary(context)
-                              : waveTextSecondary(context),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _UpNextPreview extends ConsumerWidget {
-  final PlayableTrack track;
-  final int queueIndex;
-  const _UpNextPreview({required this.track, required this.queueIndex});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final dark = waveIsDark(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () => ref
-            .read(playbackServiceProvider.notifier)
-            .seekToQueueItem(queueIndex),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-          color: Colors.transparent,
-          child: Row(
-            children: [
-              WaveArtwork(
-                url: track.artworkUrl,
-                videoId: track.videoId,
-                size: 36,
-                radius: WaveRadius.artwork,
-                label: track.title,
-              ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(track.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.trackTitle
-                          .copyWith(fontSize: 12.5)),
-                  Text(track.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.meta.copyWith(
-                          color: dark
-                              ? WaveColors.textSecondary
-                              : WaveColors
-                                  .lightTextSecondary)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-      ),
-    );
-  }
-}
-
-class _ContextLyrics extends ConsumerWidget {
-  const _ContextLyrics({super.key});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final current =
-        ref.watch(playbackServiceProvider.select((s) => s.current))!;
-    return WaveLyricsPanel(
-      key: ValueKey(current.queueKey),
-      track: current,
-    );
-  }
-}
-

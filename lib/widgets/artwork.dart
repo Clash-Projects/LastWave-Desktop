@@ -13,17 +13,27 @@ class Artwork extends StatelessWidget {
   final double size;
   final double radius;
   final IconData fallbackIcon;
+  final String title;
+  final String artist;
+  final String label;
+
   const Artwork({
     super.key,
     required this.url,
     this.size = 48,
     this.radius = WaveRadius.artwork,
     this.fallbackIcon = LucideIcons.disc3,
+    this.title = '',
+    this.artist = '',
+    this.label = '',
   });
 
   @override
   Widget build(BuildContext context) {
-    if (url.isEmpty && fallbackIcon != LucideIcons.music) {
+    if (url.isEmpty &&
+        fallbackIcon != LucideIcons.music &&
+        title.isEmpty &&
+        label.isEmpty) {
       final dark = waveIsDark(context);
       return Container(
         width: size,
@@ -43,7 +53,14 @@ class Artwork extends StatelessWidget {
         ),
       );
     }
-    return WaveArtwork(url: url, size: size, radius: radius);
+    return WaveArtwork(
+      url: url,
+      size: size,
+      radius: radius,
+      title: title,
+      artist: artist,
+      label: label,
+    );
   }
 }
 
@@ -61,29 +78,12 @@ class ArtistArt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (url.isEmpty) {
-      final dark = waveIsDark(context);
-      return Container(
-        width: radius * 2,
-        height: radius * 2,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: dark
-              ? WaveColors.surfaceRaised
-              : WaveColors.lightOverlay,
-        ),
-        child: Center(
-          child: Text(
-            name.isNotEmpty ? name[0].toUpperCase() : '?',
-            style: WaveType.sectionTitle.copyWith(
-              color: dark
-                  ? WaveColors.textTertiary
-                  : WaveColors.lightTextTertiary,
-            ),
-          ),
-        ),
-      );
-    }
-    return WaveArtwork.circle(url: url, size: radius * 2);
+    return WaveArtwork.circle(
+      url: url,
+      size: radius * 2,
+      label: name,
+      title: name,
+      artist: name,
+    );
   }
 }

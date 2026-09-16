@@ -91,7 +91,10 @@ class HomeRepository {
     var fallback = '';
     for (final img in _asList(images)) {
       final url = img['#text']?.toString() ?? '';
-      if (url.isEmpty || url.contains('2a96cbd8b46e442fc41c2b86b821b4e')) {
+      if (url.isEmpty ||
+          url.contains('2a96cbd8') ||
+          url.contains('default_album') ||
+          url.contains('noimage')) {
         continue;
       }
       fallback = url;

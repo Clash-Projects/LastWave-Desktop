@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/artwork/official_artwork_service.dart';
 import '../../core/network/lastfm_api.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/auth_repository.dart';
@@ -340,11 +341,52 @@ class FeedRepository {
         limit: 12,
       );
 
+      Future<List<GeneratedTrack>> hydrateArtwork(
+          List<GeneratedTrack> list, {int limit = 6}) async {
+        final out = <GeneratedTrack>[];
+        for (var i = 0; i < list.length; i++) {
+          final t = list[i];
+          if (i < limit && t.artworkUrl.isEmpty && t.name.isNotEmpty) {
+            try {
+              final art = await OfficialArtworkService.instance
+                  .resolveOfficialArtwork(title: t.name, artist: t.artist)
+                  .timeout(const Duration(milliseconds: 1500));
+              if (art != null && art.artworkUrl.isNotEmpty) {
+                out.add(GeneratedTrack(
+                  name: t.name,
+                  artist: t.artist,
+                  artworkUrl: art.artworkUrl,
+                  videoId: t.videoId,
+                  listeners: t.listeners,
+                  match: t.match,
+                ));
+                continue;
+              }
+            } catch (_) {}
+          }
+          out.add(t);
+        }
+        return out;
+      }
+
+      var finalQuick = quick;
+      var finalJump = jumpBack;
+      if (!chartsOnly) {
+        try {
+          final hydrated = await Future.wait([
+            hydrateArtwork(quick, limit: 8),
+            hydrateArtwork(jumpBack, limit: 4),
+          ]).timeout(const Duration(seconds: 3));
+          finalQuick = hydrated[0];
+          finalJump = hydrated[1];
+        } catch (_) {}
+      }
+
       return FeedData(
-        quickPicks: chartsOnly ? const [] : quick,
+        quickPicks: chartsOnly ? const [] : finalQuick,
         heavyRotation: chartsOnly ? const [] : heavy,
         freshFinds: chartsOnly ? const [] : fresh,
-        jumpBackIn: chartsOnly ? const [] : jumpBack,
+        jumpBackIn: chartsOnly ? const [] : finalJump,
         becauseYouListened: chartsOnly ? const [] : because,
         charts: charts.take(15).map(fromYt).toList(),
         tasteTags: affinities.keys.take(8).toList(),

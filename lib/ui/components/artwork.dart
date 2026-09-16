@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/artwork/artwork_resolver.dart';
+import '../../core/artwork/official_artwork_service.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -21,6 +22,9 @@ class WaveArtwork extends StatefulWidget {
   final double radius;
   final bool isCircle;
   final String label;
+  final String title;
+  final String artist;
+
   const WaveArtwork({
     super.key,
     required this.url,
@@ -30,6 +34,8 @@ class WaveArtwork extends StatefulWidget {
     this.radius = WaveRadius.artwork,
     this.isCircle = false,
     this.label = '',
+    this.title = '',
+    this.artist = '',
   });
 
   const WaveArtwork.circle({
@@ -39,6 +45,8 @@ class WaveArtwork extends StatefulWidget {
     this.fallbackUrls = const [],
     required this.size,
     this.label = '',
+    this.title = '',
+    this.artist = '',
   })  : radius = 999,
         isCircle = true;
 
@@ -53,6 +61,8 @@ class _WaveArtworkState extends State<WaveArtwork> {
   List<String> _chain = const [];
   double _lastDpr = 1.0;
   String? _handledError;
+  String? _resolvedUrl;
+  bool _isResolving = false;
 
   bool _fallbacksEqual(List<String> a, List<String> b) {
     if (identical(a, b)) return true;
@@ -66,8 +76,6 @@ class _WaveArtworkState extends State<WaveArtwork> {
   @override
   void initState() {
     super.initState();
-    // DPR unavailable in initState — chain built in didChangeDependencies
-    // with the live pixel ratio so hidpi picks the right rendition.
   }
 
   @override
@@ -84,10 +92,18 @@ class _WaveArtworkState extends State<WaveArtwork> {
   void didUpdateWidget(WaveArtwork old) {
     super.didUpdateWidget(old);
     if (old.url != widget.url ||
+        old.title != widget.title ||
+        old.artist != widget.artist ||
         old.videoId != widget.videoId ||
         !_fallbacksEqual(old.fallbackUrls, widget.fallbackUrls) ||
         old.size != widget.size ||
         old.label != widget.label) {
+      if (old.url != widget.url ||
+          old.title != widget.title ||
+          old.artist != widget.artist) {
+        _resolvedUrl = null;
+        _isResolving = false;
+      }
       _rebuildChain(_lastDpr);
     }
   }
@@ -101,18 +117,64 @@ class _WaveArtworkState extends State<WaveArtwork> {
         dprOverride ?? MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
     _lastDpr = dpr;
     final target = (widget.size * dpr).clamp(64, 1024).toDouble();
+    final candidates = [
+      widget.url,
+      ...widget.fallbackUrls,
+      ?_resolvedUrl,
+    ];
     final req = ArtworkRequest(
-      kind: ArtworkKind.track,
-      candidates: [widget.url, ...widget.fallbackUrls],
+      kind: widget.isCircle ? ArtworkKind.artist : ArtworkKind.track,
+      candidates: candidates,
       label: widget.label,
       targetPx: target,
       videoId: widget.videoId,
     );
     _chain = ArtworkResolver.resolve(req).urls;
+
+    if (_chain.isEmpty && !_isResolving) {
+      _checkAndResolveArtwork();
+    }
+  }
+
+  void _checkAndResolveArtwork() {
+    final title = widget.title.isNotEmpty ? widget.title : widget.label;
+    final artist = widget.artist;
+    if (title.isEmpty && artist.isEmpty) return;
+
+    _isResolving = true;
+    OfficialArtworkService.instance
+        .resolveOfficialArtwork(title: title, artist: artist)
+        .then((res) {
+      if (!mounted) return;
+      _isResolving = false;
+      if (res != null && res.artworkUrl.isNotEmpty) {
+        setState(() {
+          _resolvedUrl = res.artworkUrl;
+          final dpr = _lastDpr;
+          final target = (widget.size * dpr).clamp(64, 1024).toDouble();
+          final req = ArtworkRequest(
+            kind: widget.isCircle ? ArtworkKind.artist : ArtworkKind.track,
+            candidates: [res.artworkUrl],
+            label: widget.label,
+            targetPx: target,
+          );
+          _chain = ArtworkResolver.resolve(req).urls;
+          _chainIndex = 0;
+          _attempt = 0;
+        });
+      }
+    }).catchError((_) {
+      if (mounted) {
+        _isResolving = false;
+      }
+    });
   }
 
   String get _initials {
-    final parts = widget.label
+    final text = widget.label.isNotEmpty
+        ? widget.label
+        : (widget.title.isNotEmpty ? widget.title : widget.artist);
+    final parts = text
         .trim()
         .split(RegExp(r'\s+'))
         .where((s) => s.isNotEmpty)
@@ -143,7 +205,9 @@ class _WaveArtworkState extends State<WaveArtwork> {
       dark ? 0.26 : 0.30,
       dark ? 0.14 : 0.72,
     ).toColor();
-    return Container(
+    return AnimatedContainer(
+      duration: WaveMotion.normal,
+      curve: WaveMotion.standard,
       width: widget.size,
       height: widget.size,
       decoration: BoxDecoration(
@@ -219,6 +283,8 @@ class _WaveArtworkState extends State<WaveArtwork> {
         _attempt = 1;
         _chainIndex = 0;
       });
+    } else if (!_isResolving && _resolvedUrl == null) {
+      _checkAndResolveArtwork();
     }
   }
 
@@ -264,13 +330,17 @@ class _WaveArtworkState extends State<WaveArtwork> {
       ),
     );
     if (widget.isCircle) {
-      return SizedBox(
+      return AnimatedContainer(
+        duration: WaveMotion.normal,
+        curve: WaveMotion.standard,
         width: widget.size,
         height: widget.size,
         child: ClipOval(child: image),
       );
     }
-    return SizedBox(
+    return AnimatedContainer(
+      duration: WaveMotion.normal,
+      curve: WaveMotion.standard,
       width: widget.size,
       height: widget.size,
       child: ClipRRect(

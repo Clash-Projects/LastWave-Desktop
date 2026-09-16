@@ -75,6 +75,8 @@ dependencies:
   unorm_dart: ^0.3.2
   desktop_webview_window: ^0.3.0
   meta: ^1.19.0
+  flutter_lyric: ^3.0.7
+  adaptive_aura: 0.0.4
 
 dev_dependencies:
   flutter_test:

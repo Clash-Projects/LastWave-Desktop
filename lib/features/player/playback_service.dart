@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../../core/artwork/official_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
 import '../downloads/download_manager.dart';
 import '../innertube/innertube_api.dart';
@@ -28,6 +29,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   final DownloadManager _downloads;
   final PrefsHandle _prefs;
   final SessionStore _sessions;
+  final OfficialArtworkService _artworkService;
 
   Player? _player;
   final List<StreamSubscription> _subs = [];
@@ -60,8 +62,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     this._scrobbler,
     this._downloads,
     this._prefs,
-    this._sessions,
-  ) : super(const PlayerSnapshot());
+    this._sessions, [
+    OfficialArtworkService? artworkService,
+  ])  : _artworkService = artworkService ?? OfficialArtworkService(),
+        super(const PlayerSnapshot());
 
   Future<void> ensurePlayer() async {
     if (_player != null) return;
@@ -639,9 +643,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       if (cur.videoId.isNotEmpty) return;
       final updated = cur.copyWith(
         videoId: videoId,
-        artworkUrl: match.artworkUrl.isNotEmpty
-            ? match.artworkUrl
-            : cur.artworkUrl,
+        artworkUrl: OfficialArtworkService.isOfficialArtwork(cur.artworkUrl)
+            ? cur.artworkUrl
+            : (match.artworkUrl.isNotEmpty ? match.artworkUrl : cur.artworkUrl),
       );
       final queue = List<PlayableTrack>.of(state.queue);
       queue[idx] = updated;
@@ -689,12 +693,44 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
                 wantedQueueKey)) {
       return;
     }
+
+    // Upgrade track artwork if lossless stream supplied official studio artwork
+    var effectiveTrack = track;
+    if (stream.artworkUrl.isNotEmpty && stream.artworkUrl != track.artworkUrl) {
+      effectiveTrack = effectiveTrack.copyWith(
+        artworkUrl: stream.artworkUrl,
+        album: stream.albumTitle.isNotEmpty && effectiveTrack.album.isEmpty
+            ? stream.albumTitle
+            : effectiveTrack.album,
+      );
+      final idx = state.queue.indexWhere((t) => t.queueKey == wantedQueueKey);
+      if (idx >= 0) {
+        final q = List<PlayableTrack>.of(state.queue);
+        q[idx] = effectiveTrack;
+        state = state.copyWith(
+          queue: q,
+          current: idx == state.currentIndex ? effectiveTrack : state.current,
+        );
+      }
+    }
+
     state = state.copyWith(
+      current: state.currentIndex >= 0 &&
+              state.currentIndex < state.queue.length &&
+              state.queue[state.currentIndex].queueKey == wantedQueueKey
+          ? effectiveTrack
+          : state.current,
       stream: stream,
       bitrateKbps: stream.bitrateKbps,
       isBuffering: true,
       clearError: true,
     );
+
+    // Fetch official studio artwork in the background if current artwork is not official
+    if (!OfficialArtworkService.isOfficialArtwork(effectiveTrack.artworkUrl)) {
+      _resolveOfficialArtworkInBackground(effectiveTrack, wantedQueueKey, generation);
+    }
+
     try {
       await _player?.open(
         Media(stream.url, httpHeaders: stream.requestHeaders),
@@ -709,6 +745,40 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       if (generation != _resolveGeneration) return;
       await _onPlayerError();
     }
+  }
+
+  void _resolveOfficialArtworkInBackground(
+      PlayableTrack track, String wantedQueueKey, int generation) {
+    unawaited(_artworkService
+        .resolveOfficialArtwork(
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+    )
+        .then((result) {
+      if (result == null || result.artworkUrl.isEmpty) return;
+      if (generation != _resolveGeneration) return;
+      if (_activeQueueKey != wantedQueueKey) return;
+
+      final idx = state.queue.indexWhere((t) => t.queueKey == wantedQueueKey);
+      if (idx < 0) return;
+
+      final cur = state.queue[idx];
+      final updated = cur.copyWith(
+        artworkUrl: result.artworkUrl,
+        album: cur.album.isEmpty && result.albumTitle.isNotEmpty
+            ? result.albumTitle
+            : cur.album,
+      );
+
+      final q = List<PlayableTrack>.of(state.queue);
+      q[idx] = updated;
+      state = state.copyWith(
+        queue: q,
+        current: idx == state.currentIndex ? updated : state.current,
+      );
+      _schedulePersist();
+    }, onError: (_) {}));
   }
 
   Future<void> _onPlayerError() async {
@@ -1062,6 +1132,7 @@ final playbackServiceProvider =
       losslessQuality: ref.watch(prefsProvider).losslessQuality,
     ),
     SessionStore(ref.watch(databaseProvider)),
+    ref.watch(officialArtworkServiceProvider),
   );
   ref.onDispose(service.disposePlayer);
   return service;

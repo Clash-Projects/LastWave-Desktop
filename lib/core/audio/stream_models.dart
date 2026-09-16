@@ -124,6 +124,8 @@ class ResolvedStream {
   final bool isLossless;
   final int bitDepth;
   final double samplingRateKhz;
+  final String artworkUrl;
+  final String albumTitle;
   final DateTime? expiresAt;
 
   const ResolvedStream({
@@ -136,6 +138,8 @@ class ResolvedStream {
     this.isLossless = false,
     this.bitDepth = 16,
     this.samplingRateKhz = 44.1,
+    this.artworkUrl = '',
+    this.albumTitle = '',
     this.expiresAt,
   });
 

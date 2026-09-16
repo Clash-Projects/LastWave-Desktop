@@ -81,6 +81,22 @@ class LosslessMusicApi {
 
   static String normalizeTitle(String s) {
     var v = s.toLowerCase();
+    v = v.replaceAll(
+        RegExp(
+            r'\s*-\s*(?:official|video|audio|remaster|remastered|lyrics?).*$',
+            caseSensitive: false),
+        '');
+    v = v.replaceAll(
+        RegExp(
+            r'\s*\([^)]*(?:feat|ft\.?|featuring|official|video|audio|remaster|visualizer|lyrics?)[^)]*\)',
+            caseSensitive: false),
+        '');
+    v = v.replaceAll(
+        RegExp(
+            r'\s*\[[^\]]*(?:feat|ft\.?|featuring|official|video|audio|remaster|visualizer|lyrics?)[^\]]*\]',
+            caseSensitive: false),
+        '');
+    // Only strip "Artist - " prefix if there is still a " - " separator
     v = v.replaceAll(RegExp(r'^\s*[\w&.\- ]+\s*-\s+'), '');
     v = cleanForSearch(v);
     return v;
@@ -184,9 +200,14 @@ class LosslessMusicApi {
     String album = '',
     int expectedDurationSeconds = 0,
   }) async {
+    final cleanT = normalizeTitle(title);
+    final cleanA = cleanForSearch(artist);
     final queries = {
+      if (cleanT.isNotEmpty && cleanA.isNotEmpty) '$cleanT $cleanA',
+      if (cleanT.isNotEmpty && cleanA.isNotEmpty) '$cleanA $cleanT',
       '${cleanForSearch(title)} ${cleanForSearch(artist)}',
       '${cleanForSearch(artist)} ${cleanForSearch(title)}',
+      if (cleanT.isNotEmpty) cleanT,
       cleanForSearch(title),
       title,
     }.where((q) => q.trim().isNotEmpty);
@@ -226,6 +247,8 @@ class LosslessMusicApi {
     String trackId,
     int quality, {
     bool fallback = false,
+    String artworkUrl = '',
+    String albumTitle = '',
   }) async {
     final res = await _dio.get<Map<String, dynamic>>(
       '$_base/api/track/$trackId/url',
@@ -267,6 +290,8 @@ class LosslessMusicApi {
       isLossless: formatId != 5,
       bitDepth: bitDepth,
       samplingRateKhz: samplingRate,
+      artworkUrl: artworkUrl,
+      albumTitle: albumTitle,
     );
   }
 
@@ -291,23 +316,35 @@ class LosslessMusicApi {
         expectedDurationSeconds: expectedDurationSeconds,
       );
       if (candidate == null) return null;
+
+      // 1. Primary resolution: request preferred quality with fallback: true so the
+      // backend automatically yields the highest available lossless tier (e.g. 24-bit
+      // 96kHz/48kHz or 16-bit 44.1kHz FLAC) without strict-mode restrictions.
+      try {
+        final stream = await _fetchTrackStreamUrl(
+          candidate.id,
+          preferredQuality,
+          fallback: true,
+          artworkUrl: candidate.albumArtUrl,
+          albumTitle: candidate.albumTitle,
+        );
+        if (stream != null) return stream;
+      } catch (_) {}
+
+      // 2. Secondary fallback across individual tiers if the primary attempt failed
       for (final q in getQualityAttemptOrder(preferredQuality)) {
         try {
           final stream = await _fetchTrackStreamUrl(
             candidate.id,
             q,
-            fallback: false,
+            fallback: true,
+            artworkUrl: candidate.albumArtUrl,
+            albumTitle: candidate.albumTitle,
           );
           if (stream != null) return stream;
-        } on DioException catch (error) {
-          if (_isBackendFailure(error)) rethrow;
         } catch (_) {}
       }
-      return await _fetchTrackStreamUrl(
-        candidate.id,
-        preferredQuality,
-        fallback: true,
-      );
+      return null;
     } catch (_) {
       return null;
     }
@@ -323,6 +360,7 @@ class LosslessCandidate {
   final String performersText;
   final String albumTitle;
   final String albumArtist;
+  final String albumArtUrl;
 
   LosslessCandidate({
     required this.id,
@@ -333,6 +371,7 @@ class LosslessCandidate {
     this.performersText = '',
     this.albumTitle = '',
     this.albumArtist = '',
+    this.albumArtUrl = '',
   });
 
   String get titleWithVersion =>
@@ -366,6 +405,22 @@ class LosslessCandidate {
     }
     final album = json['album'];
     final albumArtist = album is Map ? album['artist'] : null;
+    String albumArt = '';
+    if (album is Map) {
+      final img = album['image'];
+      if (img is Map) {
+        albumArt = img['large']?.toString() ??
+            img['extralarge']?.toString() ??
+            img['small']?.toString() ??
+            img['thumbnail']?.toString() ??
+            '';
+      } else if (img is String && img.isNotEmpty) {
+        albumArt = img;
+      }
+      if (albumArt.isEmpty) {
+        albumArt = album['cover']?.toString() ?? '';
+      }
+    }
     return LosslessCandidate(
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
@@ -379,6 +434,7 @@ class LosslessCandidate {
       albumArtist: albumArtist is Map
           ? albumArtist['name']?.toString() ?? ''
           : albumArtist?.toString() ?? '',
+      albumArtUrl: albumArt,
     );
   }
 }
