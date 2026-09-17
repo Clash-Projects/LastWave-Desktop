@@ -421,11 +421,13 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                                   final qw = (constraints.maxWidth * 0.9)
                                       .clamp(280.0, 360.0)
                                       .toDouble();
-                                  final lw = (constraints.maxWidth * 0.9)
-                                      .clamp(380.0, 520.0)
+                                  final lw = (constraints.maxWidth * 0.46)
+                                      .clamp(460.0, 720.0)
                                       .toDouble();
                                   final showOverlay =
                                       _queueOpen || (_lyricsOpen && hasTrack);
+                                  final lyricsOnly =
+                                      _lyricsOpen && hasTrack && !_queueOpen;
 
                                   return Stack(
                                     children: [
@@ -443,8 +445,15 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                                             ),
                                           ),
                                         ),
-                                      // Scrim backdrop with smooth fade
-                                      Positioned.fill(
+                                      // Dim only the page beside the drawer so
+                                      // the lyrics panel can frost the artwork.
+                                      Positioned(
+                                        left: 0,
+                                        top: 0,
+                                        bottom: 0,
+                                        right: showOverlay
+                                            ? (_queueOpen ? qw : lw)
+                                            : 0,
                                         child: IgnorePointer(
                                           ignoring: !showOverlay,
                                           child: AnimatedOpacity(
@@ -458,7 +467,10 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                                               }),
                                               child: Container(
                                                 color: Colors.black
-                                                    .withValues(alpha: 0.45),
+                                                    .withValues(
+                                                        alpha: lyricsOnly
+                                                            ? 0.10
+                                                            : 0.45),
                                               ),
                                             ),
                                           ),

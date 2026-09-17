@@ -106,10 +106,23 @@ fl.LyricModel convertToFlutterLyricModel(
           );
 
     var searchOffset = 0;
-    for (final syl in syllables) {
-      final sylStart = Duration(milliseconds: syl.timeMs);
-      final sylDurMs = syl.durationMs > 0 ? syl.durationMs : 200;
-      final sylEnd = Duration(milliseconds: syl.timeMs + sylDurMs);
+    for (var i = 0; i < syllables.length; i++) {
+      final syl = syllables[i];
+      final nextMs = i + 1 < syllables.length
+          ? syllables[i + 1].timeMs
+          : lineEndMs;
+      final sylStartMs = syl.timeMs;
+      var sylEndMs = syl.durationMs > 0
+          ? syl.timeMs + syl.durationMs
+          : nextMs;
+      if (sylEndMs <= sylStartMs || sylEndMs > nextMs) {
+        sylEndMs = nextMs;
+      }
+      if (sylEndMs <= sylStartMs) {
+        sylEndMs = sylStartMs + 80;
+      }
+      final sylStart = Duration(milliseconds: sylStartMs);
+      final sylEnd = Duration(milliseconds: sylEndMs);
 
       var wordText = syl.text;
       var matchIdx = line.text.indexOf(wordText, searchOffset);
@@ -161,12 +174,12 @@ LyricStyle buildAppleMusicLyricStyle(
   bool isDark = true,
   bool isRtl = false,
 }) {
-  final baseFontSize = fontSize ?? (compact ? 20.0 : 32.0);
+  final baseFontSize = fontSize ?? (compact ? 28.0 : 36.0);
   final idleFontSize =
-      (fontSize != null ? fontSize * 0.88 : (compact ? 18.0 : 28.0));
+      (fontSize != null ? fontSize * 0.92 : (compact ? 25.0 : 32.0));
   final activeColor =
       isDark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B);
-  final idleColor = activeColor.withValues(alpha: 0.38);
+  final idleColor = activeColor.withValues(alpha: 0.28);
   final highlightColor =
       isDark ? const Color(0xFFFFFFFF) : const Color(0xFF000000);
 
@@ -175,15 +188,15 @@ LyricStyle buildAppleMusicLyricStyle(
       fontSize: idleFontSize,
       fontWeight: FontWeight.w600,
       color: idleColor,
-      height: 1.38,
-      letterSpacing: -0.3,
+      height: 1.28,
+      letterSpacing: -0.4,
     ),
     activeStyle: TextStyle(
       fontSize: baseFontSize,
       fontWeight: FontWeight.w700,
       color: idleColor,
-      height: 1.38,
-      letterSpacing: -0.3,
+      height: 1.28,
+      letterSpacing: -0.4,
     ),
     activeHighlightColor: highlightColor,
     activeHighlightGradient: LinearGradient(
@@ -203,16 +216,16 @@ LyricStyle buildAppleMusicLyricStyle(
     translationActiveColor: activeColor.withValues(alpha: 0.85),
     lineTextAlign: isRtl ? TextAlign.right : TextAlign.left,
     contentAlignment: isRtl ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-    lineGap: compact ? 20.0 : 28.0,
-    translationLineGap: 6.0,
+    lineGap: compact ? 28.0 : 36.0,
+    translationLineGap: 8.0,
     contentPadding: EdgeInsets.symmetric(
-      horizontal: compact ? 16.0 : 24.0,
-      vertical: 24.0,
+      horizontal: compact ? 24.0 : 36.0,
+      vertical: 32.0,
     ),
-    activeAnchorPosition: 0.35,
-    selectionAnchorPosition: 0.45,
+    activeAnchorPosition: 0.34,
+    selectionAnchorPosition: 0.42,
     selectionAlignment: MainAxisAlignment.start,
-    fadeRange: FadeRange(top: 70, bottom: 100),
+    fadeRange: FadeRange(top: 90, bottom: 180),
     scrollDuration: const Duration(milliseconds: 380),
     scrollCurve: Curves.easeOutCubic,
     enableSwitchAnimation: true,

@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../../core/storage/prefs.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/lyrics/lyrics_models.dart';
 import '../../features/lyrics/lyrics_repository.dart';
@@ -20,6 +21,7 @@ final waveLyricsProvider = StreamProvider.autoDispose
     return Stream.value(const LyricsResult.empty());
   }
   final repo = ref.watch(lyricsRepositoryProvider);
+  final wordByWord = ref.watch(prefsProvider).wordByWord;
   // Duration read once (no watch) so late duration arrival doesn't refetch.
   final durationSecs =
       ref.read(playbackServiceProvider).duration.inSeconds;
@@ -34,6 +36,7 @@ final waveLyricsProvider = StreamProvider.autoDispose
     artist: current.artist,
     album: current.album,
     durationSeconds: durationSecs > 0 ? durationSecs : null,
+    wordByWord: wordByWord,
     onPartialResult: (result) {
       if (!disposed) results.add(result);
     },

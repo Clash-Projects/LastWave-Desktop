@@ -13,6 +13,8 @@ import '../../core/network/dio_factory.dart';
 /// instead of OkHttp.
 class LosslessMusicApi {
   final Dio _dio;
+  final ResolvedStreamCache _streamCache = ResolvedStreamCache(maxEntries: 16);
+  final Map<String, Future<ResolvedStream?>> _inflight = {};
 
   LosslessMusicApi([Dio? dio])
       : _dio = dio ??
@@ -96,6 +98,11 @@ class LosslessMusicApi {
             r'\s*\[[^\]]*(?:feat|ft\.?|featuring|official|video|audio|remaster|visualizer|lyrics?)[^\]]*\]',
             caseSensitive: false),
         '');
+    v = v.replaceAll(
+        RegExp(
+            r'\s*[\(\[][^)\]]*(?:explicit|deluxe|expanded|anniversary|bonus|edition)[^)\]]*[\)\]]',
+            caseSensitive: false),
+        '');
     // Only strip "Artist - " prefix if there is still a " - " separator
     v = v.replaceAll(RegExp(r'^\s*[\w&.\- ]+\s*-\s+'), '');
     v = cleanForSearch(v);
@@ -104,14 +111,17 @@ class LosslessMusicApi {
 
   static String cleanForSearch(String s) {
     var v = s.toLowerCase();
+    v = v.replaceAll(RegExp(r"['’`´]"), '');
+    v = v.replaceAll('\$', 's');
     v = v.replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ');
     return v.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   static const _versionTags = [
     'live', 'acoustic', 'karaoke', 'instrumental', 'tribute', 'cover',
-    'remix', 'mashup', 'demo', 'slowed', 'reverb', 'sped-up', 'spaced',
-    'nightcore', 'radio edit', 'extended',
+    'remix', 'mashup', 'demo', 'slowed', 'reverb', 'sped up', 'sped-up',
+    'spaced', 'nightcore', 'radio edit', 'extended', 'interlude',
+    'intro', 'outro', 'reprise',
   ];
 
   static Set<String> identityVariants(String s) {
@@ -121,6 +131,30 @@ class LosslessMusicApi {
       if (n.contains(tag)) found.add(tag);
     }
     return found;
+  }
+
+  /// True when two titles are the same recording after YouTube noise
+  /// is stripped. Exact match first; high token overlap allows
+  /// apostrophe/`feat` leftovers that used to force Opus fallback.
+  static bool titlesMatch(String a, String b) => _titlesMatch(a, b);
+
+  static bool _titlesMatch(String a, String b) {
+    final na = normalizeTitle(a);
+    final nb = normalizeTitle(b);
+    if (na.isEmpty || nb.isEmpty) return false;
+    if (na == nb) return true;
+    final ta = na.split(' ').where((t) => t.length > 1).toSet();
+    final tb = nb.split(' ').where((t) => t.length > 1).toSet();
+    if (ta.isEmpty || tb.isEmpty) return false;
+    final common = ta.intersection(tb).length;
+    if (common == 0) return false;
+    final dice = (200 * common) / (ta.length + tb.length);
+    if (dice >= 92) return true;
+    if (ta.containsAll(tb) || tb.containsAll(ta)) {
+      final ratio = (common * 100) / (ta.length > tb.length ? ta.length : tb.length);
+      return ratio >= 75;
+    }
+    return false;
   }
 
   static bool _isVerifiedArtistMatch({
@@ -159,7 +193,8 @@ class LosslessMusicApi {
     required String album,
     required int expectedDurationSeconds,
   }) {
-    if (normalizeTitle(item.title) != normalizeTitle(title)) {
+    if (!_titlesMatch(item.title, title) &&
+        !_titlesMatch(item.titleWithVersion, title)) {
       return null;
     }
     final a = identityVariants(item.titleWithVersion);
@@ -203,6 +238,7 @@ class LosslessMusicApi {
     final cleanT = normalizeTitle(title);
     final cleanA = cleanForSearch(artist);
     final queries = {
+      if (cleanT.isNotEmpty && cleanA.isNotEmpty) '$cleanA - $cleanT',
       if (cleanT.isNotEmpty && cleanA.isNotEmpty) '$cleanT $cleanA',
       if (cleanT.isNotEmpty && cleanA.isNotEmpty) '$cleanA $cleanT',
       '${cleanForSearch(title)} ${cleanForSearch(artist)}',
@@ -292,8 +328,23 @@ class LosslessMusicApi {
       samplingRateKhz: samplingRate,
       artworkUrl: artworkUrl,
       albumTitle: albumTitle,
+      expiresAt: DateTime.now().add(const Duration(minutes: 20)),
     );
   }
+
+  String _streamCacheKey(
+    String title,
+    String artist,
+    int preferredQuality,
+  ) =>
+      '${normalizeTitle(title)}|${cleanForSearch(artist)}|$preferredQuality';
+
+  void invalidateStream({required String title, required String artist}) {
+    final prefix = '${normalizeTitle(title)}|${cleanForSearch(artist)}|';
+    _streamCache.invalidateWhere((key) => key.startsWith(prefix));
+  }
+
+  void clearStreamCache() => _streamCache.clear();
 
   /// Resolve the best lossless stream, mirroring Android
   /// `LosslessMusicApi.resolveStream` (verified match → tier order →
@@ -308,6 +359,35 @@ class LosslessMusicApi {
     if (!isConfigured) return null;
     if (preferredQuality == qualityYoutube) return null;
     if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+    final cacheKey = _streamCacheKey(title, artist, preferredQuality);
+    final cached = _streamCache.get(cacheKey);
+    if (cached != null) return cached;
+    final pending = _inflight[cacheKey];
+    if (pending != null) return pending;
+    final future = _resolveStreamUncached(
+      title: title,
+      artist: artist,
+      album: album,
+      expectedDurationSeconds: expectedDurationSeconds,
+      preferredQuality: preferredQuality,
+    );
+    _inflight[cacheKey] = future;
+    try {
+      final stream = await future;
+      if (stream != null) _streamCache.put(cacheKey, stream);
+      return stream;
+    } finally {
+      _inflight.remove(cacheKey);
+    }
+  }
+
+  Future<ResolvedStream?> _resolveStreamUncached({
+    required String title,
+    required String artist,
+    String album = '',
+    int expectedDurationSeconds = 0,
+    int preferredQuality = qualityMaxHiRes,
+  }) async {
     try {
       final candidate = await findBestVerifiedMatch(
         title: title,
@@ -377,6 +457,19 @@ class LosslessCandidate {
   String get titleWithVersion =>
       version.isEmpty ? title : '$title $version';
 
+  static int _parseCandidateDuration(Object? raw) {
+    var n = 0;
+    if (raw is num) {
+      n = raw.toInt();
+    } else {
+      n = int.tryParse(raw?.toString() ?? '') ?? 0;
+    }
+    if (n <= 0) return 0;
+    if (n > 10000) n = (n / 1000).round();
+    if (n > 24 * 3600) return 0;
+    return n;
+  }
+
   factory LosslessCandidate.fromJson(Map<String, dynamic> json) {
     final performer = json['performer'];
     String performerName = '';
@@ -425,7 +518,7 @@ class LosslessCandidate {
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
       version: json['version']?.toString() ?? '',
-      duration: (json['duration'] as num?)?.toInt() ?? 0,
+      duration: _parseCandidateDuration(json['duration']),
       performer: performerName,
       performersText:
           performersText.isNotEmpty ? performersText : performersKredit,

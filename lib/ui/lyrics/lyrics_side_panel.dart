@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,7 +8,6 @@ import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
-import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -32,114 +33,128 @@ class WaveLyricsSidePanel extends ConsumerWidget {
     final current = ref.watch(
       playbackServiceProvider.select((s) => s.current),
     );
+    final frost = dark
+        ? const Color(0x66111111)
+        : const Color(0x99F4F3F0);
 
-    return WaveHaze(
-      level: LwHazeLevel.l2,
-      base: (dark ? WaveColors.surfaceRaised : WaveColors.lightSurfaceRaised)
-          .withValues(alpha: 0.94),
-      border: Border(
-        left: BorderSide(color: waveDivider(context)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Header: Identity + Close
-          Container(
-            height: 52,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: waveDivider(context)),
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 48, sigmaY: 48),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: frost,
+            border: Border(
+              left: BorderSide(
+                color: (dark ? Colors.white : Colors.black)
+                    .withValues(alpha: 0.06),
               ),
             ),
-            child: Row(
-              children: [
-                if (current != null) ...[
-                  WaveArtwork(
-                    url: current.artworkUrl,
-                    videoId: current.videoId,
-                    size: 32,
-                    radius: 6,
-                    label: current.title,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          current.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.trackTitle.copyWith(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          current.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.meta.copyWith(
-                            fontSize: 11,
-                            color: waveTextSecondary(context),
-                          ),
-                        ),
-                      ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                height: 52,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: Colors.transparent,
+                  border: Border(
+                    bottom: BorderSide(
+                      color: (dark ? Colors.white : Colors.black)
+                          .withValues(alpha: 0.06),
                     ),
                   ),
-                ] else
-                  Expanded(
-                    child: Text(
-                      'Lyrics',
-                      style: WaveType.sectionTitle.copyWith(fontSize: 15),
-                    ),
-                  ),
-                const SizedBox(width: 8),
-                LWTooltip(
-                  message: 'Close lyrics (Esc)',
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: onClose,
-                      child: Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    if (current != null) ...[
+                      WaveArtwork(
+                        url: current.artworkUrl,
+                        videoId: current.videoId,
+                        size: 32,
+                        radius: 6,
+                        label: current.title,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              current.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: WaveType.trackTitle.copyWith(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              current.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: WaveType.meta.copyWith(
+                                fontSize: 11,
+                                color: waveTextSecondary(context),
+                              ),
+                            ),
+                          ],
                         ),
-                        child: Center(
-                          child: Icon(
-                            WaveIcons.close,
-                            size: 14,
-                            color: waveTextSecondary(context),
+                      ),
+                    ] else
+                      Expanded(
+                        child: Text(
+                          'Lyrics',
+                          style: WaveType.sectionTitle.copyWith(fontSize: 15),
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    LWTooltip(
+                      message: 'Close lyrics (Esc)',
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          onTap: onClose,
+                          child: Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Center(
+                              child: Icon(
+                                WaveIcons.close,
+                                size: 14,
+                                color: waveTextSecondary(context),
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              Expanded(
+                child: current == null
+                    ? const WaveEmpty(
+                        icon: WaveIcons.music,
+                        title: 'Nothing playing',
+                        subtitle: 'Play a track to view live lyrics.',
+                      )
+                    : WaveKaraokeLyricsView(
+                        track: current,
+                        compact: false,
+                        fontSize: 34,
+                        showHeaderControls: true,
+                        onClose: null,
+                      ),
+              ),
+            ],
           ),
-          // Content: Full Apple Music Karaoke Lyrics Engine
-          Expanded(
-            child: current == null
-                ? const WaveEmpty(
-                    icon: WaveIcons.music,
-                    title: 'Nothing playing',
-                    subtitle: 'Play a track to view live lyrics.',
-                  )
-                : WaveKaraokeLyricsView(
-                    track: current,
-                    compact: true,
-                    showHeaderControls: true,
-                    onClose: null, // Header already has close button
-                  ),
-          ),
-        ],
+        ),
       ),
     );
   }

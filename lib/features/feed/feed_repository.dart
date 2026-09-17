@@ -14,6 +14,7 @@ import '../search/shared_providers.dart';
 class GeneratedTrack {
   final String name;
   final String artist;
+  final String album;
   final String artworkUrl;
   final String videoId;
   final String listeners;
@@ -23,6 +24,7 @@ class GeneratedTrack {
   const GeneratedTrack({
     required this.name,
     required this.artist,
+    this.album = '',
     this.artworkUrl = '',
     this.videoId = '',
     this.listeners = '',
@@ -197,6 +199,7 @@ class FeedRepository {
           return GeneratedTrack(
             name: t.name,
             artist: t.artist,
+            album: t.album.isNotEmpty ? t.album : match.album,
             artworkUrl: t.artworkUrl.isNotEmpty
                 ? t.artworkUrl
                 : match.artworkUrl,
@@ -214,6 +217,50 @@ class FeedRepository {
       out.addAll(resolved);
     }
     return out;
+  }
+
+  /// Fill album/duration from a YouTube Music search when Last.fm omitted them.
+  /// Never copies a videoId — a weak search hit here was playing the wrong song.
+  Future<GeneratedTrack> fillMissingMetadata(GeneratedTrack t) async {
+    if (t.durationSeconds > 0 && t.album.isNotEmpty) return t;
+    try {
+      final songs = await _tube.searchSongs(
+        '${t.name} ${t.artist}',
+        limit: 8,
+      );
+      YouTubeMusicTrack? hit;
+      var best = -1;
+      for (final s in songs) {
+        final titleSim = InnerTubeMusicApi.similarity(
+                InnerTubeMusicApi.baseTitle(s.title),
+                InnerTubeMusicApi.baseTitle(t.name));
+        if (titleSim < 85) continue;
+        if (t.artist.isNotEmpty &&
+            InnerTubeMusicApi.similarity(s.artist, t.artist) < 50) {
+          continue;
+        }
+        if (titleSim > best) {
+          best = titleSim;
+          hit = s;
+        }
+      }
+      if (hit == null) return t;
+      return GeneratedTrack(
+        name: t.name,
+        artist: t.artist,
+        album: t.album.isNotEmpty ? t.album : hit.album,
+        artworkUrl:
+            t.artworkUrl.isNotEmpty ? t.artworkUrl : hit.artworkUrl,
+        videoId: t.videoId,
+        listeners: t.listeners,
+        match: t.match,
+        durationSeconds: t.durationSeconds > 0
+            ? t.durationSeconds
+            : hit.durationSeconds,
+      );
+    } catch (_) {
+      return t;
+    }
   }
 
   /// New-release records (real albums/singles, no video items).
@@ -252,6 +299,7 @@ class FeedRepository {
                     ? t.artworkUrl
                     : album.artworkUrl,
                 videoId: t.videoId,
+                album: t.album.isNotEmpty ? t.album : album.name,
                 durationSeconds: t.durationSeconds,
               ))
           .toList();

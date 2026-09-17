@@ -68,29 +68,29 @@ final _artistDetailProvider = FutureProvider.autoDispose
         : items is Map<String, dynamic>
             ? [items]
             : <Map<String, dynamic>>[];
-    final bare = list
-        .map((t) => GeneratedTrack(
-              name: t['name']?.toString() ?? '',
-              artist: (t['artist'] as Map?)?['name']
-                      ?.toString() ??
-                  q,
-            ))
+    var bare = list
+        .map((t) => _trackFromLastFm(t, q))
         .where((t) => t.name.isNotEmpty)
         .toList();
     try {
-      popular = await ref
-          .watch(feedRepositoryProvider)
-          .resolveVideos(bare, limit: 20);
+      final songs = await tube.searchSongs(q, limit: 25);
+      bare = bare.map((t) => _fillFromYtm(t, songs)).toList();
+    } catch (_) {}
+    try {
+      final repo = ref.watch(feedRepositoryProvider);
+      popular = await repo.resolveVideos(bare, limit: 20);
+      popular = [
+        for (final t in popular) await repo.fillMissingMetadata(t),
+      ];
     } catch (_) {
       popular = bare;
     }
-    // Attach artwork fallback.
     popular = popular
         .map((t) => GeneratedTrack(
               name: t.name,
               artist: t.artist,
-              artworkUrl:
-                  t.artworkUrl.isNotEmpty ? t.artworkUrl : art,
+              album: t.album,
+              artworkUrl: t.artworkUrl,
               videoId: t.videoId,
               durationSeconds: t.durationSeconds,
             ))
@@ -103,8 +103,8 @@ final _artistDetailProvider = FutureProvider.autoDispose
           .map((t) => GeneratedTrack(
               name: t.title,
               artist: t.artist.isNotEmpty ? t.artist : q,
-              artworkUrl:
-                  t.artworkUrl.isNotEmpty ? t.artworkUrl : art,
+              album: t.album,
+              artworkUrl: t.artworkUrl,
               videoId: t.videoId,
               durationSeconds: t.durationSeconds))
           .toList();
@@ -126,9 +126,7 @@ final _artistDetailProvider = FutureProvider.autoDispose
             .replaceAll(RegExp(r'<[^>]*>'), '')
             .trim();
     if (summary.isNotEmpty) {
-      bio = summary.length > 280
-          ? '${summary.substring(0, 280)}…'
-          : summary;
+      bio = _cleanLastFmBio(summary);
     }
     final similar =
         (artist?['similar'] as Map?)?['artist'];
@@ -167,6 +165,78 @@ bool _isSingle(String subtitle) {
   return s.contains('single') || s.contains('ep');
 }
 
+GeneratedTrack _trackFromLastFm(Map<String, dynamic> t, String artist) {
+  final albumNode = t['album'];
+  var album = '';
+  if (albumNode is Map) {
+    album = albumNode['name']?.toString() ??
+        albumNode['#text']?.toString() ??
+        '';
+  }
+  return GeneratedTrack(
+    name: t['name']?.toString() ?? '',
+    artist: (t['artist'] as Map?)?['name']?.toString() ?? artist,
+    album: album.trim(),
+    durationSeconds: _parseLastFmDuration(t['duration']),
+  );
+}
+
+int _parseLastFmDuration(Object? raw) {
+  var n = 0;
+  if (raw is num) {
+    n = raw.toInt();
+  } else {
+    n = int.tryParse(raw?.toString() ?? '') ?? 0;
+  }
+  if (n <= 0) return 0;
+  if (n > 10000) n = (n / 1000).round();
+  if (n > 24 * 3600) return 0;
+  return n;
+}
+
+String _cleanLastFmBio(String raw) {
+  var s = raw.replaceAll(RegExp(r'<[^>]*>'), ' ');
+  s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+  s = s.replaceAll(
+      RegExp(r'Read more on Last\.fm\.?', caseSensitive: false), '');
+  s = s.replaceAll(
+      RegExp(r'User-contributed text is available under.+',
+          caseSensitive: false),
+      '');
+  return s.trim();
+}
+
+GeneratedTrack _fillFromYtm(
+    GeneratedTrack t, List<YouTubeMusicTrack> songs) {
+  YouTubeMusicTrack? hit;
+  var best = -1;
+  for (final s in songs) {
+    final titleSim = InnerTubeMusicApi.similarity(
+      InnerTubeMusicApi.baseTitle(s.title),
+      InnerTubeMusicApi.baseTitle(t.name),
+    );
+    if (titleSim < 85) continue;
+    if (t.artist.isNotEmpty &&
+        InnerTubeMusicApi.similarity(s.artist, t.artist) < 50) {
+      continue;
+    }
+    if (titleSim > best) {
+      best = titleSim;
+      hit = s;
+    }
+  }
+  if (hit == null) return t;
+  return GeneratedTrack(
+    name: t.name,
+    artist: t.artist,
+    album: t.album.isNotEmpty ? t.album : hit.album,
+    artworkUrl: t.artworkUrl.isNotEmpty ? t.artworkUrl : hit.artworkUrl,
+    videoId: t.videoId,
+    durationSeconds:
+        t.durationSeconds > 0 ? t.durationSeconds : hit.durationSeconds,
+  );
+}
+
 /// Artist page — 168px circle + ARTIST overline + 30px name +
 /// Play/Shuffle + full Popular (See-all) + Albums 136px +
 /// Singles 118px + Related.
@@ -180,6 +250,7 @@ class WaveArtistPage extends ConsumerStatefulWidget {
 
 class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
   bool _showAllPopular = false;
+  bool _bioExpanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -230,13 +301,12 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                                 .copyWith(fontSize: 30)),
                         if (d.bio.isNotEmpty) ...[
                           const SizedBox(height: 6),
-                          Text(d.bio,
-                              maxLines: 3,
-                              overflow:
-                                  TextOverflow.ellipsis,
-                              style: WaveType.body.copyWith(
-                                  color: waveTextSecondary(
-                                      context))),
+                          _ExpandableBio(
+                            text: d.bio,
+                            expanded: _bioExpanded,
+                            onToggle: () => setState(
+                                () => _bioExpanded = !_bioExpanded),
+                          ),
                         ],
                         const SizedBox(height: 14),
                         Wrap(
@@ -331,7 +401,8 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                       keyOf: (t) => t.key,
                       titleOf: (t) => t.name,
                       subtitleOf: (t) => t.artist,
-                      albumOf: (_) => '',
+                      albumOf: (t) => t.album,
+                      albumSortOf: (t) => t.album.toLowerCase(),
                       artworkOf: (t) => t.artworkUrl,
                       playableOf: playableFromGenerated,
                       durationOf: (t) => t.durationSeconds > 0
@@ -603,5 +674,55 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
         ),
       ),
     );
+  }
+}
+
+class _ExpandableBio extends StatelessWidget {
+  final String text;
+  final bool expanded;
+  final VoidCallback onToggle;
+  const _ExpandableBio({
+    required this.text,
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style = WaveType.body.copyWith(
+      color: waveTextSecondary(context),
+    );
+    return LayoutBuilder(builder: (context, c) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        maxLines: 3,
+        ellipsis: '…',
+        textDirection: Directionality.of(context),
+      )..layout(maxWidth: c.maxWidth.isFinite ? c.maxWidth : 640);
+      final overflows = painter.didExceedMaxLines;
+      painter.dispose();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            text,
+            maxLines: expanded ? null : 3,
+            overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            style: style,
+          ),
+          if (overflows)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: HyperlinkButton(
+                onPressed: onToggle,
+                child: Text(
+                  expanded ? 'Show less' : 'Read more',
+                  style: WaveType.label,
+                ),
+              ),
+            ),
+        ],
+      );
+    });
   }
 }

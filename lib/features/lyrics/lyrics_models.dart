@@ -95,6 +95,88 @@ List<LyricSyllable> interpolateLineSyllables({
   return syllables;
 }
 
+/// Fill missing syllable/line durations and clip overlaps so karaoke
+/// wipe lasts until the next word instead of flashing then jumping.
+LyricsResult normalizeKaraokeTimings(LyricsResult result) {
+  if (!result.isSynced || result.lines.isEmpty) return result;
+  final src = List<LyricLine>.of(result.lines)
+    ..sort((a, b) => a.timeMs.compareTo(b.timeMs));
+  final lines = <LyricLine>[];
+  for (var i = 0; i < src.length; i++) {
+    final line = src[i];
+    final nextStart = i + 1 < src.length ? src[i + 1].timeMs : null;
+    var duration = line.durationMs;
+    if (nextStart != null) {
+      final gap = nextStart - line.timeMs;
+      if (gap <= 0) {
+        duration = 80;
+      } else if (duration <= 0 || duration > gap) {
+        duration = gap;
+      }
+    } else if (duration <= 0) {
+      duration = 4000;
+    }
+    duration = duration.clamp(80, 30000);
+    final syllables = line.hasSyllables
+        ? _normalizeSyllables(line.syllables, line.timeMs, duration)
+        : interpolateLineSyllables(
+            text: line.text,
+            startTimeMs: line.timeMs,
+            durationMs: duration,
+          );
+    lines.add(LyricLine(
+      timeMs: line.timeMs,
+      durationMs: duration,
+      text: line.text,
+      syllables: syllables,
+      transliteration: line.transliteration,
+    ));
+  }
+  return LyricsResult(
+    lines: lines,
+    isSynced: result.isSynced,
+    isWordSynced: result.isWordSynced,
+    plainLyrics: result.plainLyrics,
+    isInstrumental: result.isInstrumental,
+    source: result.source,
+  );
+}
+
+List<LyricSyllable> _normalizeSyllables(
+  List<LyricSyllable> raw,
+  int lineStartMs,
+  int lineDurationMs,
+) {
+  if (raw.isEmpty) return const [];
+  final sorted = List<LyricSyllable>.of(raw)
+    ..sort((a, b) => a.timeMs.compareTo(b.timeMs));
+  final lineEnd = lineStartMs + lineDurationMs;
+  final out = <LyricSyllable>[];
+  for (var i = 0; i < sorted.length; i++) {
+    final s = sorted[i];
+    final nextStart =
+        i + 1 < sorted.length ? sorted[i + 1].timeMs : lineEnd;
+    var start = s.timeMs < lineStartMs ? lineStartMs : s.timeMs;
+    if (start >= nextStart) start = math.max(lineStartMs, nextStart - 40);
+    final gap = math.max(40, nextStart - start);
+    const minSungMs = 80;
+    final provided = s.durationMs;
+    final int dur;
+    if (provided >= minSungMs && provided <= gap) {
+      dur = provided;
+    } else {
+      dur = gap;
+    }
+    out.add(LyricSyllable(
+      timeMs: start,
+      durationMs: dur,
+      text: s.text,
+      isBackground: s.isBackground,
+    ));
+  }
+  return out;
+}
+
 /// RTL detection for Arabic/Hebrew lyrics rendering.
 bool isRtlText(String text) {
   for (final rune in text.runes) {
@@ -153,7 +235,7 @@ List<LyricLine> parseLrc(String lrc) {
     final current = rawLines[i];
     final nextTime = (i + 1 < rawLines.length) ? rawLines[i + 1].timeMs : null;
     final calcDur = nextTime != null
-        ? (nextTime - current.timeMs).clamp(1200, 10000)
+        ? (nextTime - current.timeMs).clamp(80, 20000)
         : 4000;
     final syllables = current.hasSyllables
         ? current.syllables

@@ -157,3 +157,43 @@ class ResolvedStream {
         codec: audioCodec,
       );
 }
+
+/// In-memory LRU of resolved stream URLs. Playback and the lossless
+/// client share this so skip/previous reuse a fresh URL instead of
+/// hitting Qobuz/Tidal/YouTube again. Entries drop two minutes before
+/// the signed URL expires.
+class ResolvedStreamCache {
+  ResolvedStreamCache({this.maxEntries = 24});
+
+  final int maxEntries;
+  final Map<String, ResolvedStream> _entries = {};
+
+  ResolvedStream? get(String key) {
+    final stream = _entries[key];
+    if (stream == null) return null;
+    if (stream.isExpired) {
+      _entries.remove(key);
+      return null;
+    }
+    return stream;
+  }
+
+  void put(String key, ResolvedStream stream) {
+    if (key.isEmpty || stream.url.isEmpty || stream.isExpired) return;
+    _entries.remove(key);
+    _entries[key] = stream;
+    while (_entries.length > maxEntries) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
+
+  void invalidate(String key) => _entries.remove(key);
+
+  void invalidateWhere(bool Function(String key) test) {
+    _entries.removeWhere((k, _) => test(k));
+  }
+
+  void clear() => _entries.clear();
+
+  int get length => _entries.length;
+}

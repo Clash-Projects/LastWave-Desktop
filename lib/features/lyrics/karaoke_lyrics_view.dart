@@ -120,6 +120,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   int _lastAudioMs = 0;
   DateTime _lastSyncTime = DateTime.now();
   bool _isPlaying = false;
+  double _speed = 1.0;
   int _offsetMs = 0;
   String? _currentTrackKey;
   LyricsResult? _currentResult;
@@ -165,7 +166,8 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   void _onTick(Duration _) {
     if (!_isPlaying) return;
     final elapsed = DateTime.now().difference(_lastSyncTime).inMilliseconds;
-    final currentMs = _lastAudioMs + elapsed - _offsetMs;
+    final currentMs =
+        _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
     _interpolatedPositionMs.value = currentMs;
     _lyricController.setProgress(Duration(milliseconds: math.max(0, currentMs)));
   }
@@ -178,19 +180,35 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     final isPlaying = ref.watch(
       playbackServiceProvider.select((s) => s.isPlaying),
     );
+    final speed = ref.watch(
+      playbackServiceProvider.select((s) => s.speed),
+    );
     final offsetMs = ref.watch(lyricsOffsetProvider(widget.track.queueKey));
     final showTransliteration = ref.watch(lyricsTransliterationProvider);
     final async = ref.watch(waveLyricsProvider(widget.track.queueKey));
 
     _isPlaying = isPlaying;
+    _speed = speed <= 0 ? 1.0 : speed;
     _offsetMs = offsetMs;
     final audioMs = position.inMilliseconds;
-    if (audioMs != _lastAudioMs || !_isPlaying) {
+    if (!_isPlaying) {
       _lastAudioMs = audioMs;
       _lastSyncTime = DateTime.now();
       final effectiveMs = audioMs - offsetMs;
       _interpolatedPositionMs.value = effectiveMs;
       _lyricController.setProgress(Duration(milliseconds: math.max(0, effectiveMs)));
+    } else if (audioMs != _lastAudioMs) {
+      final elapsed = DateTime.now().difference(_lastSyncTime).inMilliseconds;
+      final predicted = _lastAudioMs + (elapsed * _speed).round();
+      final drift = audioMs - predicted;
+      if (drift <= -450 || drift >= 250) {
+        _lastAudioMs = audioMs;
+        _lastSyncTime = DateTime.now();
+        final effectiveMs = audioMs - offsetMs;
+        _interpolatedPositionMs.value = effectiveMs;
+        _lyricController.setProgress(
+            Duration(milliseconds: math.max(0, effectiveMs)));
+      }
     }
 
     if (_isPlaying && !_ticker.isActive) {
@@ -421,7 +439,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     final accent = waveAccent(context);
     final reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
 
-    final baseFontSize = widget.fontSize ?? (widget.compact ? 19.0 : 27.0);
+    final baseFontSize = widget.fontSize ?? (widget.compact ? 28.0 : 36.0);
 
     final activeTextColor = dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B);
     final idleTextColor = (dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B))
@@ -682,12 +700,15 @@ class _KaraokeToolbar extends ConsumerWidget {
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 12 : 24,
-        vertical: 8,
+        horizontal: compact ? 12 : 28,
+        vertical: 6,
       ),
       decoration: BoxDecoration(
+        color: Colors.transparent,
         border: Border(
-          bottom: BorderSide(color: waveDivider(context)),
+          bottom: BorderSide(
+            color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.06),
+          ),
         ),
       ),
       child: Row(
@@ -963,7 +984,7 @@ class _KaraokePlainLyrics extends StatelessWidget {
                     text,
                     style: WaveType.body.copyWith(
                       height: 1.75,
-                      fontSize: compact ? 16 : 21,
+                      fontSize: compact ? 18 : 22,
                       color: dark
                           ? WaveColors.textPrimary
                           : WaveColors.lightTextPrimary,

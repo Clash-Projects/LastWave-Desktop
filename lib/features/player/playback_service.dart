@@ -61,6 +61,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   bool exclusiveApplied = false;
   String? wasapiError;
   String? _forcedAoFormat;
+  final ResolvedStreamCache _playCache = ResolvedStreamCache();
+  final Map<String, Future<ResolvedStream?>> _resolveInflight = {};
+  final Set<String> _prefetchInflight = {};
+  String _prefetchSeedKey = '';
 
   PlaybackService(
     this._tube,
@@ -123,6 +127,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         if (_resolving || state.error != null) return;
         state = state.copyWith(position: v);
         _tickScrobble(v);
+        _maybePrefetchFromPosition(v);
       }),
       p.stream.buffer.listen((v) {
         if (_resolving || state.error != null) return;
@@ -196,6 +201,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _radioSeeds.clear();
     _unavailable.clear();
     _losslessBypass.clear();
+    _prefetchSeedKey = '';
     _rebuildShuffleOrder(queue.length, index);
     state = state.copyWith(
       queue: queue,
@@ -219,6 +225,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _rebuildShuffleOrder(queue.length, state.currentIndex);
     state = state.copyWith(queue: queue);
     _schedulePersist();
+    _prefetchNeighbors();
   }
 
   Future<void> addToQueue(PlayableTrack track) async {
@@ -226,6 +233,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _rebuildShuffleOrder(queue.length, state.currentIndex);
     state = state.copyWith(queue: queue);
     _schedulePersist();
+    _prefetchNeighbors();
   }
 
   Future<void> removeAt(int index) async {
@@ -543,6 +551,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     state = state.copyWith(clearError: true, isBuffering: true);
     _unavailable.remove(state.current!.queueKey);
     _losslessBypass.remove(state.current!.queueKey);
+    _invalidatePlayCache(state.current!);
     await _resolveAndOpen(state.currentIndex, forceRefresh: true);
   }
 
@@ -556,6 +565,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {}
     _endlessRadio = false;
     _sessions.clear();
+    _playCache.clear();
+    _resolveInflight.clear();
+    _prefetchInflight.clear();
+    _prefetchSeedKey = '';
+    try {
+      _lossless.clearStreamCache();
+    } catch (_) {}
     state = const PlayerSnapshot(
       shuffleEnabled: false,
       repeatMode: RepeatMode.off,
@@ -590,31 +606,39 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       final track = state.queue[index];
       final wantedQueueKey = track.queueKey;
       _activeQueueKey = wantedQueueKey;
+      final cacheKey = _playCacheKey(track, forceYoutube);
+      final cached = !forceRefresh ? _playCache.get(cacheKey) : null;
       state = state.copyWith(
-        isPlaying: false,
         isBuffering: true,
-        clearStream: true,
         clearError: true,
+        stream: cached,
+        clearStream: cached == null,
         position: Duration.zero,
         buffered: Duration.zero,
         duration: Duration.zero,
-        bitrateKbps: 0,
+        bitrateKbps: cached?.bitrateKbps ?? 0,
       );
-      await _player?.stop();
       if (generation != _resolveGeneration) return;
       if (_unavailable.contains(track.queueKey) && attempt == 0) {
         await _skipUnavailable(index);
         return;
       }
       _beginScrobbleWindow(track);
+      _prefetchNeighbors();
       final local = _localStream(track);
       if (local != null) {
         _resolving = false;
         await _open(track, local, generation, wantedQueueKey);
         return;
       }
-      final stream = await _resolveRemote(track,
-          forceYoutube: forceYoutube, forceRefresh: forceRefresh);
+      if (cached == null) {
+        try {
+          await _player?.stop();
+        } catch (_) {}
+      }
+      final stream = cached ??
+          await _resolveRemote(track,
+              forceYoutube: forceYoutube, forceRefresh: forceRefresh);
       // Stale guard: generation + track identity must still match.
       if (generation != _resolveGeneration) return;
       if (index >= state.queue.length ||
@@ -623,7 +647,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       }
       if (stream == null) {
         if (attempt == 0 && !forceYoutube) {
-          _losslessBypass.add(track.queueKey);
           await _resolveAndOpen(index,
               forceYoutube: true, attempt: 1);
           return;
@@ -635,7 +658,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       _resolving = false;
       await _open(track, stream, generation, wantedQueueKey);
       if (generation != _resolveGeneration) return;
-      _preResolveNext();
+      _prefetchNeighbors();
       _maybeRefillRadio();
     } catch (_) {
       if (generation != _resolveGeneration) return;
@@ -678,7 +701,41 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     );
   }
 
+  String _playCacheKey(PlayableTrack track, bool forceYoutube) =>
+      '${track.queueKey}|${forceYoutube ? 'yt' : _prefs.losslessQuality}|${_prefs.preferLossless}';
+
+  void _invalidatePlayCache(PlayableTrack track) {
+    _playCache.invalidateWhere((key) => key.startsWith('${track.queueKey}|'));
+    try {
+      _lossless.invalidateStream(title: track.title, artist: track.artist);
+    } catch (_) {}
+  }
+
   Future<ResolvedStream?> _resolveRemote(
+    PlayableTrack track, {
+    bool forceYoutube = false,
+    bool forceRefresh = false,
+  }) async {
+    final cacheKey = _playCacheKey(track, forceYoutube);
+    if (!forceRefresh) {
+      final hit = _playCache.get(cacheKey);
+      if (hit != null) return hit;
+      final pending = _resolveInflight[cacheKey];
+      if (pending != null) return pending;
+    }
+    final future = _resolveRemoteUncached(track,
+        forceYoutube: forceYoutube, forceRefresh: forceRefresh);
+    _resolveInflight[cacheKey] = future;
+    try {
+      final stream = await future;
+      if (stream != null) _playCache.put(cacheKey, stream);
+      return stream;
+    } finally {
+      _resolveInflight.remove(cacheKey);
+    }
+  }
+
+  Future<ResolvedStream?> _resolveRemoteUncached(
     PlayableTrack track, {
     bool forceYoutube = false,
     bool forceRefresh = false,
@@ -779,29 +836,104 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {}
   }
 
-  /// Pre-resolve only the next likely queue track in the background
-  /// (Limusic 1-track lookahead). Deduped by the resolver.
-  void _preResolveNext() {
+  /// Warm previous, next, and next+1 stream URLs plus studio artwork.
+  /// Does not open mpv and never injects a playlist item.
+  void _prefetchNeighbors() {
     try {
-      final next = _nextIndex();
-      if (next == null) return;
-      final track = state.queue[next];
-      if (_localStream(track) != null) return;
-      final videoId = track.videoId;
-      if (videoId.isNotEmpty) {
-        _tube.prefetchNextTrack(videoId);
-        return;
+      final indices = <int>{};
+      void add(int? i) {
+        if (i != null && i != state.currentIndex) indices.add(i);
       }
-      // No videoId yet: resolve the match in the background without
-      // opening, so the coming skip is instant.
-      unawaited(_tube
-          .findBestMatchOrNull(track.title, track.artist)
-          .then((m) {
-        if (m == null) return;
-        _adoptVideoId(track, m.videoId, m);
-        _tube.prefetchNextTrack(m.videoId);
-      }, onError: (_) {}));
+
+      add(_neighborIndex(1));
+      add(_neighborIndex(-1));
+      add(_neighborIndex(2));
+      for (final i in indices) {
+        unawaited(_prefetchIndex(i));
+      }
     } catch (_) {}
+  }
+
+  int? _neighborIndex(int delta) {
+    final queue = state.queue;
+    if (queue.isEmpty || state.currentIndex < 0 || delta == 0) return null;
+    if (state.shuffleEnabled && _shuffleOrder.isNotEmpty) {
+      final pos = _shuffleOrder.indexOf(state.currentIndex);
+      if (pos < 0) return null;
+      final next = pos + delta;
+      if (next >= 0 && next < _shuffleOrder.length) {
+        return _shuffleOrder[next];
+      }
+      if (state.repeatMode == RepeatMode.all && queue.isNotEmpty) {
+        return delta > 0 ? _shuffleOrder.first : _shuffleOrder.last;
+      }
+      return null;
+    }
+    final i = state.currentIndex + delta;
+    if (i >= 0 && i < queue.length) return i;
+    if (state.repeatMode == RepeatMode.all && queue.isNotEmpty) {
+      return delta > 0 ? 0 : queue.length - 1;
+    }
+    return null;
+  }
+
+  Future<void> _prefetchIndex(int index) async {
+    if (index < 0 || index >= state.queue.length) return;
+    final track = state.queue[index];
+    if (_unavailable.contains(track.queueKey)) return;
+    if (_localStream(track) != null) {
+      _prefetchArtwork(track);
+      return;
+    }
+    final cacheKey = _playCacheKey(track, false);
+    if (_playCache.get(cacheKey) != null) {
+      _prefetchArtwork(track);
+      if (track.videoId.isNotEmpty) {
+        _tube.prefetchNextTrack(track.videoId);
+      }
+      return;
+    }
+    if (!_prefetchInflight.add(track.queueKey)) return;
+    try {
+      final stream = await _resolveRemote(track);
+      if (stream != null && stream.artworkUrl.isNotEmpty) {
+        OfficialArtworkService.instance.rememberTrack(
+          title: track.title,
+          artist: track.artist,
+          artworkUrl: stream.artworkUrl,
+          album: stream.albumTitle.isNotEmpty ? stream.albumTitle : track.album,
+        );
+      }
+      _prefetchArtwork(track);
+    } catch (_) {
+    } finally {
+      _prefetchInflight.remove(track.queueKey);
+    }
+  }
+
+  void _prefetchArtwork(PlayableTrack track) {
+    if (OfficialArtworkService.isOfficialArtwork(track.artworkUrl)) return;
+    unawaited(_artworkService
+        .resolveOfficialArtwork(
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+    )
+        .then((_) {}, onError: (_) {}));
+  }
+
+  void _maybePrefetchFromPosition(Duration position) {
+    final duration = state.duration;
+    if (duration.inSeconds < 8) return;
+    final remaining = duration - position;
+    if (position.inMilliseconds < duration.inMilliseconds * 0.55 &&
+        remaining > const Duration(seconds: 28)) {
+      return;
+    }
+    final key = state.current?.queueKey ?? '';
+    if (key.isEmpty || key == _prefetchSeedKey) return;
+    _prefetchSeedKey = key;
+    _prefetchNeighbors();
   }
 
   Future<void> _open(PlayableTrack track, ResolvedStream stream,
@@ -921,6 +1053,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     _failedGeneration = generation;
+    _invalidatePlayCache(track);
     if (state.stream?.cacheKey.startsWith('lossless:') ?? false) {
       _losslessBypass.add(track.queueKey);
       await _resolveAndOpen(state.currentIndex, forceYoutube: true);

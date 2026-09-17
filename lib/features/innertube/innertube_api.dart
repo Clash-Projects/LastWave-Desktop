@@ -1273,6 +1273,9 @@ class InnerTubeMusicApi {
       final details = root['videoDetails'] as Map?;
       var title = details?['title']?.toString();
       var artist = details?['author']?.toString() ?? '';
+      final duration = int.tryParse(
+              details?['lengthSeconds']?.toString() ?? '') ??
+          0;
       final thumbs =
           (details?['thumbnail'] as Map?)?['thumbnails'];
       String? artwork;
@@ -1302,6 +1305,7 @@ class InnerTubeMusicApi {
           artist: artist,
           artworkUrl: artwork ??
               'https://i.ytimg.com/vi/$videoId/hqdefault.jpg',
+          durationSeconds: duration,
         );
       }
     } catch (_) {}
@@ -1915,9 +1919,12 @@ class InnerTubeMusicApi {
     if (normA == normB) return 100;
     if (normA.isNotEmpty && normB.isNotEmpty) {
       if (normA.contains(normB) || normB.contains(normA)) {
-        final ratio = (min(normA.length, normB.length) * 100) ~/
-            max(normA.length, normB.length);
-        if (ratio >= 45) return max(85, ratio);
+        final shorter = min(normA.length, normB.length);
+        final longer = max(normA.length, normB.length);
+        final ratio = (shorter * 100) ~/ longer;
+        // Short titles ("Cider" in "Cinderella", "Piranha" in
+        // "Wisakda Me (Piranha, Pt. 2)") must not count as the same song.
+        if (shorter >= 8 && ratio >= 70) return max(85, ratio);
       }
     }
     final left = _tokens(a);
@@ -1925,8 +1932,9 @@ class InnerTubeMusicApi {
     if (left.isEmpty || right.isEmpty) return 0;
     final common = left.intersection(right).length;
     final dice = (200 * common) ~/ (left.length + right.length);
+    final shorterCount = min(left.length, right.length);
     final subset =
-        (common == min(left.length, right.length) && common > 0)
+        (common == shorterCount && common > 0 && shorterCount >= 2)
             ? 80
             : 0;
     return max(dice, subset);
@@ -1968,18 +1976,22 @@ class InnerTubeMusicApi {
   }
 
   static int? parseDuration(String value) {
-    final parts = value
-        .trim()
-        .split(':')
-        .map(int.tryParse)
-        .toList();
-    if (parts.any((e) => e == null)) return null;
+    var cleaned = value.trim();
+    if (cleaned.isEmpty) return null;
+    cleaned = cleaned.replaceAll(
+        RegExp(r'[\u200e\u200f\u202a-\u202e\u2066-\u2069]'), '');
+    cleaned = cleaned.replaceAll('：', ':').trim();
+    final match = RegExp(r'(\d{1,2}:)+\d{2}').firstMatch(cleaned);
+    final token = match?.group(0) ?? cleaned;
+    final parts = token.split(':').map(int.tryParse).toList();
+    if (parts.isEmpty || parts.any((e) => e == null)) return null;
     final nums = parts.whereType<int>().toList();
     if (nums.length < 2 || nums.length > 3) return null;
     var total = 0;
     for (final n in nums) {
       total = total * 60 + n;
     }
+    if (total <= 0 || total > 24 * 3600) return null;
     return total;
   }
 
@@ -2017,7 +2029,8 @@ class InnerTubeMusicApi {
     final cacheKey = '${normalize(artist)}|${normalize(title)}';
     final cached = _matchCache[cacheKey];
     if (cached != null &&
-        !excludedVideoIds.contains(cached.videoId)) {
+        !excludedVideoIds.contains(cached.videoId) &&
+        cached.durationSeconds > 0) {
       return cached;
     }
     // Persistent match cache: instant reuse across restarts.
@@ -2027,6 +2040,7 @@ class InnerTubeMusicApi {
         if (disk != null) {
           final dv = disk['video_id']?.toString() ?? '';
           if (dv.isNotEmpty) {
+            final duration = (disk['duration_seconds'] as num?)?.toInt() ?? 0;
             final track = YouTubeMusicTrack(
               videoId: dv,
               title: disk['title']?.toString() ?? title,
@@ -2034,9 +2048,12 @@ class InnerTubeMusicApi {
               album: disk['album']?.toString() ?? '',
               artworkUrl:
                   disk['artwork_url']?.toString() ?? '',
+              durationSeconds: duration,
             );
-            _matchCache[cacheKey] = track;
-            return track;
+            if (duration > 0) {
+              _matchCache[cacheKey] = track;
+              return track;
+            }
           }
         }
       } catch (_) {}
@@ -2080,6 +2097,7 @@ class InnerTubeMusicApi {
         artist: best.artist,
         album: best.album,
         artworkUrl: best.artworkUrl,
+        durationSeconds: best.durationSeconds,
       );
     } catch (_) {}
     return best;
@@ -2098,6 +2116,25 @@ class InnerTubeMusicApi {
     } catch (_) {
       return null;
     }
+  }
+
+  void rememberMatch(YouTubeMusicTrack track,
+      {String? title, String? artist}) {
+    if (track.videoId.isEmpty) return;
+    final cacheKey =
+        '${normalize(artist ?? track.artist)}|${normalize(title ?? track.title)}';
+    _matchCache[cacheKey] = track;
+    try {
+      _disk?.saveMatchEntry(
+        key: cacheKey,
+        videoId: track.videoId,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        artworkUrl: track.artworkUrl,
+        durationSeconds: track.durationSeconds,
+      );
+    } catch (_) {}
   }
 
   Future<bool> isPlayable(String title, String artist) async =>
@@ -3083,6 +3120,11 @@ class InnerTubeMusicApi {
   /// album pages use `runs` on `fixedColumns`, queue panels use
   /// `lengthText`. Any `m:ss` / `h:mm:ss` token wins.
   int _durationFromRenderer(Map<String, dynamic> r) {
+    final lengthSeconds =
+        int.tryParse(r['lengthSeconds']?.toString() ?? '') ?? 0;
+    if (lengthSeconds > 0 && lengthSeconds <= 24 * 3600) {
+      return lengthSeconds;
+    }
     int? fromText(Object? text) {
       if (text is String) return parseDuration(text);
       if (text is! Map) return null;

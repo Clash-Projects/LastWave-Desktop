@@ -166,13 +166,14 @@ class LyricsRepository {
         .then<LyricsResult?>((value) => value, onError: (_) => null));
     await for (final result in Stream.fromFutures(pending)) {
       if (result == null || result.isEmpty) continue;
-      if (result.isWordSynced || result.isInstrumental) {
-        _cache[key] = result;
-        return result;
+      final ready = normalizeKaraokeTimings(result);
+      if (ready.isWordSynced || ready.isInstrumental) {
+        _cache[key] = ready;
+        return ready;
       }
-      if (lineFallback == null || isBetterCandidate(result, lineFallback)) {
-        lineFallback = result;
-        onPartialResult?.call(result);
+      if (lineFallback == null || isBetterCandidate(ready, lineFallback)) {
+        lineFallback = ready;
+        onPartialResult?.call(ready);
       }
     }
 

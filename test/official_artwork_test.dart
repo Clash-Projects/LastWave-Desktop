@@ -135,7 +135,7 @@ void main() {
       final db = AppDatabase.inMemory();
       final service = OfficialArtworkService(null, db);
       db.saveArtworkEntry(
-        cacheKey: 't3|madvillain|all caps',
+        cacheKey: 't4|madvillain|all caps',
         url: 'https://i.ytimg.com/vi/video12345/hqdefault.jpg',
         provider: 'innertube',
       );
@@ -150,6 +150,82 @@ void main() {
       expect(result.artworkUrl.contains('ytimg.com'), isFalse);
       db.close();
     }, timeout: const Timeout(Duration(seconds: 15)));
+
+    test('does not steal another song cover via substring titles', () {
+      expect(
+          OfficialArtworkService.artworkTitleScore(
+              'Cinderella (feat. Ty Dolla \$ign)', 'Cider'),
+          0);
+      expect(
+          OfficialArtworkService.artworkTitleScore(
+              'Wisakda Me (Piranha, Pt. 2)', 'Piranha'),
+          0);
+      expect(
+          OfficialArtworkService.artworkTitleScore(
+              'Piranha (feat. Tikx Kooda)', 'Piranah'),
+          greaterThanOrEqualTo(90));
+      expect(
+          OfficialArtworkService.artworkArtistScore('Zane', 'Zany Inzane'),
+          0);
+      expect(
+          OfficialArtworkService.artworkArtistScore(
+              'Zany Inzane', 'Zany Inzane'),
+          100);
+
+      final piranha = OfficialArtworkService.pickBestTrackArtwork(
+        [
+          {
+            'trackName': 'Wisakda Me (Piranha, Pt. 2)',
+            'artistName': 'Zany Inzane',
+            'collectionName': 'Kushcobar',
+            'artworkUrl100':
+                'https://is1-ssl.mzstatic.com/image/thumb/wrong.jpg/100x100bb.jpg',
+          },
+          {
+            'trackName': 'Piranha (feat. Tikx Kooda)',
+            'artistName': 'Zany Inzane',
+            'collectionName': 'Piranha (feat. Tikx Kooda) - Single',
+            'artworkUrl100':
+                'https://is1-ssl.mzstatic.com/image/thumb/right.jpg/100x100bb.jpg',
+          },
+        ],
+        title: 'Piranah',
+        artist: 'Zany Inzane',
+      );
+      expect(piranha, isNotNull);
+      expect(piranha!['collectionName'], isNot(contains('Kushcobar')));
+
+      final cider = OfficialArtworkService.pickBestTrackArtwork(
+        [
+          {
+            'trackName': 'Cinderella (feat. Ty Dolla \$ign)',
+            'artistName': 'Mac Miller',
+            'collectionName': 'The Divine Feminine',
+            'artworkUrl100':
+                'https://is1-ssl.mzstatic.com/image/thumb/cinderella.jpg/100x100bb.jpg',
+          },
+          {
+            'trackName': 'Cider',
+            'artistName': 'Yezi',
+            'collectionName': 'Foresight Dream - EP',
+            'artworkUrl100':
+                'https://is1-ssl.mzstatic.com/image/thumb/yezi.jpg/100x100bb.jpg',
+          },
+          {
+            'trackName': 'Cider',
+            'artistName': 'Zany Inzane',
+            'collectionName': 'Cider',
+            'artworkUrl100':
+                'https://cdn-images.dzcdn.net/images/cover/right/1000x1000.jpg',
+          },
+        ],
+        title: 'Cider',
+        artist: 'Zany Inzane',
+      );
+      expect(cider, isNotNull);
+      expect(cider!['artistName'], 'Zany Inzane');
+      expect(cider['collectionName'], 'Cider');
+    });
 
     test('normalizeForSearch strips noise and featured artists', () {
       expect(
@@ -216,14 +292,14 @@ void main() {
       final db = AppDatabase.inMemory();
       final service = OfficialArtworkService(null, db);
 
-      // Save an entry (track cache keys are versioned: t3|artist|title)
+      // Save an entry (track cache keys are versioned: t4|artist|title)
       db.saveArtworkEntry(
-        cacheKey: 't3|madvillain|all caps',
+        cacheKey: 't4|madvillain|all caps',
         url: 'https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/madvillainy.jpg/1400x1400bb.jpg',
         provider: 'itunes',
       );
 
-      final loaded = db.loadArtworkEntry('t3|madvillain|all caps');
+      final loaded = db.loadArtworkEntry('t4|madvillain|all caps');
       expect(loaded, isNotNull);
       expect(loaded!['url'], contains('madvillainy.jpg'));
       expect(loaded['provider'], 'itunes');

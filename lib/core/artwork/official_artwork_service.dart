@@ -65,7 +65,7 @@ class OfficialArtworkService {
   }
 
   String _trackCacheKey(String artist, String title) =>
-      't3|${normalizeForSearch(artist)}|${normalizeForSearch(title)}';
+      't4|${normalizeForSearch(artist)}|${normalizeForSearch(title)}';
 
   String _albumCacheKey(String artist, String album) =>
       'album2|${normalizeForSearch(artist)}|${normalizeForSearch(album)}';
@@ -368,9 +368,9 @@ class OfficialArtworkService {
     final cleanArtist = normalizeForSearch(artist);
     if (cleanTitle.isEmpty) return null;
 
-    // Cache keys are versioned: v1 track/album entries were written by a
-    // lenient matcher that could store unrelated top-hits, so they are
-    // abandoned (orphaned rows are harmless) rather than trusted.
+    // Cache keys are versioned: t1–t3 could store a different song's
+    // sleeve (substring hits like Cider→Cinderella or Piranha→Pt. 2).
+    // Those rows are abandoned rather than trusted.
     return _cached(
       _trackCacheKey(artist, title),
       'catalog',
@@ -521,23 +521,13 @@ class OfficialArtworkService {
       final artistName =
           normalizeForSearch(item['artistName']?.toString() ?? '');
       if (collection.isEmpty) continue;
-      var score = 0;
-      if (collection == cleanAlbum) {
-        score += 100;
-      } else if (collection.contains(cleanAlbum) ||
-          cleanAlbum.contains(collection)) {
-        score += 60;
-      } else {
-        continue;
-      }
+      final titleScore = artworkTitleScore(collection, cleanAlbum);
+      if (titleScore < 90) continue;
+      var score = titleScore;
       if (cleanArtist.isNotEmpty) {
-        if (artistName == cleanArtist ||
-            _artistsAliased(artistName, cleanArtist)) {
-          score += 100;
-        } else if (artistName.contains(cleanArtist) ||
-            cleanArtist.contains(artistName)) {
-          score += 50;
-        }
+        final artistScore = artworkArtistScore(artistName, cleanArtist);
+        if (artistScore < 80) continue;
+        score += artistScore;
       }
       if (artistName.contains('karaoke') ||
           artistName.contains('tribute') ||
@@ -573,23 +563,11 @@ class OfficialArtworkService {
       final artistName =
           normalizeForSearch(item['artistName']?.toString() ?? '');
       if (collection.isEmpty) continue;
-      var score = 0;
-      if (collection == cleanAlbum) {
-        score += 100;
-      } else if (collection.contains(cleanAlbum) ||
-          cleanAlbum.contains(collection)) {
-        score += 60;
-      } else {
-        continue;
-      }
-      if (artistName == cleanArtist) {
-        score += 100;
-      } else if (artistName.contains(cleanArtist) ||
-          cleanArtist.contains(artistName)) {
-        score += 50;
-      } else {
-        continue;
-      }
+      final titleScore = artworkTitleScore(collection, cleanAlbum);
+      if (titleScore < 90) continue;
+      final artistScore = artworkArtistScore(artistName, cleanArtist);
+      if (artistScore < 80) continue;
+      var score = titleScore + artistScore;
       final trackName =
           normalizeForSearch(item['trackName']?.toString() ?? '');
       final noise = '$trackName $collection';
@@ -798,56 +776,36 @@ class OfficialArtworkService {
     String rawArtist,
     String rawAlbum,
   ) async {
-    // Pass 1: "artist title" — precise when iTunes ranks the song highly.
-    // Pass 2: title only — iTunes popularity ranking buries deep cuts
-    // (interludes, old catalog) past the result window when popular
-    // songs by the same artist dominate; a bare-title search surfaces
-    // exact-title matches and the scorer's artist check filters them.
-    for (final query in {
-      if (cleanArtist.isNotEmpty) '$cleanArtist $cleanTitle',
+    // Query iTunes and Deezer together, then pick the GLOBAL best.
+    // Returning from the first iTunes substring hit used to skip the
+    // real sleeve sitting in Deezer (Piranha vs Piranha Pt. 2).
+    final catalogs = await Future.wait([
+      if (cleanArtist.isNotEmpty)
+        _itunesSearch('$cleanArtist $cleanTitle', 'song', '25'),
+      _itunesSearch(cleanTitle, 'song', '25'),
+      if (rawArtist.isNotEmpty) _deezerTrackHits('$rawArtist $rawTitle'),
+      _deezerTrackHits(rawTitle),
+    ]);
+    final match = _findBestMatch(
+      catalogs.expand((e) => e).toList(),
       cleanTitle,
-    }) {
-      final match = await _searchSong(query, cleanTitle, cleanArtist);
-      if (match != null) {
-        final rawArt = match['artworkUrl100']?.toString() ??
-            match['artworkUrl60']?.toString() ??
-            '';
-        if (rawArt.isNotEmpty) {
-          final highResArt = rawArt.replaceAll(
-            RegExp(r'\d+x\d+bb'),
-            '1400x1400bb',
-          );
-          return OfficialArtworkResult(
-            artworkUrl: highResArt,
-            albumTitle: match['collectionName']?.toString() ?? rawAlbum,
-            artist: match['artistName']?.toString() ?? rawArtist,
-            title: match['trackName']?.toString() ?? rawTitle,
-          );
-        }
-      }
-    }
-
-    // Deezer catalog — used when iTunes is 403'd or has no match.
-    // cover_xl is already a square studio sleeve, not a video still.
-    for (final query in {
-      if (rawArtist.isNotEmpty) '$rawArtist $rawTitle',
-      rawTitle,
-    }) {
-      final match = _findBestMatch(
-        await _deezerTrackHits(query),
-        cleanTitle,
-        cleanArtist,
-      );
-      if (match != null) {
-        final cover = match['artworkUrl100']?.toString() ?? '';
-        if (cover.isNotEmpty) {
-          return OfficialArtworkResult(
-            artworkUrl: cover,
-            albumTitle: match['collectionName']?.toString() ?? rawAlbum,
-            artist: match['artistName']?.toString() ?? rawArtist,
-            title: match['trackName']?.toString() ?? rawTitle,
-          );
-        }
+      cleanArtist,
+    );
+    if (match != null) {
+      final rawArt = match['artworkUrl100']?.toString() ??
+          match['artworkUrl60']?.toString() ??
+          '';
+      if (rawArt.isNotEmpty) {
+        final highResArt = rawArt.contains('mzstatic.com') ||
+                rawArt.contains('apple.com')
+            ? rawArt.replaceAll(RegExp(r'\d+x\d+bb'), '1400x1400bb')
+            : rawArt;
+        return OfficialArtworkResult(
+          artworkUrl: highResArt,
+          albumTitle: match['collectionName']?.toString() ?? rawAlbum,
+          artist: match['artistName']?.toString() ?? rawArtist,
+          title: match['trackName']?.toString() ?? rawTitle,
+        );
       }
     }
 
@@ -876,86 +834,133 @@ class OfficialArtworkService {
     return null;
   }
 
-  /// One iTunes song-search round; returns the best accepted candidate
-  /// or null when nothing is trustworthy enough. iTunes ranks by
-  /// popularity, so the exact title is often buried past the first few
-  /// hits — cast a wide net and let _findBestMatch filter precisely.
-  Future<Map<String, dynamic>?> _searchSong(
-    String query,
-    String cleanTitle,
-    String cleanArtist,
-  ) async {
-    return _findBestMatch(
-      await _itunesSearch(query, 'song', '25'),
-      cleanTitle,
-      cleanArtist,
-    );
+  static const _artistStopwords = {
+    'the', 'a', 'an', 'and', 'of', 'feat', 'ft', 'with', 'x',
+  };
+
+  static Set<String> _nameTokens(String s) => s
+      .split(' ')
+      .where((t) => t.length > 1 && !_artistStopwords.contains(t))
+      .toSet();
+
+  /// Title score for store artwork. No substring contains — that is
+  /// how "Cider" stole Cinderella and "Piranha" stole Piranha Pt. 2.
+  static int artworkTitleScore(String candidate, String target) {
+    final a = normalizeForSearch(candidate);
+    final b = normalizeForSearch(target);
+    if (a.isEmpty || b.isEmpty) return 0;
+    if (a == b) return 100;
+    if (_isNearTypo(a, b)) return 90;
+    final ta = _nameTokens(a);
+    final tb = _nameTokens(b);
+    if (ta.isEmpty || tb.isEmpty) return 0;
+    final common = ta.intersection(tb).length;
+    if (common == 0) return 0;
+    final dice = (200 * common) ~/ (ta.length + tb.length);
+    return dice >= 92 ? 90 : 0;
   }
 
-  Map<String, dynamic>? _findBestMatch(
+  /// Artist score for store artwork. Token equality / subset only —
+  /// string contains would accept "zane" inside "zany inzane".
+  static int artworkArtistScore(String candidate, String target) {
+    final a = normalizeForSearch(candidate);
+    final b = normalizeForSearch(target);
+    if (a.isEmpty || b.isEmpty) return 0;
+    if (a == b || _artistsAliased(a, b)) return 100;
+    final ta = _nameTokens(a);
+    final tb = _nameTokens(b);
+    if (ta.isEmpty || tb.isEmpty) return 0;
+    if (ta.containsAll(tb) || tb.containsAll(ta)) {
+      final shorter = ta.length <= tb.length ? ta : tb;
+      if (shorter.length >= 2 || shorter.every((t) => t.length >= 3)) {
+        return 80;
+      }
+    }
+    return 0;
+  }
+
+  /// One-edit / adjacent-transposition typo for titles long enough
+  /// that "Cider"/"Coder" will not collide.
+  static bool _isNearTypo(String a, String b) {
+    if (a.length < 6 || b.length < 6) return false;
+    final la = a.length;
+    final lb = b.length;
+    if ((la - lb).abs() > 1) return false;
+    if (la == lb) {
+      var diffs = 0;
+      var first = -1;
+      for (var i = 0; i < la; i++) {
+        if (a[i] == b[i]) continue;
+        diffs++;
+        if (diffs == 1) {
+          first = i;
+        } else if (diffs == 2 &&
+            first == i - 1 &&
+            a[first] == b[i] &&
+            a[i] == b[first]) {
+          return true;
+        } else {
+          return false;
+        }
+      }
+      return diffs <= 1;
+    }
+    final longer = la > lb ? a : b;
+    final shorter = la > lb ? b : a;
+    var i = 0;
+    var j = 0;
+    var skipped = 0;
+    while (i < longer.length && j < shorter.length) {
+      if (longer[i] == shorter[j]) {
+        i++;
+        j++;
+      } else {
+        skipped++;
+        if (skipped > 1) return false;
+        i++;
+      }
+    }
+    return true;
+  }
+
+  /// Public scorer used by tests and [_findBestMatch].
+  static Map<String, dynamic>? pickBestTrackArtwork(
+    List<Map<String, dynamic>> items, {
+    required String title,
+    required String artist,
+  }) =>
+      _findBestMatch(
+        items,
+        normalizeForSearch(title),
+        normalizeForSearch(artist),
+      );
+
+  static Map<String, dynamic>? _findBestMatch(
     List<Map<String, dynamic>> items,
     String targetTitle,
     String targetArtist,
   ) {
-    if (items.isEmpty) return null;
+    if (items.isEmpty || targetTitle.isEmpty || targetArtist.isEmpty) {
+      return null;
+    }
 
-    const stopwords = {'the', 'a', 'an', 'and', 'of', 'feat', 'ft', 'with'};
-    Set<String> tokens(String s) => s
-        .split(' ')
-        .where((t) => t.length > 1 && !stopwords.contains(t))
-        .toSet();
-    final targetTokens = tokens(targetArtist);
-
-    // Scored candidates that clear the acceptance bar.
     final accepted = <(int, DateTime?, Map<String, dynamic>)>[];
 
     for (final item in items) {
       final rawArtistName = item['artistName']?.toString() ?? '';
-      final trackName = normalizeForSearch(item['trackName']?.toString() ?? '');
-      final artistName = normalizeForSearch(rawArtistName);
+      final trackName = item['trackName']?.toString() ?? '';
       final collection =
           normalizeForSearch(item['collectionName']?.toString() ?? '');
       final collectionArtist =
           normalizeForSearch(item['collectionArtistName']?.toString() ?? '');
-      if (trackName.isEmpty) continue;
+      final titleScore = artworkTitleScore(trackName, targetTitle);
+      if (titleScore < 90) continue;
+      final artistScore = artworkArtistScore(rawArtistName, targetArtist);
+      if (artistScore < 80) continue;
 
-      var score = 0;
+      var score = titleScore + artistScore;
 
-      // Title similarity is mandatory.
-      if (trackName == targetTitle) {
-        score += 100;
-      } else if (trackName.contains(targetTitle) ||
-          targetTitle.contains(trackName)) {
-        score += 60;
-      } else {
-        continue;
-      }
-
-      // Artist similarity. Zero overlap with a known target artist means
-      // alias (Madvillain = MF DOOM) or tribute act — not trusted enough
-      // to replace an existing image on its own.
-      if (targetArtist.isNotEmpty) {
-        var artistScore = 0;
-        if (artistName == targetArtist) {
-          artistScore = 100;
-        } else if (artistName.contains(targetArtist) ||
-            targetArtist.contains(artistName)) {
-          artistScore = 50;
-        } else if (tokens(artistName).intersection(targetTokens).isNotEmpty) {
-          artistScore = 25;
-        }
-        if (artistScore == 0 &&
-            _artistsAliased(artistName, targetArtist)) {
-          artistScore = 100;
-        }
-        if (artistScore == 0) score -= 10;
-        score += artistScore;
-      }
-
-      // Instrumental / karaoke / tribute / cover versions are penalized
-      // on BOTH the track name and the collection name (e.g. an album
-      // titled "Madvillainy Instrumentals" with a clean track name).
-      final noise = '$trackName $collection';
+      final noise = '${normalizeForSearch(trackName)} $collection';
       if (!targetTitle.contains('instrumental') &&
           (noise.contains('instrumental') ||
               noise.contains('karaoke') ||
@@ -965,14 +970,7 @@ class OfficialArtworkService {
         score -= 80;
       }
 
-      // Various-artists compilations ("Technics: Hip-Hop"-style) carry
-      // the song but not the canonical cover — deprioritize them so the
-      // studio album wins. Detected via iTunes' collectionArtistName, a
-      // comma-separated artist list (raw name — normalization strips
-      // commas), or compilation-flavored collection titles. A duo credit
-      // like "Metro Boomin & Future" (no comma) is NOT a compilation.
       final looksLikeCompilation = collectionArtist == 'various artists' ||
-          rawArtistName.contains(',') ||
           collection.contains('greatest hits') ||
           collection.contains('best of') ||
           collection.contains('essential') ||
@@ -980,17 +978,9 @@ class OfficialArtworkService {
           collection.contains('various');
       if (looksLikeCompilation) score -= 60;
 
-      // A "- Single" collection carries the single's own cover, not the
-      // album's. When the song also exists on a full-length album,
-      // prefer the album cover so tracks from the same album render
-      // consistently (artist top-songs lists mix both). True singles
-      // still pass the acceptance bar — this only breaks ties.
       if (collection.endsWith(' single')) score -= 15;
 
-      // Acceptance bar: exact title + real artist support, or substring
-      // title + strong artist match. Anything weaker keeps the original
-      // image — no upgrade is always better than a wrong upgrade.
-      if (score >= 100) {
+      if (score >= 170) {
         DateTime? released;
         try {
           released = DateTime.parse(item['releaseDate']?.toString() ?? '');

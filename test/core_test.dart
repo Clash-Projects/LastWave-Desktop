@@ -55,6 +55,26 @@ void main() {
           LosslessMusicApi.normalizeTitle('Adele - Hello'),
           equals('hello'));
     });
+
+    test('normalization collapses apostrophes and explicit tags', () {
+      expect(
+          LosslessMusicApi.normalizeTitle("I Can't Save You"),
+          equals(LosslessMusicApi.normalizeTitle('I Cant Save You')));
+      expect(
+          LosslessMusicApi.normalizeTitle('The Hills (Explicit)'),
+          equals('the hills'));
+    });
+
+    test('titlesMatch accepts YouTube vs Qobuz wording', () {
+      expect(
+          LosslessMusicApi.titlesMatch(
+              "I Can't Save You (Interlude)",
+              'I Cant Save You (Interlude)'),
+          isTrue);
+      expect(
+          LosslessMusicApi.titlesMatch('Hello', 'Goodbye'),
+          isFalse);
+    });
   });
 
   group('InnerTube matching (Android parity)', () {
@@ -83,6 +103,16 @@ void main() {
           InnerTubeMusicApi.similarity(
               'midnight memories', 'midnight memories deluxe'),
           greaterThanOrEqualTo(85));
+    });
+
+    test('short title inside a longer unrelated title does not match', () {
+      expect(
+          InnerTubeMusicApi.similarity('Cider', 'Cinderella'),
+          lessThan(85));
+      expect(
+          InnerTubeMusicApi.similarity(
+              'Piranha', 'Wisakda Me (Piranha, Pt. 2)'),
+          lessThan(85));
     });
 
     test('normalize strips diacritics and punctuation', () {

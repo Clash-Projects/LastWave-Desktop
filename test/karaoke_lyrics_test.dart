@@ -158,6 +158,69 @@ void main() {
       expect(lines[0].syllables[0].text, equals('Line '));
       expect(lines[0].syllables[1].text, equals('one'));
     });
+
+    test('parseLrc does not stretch a short line past the next timestamp', () {
+      const lrc = '''
+[00:10.00] Fast
+[00:10.40] Next
+''';
+      final lines = parseLrc(lrc);
+      expect(lines[0].durationMs, equals(400));
+    });
+  });
+
+  group('Karaoke timing normalization', () {
+    test('fills missing word durations until the next word', () {
+      const result = LyricsResult(
+        isSynced: true,
+        isWordSynced: true,
+        lines: [
+          LyricLine(
+            timeMs: 1000,
+            durationMs: 0,
+            text: 'hello world',
+            syllables: [
+              LyricSyllable(timeMs: 1000, durationMs: 0, text: 'hello '),
+              LyricSyllable(timeMs: 1400, durationMs: 50, text: 'world'),
+            ],
+          ),
+          LyricLine(
+            timeMs: 3000,
+            durationMs: 800,
+            text: 'next',
+            syllables: [
+              LyricSyllable(timeMs: 3000, durationMs: 100, text: 'next'),
+            ],
+          ),
+        ],
+      );
+      final n = normalizeKaraokeTimings(result);
+      expect(n.lines[0].durationMs, equals(2000));
+      expect(n.lines[0].syllables[0].durationMs, equals(400));
+      expect(n.lines[0].syllables[1].durationMs, equals(1600));
+      expect(n.lines[1].syllables[0].durationMs, equals(100));
+    });
+
+    test('keeps sung word duration instead of stretching to the next word', () {
+      const result = LyricsResult(
+        isSynced: true,
+        isWordSynced: true,
+        lines: [
+          LyricLine(
+            timeMs: 1000,
+            durationMs: 2000,
+            text: 'hello world',
+            syllables: [
+              LyricSyllable(timeMs: 1000, durationMs: 250, text: 'hello '),
+              LyricSyllable(timeMs: 1800, durationMs: 300, text: 'world'),
+            ],
+          ),
+        ],
+      );
+      final n = normalizeKaraokeTimings(result);
+      expect(n.lines[0].syllables[0].durationMs, equals(250));
+      expect(n.lines[0].syllables[1].durationMs, equals(300));
+    });
   });
 
   group('Lyrics Title & Artist Sanitization', () {

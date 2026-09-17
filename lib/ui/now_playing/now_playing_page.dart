@@ -497,7 +497,7 @@ class _DesktopDualPane extends StatelessWidget {
                                 track: track,
                                 compact: false,
                                 showHeaderControls: true,
-                                fontSize: 32.0,
+                                fontSize: 36.0,
                               ),
                             ),
                           ),

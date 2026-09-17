@@ -15,7 +15,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// Migrations are additive and never drop user data (no destructive
 /// fallback, unlike the temporary Android `fallbackToDestructiveMigration`).
 class AppDatabase {
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 4;
 
   final Database _db;
 
@@ -51,6 +51,14 @@ class AppDatabase {
     if (version < 2) {
       _createV2();
       _db.execute('PRAGMA user_version=2;');
+    }
+    if (version < 3) {
+      _createV3();
+      _db.execute('PRAGMA user_version=3;');
+    }
+    if (version < 4) {
+      _createV4();
+      _db.execute('PRAGMA user_version=4;');
     }
   }
 
@@ -247,6 +255,21 @@ class AppDatabase {
     ''');
   }
 
+  void _createV3() {
+    try {
+      _db.execute(
+        'ALTER TABLE match_cache ADD COLUMN duration_seconds '
+        'INTEGER NOT NULL DEFAULT 0;',
+      );
+    } catch (_) {}
+  }
+
+  void _createV4() {
+    try {
+      _db.execute('DELETE FROM match_cache;');
+    } catch (_) {}
+  }
+
   List<Map<String, Object?>> loadStreamEntries({int limit = 256}) {
     try {
       return _db
@@ -332,7 +355,7 @@ class AppDatabase {
     try {
       final rows = _db.select(
         'SELECT key, video_id, title, artist, album, artwork_url, '
-        'updated_at_ms FROM match_cache WHERE key = ?;',
+        'duration_seconds, updated_at_ms FROM match_cache WHERE key = ?;',
         [key],
       );
       if (rows.isEmpty) return null;
@@ -349,14 +372,17 @@ class AppDatabase {
     required String artist,
     String album = '',
     String artworkUrl = '',
+    int durationSeconds = 0,
   }) {
     try {
       _db.execute(
         'INSERT INTO match_cache(key, video_id, title, artist, album, '
-        'artwork_url, updated_at_ms) VALUES(?, ?, ?, ?, ?, ?, ?) '
+        'artwork_url, duration_seconds, updated_at_ms) '
+        'VALUES(?, ?, ?, ?, ?, ?, ?, ?) '
         'ON CONFLICT(key) DO UPDATE SET video_id = excluded.video_id, '
         'title = excluded.title, artist = excluded.artist, '
         'album = excluded.album, artwork_url = excluded.artwork_url, '
+        'duration_seconds = excluded.duration_seconds, '
         'updated_at_ms = excluded.updated_at_ms;',
         [
           key,
@@ -365,6 +391,7 @@ class AppDatabase {
           artist,
           album,
           artworkUrl,
+          durationSeconds,
           DateTime.now().millisecondsSinceEpoch,
         ],
       );
