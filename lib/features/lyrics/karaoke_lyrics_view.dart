@@ -253,7 +253,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                 ref.invalidate(waveLyricsProvider(widget.track.queueKey)),
           );
         }
-        if (!result.isSynced) {
+        if (!result.isSynced && result.lines.length < 2) {
           return _KaraokePlainLyrics(
             text: result.plainLyrics,
             compact: widget.compact,
@@ -316,7 +316,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                 },
               ),
             Expanded(
-              child: wordByWord
+              child: wordByWord && result.isSynced
                   ? Stack(
                       children: [
                         Positioned.fill(
@@ -448,6 +448,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
   final bool showTransliteration;
   final double? fontSize;
   final bool karaoke;
+  final bool softenIdle;
 
   const WaveKaraokeLyricLine({
     super.key,
@@ -460,6 +461,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
     this.showTransliteration = true,
     this.fontSize,
     this.karaoke = true,
+    this.softenIdle = true,
   });
 
   @override
@@ -479,7 +481,9 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
 
     final activeTextColor = dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B);
     final idleTextColor = (dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B))
-        .withValues(alpha: widget.isPast ? 0.38 : 0.44);
+        .withValues(
+          alpha: widget.softenIdle ? (widget.isPast ? 0.38 : 0.44) : 0.92,
+        );
 
     final activeStyle = TextStyle(
       fontSize: baseFontSize,
@@ -579,7 +583,8 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       );
     }
 
-    final showBlur = !widget.isActive && !_isHovered && !reduceMotion;
+    final showBlur =
+        widget.softenIdle && !widget.isActive && !_isHovered && !reduceMotion;
 
     Widget body = AnimatedDefaultTextStyle(
       duration: WaveMotion.fast,
@@ -758,32 +763,26 @@ class _KaraokeToolbar extends ConsumerWidget {
       child: Row(
         children: [
           Expanded(
-            child: Row(
-              children: [
-                Text(
-                  wordByWord
-                      ? (result.isWordSynced
-                          ? 'Karaoke · Syllable Synced'
-                          : 'Synced Lyrics')
-                      : 'Apple Music · Line Synced',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WaveType.meta.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: waveTextSecondary(context),
-                  ),
-                ),
-                if (result.source.isNotEmpty && !compact) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    '· ${result.source}',
-                    style: WaveType.meta.copyWith(
-                      fontSize: 11,
-                      color: waveTextTertiary(context),
-                    ),
-                  ),
-                ],
-              ],
+            child: Text(
+              wordByWord
+                  ? (result.isWordSynced
+                      ? 'Karaoke · Syllable Synced'
+                      : result.isSynced
+                          ? 'Synced Lyrics'
+                          : result.source.isNotEmpty
+                              ? result.source
+                              : 'Lyrics')
+                  : result.isSynced
+                      ? 'Apple Music · Line Synced'
+                      : result.source.isNotEmpty
+                          ? result.source
+                          : 'Lyrics',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: WaveType.meta.copyWith(
+                fontWeight: FontWeight.w600,
+                color: waveTextSecondary(context),
+              ),
             ),
           ),
           // Timing Offset Controls: [-] offset [+] [Reset]
@@ -852,17 +851,14 @@ class _KaraokeToolbar extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 4),
-          // Following toggle
           LWTooltip(
             message: following
                 ? 'Pause automatic scrolling'
                 : 'Return to the line being sung',
-            child: HyperlinkButton(
-              onPressed: onToggleFollowing,
-              child: Text(
-                following ? 'Following' : 'Resume',
-                style: const TextStyle(fontSize: 12),
-              ),
+            child: _MiniIconButton(
+              icon: following ? FluentIcons.pin : FluentIcons.unpin,
+              active: following,
+              onTap: onToggleFollowing,
             ),
           ),
           if (onClose != null) ...[
@@ -1006,6 +1002,7 @@ class _AppleLineLyricsView extends StatefulWidget {
 class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
   int _lastIndex = -1;
+  bool _pinnedOpening = false;
 
   int _activeIndex(int posMs) =>
       activeLyricLineIndex(widget.result.lines, posMs);
@@ -1032,11 +1029,24 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     });
   }
 
+  void _pinOpeningToTop() {
+    if (_pinnedOpening || !_scroll.isAttached) return;
+    _pinnedOpening = true;
+    _scrollTo(0, animate: false);
+  }
+
   @override
   void didUpdateWidget(covariant _AppleLineLyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.result != widget.result) {
+      _pinnedOpening = false;
+      _lastIndex = -1;
+    }
     if (widget.following && !oldWidget.following) {
-      _scrollTo(_activeIndex(widget.positionListenable.value));
+      final untimed = lyricsAreUntimed(widget.result.lines);
+      _scrollTo(
+        untimed ? 0 : _activeIndex(widget.positionListenable.value),
+      );
     }
   }
 
@@ -1045,16 +1055,20 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     return ValueListenableBuilder<int>(
       valueListenable: widget.positionListenable,
       builder: (context, posMs, _) {
-        final active = _activeIndex(posMs);
-        if (widget.following && active != _lastIndex && _scroll.isAttached) {
-          final wasUninitialized = _lastIndex < 0;
-          _lastIndex = active;
-          // Before the first cue (and on first attach) pin to the top
-          // instead of the 34% karaoke anchor.
-          _scrollTo(
-            active < 0 ? 0 : active,
-            animate: !wasUninitialized && active > 0,
-          );
+        final untimed = lyricsAreUntimed(widget.result.lines);
+        final active = untimed ? -1 : _activeIndex(posMs);
+        if (widget.following && _scroll.isAttached) {
+          if (untimed || active <= 0 || posMs < 400) {
+            _pinOpeningToTop();
+            _lastIndex = active;
+          } else if (active != _lastIndex) {
+            final wasUninitialized = _lastIndex < 0;
+            _lastIndex = active;
+            _scrollTo(
+              active,
+              animate: !wasUninitialized && active > 0,
+            );
+          }
         } else if (!widget.following) {
           _lastIndex = active;
         }
@@ -1091,11 +1105,12 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                           line: line,
                           positionMs: posMs,
                           isActive: i == active,
-                          isPast: i < active,
+                          isPast: !untimed && i < active,
                           compact: widget.compact,
                           fontSize: widget.fontSize,
                           showTransliteration: widget.showTransliteration,
                           karaoke: false,
+                          softenIdle: !untimed,
                         ),
                       ),
                     ),

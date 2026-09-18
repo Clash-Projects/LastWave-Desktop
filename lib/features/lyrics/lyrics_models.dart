@@ -110,9 +110,34 @@ int parseLyricTimestampMs(dynamic raw) {
 /// Index of the line currently being sung, or `-1` if playback is
 /// still before the first cue. Never treats upcoming lines as active,
 /// which would scroll a short track to the last line at start.
+/// True when every cue shares the same timestamp (including Apple
+/// `itunes:timing="None"` transcripts where every line is 0). Follow
+/// scroll must not treat that as "already on the last line".
+bool lyricsAreUntimed(List<LyricLine> lines) {
+  if (lines.length < 2) return false;
+  final first = lines.first.timeMs;
+  for (var i = 1; i < lines.length; i++) {
+    if (lines[i].timeMs != first) return false;
+  }
+  return true;
+}
+
 int activeLyricLineIndex(List<LyricLine> lines, int positionMs) {
   if (lines.isEmpty) return -1;
   if (positionMs < lines.first.timeMs) return -1;
+  if (lyricsAreUntimed(lines)) return -1;
+
+  var nextDistinct = -1;
+  for (var i = 1; i < lines.length; i++) {
+    if (lines[i].timeMs != lines.first.timeMs) {
+      nextDistinct = i;
+      break;
+    }
+  }
+  if (nextDistinct >= 0 && positionMs < lines[nextDistinct].timeMs) {
+    return 0;
+  }
+
   var active = 0;
   for (var i = 0; i < lines.length; i++) {
     if (lines[i].timeMs <= positionMs) {

@@ -245,6 +245,29 @@ void main() {
       expect(activeLyricLineIndex(lines, 12000), equals(0));
     });
 
+    test('untimed transcripts stay on the opening line, not the last', () {
+      final lines = [
+        for (var i = 0; i < 46; i++)
+          LyricLine(timeMs: 0, text: 'Line $i'),
+      ];
+      expect(lyricsAreUntimed(lines), isTrue);
+      expect(activeLyricLineIndex(lines, 0), equals(-1));
+      expect(activeLyricLineIndex(lines, 120000), equals(-1));
+      expect(lyricFollowAlignment(0, compact: false), equals(0));
+    });
+
+    test('opening duplicate timestamps do not skip to the last copy', () {
+      const lines = [
+        LyricLine(timeMs: 0, text: 'Title'),
+        LyricLine(timeMs: 0, text: 'Title 2'),
+        LyricLine(timeMs: 12000, text: 'Verse'),
+      ];
+      expect(lyricsAreUntimed(lines), isFalse);
+      expect(activeLyricLineIndex(lines, 0), equals(0));
+      expect(activeLyricLineIndex(lines, 5000), equals(0));
+      expect(activeLyricLineIndex(lines, 12000), equals(2));
+    });
+
     test('parseLyricTimestampMs maps fractional seconds to milliseconds', () {
       expect(parseLyricTimestampMs(12.45), equals(12450));
       expect(parseLyricTimestampMs(1409), equals(1409));
@@ -382,6 +405,113 @@ void main() {
       expect(LyricsRepository.isBetterCandidate(fullSong, sampleLoop), isTrue);
     });
 
+    test('Overdue verses beat the Anthonio sample loop', () {
+      final sample = LyricsResult(
+        lines: [
+          for (var i = 0; i < 24; i++)
+            LyricLine(
+              timeMs: i * 1000,
+              text: i % 3 == 0
+                  ? 'Oh, Anthonio'
+                  : i % 3 == 1
+                      ? 'My Anthonio'
+                      : 'Do you ever...',
+            ),
+        ],
+        isSynced: true,
+        source: 'lrclib',
+      );
+      const verses = LyricsResult(
+        lines: [
+          LyricLine(timeMs: 0, text: '(Woo)'),
+          LyricLine(timeMs: 1000, text: 'Overtime and overdue (Due)'),
+          LyricLine(timeMs: 2000, text: "Ain't no sleep, that is old news"),
+          LyricLine(timeMs: 3000, text: "Been outside, that's with the crew"),
+          LyricLine(timeMs: 4000, text: 'Made my night up on the move'),
+          LyricLine(timeMs: 5000, text: 'In the morning get the news'),
+          LyricLine(timeMs: 6000, text: 'She come, I heard the zoom'),
+          LyricLine(timeMs: 7000, text: 'I step outside, I need my piece'),
+          LyricLine(timeMs: 8000, text: 'Take one down to hit my peak'),
+          LyricLine(timeMs: 9000, text: 'I feel I overuse myself'),
+          LyricLine(timeMs: 10000, text: 'I overuse myself'),
+          LyricLine(timeMs: 11000, text: 'I feel, I mean I overdid myself'),
+        ],
+        isSynced: true,
+        source: 'lrclib',
+      );
+
+      expect(lyricsLooksLikeThinLoop(sample), isTrue);
+      expect(lyricsLooksLikeThinLoop(verses), isFalse);
+      expect(lyricsMentionsTitle('Overdue', verses), isTrue);
+      expect(lyricsMentionsTitle('Overdue', sample), isFalse);
+      expect(
+        LyricsRepository.isBetterCandidate(
+          verses,
+          sample,
+          queryTitle: 'Overdue',
+        ),
+        isTrue,
+      );
+      expect(
+        LyricsRepository.isBetterCandidate(
+          sample,
+          verses,
+          queryTitle: 'Overdue',
+        ),
+        isFalse,
+      );
+    });
+
+    test('word-by-word off keeps Lyrically text as line-synced', () {
+      const wordSynced = LyricsResult(
+        lines: [
+          LyricLine(
+            timeMs: 1000,
+            durationMs: 800,
+            text: 'Overtime and overdue',
+            syllables: [
+              LyricSyllable(timeMs: 1000, durationMs: 400, text: 'Overtime '),
+              LyricSyllable(timeMs: 1400, durationMs: 400, text: 'and overdue'),
+            ],
+          ),
+        ],
+        isSynced: true,
+        isWordSynced: true,
+        source: 'Apple Music',
+      );
+      final line = lyricsForDisplayMode(wordSynced, wordByWord: false);
+      expect(line.source, 'Apple Music');
+      expect(line.isSynced, isTrue);
+      expect(line.isWordSynced, isFalse);
+      expect(line.lines.single.text, 'Overtime and overdue');
+      expect(line.lines.single.hasSyllables, isFalse);
+      expect(
+        lyricsForDisplayMode(wordSynced, wordByWord: true).isWordSynced,
+        isTrue,
+      );
+    });
+
+    test('placeholder Instrumental lyrics lose to real text', () {
+      const placeholder = LyricsResult(
+        lines: [
+          LyricLine(timeMs: 0, text: 'Instrumental'),
+          LyricLine(timeMs: 1000, text: '♪'),
+        ],
+        isSynced: true,
+        source: 'lrclib',
+      );
+      const real = LyricsResult(
+        lines: [LyricLine(timeMs: 0, text: 'Overtime and overdue')],
+        isSynced: true,
+        source: 'lrclib',
+      );
+      expect(lyricsLooksLikePlaceholder(placeholder), isTrue);
+      expect(
+        LyricsRepository.isBetterCandidate(real, placeholder),
+        isTrue,
+      );
+    });
+
     test('True word-synced lyrics always supersedes line-synced lyrics', () {
       const lineSynced = LyricsResult(
         lines: [LyricLine(timeMs: 1000, text: 'Line')],
@@ -415,6 +545,10 @@ void main() {
       expect(lyricsTitlesMatch('Song (Interlude)', 'Song'), isFalse);
       expect(lyricsTitlesMatch('Song', 'Song (Album Version)'), isTrue);
       expect(lyricsTitlesMatch('All Caps', 'All Caps (feat. Doom)'), isTrue);
+      expect(
+        lyricsTitlesMatch('Overdue', 'Overdue (feat. Travis Scott)'),
+        isTrue,
+      );
     });
 
     test('artist must be the same act, not a cover', () {

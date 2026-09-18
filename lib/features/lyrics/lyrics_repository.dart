@@ -7,13 +7,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/network/dio_factory.dart';
 import 'lyrics_models.dart';
 
-/// Lyrics orchestrator with Apple Music word-by-word lyrics.
+/// Lyrics orchestrator with Apple Music lyrics via Lyrically.
 ///
 /// Ported from LastWave-native `LyricsRepository.kt`:
 /// - in-memory cache (word-synced entries preferred)
-/// - when `wordByWord` is requested, fetch Apple Music word-by-word
-///   (syllable-timed) lyrics via lyrics.paxsenix.org and return them
-///   immediately while keeping a line-synced LRCLIB fallback
+/// - always fetch Apple Music via lyrics.paxsenix.org (Lyrically) so
+///   the correct lyrics win even when karaoke word-by-word is off;
+///   `wordByWord` only controls syllable timings vs line display
+/// - LRCLIB is the fallback when Lyrically has no match
 /// - LRCLIB tiers: instrumental → synced LRC → plain → empty
 String cleanSongTitle(String title) {
   var t = title;
@@ -125,6 +126,107 @@ bool lyricsDurationPlausible(int? querySeconds, num? candidateSeconds) {
   return diff / querySeconds <= 0.2;
 }
 
+int lyricsUniqueLineCount(LyricsResult result) {
+  final seen = <String>{};
+  void add(String raw) {
+    final n = normalizeLyricsTitle(raw);
+    if (n.isNotEmpty) seen.add(n);
+  }
+
+  for (final line in result.lines) {
+    add(line.text);
+  }
+  if (seen.isEmpty) {
+    for (final line in result.plainLyrics.split('\n')) {
+      add(line);
+    }
+  }
+  return seen.length;
+}
+
+int _lyricsNonEmptyLineCount(LyricsResult result) {
+  final fromLines =
+      result.lines.where((l) => l.text.trim().isNotEmpty).length;
+  if (fromLines > 0) return fromLines;
+  return result.plainLyrics
+      .split('\n')
+      .where((l) => l.trim().isNotEmpty)
+      .length;
+}
+
+/// Sample-hook / beat-only transcripts loop the same 4–8 lines. Real verses
+/// do not. Used so "Overdue" does not keep Annie's "Anthonio" sample.
+bool lyricsLooksLikeThinLoop(LyricsResult result) {
+  if (result.isInstrumental) return false;
+  final unique = lyricsUniqueLineCount(result);
+  final total = _lyricsNonEmptyLineCount(result);
+  if (total < 10) return false;
+  return unique <= 8 && unique / total <= 0.45;
+}
+
+bool lyricsLooksLikePlaceholder(LyricsResult result) {
+  final texts = <String>[
+    for (final line in result.lines)
+      if (line.text.trim().isNotEmpty) line.text.trim().toLowerCase(),
+  ];
+  if (texts.isEmpty) {
+    texts.addAll(
+      result.plainLyrics
+          .split('\n')
+          .map((l) => l.trim().toLowerCase())
+          .where((l) => l.isNotEmpty),
+    );
+  }
+  if (texts.isEmpty) return false;
+  bool marker(String t) =>
+      t == 'instrumental' ||
+      t == '[instrumental]' ||
+      t == '(instrumental)' ||
+      t == '♪' ||
+      t == '♫';
+  return texts.every(marker);
+}
+
+/// True when a distinctive title actually appears in the lyric text.
+/// Short/generic titles are skipped so they cannot veto a real match.
+bool lyricsMentionsTitle(String title, LyricsResult result) {
+  final core = _lyricsCoreTitle(normalizeLyricsTitle(cleanSongTitle(title)));
+  if (core.length < 6) return false;
+  if (RegExp(r'^(intro|outro|interlude|untitled|instrumental)$')
+      .hasMatch(core)) {
+    return false;
+  }
+  final blob = normalizeLyricsTitle(
+    '${result.lines.map((l) => l.text).join(' ')} ${result.plainLyrics}',
+  );
+  return blob.contains(core);
+}
+
+/// Keep Lyrically/Apple text when word-by-word karaoke is off; drop
+/// per-syllable timings so the UI stays line-synced.
+LyricsResult lyricsForDisplayMode(
+  LyricsResult result, {
+  required bool wordByWord,
+}) {
+  if (wordByWord || !result.isWordSynced) return result;
+  return LyricsResult(
+    lines: [
+      for (final line in result.lines)
+        LyricLine(
+          timeMs: line.timeMs,
+          durationMs: line.durationMs,
+          text: line.text,
+          transliteration: line.transliteration,
+        ),
+    ],
+    isSynced: result.isSynced,
+    isWordSynced: false,
+    plainLyrics: result.plainLyrics,
+    isInstrumental: result.isInstrumental,
+    source: result.source,
+  );
+}
+
 class LyricsRepository {
   final Dio _dio;
   final Map<String, LyricsResult> _cache = {};
@@ -148,38 +250,48 @@ class LyricsRepository {
       final cached = _cache[key];
       if (cached != null) {
         if (!cached.isEmpty) onPartialResult?.call(cached);
-        if (!wordByWord || cached.isWordSynced || cached.isInstrumental) {
-          return cached;
+        final fromLyrically = cached.source.toLowerCase().contains('apple');
+        if (cached.isWordSynced || fromLyrically || cached.isInstrumental) {
+          return lyricsForDisplayMode(cached, wordByWord: wordByWord);
         }
+        if (cached.isEmpty) return cached;
       }
     }
 
     LyricsResult? lineFallback;
+    final wantsAlt = lyricsIsAlternateRecording(title, album: album);
 
-    final futures = [
-      _fetchLrclib(title, artist, album, durationSeconds),
-      if (wordByWord)
-        _fetchAppleWordByWord(title, artist, album, durationSeconds),
+    final pending = <Future<LyricsResult?>>[
+      _fetchLrclib(title, artist, album, durationSeconds)
+          .timeout(const Duration(seconds: 12))
+          .then<LyricsResult?>((value) => value, onError: (_) => null),
+      _fetchAppleWordByWord(title, artist, album, durationSeconds)
+          .timeout(const Duration(seconds: 20))
+          .then<LyricsResult?>((value) => value, onError: (_) => null),
     ];
-    final pending = futures.map((future) => future
-        .timeout(const Duration(seconds: 12))
-        .then<LyricsResult?>((value) => value, onError: (_) => null));
     await for (final result in Stream.fromFutures(pending)) {
       if (result == null || result.isEmpty) continue;
       final ready = normalizeKaraokeTimings(result);
-      if (ready.isWordSynced || ready.isInstrumental) {
+      if (ready.isWordSynced) {
+        _cache[key] = ready;
+        return lyricsForDisplayMode(ready, wordByWord: wordByWord);
+      }
+      if (ready.isInstrumental && wantsAlt) {
         _cache[key] = ready;
         return ready;
       }
-      if (lineFallback == null || isBetterCandidate(ready, lineFallback)) {
+      if (lineFallback == null ||
+          isBetterCandidate(ready, lineFallback, queryTitle: title)) {
         lineFallback = ready;
-        onPartialResult?.call(ready);
+        onPartialResult?.call(
+          lyricsForDisplayMode(ready, wordByWord: wordByWord),
+        );
       }
     }
 
     if (lineFallback != null) {
       _cache[key] = lineFallback;
-      return lineFallback;
+      return lyricsForDisplayMode(lineFallback, wordByWord: wordByWord);
     }
     const empty = LyricsResult.empty();
     _cache[key] = empty;
@@ -187,24 +299,60 @@ class LyricsRepository {
   }
 
   /// Compares two lyrics candidates to decide if [newRes] should supersede [current].
-  static bool isBetterCandidate(LyricsResult newRes, LyricsResult current) {
+  static bool isBetterCandidate(
+    LyricsResult newRes,
+    LyricsResult current, {
+    String queryTitle = '',
+  }) {
     // 1. True word-synced always beats non-word-synced
     if (newRes.isWordSynced && !current.isWordSynced) return true;
     if (!newRes.isWordSynced && current.isWordSynced) return false;
 
-    // 2. Synced always beats unsynced
+    // 2. Placeholder "Instrumental" / ♪ lines lose to real text
+    final newPlaceholder = lyricsLooksLikePlaceholder(newRes);
+    final curPlaceholder = lyricsLooksLikePlaceholder(current);
+    if (!newPlaceholder && curPlaceholder) return true;
+    if (newPlaceholder && !curPlaceholder) return false;
+
+    // 3. Sample-hook loops lose to real verses (Overdue / Anthonio)
+    final newThin = lyricsLooksLikeThinLoop(newRes);
+    final curThin = lyricsLooksLikeThinLoop(current);
+    if (!newThin && curThin) return true;
+    if (newThin && !curThin) return false;
+
+    // 4. Distinctive title mentioned in the lyric body
+    if (queryTitle.trim().isNotEmpty) {
+      final newMentions = lyricsMentionsTitle(queryTitle, newRes);
+      final curMentions = lyricsMentionsTitle(queryTitle, current);
+      if (newMentions && !curMentions) return true;
+      if (!newMentions && curMentions) return false;
+    }
+
+    // 5. Unique-line richness beats a padded loop with the same raw count
+    final newUnique = lyricsUniqueLineCount(newRes);
+    final curUnique = lyricsUniqueLineCount(current);
+    if (newUnique >= (curUnique * 1.5).round() && newUnique - curUnique >= 4) {
+      return true;
+    }
+    if (curUnique >= (newUnique * 1.5).round() && curUnique - newUnique >= 4) {
+      return false;
+    }
+
+    // 6. Synced always beats unsynced (after the text is known to be right)
     if (newRes.isSynced && !current.isSynced) return true;
     if (!newRes.isSynced && current.isSynced) return false;
 
-    // 3. Official curated sources (Apple Music) beat crowdsourced
+    // 7. Official curated sources (Apple Music) beat crowdsourced
     // user submissions (lrclib)
     final newIsCurated = newRes.source.toLowerCase().contains('apple');
     final curIsCurated = current.source.toLowerCase().contains('apple');
     if (newIsCurated && !curIsCurated) return true;
     if (!newIsCurated && curIsCurated) return false;
 
-    // 4. Line count: substantially richer lyrics beat short loops / sample transcripts
-    if (newRes.lines.length >= (current.lines.length * 1.3).round()) return true;
+    // 8. Line count: substantially richer lyrics beat short transcripts
+    if (newRes.lines.length >= (current.lines.length * 1.3).round()) {
+      return true;
+    }
 
     return false;
   }
@@ -217,9 +365,36 @@ class LyricsRepository {
     String album,
     int? durationSeconds,
   ) async {
-    Map<String, dynamic>? record;
     final cleanT = cleanSongTitle(title);
     final cleanA = cleanSongArtist(artist);
+    final records = <String, Map<String, dynamic>>{};
+
+    void addRecord(Map<String, dynamic> data) {
+      final recTitle =
+          (data['trackName'] ?? data['name'])?.toString() ?? '';
+      final recArtist = data['artistName']?.toString() ?? '';
+      if (!lyricsTitlesMatch(cleanT, recTitle) &&
+          !lyricsTitlesMatch(title, recTitle)) {
+        return;
+      }
+      if (!lyricsArtistsMatch(cleanA, recArtist) &&
+          !lyricsArtistsMatch(artist, recArtist)) {
+        return;
+      }
+      if (!lyricsDurationPlausible(
+          durationSeconds, data['duration'] as num?)) {
+        return;
+      }
+      if (!cleanT.toLowerCase().contains('instrumental') &&
+          lyricsIsAlternateRecording(recTitle,
+              album: data['albumName']?.toString() ?? '')) {
+        return;
+      }
+      final id = data['id']?.toString() ??
+          '${recTitle.toLowerCase()}|${recArtist.toLowerCase()}|${data['albumName'] ?? ''}';
+      records.putIfAbsent(id, () => data);
+    }
+
     final attempts = [
       {'track_name': cleanT, 'artist_name': cleanA, 'album_name': album},
       {'track_name': cleanT, 'artist_name': cleanA},
@@ -247,53 +422,54 @@ class LyricsRepository {
           }),
         );
         if (res.statusCode == 200 && res.data != null) {
-          final data = res.data!;
-          final recTitle =
-              (data['trackName'] ?? data['name'])?.toString() ?? '';
-          final recArtist = data['artistName']?.toString() ?? '';
-          if (!lyricsTitlesMatch(cleanT, recTitle) ||
-              !lyricsArtistsMatch(cleanA, recArtist)) {
-            continue;
-          }
-          if (!lyricsDurationPlausible(
-              durationSeconds, data['duration'] as num?)) {
-            continue;
-          }
-          if (!cleanT.toLowerCase().contains('instrumental') &&
-              lyricsIsAlternateRecording(recTitle,
-                  album: data['albumName']?.toString() ?? '')) {
-            continue;
-          }
-          record = data;
-          break;
+          addRecord(res.data!);
         }
       } on DioException catch (e) {
         if (e.response?.statusCode != 404) rethrow;
       }
     }
-    // cleaned-title retry
-    record ??= await _lrclibSearch(cleanT, cleanA, durationSeconds);
-    if (record == null && (cleanT != title || cleanA != artist)) {
-      record = await _lrclibSearch(title, artist, durationSeconds);
+    for (final hit in await _lrclibSearchHits(cleanT, cleanA, durationSeconds)) {
+      addRecord(hit);
     }
-    if (record == null) return null;
-    final recordName = record['name']?.toString() ?? '';
+    if (cleanT != title || cleanA != artist) {
+      for (final hit in await _lrclibSearchHits(title, artist, durationSeconds)) {
+        addRecord(hit);
+      }
+    }
+
+    LyricsResult? best;
+    for (final record in records.values) {
+      final parsed = _lrclibRecordToResult(record, queryTitle: cleanT);
+      if (parsed == null || parsed.isEmpty) continue;
+      if (best == null ||
+          isBetterCandidate(parsed, best, queryTitle: cleanT)) {
+        best = parsed;
+      }
+    }
+    return best;
+  }
+
+  LyricsResult? _lrclibRecordToResult(
+    Map<String, dynamic> record, {
+    required String queryTitle,
+  }) {
+    final recordName =
+        (record['trackName'] ?? record['name'])?.toString() ?? '';
     final isInstrumentalRecord = record['instrumental'] == true ||
         recordName.toLowerCase().contains('(instrumental)') ||
         recordName.toLowerCase().contains('[instrumental]');
     if (isInstrumentalRecord) {
-      if (!cleanT.toLowerCase().contains('instrumental')) {
-        // Skip instrumental entries if user wanted the vocal track
+      if (!queryTitle.toLowerCase().contains('instrumental')) {
         return null;
       }
-      return const LyricsResult(
-          isInstrumental: true, source: 'lrclib');
+      return const LyricsResult(isInstrumental: true, source: 'lrclib');
     }
     final synced = record['syncedLyrics']?.toString() ?? '';
+    LyricsResult? parsed;
     if (synced.isNotEmpty) {
       final lines = parseLrc(synced);
       if (lines.isNotEmpty) {
-        return LyricsResult(
+        parsed = LyricsResult(
           lines: lines,
           isSynced: true,
           isWordSynced: false,
@@ -302,22 +478,29 @@ class LyricsRepository {
         );
       }
     }
-    final plain = record['plainLyrics']?.toString() ?? '';
-    if (plain.isNotEmpty) {
-      return LyricsResult(
-        lines: plain
-            .split('\n')
-            .map((l) => LyricLine(timeMs: 0, text: l.trim()))
-            .where((l) => l.text.isNotEmpty)
-            .toList(),
-        plainLyrics: plain,
-        source: 'lrclib',
-      );
+    if (parsed == null) {
+      final plain = record['plainLyrics']?.toString() ?? '';
+      if (plain.isNotEmpty) {
+        parsed = LyricsResult(
+          lines: plain
+              .split('\n')
+              .map((l) => LyricLine(timeMs: 0, text: l.trim()))
+              .where((l) => l.text.isNotEmpty)
+              .toList(),
+          plainLyrics: plain,
+          source: 'lrclib',
+        );
+      }
     }
-    return null;
+    if (parsed == null || parsed.isEmpty) return null;
+    if (lyricsLooksLikePlaceholder(parsed) &&
+        !queryTitle.toLowerCase().contains('instrumental')) {
+      return null;
+    }
+    return parsed;
   }
 
-  Future<Map<String, dynamic>?> _lrclibSearch(
+  Future<List<Map<String, dynamic>>> _lrclibSearchHits(
     String title,
     String artist, [
     int? durationSeconds,
@@ -332,9 +515,8 @@ class LyricsRepository {
         }),
       );
       final list = res.data ?? const [];
-      Map<String, dynamic>? best;
-      var bestDiff = 1 << 30;
       final wantsAlt = lyricsIsAlternateRecording(title);
+      final hits = <Map<String, dynamic>>[];
       for (final item in list) {
         if (item is! Map<String, dynamic>) continue;
         final recTitle =
@@ -351,18 +533,12 @@ class LyricsRepository {
             durationSeconds, item['duration'] as num?)) {
           continue;
         }
-        final dur = (item['duration'] as num?)?.round() ?? 0;
-        final diff = durationSeconds != null && durationSeconds > 0 && dur > 0
-            ? (dur - durationSeconds).abs()
-            : 0;
-        if (best == null || diff < bestDiff) {
-          best = item;
-          bestDiff = diff;
-        }
+        hits.add(item);
       }
-      return best;
-    } catch (_) {}
-    return null;
+      return hits;
+    } catch (_) {
+      return const [];
+    }
   }
 
   // -- Apple Music word-by-word (lyrics.paxsenix.org) --------------------------
@@ -387,6 +563,7 @@ class LyricsRepository {
     if (trackIds.isEmpty) return null;
     // Try the best-scoring candidates in order — different album pressings of
     // the same song have separate catalog IDs and not all carry lyrics.
+    LyricsResult? fallback;
     for (final trackId in trackIds.take(3)) {
       try {
         final res = await _dio.get<Map<String, dynamic>>(
@@ -398,10 +575,16 @@ class LyricsRepository {
           }),
         );
         final parsed = parseAppleWordByWord(res.data ?? const {});
-        if (parsed != null && !parsed.isEmpty) return parsed;
+        if (parsed == null || parsed.isEmpty) continue;
+        if (lyricsLooksLikePlaceholder(parsed) ||
+            lyricsLooksLikeThinLoop(parsed)) {
+          fallback ??= parsed;
+          continue;
+        }
+        return parsed;
       } catch (_) {}
     }
-    return null;
+    return fallback;
   }
 
   /// iTunes Search API → Apple Music catalog track IDs, best match first.
@@ -543,7 +726,8 @@ class LyricsRepository {
       ));
     }
     if (parsed.isEmpty) return null;
-    final wordSynced = type == 'syllable' || sawMultiWordLine;
+    final timed = parsed.any((p) => p.start > 0 || p.duration > 0);
+    final wordSynced = timed && (type == 'syllable' || sawMultiWordLine);
     final lines = [
       for (final p in parsed)
         LyricLine(
@@ -555,7 +739,7 @@ class LyricsRepository {
     ]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
     return LyricsResult(
       lines: lines,
-      isSynced: true,
+      isSynced: timed,
       isWordSynced: wordSynced,
       plainLyrics: json['plain']?.toString() ?? '',
       source: 'Apple Music',

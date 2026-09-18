@@ -315,11 +315,43 @@ void main() {
       );
     });
 
-    test('empty content yields null', () {
-      expect(
-        LyricsRepository.parseAppleWordByWord(const {'content': []}),
-        isNull,
-      );
+    test('untimed Apple payloads are not treated as line-synced', () {
+      final result = LyricsRepository.parseAppleWordByWord({
+        'type': null,
+        'plain': 'one\ntwo\nthree\n',
+        'content': [
+          {
+            'timestamp': 0,
+            'endtime': 0,
+            'duration': 0,
+            'text': [
+              {'text': 'one', 'timestamp': 0, 'duration': 0, 'part': false},
+            ],
+          },
+          {
+            'timestamp': 0,
+            'endtime': 0,
+            'duration': 0,
+            'text': [
+              {'text': 'two', 'timestamp': 0, 'duration': 0, 'part': false},
+            ],
+          },
+          {
+            'timestamp': 0,
+            'endtime': 0,
+            'duration': 0,
+            'text': [
+              {'text': 'three', 'timestamp': 0, 'duration': 0, 'part': false},
+            ],
+          },
+        ],
+      });
+      expect(result, isNotNull);
+      expect(result!.isSynced, isFalse);
+      expect(result.isWordSynced, isFalse);
+      expect(result.lines.map((l) => l.text).toList(), ['one', 'two', 'three']);
+      expect(lyricsAreUntimed(result.lines), isTrue);
+      expect(activeLyricLineIndex(result.lines, 0), equals(-1));
     });
   });
 
