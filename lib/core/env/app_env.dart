@@ -40,6 +40,12 @@ class AppEnv {
   static String get losslessApiKey =>
       _decode(secrets.kLosslessApiKey);
 
+  /// Tidal HiFi-API proxy (search + decrypted stream URLs).
+  static String get tidalBackendUrl =>
+      _decode(secrets.kBackendBUrl).replaceAll(RegExp(r'/+$'), '');
+
+  static String get tidalApiKey => _decode(secrets.kBackendBKey);
+
   static String get lyricsApiKey =>
       _decode(secrets.kLyricsApiKey);
 
@@ -57,9 +63,25 @@ class AppEnv {
   static bool get hasLosslessBackend =>
       losslessBackendUrl.isNotEmpty && losslessApiKey.isNotEmpty;
 
+  static bool get hasTidalBackend =>
+      tidalBackendUrl.isNotEmpty && tidalApiKey.isNotEmpty;
+
+  static bool get hasAnyLosslessCatalog =>
+      hasLosslessBackend || hasTidalBackend;
+
+  /// About-screen catalog list. Never includes URLs or keys.
+  static String get losslessCatalogLabel {
+    final parts = <String>[
+      if (hasLosslessBackend) 'Qobuz',
+      if (hasTidalBackend) 'Tidal',
+    ];
+    return parts.isEmpty ? 'not configured' : parts.join(' · ');
+  }
+
   /// Non-sensitive diagnostics only — never includes secret values.
   static Map<String, bool> get configuredFlags => {
         'losslessBackend': hasLosslessBackend,
+        'tidalBackend': hasTidalBackend,
         'lyricsKey': lyricsApiKey.isNotEmpty,
         'lastfmOverride':
             _decode(secrets.kLastfmApiKey).isNotEmpty,

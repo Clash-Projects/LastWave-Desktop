@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/env/app_env.dart';
 import '../../core/network/dio_factory.dart';
+import 'tidal_api.dart';
 
 /// Lossless backend client (clashflac-compatible REST).
 ///
@@ -13,17 +14,19 @@ import '../../core/network/dio_factory.dart';
 /// instead of OkHttp.
 class LosslessMusicApi {
   final Dio _dio;
+  final TidalApi _tidal;
   final ResolvedStreamCache _streamCache = ResolvedStreamCache(maxEntries: 16);
   final Map<String, Future<ResolvedStream?>> _inflight = {};
 
-  LosslessMusicApi([Dio? dio])
+  LosslessMusicApi([Dio? dio, TidalApi? tidal])
       : _dio = dio ??
             DioFactory.create()
               ..options
-                  .connectTimeout = const Duration(seconds: 10);
+                  .connectTimeout = const Duration(seconds: 10),
+        _tidal = tidal ?? TidalApi(dio);
 
   String get _base => AppEnv.losslessBackendUrl;
-  bool get isConfigured => AppEnv.hasLosslessBackend;
+  bool get isConfigured => AppEnv.hasAnyLosslessCatalog;
 
   Map<String, String> get _headers => {
         if (AppEnv.losslessApiKey.isNotEmpty)
@@ -154,7 +157,33 @@ class LosslessMusicApi {
       final ratio = (common * 100) / (ta.length > tb.length ? ta.length : tb.length);
       return ratio >= 75;
     }
+    // One-character catalog typos: "Nube Ras" vs "Numbe Ras".
+    if (na.length >= 7 && nb.length >= 7 && _editDistance(na, nb) <= 1) {
+      return true;
+    }
     return false;
+  }
+
+  static int _editDistance(String a, String b) {
+    if (a == b) return 0;
+    if ((a.length - b.length).abs() > 1) return 99;
+    final m = a.length;
+    final n = b.length;
+    var prev = List<int>.generate(n + 1, (j) => j);
+    for (var i = 1; i <= m; i++) {
+      final cur = List<int>.filled(n + 1, 0);
+      cur[0] = i;
+      for (var j = 1; j <= n; j++) {
+        final cost = a[i - 1] == b[j - 1] ? 0 : 1;
+        cur[j] = [
+          prev[j] + 1,
+          cur[j - 1] + 1,
+          prev[j - 1] + cost,
+        ].reduce((x, y) => x < y ? x : y);
+      }
+      prev = cur;
+    }
+    return prev[n];
   }
 
   static bool _isVerifiedArtistMatch({
@@ -186,7 +215,7 @@ class LosslessMusicApi {
     return false;
   }
 
-  int? _verifiedMatchScore(
+  int? verifiedMatchScore(
     LosslessCandidate item, {
     required String title,
     required String artist,
@@ -235,6 +264,43 @@ class LosslessMusicApi {
     String album = '',
     int expectedDurationSeconds = 0,
   }) async {
+    if (AppEnv.hasLosslessBackend) {
+      final qobuz = await _findBestVerifiedMatch(
+        search: _search,
+        title: title,
+        artist: artist,
+        album: album,
+        expectedDurationSeconds: expectedDurationSeconds,
+      );
+      if (qobuz != null) return qobuz;
+    }
+    if (AppEnv.hasTidalBackend) {
+      return _findBestVerifiedMatch(
+        search: _searchTidal,
+        title: title,
+        artist: artist,
+        album: album,
+        expectedDurationSeconds: expectedDurationSeconds,
+      );
+    }
+    return null;
+  }
+
+  Future<List<LosslessCandidate>> _searchTidal(String query) async {
+    final hits = await _tidal.searchTracks(query);
+    return [
+      for (final hit in hits)
+        LosslessCandidate.fromJson(tidalHitToCandidateJson(hit)),
+    ];
+  }
+
+  Future<LosslessCandidate?> _findBestVerifiedMatch({
+    required Future<List<LosslessCandidate>> Function(String query) search,
+    required String title,
+    required String artist,
+    required String album,
+    required int expectedDurationSeconds,
+  }) async {
     final cleanT = normalizeTitle(title);
     final cleanA = cleanForSearch(artist);
     final queries = {
@@ -252,7 +318,7 @@ class LosslessMusicApi {
     for (final q in queries) {
       List<LosslessCandidate> items;
       try {
-        items = await _search(q);
+        items = await search(q);
       } on DioException catch (error) {
         if (_isBackendFailure(error)) rethrow;
         continue;
@@ -260,7 +326,7 @@ class LosslessMusicApi {
         continue;
       }
       for (final item in items) {
-        final score = _verifiedMatchScore(
+        final score = verifiedMatchScore(
           item,
           title: title,
           artist: artist,
@@ -388,46 +454,77 @@ class LosslessMusicApi {
     int expectedDurationSeconds = 0,
     int preferredQuality = qualityMaxHiRes,
   }) async {
-    try {
-      final candidate = await findBestVerifiedMatch(
-        title: title,
-        artist: artist,
-        album: album,
-        expectedDurationSeconds: expectedDurationSeconds,
-      );
-      if (candidate == null) return null;
+    if (AppEnv.hasLosslessBackend) {
+      try {
+        final candidate = await _findBestVerifiedMatch(
+          search: _search,
+          title: title,
+          artist: artist,
+          album: album,
+          expectedDurationSeconds: expectedDurationSeconds,
+        );
+        if (candidate != null) {
+          final stream = await _fetchQobuzStream(
+            candidate,
+            preferredQuality,
+          );
+          if (stream != null) return stream;
+        }
+      } catch (_) {
+        // Qobuz miss or backend error — Tidal is next.
+      }
+    }
+    if (AppEnv.hasTidalBackend) {
+      try {
+        final candidate = await _findBestVerifiedMatch(
+          search: _searchTidal,
+          title: title,
+          artist: artist,
+          album: album,
+          expectedDurationSeconds: expectedDurationSeconds,
+        );
+        if (candidate == null) return null;
+        return _tidal.fetchPlayable(
+          candidate.id,
+          preferredQuality,
+          artworkUrl: candidate.albumArtUrl,
+          albumTitle: candidate.albumTitle,
+        );
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
 
-      // 1. Primary resolution: request preferred quality with fallback: true so the
-      // backend automatically yields the highest available lossless tier (e.g. 24-bit
-      // 96kHz/48kHz or 16-bit 44.1kHz FLAC) without strict-mode restrictions.
+  Future<ResolvedStream?> _fetchQobuzStream(
+    LosslessCandidate candidate,
+    int preferredQuality,
+  ) async {
+    try {
+      final stream = await _fetchTrackStreamUrl(
+        candidate.id,
+        preferredQuality,
+        fallback: true,
+        artworkUrl: candidate.albumArtUrl,
+        albumTitle: candidate.albumTitle,
+      );
+      if (stream != null) return stream;
+    } catch (_) {}
+
+    for (final q in getQualityAttemptOrder(preferredQuality)) {
       try {
         final stream = await _fetchTrackStreamUrl(
           candidate.id,
-          preferredQuality,
+          q,
           fallback: true,
           artworkUrl: candidate.albumArtUrl,
           albumTitle: candidate.albumTitle,
         );
         if (stream != null) return stream;
       } catch (_) {}
-
-      // 2. Secondary fallback across individual tiers if the primary attempt failed
-      for (final q in getQualityAttemptOrder(preferredQuality)) {
-        try {
-          final stream = await _fetchTrackStreamUrl(
-            candidate.id,
-            q,
-            fallback: true,
-            artworkUrl: candidate.albumArtUrl,
-            albumTitle: candidate.albumTitle,
-          );
-          if (stream != null) return stream;
-        } catch (_) {}
-      }
-      return null;
-    } catch (_) {
-      return null;
     }
+    return null;
   }
 }
 

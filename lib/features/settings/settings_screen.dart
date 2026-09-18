@@ -682,7 +682,7 @@ class _About extends StatelessWidget {
       kicker: 'System',
       title: 'About',
       child: Text(
-        'LastWave Desktop · Lossless backend: ${AppEnv.hasLosslessBackend ? 'configured' : 'not configured'} · '
+        'LastWave Desktop · Lossless: ${AppEnv.losslessCatalogLabel} · '
         'Lyrics key: ${AppEnv.lyricsApiKey.isNotEmpty ? 'set' : 'missing'}',
         style: LwType.caption.copyWith(
             color: dark

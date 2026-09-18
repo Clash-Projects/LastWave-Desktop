@@ -728,7 +728,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _resolveInflight[cacheKey] = future;
     try {
       final stream = await future;
-      if (stream != null) _playCache.put(cacheKey, stream);
+      if (stream != null &&
+          (stream.isLossless || forceYoutube || !_prefs.preferLossless)) {
+        _playCache.put(cacheKey, stream);
+      }
       return stream;
     } finally {
       _resolveInflight.remove(cacheKey);
@@ -1054,8 +1057,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     _failedGeneration = generation;
     _invalidatePlayCache(track);
-    if (state.stream?.cacheKey.startsWith('lossless:') ?? false) {
-      _losslessBypass.add(track.queueKey);
+    final streamKey = state.stream?.cacheKey ?? '';
+    if (streamKey.startsWith('lossless:') || streamKey.startsWith('tidal:')) {
       await _resolveAndOpen(state.currentIndex, forceYoutube: true);
       return;
     }

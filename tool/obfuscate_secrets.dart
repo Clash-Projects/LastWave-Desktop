@@ -22,6 +22,8 @@ const _mask = [0x5A, 0x3F, 0x7E, 0x1B, 0x92, 0x4C, 0xA1, 0x6D];
 const _keys = [
   'LOSSLESS_BACKEND_URL',
   'LOSSLESS_API_KEY',
+  'BACKEND_B_URL',
+  'BACKEND_B_KEY',
   'LYRICS_API_KEY',
   'LASTFM_API_KEY',
   'LASTFM_API_SECRET',

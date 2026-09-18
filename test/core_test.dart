@@ -75,6 +75,12 @@ void main() {
           LosslessMusicApi.titlesMatch('Hello', 'Goodbye'),
           isFalse);
     });
+
+    test('titlesMatch allows a one-letter catalog typo', () {
+      expect(
+          LosslessMusicApi.titlesMatch('Nube Ras', 'Numbe Ras'),
+          isTrue);
+    });
   });
 
   group('InnerTube matching (Android parity)', () {

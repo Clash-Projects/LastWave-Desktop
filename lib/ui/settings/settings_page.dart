@@ -852,7 +852,7 @@ class _About extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            'Lossless backend: ${AppEnv.hasLosslessBackend ? 'configured' : 'not configured'} · '
+            'Lossless: ${AppEnv.losslessCatalogLabel} · '
             'Lyrics key: ${AppEnv.lyricsApiKey.isNotEmpty ? 'set' : 'missing'}',
             style: WaveType.meta,
           ),
