@@ -1,6 +1,9 @@
+import 'dart:ui';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../design_system/fluent/fluent.dart';
+import 'tokens.dart';
 
 export '../../design_system/fluent/fluent.dart'
     show LwHaze, LwHazeLevel, LwAmbientWash, lwHazeSpecs;
@@ -118,6 +121,57 @@ class WaveHaze extends StatelessWidget {
       shadow: shadow,
       enableBlur: WaveHazeScope.blurEnabled(context),
       child: child,
+    );
+  }
+}
+
+/// Frosted chip for small chrome sitting on a colorful or animated
+/// backdrop (Now Playing controls, lyrics toolbar, quality / up-next).
+///
+/// Bounded blur only. Falls back to a stronger tonal fill when Haze is
+/// Solid or the user requested reduced transparency.
+class WaveGlass extends StatelessWidget {
+  final Widget child;
+  final BorderRadius borderRadius;
+  final EdgeInsetsGeometry? padding;
+
+  const WaveGlass({
+    super.key,
+    required this.child,
+    this.borderRadius = const BorderRadius.all(Radius.circular(7)),
+    this.padding,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final reduceT = MediaQuery.maybeOf(context)?.highContrast ?? false;
+    final blurOn = WaveHazeScope.blurEnabled(context) && !reduceT;
+    final fill = (dark ? const Color(0xFF121212) : const Color(0xFFF4F4F4))
+        .withValues(alpha: blurOn ? 0.46 : 0.78);
+    final edge = (dark ? Colors.white : Colors.black)
+        .withValues(alpha: dark ? 0.16 : 0.10);
+
+    final content = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: borderRadius,
+        border: Border.all(color: edge),
+      ),
+      child: child,
+    );
+
+    if (!blurOn) return content;
+    return ClipRRect(
+      borderRadius: borderRadius,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(
+          sigmaX: 18 * WaveHazeScope.blurScale(context),
+          sigmaY: 18 * WaveHazeScope.blurScale(context),
+        ),
+        child: content,
+      ),
     );
   }
 }

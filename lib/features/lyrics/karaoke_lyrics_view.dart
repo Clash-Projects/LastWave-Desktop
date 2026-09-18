@@ -749,20 +749,20 @@ class _KaraokeToolbar extends ConsumerWidget {
 
     final offsetDisplay = formatOffsetDisplay(offsetMs);
 
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 12 : 28,
-        vertical: 6,
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        compact ? 8 : 4,
+        4,
+        compact ? 8 : 4,
+        8,
       ),
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        border: Border(
-          bottom: BorderSide(
-            color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.06),
-          ),
+      child: WaveGlass(
+        borderRadius: WaveRadius.floatingRadius,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 10 : 14,
+          vertical: 6,
         ),
-      ),
-      child: Row(
+        child: Row(
         children: [
           Expanded(
             child: Text(
@@ -783,7 +783,7 @@ class _KaraokeToolbar extends ConsumerWidget {
               overflow: TextOverflow.ellipsis,
               style: WaveType.meta.copyWith(
                 fontWeight: FontWeight.w600,
-                color: waveTextSecondary(context),
+                color: waveTextPrimary(context),
               ),
             ),
           ),
@@ -791,9 +791,11 @@ class _KaraokeToolbar extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             decoration: BoxDecoration(
-              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.05),
+              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(WaveRadius.controls),
-              border: Border.all(color: waveDivider(context)),
+              border: Border.all(
+                color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.12),
+              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -817,7 +819,7 @@ class _KaraokeToolbar extends ConsumerWidget {
                         fontSize: 11,
                         color: offsetMs != 0
                             ? accent
-                            : waveTextSecondary(context),
+                            : waveTextPrimary(context),
                       ),
                     ),
                   ),
@@ -874,6 +876,7 @@ class _KaraokeToolbar extends ConsumerWidget {
             ),
           ],
         ],
+        ),
       ),
     );
   }
@@ -905,7 +908,8 @@ class _MiniIconButtonState extends State<_MiniIconButton> {
         ? accent
         : _hover
             ? (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
-            : (dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary);
+            : (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
+                .withValues(alpha: 0.88);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,

@@ -15,6 +15,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
 import '../queue/queue_panel.dart';
+import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -273,46 +274,57 @@ class _TopActionsBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
         children: [
-          LWTooltip(
-            message: 'Back',
-            child: _FsIconButton(
-              icon: FluentIcons.chevron_left,
-              onTap: onClose,
+          WaveGlass(
+            borderRadius: WaveRadius.menuRadius,
+            child: LWTooltip(
+              message: 'Back',
+              child: _FsIconButton(
+                icon: FluentIcons.chevron_left,
+                onTap: onClose,
+              ),
             ),
           ),
           const Spacer(),
-          LWTooltip(
-            message: lyricsVisible ? 'Hide lyrics' : 'Show lyrics',
-            child: _FsIconButton(
-              icon: WaveIcons.lyrics,
-              active: lyricsVisible,
-              onTap: onToggleLyrics,
-            ),
-          ),
-          const SizedBox(width: 10),
-          LWTooltip(
-            message: queueVisible ? 'Hide queue' : 'Show queue',
-            child: _FsIconButton(
-              icon: WaveIcons.queue,
-              active: queueVisible,
-              onTap: onToggleQueue,
-            ),
-          ),
-          const SizedBox(width: 10),
-          LWTooltip(
-            message: visualizerEnabled ? 'Disable visualizer' : 'Enable visualizer',
-            child: _FsIconButton(
-              icon: WaveIcons.mixes,
-              active: visualizerEnabled,
-              onTap: onToggleVisualizer,
-            ),
-          ),
-          const SizedBox(width: 10),
-          LWTooltip(
-            message: 'Close (Esc)',
-            child: _FsIconButton(
-              icon: WaveIcons.close,
-              onTap: onClose,
+          WaveGlass(
+            borderRadius: WaveRadius.menuRadius,
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LWTooltip(
+                  message: lyricsVisible ? 'Hide lyrics' : 'Show lyrics',
+                  child: _FsIconButton(
+                    icon: WaveIcons.lyrics,
+                    active: lyricsVisible,
+                    onTap: onToggleLyrics,
+                  ),
+                ),
+                LWTooltip(
+                  message: queueVisible ? 'Hide queue' : 'Show queue',
+                  child: _FsIconButton(
+                    icon: WaveIcons.queue,
+                    active: queueVisible,
+                    onTap: onToggleQueue,
+                  ),
+                ),
+                LWTooltip(
+                  message: visualizerEnabled
+                      ? 'Disable visualizer'
+                      : 'Enable visualizer',
+                  child: _FsIconButton(
+                    icon: WaveIcons.mixes,
+                    active: visualizerEnabled,
+                    onTap: onToggleVisualizer,
+                  ),
+                ),
+                LWTooltip(
+                  message: 'Close (Esc)',
+                  child: _FsIconButton(
+                    icon: WaveIcons.close,
+                    onTap: onClose,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -345,9 +357,8 @@ class _FsIconButtonState extends State<_FsIconButton> {
     final accent = waveAccent(context);
     final color = widget.active
         ? accent
-        : _hover
-            ? (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
-            : (dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary);
+        : (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
+            .withValues(alpha: _hover ? 1.0 : 0.92);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -693,6 +704,10 @@ class _TrackMetadataSection extends ConsumerWidget {
             fontSize: 26,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.4,
+            color: Colors.white,
+            shadows: const [
+              Shadow(color: Color(0x66000000), blurRadius: 10),
+            ],
           ),
         ),
         const SizedBox(height: 4),
@@ -708,7 +723,10 @@ class _TrackMetadataSection extends ConsumerWidget {
             style: WaveType.body.copyWith(
               fontSize: 16,
               fontWeight: FontWeight.w500,
-              color: dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary,
+              color: Colors.white.withValues(alpha: 0.94),
+              shadows: const [
+                Shadow(color: Color(0x66000000), blurRadius: 10),
+              ],
             ),
           ),
         ),
@@ -721,25 +739,26 @@ class _TrackMetadataSection extends ConsumerWidget {
             textAlign: alignCenter ? TextAlign.center : TextAlign.start,
             style: WaveType.meta.copyWith(
               fontSize: 13,
-              color: dark ? WaveColors.textTertiary : WaveColors.lightTextTertiary,
+              color: Colors.white.withValues(alpha: 0.78),
+              shadows: const [
+                Shadow(color: Color(0x66000000), blurRadius: 10),
+              ],
             ),
           ),
         ],
         if (stream != null) ...[
           const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-            decoration: BoxDecoration(
-              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.07),
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: waveDivider(context)),
-            ),
+          WaveGlass(
+            borderRadius: WaveRadius.controlsRadius,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Text(
               '${stream.qualityBadge} · ${stream.audioCodec}${stream.bitrateKbps > 0 ? ' · ${stream.bitrateKbps} kbps' : ''}',
               style: WaveType.overline.copyWith(
                 fontSize: 9.5,
                 fontWeight: FontWeight.w700,
-                color: dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary,
+                color: dark
+                    ? WaveColors.textPrimary
+                    : WaveColors.lightTextPrimary,
               ),
             ),
           ),
@@ -771,13 +790,9 @@ class _UpNextPill extends ConsumerWidget {
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
           onTap: () => ref.read(playbackServiceProvider.notifier).next(),
-          child: Container(
+          child: WaveGlass(
+            borderRadius: BorderRadius.circular(20),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: waveDivider(context)),
-            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -799,8 +814,8 @@ class _UpNextPill extends ConsumerWidget {
                     style: WaveType.meta.copyWith(
                       fontSize: 11,
                       color: dark
-                          ? WaveColors.textSecondary
-                          : WaveColors.lightTextSecondary,
+                          ? WaveColors.textPrimary
+                          : WaveColors.lightTextPrimary,
                     ),
                   ),
                 ),
@@ -808,7 +823,9 @@ class _UpNextPill extends ConsumerWidget {
                 Icon(
                   FluentIcons.chevron_right,
                   size: 10,
-                  color: waveTextTertiary(context),
+                  color: dark
+                      ? WaveColors.textSecondary
+                      : WaveColors.lightTextSecondary,
                 ),
               ],
             ),
@@ -827,6 +844,10 @@ class _NowAmbient extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (artworkUrl.isEmpty) return const SizedBox.shrink();
-    return WaveAmbientMesh(artworkUrl: artworkUrl, isFullBleed: true);
+    return WaveAmbientMesh(
+      artworkUrl: artworkUrl,
+      isFullBleed: true,
+      cinematic: true,
+    );
   }
 }
