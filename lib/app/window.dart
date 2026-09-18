@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
@@ -82,12 +81,27 @@ Future<void> _setupTray() async {
   } catch (_) {}
 }
 
+/// Whether the OS backend can deliver *global* transport hotkeys.
+///
+/// libkeybinder (hotkey_manager_linux) is X11-only: on Wayland sessions
+/// (`WAYLAND_DISPLAY` set) registration always fails with
+/// `Binding '<Primary><Alt>…' failed!` warnings and the keys stay dead.
+/// Shell UI must offer the same combos as in-app shortcuts instead.
+bool get globalHotkeysSupported {
+  if (!Platform.isLinux) return true;
+  return Platform.environment['WAYLAND_DISPLAY'] == null;
+}
+
 Future<void> _setupHotkeys() async {
   // Global transport: Ctrl+Alt+P play/pause, Ctrl+Alt+N next,
   // Ctrl+Alt+B previous. Handlers are wired in the shell via
   // hotKeyManager.keyDownHandler forwarding to PlaybackService —
   // see WaveShell initState. Registration here stays best-effort so
   // a missing backend never blocks startup.
+  // Wayland has no global-hotkey backend: skip registration so the
+  // native plugin never logs `Binding '<Primary><Alt>…' failed!`.
+  // The shell falls back to in-app shortcuts (globalHotkeysSupported).
+  if (!globalHotkeysSupported) return;
   try {
     await hotKeyManager.unregisterAll();
     final bindings = [

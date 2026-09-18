@@ -17,6 +17,25 @@ G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+  // Ensure GTK keyboard focus is back on the Flutter view once the window is
+  // mapped. On Wayland the post-first-frame window_manager/acrylic work can
+  // defocus FlView (focus falls back to the toplevel), after which GTK routes
+  // key events to the window's default handler and they never reach Flutter.
+  gtk_widget_grab_focus(GTK_WIDGET(view));
+}
+
+// Re-grab GTK keyboard focus onto the Flutter view whenever the window gains
+// keyboard focus. LastWave routes all keyboard interaction through the Flutter
+// engine: if FlView is not the GTK focus widget, GTK swallows key events at
+// the toplevel (they appear in nothing, not even the engine). This is
+// especially fragile on Wayland, where later window-manager/acrylic calls can
+// defocus FlView.
+static gboolean focus_into_view(GtkWidget* window, GdkEventFocus* event,
+                                gpointer user_data) {
+  if (event->in) {
+    gtk_widget_grab_focus(GTK_WIDGET(user_data));
+  }
+  return FALSE;
 }
 
 // Implements GApplication::activate.
@@ -32,6 +51,10 @@ static void my_application_activate(GApplication* application) {
   // in case the window manager does more exotic layout, e.g. tiling.
   // If running on Wayland assume the header bar will work (may need changing
   // if future cases occur).
+  //
+  // The Dart layer (setupWindow) hides this header bar after the first frame
+  // via window_manager (TitleBarStyle.hidden); a bare GtkWindow without a
+  // header bar would keep the GTK CSD title bar visible on Wayland.
   gboolean use_header_bar = TRUE;
 #ifdef GDK_WINDOWING_X11
   GdkScreen* screen = gtk_window_get_screen(window);
@@ -76,6 +99,12 @@ static void my_application_activate(GApplication* application) {
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
+
+  // Keep GTK keyboard focus on the Flutter view: if FlView is defocused
+  // (window_manager/acrylic work on Wayland does this), GTK swallows key
+  // events at the toplevel and Flutter receives nothing. See focus_into_view.
+  g_signal_connect(window, "focus-in-event", G_CALLBACK(focus_into_view),
+                   view);
 }
 
 // Implements GApplication::local_command_line.

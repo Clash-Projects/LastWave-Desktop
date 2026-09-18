@@ -9,6 +9,7 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../app/window.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
@@ -71,6 +72,9 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
   }
 
   Future<void> _wireHotkeys() async {
+    // No global backend on Wayland — the shell offers the same combos
+    // as in-app shortcuts instead (see build()).
+    if (!globalHotkeysSupported) return;
     try {
       Future<void> toggle(HotKey _) async {
         if (!mounted) return;
@@ -340,6 +344,25 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
             });
           }
         },
+        // Wayland fallback: global hotkeys can't register there, so the
+        // same transport combos work in-app while the window is focused.
+        // (On X11/Windows/macOS the global backend owns these keys, so
+        // these entries stay dormant and can never double-fire.)
+        if (!globalHotkeysSupported)
+          const SingleActivator(LogicalKeyboardKey.keyP,
+              control: true, alt: true): () {
+            ref.read(playbackServiceProvider.notifier).toggle();
+          },
+        if (!globalHotkeysSupported)
+          const SingleActivator(LogicalKeyboardKey.keyN,
+              control: true, alt: true): () {
+            ref.read(playbackServiceProvider.notifier).next();
+          },
+        if (!globalHotkeysSupported)
+          const SingleActivator(LogicalKeyboardKey.keyB,
+              control: true, alt: true): () {
+            ref.read(playbackServiceProvider.notifier).previous();
+          },
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (_searchFocus.hasFocus) {
             _searchFocus.unfocus();
