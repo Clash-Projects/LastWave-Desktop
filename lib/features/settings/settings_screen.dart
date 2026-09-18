@@ -496,9 +496,9 @@ class _Lyrics extends ConsumerWidget {
         value: prefs.wordByWord,
         onChanged: (v) =>
             onUpdate((p) => p.setWordByWord(v)),
-        title: 'Word-by-word timing',
+        title: 'Word-by-word lyrics',
         subtitle:
-            'Race word-synced providers first',
+            'Karaoke word highlight. Off uses Apple Music line lyrics.',
       ),
     );
   }

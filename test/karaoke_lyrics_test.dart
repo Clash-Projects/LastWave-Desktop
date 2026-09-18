@@ -201,6 +201,57 @@ void main() {
       expect(n.lines[1].syllables[0].durationMs, equals(100));
     });
 
+    test('scales second-based cues so a short song is not already finished', () {
+      const result = LyricsResult(
+        isSynced: true,
+        lines: [
+          LyricLine(timeMs: 8, text: 'One'),
+          LyricLine(timeMs: 22, text: 'Two'),
+          LyricLine(timeMs: 41, text: 'Three'),
+          LyricLine(timeMs: 67, text: 'Four'),
+          LyricLine(timeMs: 154, text: 'Last'),
+        ],
+      );
+      final n = normalizeKaraokeTimings(result);
+      expect(n.lines.first.timeMs, equals(8000));
+      expect(n.lines.last.timeMs, equals(154000));
+      expect(activeLyricLineIndex(n.lines, 0), equals(-1));
+      expect(activeLyricLineIndex(n.lines, 9000), equals(0));
+      expect(lyricFollowAlignment(0, compact: false), equals(0));
+      expect(lyricFollowAlignment(3, compact: false), equals(0.34));
+    });
+
+    test('leaves millisecond cues unchanged', () {
+      const result = LyricsResult(
+        isSynced: true,
+        lines: [
+          LyricLine(timeMs: 8000, text: 'One'),
+          LyricLine(timeMs: 22000, text: 'Two'),
+          LyricLine(timeMs: 41000, text: 'Three'),
+        ],
+      );
+      final n = normalizeKaraokeTimings(result);
+      expect(n.lines.first.timeMs, equals(8000));
+      expect(n.lines.last.timeMs, equals(41000));
+    });
+
+    test('does not treat the first line as active before it starts', () {
+      const lines = [
+        LyricLine(timeMs: 12000, text: 'Intro wait'),
+        LyricLine(timeMs: 18000, text: 'Verse'),
+      ];
+      expect(activeLyricLineIndex(lines, 0), equals(-1));
+      expect(activeLyricLineIndex(lines, 11999), equals(-1));
+      expect(activeLyricLineIndex(lines, 12000), equals(0));
+    });
+
+    test('parseLyricTimestampMs maps fractional seconds to milliseconds', () {
+      expect(parseLyricTimestampMs(12.45), equals(12450));
+      expect(parseLyricTimestampMs(1409), equals(1409));
+      expect(parseLyricTimestampMs(0), equals(0));
+      expect(parseLyricTimestampMs(null), equals(0));
+    });
+
     test('keeps sung word duration instead of stretching to the next word', () {
       const result = LyricsResult(
         isSynced: true,

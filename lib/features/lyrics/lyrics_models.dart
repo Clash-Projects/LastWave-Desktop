@@ -95,9 +95,97 @@ List<LyricSyllable> interpolateLineSyllables({
   return syllables;
 }
 
+/// Parse a lyric cue that may be milliseconds, seconds, or a fractional
+/// second (e.g. `12.45`). Fractional values under 1000 are seconds.
+int parseLyricTimestampMs(dynamic raw) {
+  if (raw == null) return 0;
+  final n = raw is num ? raw.toDouble() : double.tryParse('$raw') ?? 0;
+  if (n <= 0) return 0;
+  if (n < 1000 && n != n.roundToDouble()) {
+    return (n * 1000).round();
+  }
+  return n.round();
+}
+
+/// Index of the line currently being sung, or `-1` if playback is
+/// still before the first cue. Never treats upcoming lines as active,
+/// which would scroll a short track to the last line at start.
+int activeLyricLineIndex(List<LyricLine> lines, int positionMs) {
+  if (lines.isEmpty) return -1;
+  if (positionMs < lines.first.timeMs) return -1;
+  var active = 0;
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i].timeMs <= positionMs) {
+      active = i;
+    } else {
+      break;
+    }
+  }
+  return active;
+}
+
+/// Viewport alignment for follow-scroll. Opening lines stay at the
+/// top; only later lines pin to the Apple ~34% karaoke anchor.
+double lyricFollowAlignment(int activeIndex, {required bool compact}) {
+  if (activeIndex <= 0) return 0;
+  if (activeIndex == 1) return compact ? 0.12 : 0.14;
+  return compact ? 0.28 : 0.34;
+}
+
+/// Scale cues that were clearly authored in seconds (or microseconds)
+/// into milliseconds so a 3-minute song is not treated as already
+/// finished after the first second of playback.
+LyricsResult ensureMillisecondTimestamps(LyricsResult result) {
+  if (!result.isSynced || result.lines.length < 3) return result;
+  final times = result.lines.map((l) => l.timeMs).toList()
+    ..sort();
+  final first = times.first;
+  final last = times.last;
+  final span = last - first;
+  if (last <= 0) return result;
+
+  final int Function(int value) scale;
+  // Seconds: last cue under 12 minutes. A millisecond-timed song of
+  // that length would already be in the 10_000+ range.
+  if (last <= 720 && span <= 720) {
+    scale = (v) => v * 1000;
+  } else if (last >= 10 * 60 * 1000 * 1000) {
+    scale = (v) => (v / 1000).round();
+  } else {
+    return result;
+  }
+
+  return LyricsResult(
+    lines: [
+      for (final line in result.lines)
+        LyricLine(
+          timeMs: scale(line.timeMs),
+          durationMs: scale(line.durationMs),
+          text: line.text,
+          syllables: [
+            for (final s in line.syllables)
+              LyricSyllable(
+                timeMs: scale(s.timeMs),
+                durationMs: scale(s.durationMs),
+                text: s.text,
+                isBackground: s.isBackground,
+              ),
+          ],
+          transliteration: line.transliteration,
+        ),
+    ],
+    isSynced: result.isSynced,
+    isWordSynced: result.isWordSynced,
+    plainLyrics: result.plainLyrics,
+    isInstrumental: result.isInstrumental,
+    source: result.source,
+  );
+}
+
 /// Fill missing syllable/line durations and clip overlaps so karaoke
 /// wipe lasts until the next word instead of flashing then jumping.
 LyricsResult normalizeKaraokeTimings(LyricsResult result) {
+  result = ensureMillisecondTimestamps(result);
   if (!result.isSynced || result.lines.isEmpty) return result;
   final src = List<LyricLine>.of(result.lines)
     ..sort((a, b) => a.timeMs.compareTo(b.timeMs));

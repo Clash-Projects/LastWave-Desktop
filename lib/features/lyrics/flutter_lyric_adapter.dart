@@ -23,6 +23,7 @@ import 'lyrics_models.dart' as lm;
 fl.LyricModel convertToFlutterLyricModel(
   lm.LyricsResult result, {
   bool showTransliteration = true,
+  bool wordByWord = true,
 }) {
   final lines = <fl.LyricLine>[];
   if (result.lines.isEmpty) {
@@ -97,51 +98,53 @@ fl.LyricModel convertToFlutterLyricModel(
     final end = Duration(milliseconds: lineEndMs);
 
     final words = <fl.LyricWord>[];
-    final syllables = line.hasSyllables
-        ? line.syllables
-        : lm.interpolateLineSyllables(
-            text: line.text,
-            startTimeMs: line.timeMs,
-            durationMs: lineDurationMs,
-          );
+    if (wordByWord) {
+      final syllables = line.hasSyllables
+          ? line.syllables
+          : lm.interpolateLineSyllables(
+              text: line.text,
+              startTimeMs: line.timeMs,
+              durationMs: lineDurationMs,
+            );
 
-    var searchOffset = 0;
-    for (var i = 0; i < syllables.length; i++) {
-      final syl = syllables[i];
-      final nextMs = i + 1 < syllables.length
-          ? syllables[i + 1].timeMs
-          : lineEndMs;
-      final sylStartMs = syl.timeMs;
-      var sylEndMs = syl.durationMs > 0
-          ? syl.timeMs + syl.durationMs
-          : nextMs;
-      if (sylEndMs <= sylStartMs || sylEndMs > nextMs) {
-        sylEndMs = nextMs;
-      }
-      if (sylEndMs <= sylStartMs) {
-        sylEndMs = sylStartMs + 80;
-      }
-      final sylStart = Duration(milliseconds: sylStartMs);
-      final sylEnd = Duration(milliseconds: sylEndMs);
-
-      var wordText = syl.text;
-      var matchIdx = line.text.indexOf(wordText, searchOffset);
-      if (matchIdx == -1) {
-        final trimmed = wordText.trim();
-        matchIdx = line.text.indexOf(trimmed, searchOffset);
-        if (matchIdx != -1) {
-          wordText = trimmed;
+      var searchOffset = 0;
+      for (var i = 0; i < syllables.length; i++) {
+        final syl = syllables[i];
+        final nextMs = i + 1 < syllables.length
+            ? syllables[i + 1].timeMs
+            : lineEndMs;
+        final sylStartMs = syl.timeMs;
+        var sylEndMs = syl.durationMs > 0
+            ? syl.timeMs + syl.durationMs
+            : nextMs;
+        if (sylEndMs <= sylStartMs || sylEndMs > nextMs) {
+          sylEndMs = nextMs;
         }
-      }
-      if (matchIdx != -1) {
-        searchOffset = matchIdx + wordText.length;
-      }
+        if (sylEndMs <= sylStartMs) {
+          sylEndMs = sylStartMs + 80;
+        }
+        final sylStart = Duration(milliseconds: sylStartMs);
+        final sylEnd = Duration(milliseconds: sylEndMs);
 
-      words.add(fl.LyricWord(
-        text: wordText,
-        start: sylStart,
-        end: sylEnd,
-      ));
+        var wordText = syl.text;
+        var matchIdx = line.text.indexOf(wordText, searchOffset);
+        if (matchIdx == -1) {
+          final trimmed = wordText.trim();
+          matchIdx = line.text.indexOf(trimmed, searchOffset);
+          if (matchIdx != -1) {
+            wordText = trimmed;
+          }
+        }
+        if (matchIdx != -1) {
+          searchOffset = matchIdx + wordText.length;
+        }
+
+        words.add(fl.LyricWord(
+          text: wordText,
+          start: sylStart,
+          end: sylEnd,
+        ));
+      }
     }
 
     lines.add(fl.LyricLine(
@@ -222,8 +225,11 @@ LyricStyle buildAppleMusicLyricStyle(
       horizontal: compact ? 24.0 : 36.0,
       vertical: 32.0,
     ),
+    // Keep play and selection anchors equal. When active < selection,
+    // flutter_lyric clamps short tracks with a negative maxOffset and
+    // the opening lines sit at the bottom of the panel.
     activeAnchorPosition: 0.34,
-    selectionAnchorPosition: 0.42,
+    selectionAnchorPosition: 0.34,
     selectionAlignment: MainAxisAlignment.start,
     fadeRange: FadeRange(top: 90, bottom: 180),
     scrollDuration: const Duration(milliseconds: 380),

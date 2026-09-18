@@ -66,28 +66,29 @@ class _LyricsColumnState extends ConsumerState<LyricsColumn> {
     _following = widget.autoScroll;
   }
 
-  int _activeIndex(LyricsResult result, int posMs) {
-    var active = 0;
-    for (var i = 0; i < result.lines.length; i++) {
-      if (result.lines[i].timeMs <= posMs) {
-        active = i;
-      } else {
-        break;
-      }
-    }
-    return active;
-  }
+  int _activeIndex(LyricsResult result, int posMs) =>
+      activeLyricLineIndex(result.lines, posMs);
 
-  void _scrollTo(int index) {
+  void _scrollTo(int lineIndex, {bool animate = true}) {
     if (!_scroll.isAttached) return;
+    // Item 0 is the source header; lyrics start at 1.
+    final itemIndex = lineIndex < 0 ? 0 : lineIndex + 1;
+    final alignment = lyricFollowAlignment(
+      lineIndex,
+      compact: widget.compact,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.isAttached || !mounted) return;
-      _scroll.scrollTo(
-        index: index,
-        alignment: widget.compact ? 0.3 : 0.35,
-        duration: LwMotion.slow,
-        curve: LwMotion.emphasized,
-      );
+      if (animate) {
+        _scroll.scrollTo(
+          index: itemIndex,
+          alignment: alignment,
+          duration: LwMotion.slow,
+          curve: LwMotion.emphasized,
+        );
+      } else {
+        _scroll.jumpTo(index: itemIndex, alignment: alignment);
+      }
     });
   }
 
@@ -132,8 +133,12 @@ class _LyricsColumnState extends ConsumerState<LyricsColumn> {
         if (_following &&
             active != _lastIndex &&
             _scroll.isAttached) {
+          final wasUninitialized = _lastIndex < 0;
           _lastIndex = active;
-          _scrollTo(active);
+          _scrollTo(
+            active,
+            animate: !wasUninitialized && active > 0,
+          );
         } else if (!_following) {
           _lastIndex = active;
         } else if (_lastIndex == -1) {
@@ -160,6 +165,8 @@ class _LyricsColumnState extends ConsumerState<LyricsColumn> {
               child: ScrollablePositionedList.builder(
                 itemScrollController: _scroll,
                 itemPositionsListener: _positions,
+                initialScrollIndex: 0,
+                initialAlignment: 0,
                 itemCount: result.lines.length + 1,
                 padding: EdgeInsets.symmetric(
                     vertical: widget.compact

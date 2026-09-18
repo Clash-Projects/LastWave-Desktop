@@ -501,10 +501,12 @@ class LyricsRepository {
     var sawMultiWordLine = false;
     for (final item in content) {
       if (item is! Map<String, dynamic>) continue;
-      final start = (item['timestamp'] as num?)?.toInt() ?? 0;
-      final end = (item['endtime'] as num?)?.toInt() ?? 0;
-      final duration = (item['duration'] as num?)?.toInt() ??
-          (end - start).clamp(0, 1 << 31);
+      final start = parseLyricTimestampMs(item['timestamp']);
+      final end = parseLyricTimestampMs(item['endtime']);
+      final parsedDuration = parseLyricTimestampMs(item['duration']);
+      final duration = parsedDuration > 0
+          ? parsedDuration
+          : (end - start).clamp(0, 1 << 31);
       final isBackground = item['background'] == true;
       final rawWords = item['text'];
       if (rawWords is! List) continue;
@@ -517,8 +519,10 @@ class LyricsRepository {
         final w = words[i];
         final wt = w['text']?.toString() ?? '';
         if (wt.isEmpty) continue;
-        final ws = (w['timestamp'] as num?)?.toInt() ?? start;
-        final wd = (w['duration'] as num?)?.toInt() ?? 0;
+        final ws = w.containsKey('timestamp')
+            ? parseLyricTimestampMs(w['timestamp'])
+            : start;
+        final wd = parseLyricTimestampMs(w['duration']);
         final isPart = w['part'] == true;
         syllables.add(LyricSyllable(
           timeMs: ws,

@@ -7,6 +7,8 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_lyric/flutter_lyric.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../../ui/components/buttons.dart' show LWTooltip;
@@ -125,6 +127,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   String? _currentTrackKey;
   LyricsResult? _currentResult;
   bool _lastTransliteration = true;
+  bool _lastWordByWord = true;
 
   @override
   void initState() {
@@ -185,6 +188,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     );
     final offsetMs = ref.watch(lyricsOffsetProvider(widget.track.queueKey));
     final showTransliteration = ref.watch(lyricsTransliterationProvider);
+    final wordByWord = ref.watch(prefsProvider).wordByWord;
     final async = ref.watch(waveLyricsProvider(widget.track.queueKey));
 
     _isPlaying = isPlaying;
@@ -262,17 +266,23 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
 
         if (_currentTrackKey != widget.track.queueKey ||
             _currentResult != result ||
-            _lastTransliteration != showTransliteration) {
+            _lastTransliteration != showTransliteration ||
+            _lastWordByWord != wordByWord) {
           _currentTrackKey = widget.track.queueKey;
           _currentResult = result;
           _lastTransliteration = showTransliteration;
-          final model = convertToFlutterLyricModel(
-            result,
-            showTransliteration: showTransliteration,
-          );
-          _lyricController.loadLyricModel(model);
-          final effectiveMs = _interpolatedPositionMs.value;
-          _lyricController.setProgress(Duration(milliseconds: math.max(0, effectiveMs)));
+          _lastWordByWord = wordByWord;
+          if (wordByWord) {
+            final model = convertToFlutterLyricModel(
+              result,
+              showTransliteration: showTransliteration,
+              wordByWord: true,
+            );
+            _lyricController.loadLyricModel(model);
+            final effectiveMs = _interpolatedPositionMs.value;
+            _lyricController.setProgress(
+                Duration(milliseconds: math.max(0, effectiveMs)));
+          }
         }
 
         final style = buildAppleMusicLyricStyle(
@@ -294,6 +304,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                 showTransliteration: showTransliteration,
                 following: _following,
                 compact: widget.compact,
+                wordByWord: wordByWord,
                 onClose: widget.onClose,
                 onToggleFollowing: () {
                   if (!_following) {
@@ -305,30 +316,53 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                 },
               ),
             Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: LyricView(
-                        controller: _lyricController,
-                        style: style,
-                      ),
+              child: wordByWord
+                  ? Stack(
+                      children: [
+                        Positioned.fill(
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: LyricView(
+                              controller: _lyricController,
+                              style: style,
+                            ),
+                          ),
+                        ),
+                        if (!_following)
+                          Positioned(
+                            right: 16,
+                            bottom: 16,
+                            child: _ReturnToCurrentPill(
+                              onTap: () {
+                                _lyricController.stopSelection();
+                                setState(() => _following = true);
+                              },
+                            ),
+                          ),
+                      ],
+                    )
+                  : _AppleLineLyricsView(
+                      result: result,
+                      positionListenable: _interpolatedPositionMs,
+                      compact: widget.compact,
+                      fontSize: widget.fontSize,
+                      showTransliteration: showTransliteration,
+                      following: _following,
+                      onUserScroll: () {
+                        if (_following) setState(() => _following = false);
+                      },
+                      onResume: () {
+                        _lyricController.stopSelection();
+                        setState(() => _following = true);
+                      },
+                      onSeekLineMs: (lineMs) {
+                        final seekTargetMs = lineMs + _offsetMs;
+                        ref.read(playbackServiceProvider.notifier).seek(
+                              Duration(
+                                  milliseconds: math.max(0, seekTargetMs)),
+                            );
+                      },
                     ),
-                  ),
-                  if (!_following)
-                    Positioned(
-                      right: 16,
-                      bottom: 16,
-                      child: _ReturnToCurrentPill(
-                        onTap: () {
-                          _lyricController.stopSelection();
-                          setState(() => _following = true);
-                        },
-                      ),
-                    ),
-                ],
-              ),
             ),
           ],
         );
@@ -413,6 +447,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
   final bool compact;
   final bool showTransliteration;
   final double? fontSize;
+  final bool karaoke;
 
   const WaveKaraokeLyricLine({
     super.key,
@@ -424,6 +459,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
     this.compact = false,
     this.showTransliteration = true,
     this.fontSize,
+    this.karaoke = true,
   });
 
   @override
@@ -483,15 +519,18 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
 
     Widget content;
 
-    final effectiveSyllables = widget.line.hasSyllables
-        ? widget.line.syllables
-        : interpolateLineSyllables(
-            text: widget.line.text,
-            startTimeMs: widget.line.timeMs,
-            durationMs: widget.line.durationMs,
-          );
+    final useKaraokeWipe = widget.karaoke && widget.isActive;
+    final effectiveSyllables = useKaraokeWipe
+        ? (widget.line.hasSyllables
+            ? widget.line.syllables
+            : interpolateLineSyllables(
+                text: widget.line.text,
+                startTimeMs: widget.line.timeMs,
+                durationMs: widget.line.durationMs,
+              ))
+        : const <LyricSyllable>[];
 
-    if (effectiveSyllables.isNotEmpty && widget.isActive) {
+    if (effectiveSyllables.isNotEmpty) {
       final words =
           groupSyllablesIntoWords(effectiveSyllables, widget.line.text);
 
@@ -573,9 +612,12 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
 
     if (showBlur) {
       body = ImageFiltered(
-        imageFilter: ImageFilter.blur(sigmaX: 1.15, sigmaY: 1.15),
+        imageFilter: ImageFilter.blur(
+          sigmaX: widget.karaoke ? 1.15 : 1.8,
+          sigmaY: widget.karaoke ? 1.15 : 1.8,
+        ),
         child: Opacity(
-          opacity: 0.88,
+          opacity: widget.karaoke ? 0.88 : 0.92,
           child: body,
         ),
       );
@@ -594,7 +636,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
         ),
         padding: EdgeInsets.symmetric(
           horizontal: widget.compact ? 8 : 12,
-          vertical: 4,
+          vertical: widget.karaoke ? 4 : 8,
         ),
         decoration: BoxDecoration(
           color: _isHovered && !widget.isActive
@@ -673,6 +715,7 @@ class _KaraokeToolbar extends ConsumerWidget {
   final bool showTransliteration;
   final bool following;
   final bool compact;
+  final bool wordByWord;
   final VoidCallback? onClose;
   final VoidCallback onToggleFollowing;
 
@@ -683,6 +726,7 @@ class _KaraokeToolbar extends ConsumerWidget {
     required this.showTransliteration,
     required this.following,
     required this.compact,
+    this.wordByWord = true,
     this.onClose,
     required this.onToggleFollowing,
   });
@@ -717,7 +761,11 @@ class _KaraokeToolbar extends ConsumerWidget {
             child: Row(
               children: [
                 Text(
-                  result.isWordSynced ? 'Karaoke · Syllable Synced' : 'Synced Lyrics',
+                  wordByWord
+                      ? (result.isWordSynced
+                          ? 'Karaoke · Syllable Synced'
+                          : 'Synced Lyrics')
+                      : 'Apple Music · Line Synced',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: WaveType.meta.copyWith(
@@ -922,6 +970,148 @@ class _ReturnToCurrentPill extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Apple Music default lyrics: the whole current line is sharp and
+/// fully lit. Past and upcoming lines stay dim with a slight blur.
+class _AppleLineLyricsView extends StatefulWidget {
+  final LyricsResult result;
+  final ValueNotifier<int> positionListenable;
+  final bool compact;
+  final double? fontSize;
+  final bool showTransliteration;
+  final bool following;
+  final VoidCallback onUserScroll;
+  final VoidCallback onResume;
+  final ValueChanged<int> onSeekLineMs;
+
+  const _AppleLineLyricsView({
+    required this.result,
+    required this.positionListenable,
+    required this.compact,
+    required this.fontSize,
+    required this.showTransliteration,
+    required this.following,
+    required this.onUserScroll,
+    required this.onResume,
+    required this.onSeekLineMs,
+  });
+
+  @override
+  State<_AppleLineLyricsView> createState() => _AppleLineLyricsViewState();
+}
+
+class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
+  final ItemScrollController _scroll = ItemScrollController();
+  int _lastIndex = -1;
+
+  int _activeIndex(int posMs) =>
+      activeLyricLineIndex(widget.result.lines, posMs);
+
+  void _scrollTo(int index, {bool animate = true}) {
+    if (!_scroll.isAttached) return;
+    if (index < 0) index = 0;
+    final alignment = lyricFollowAlignment(
+      index,
+      compact: widget.compact,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.isAttached || !mounted) return;
+      if (animate) {
+        _scroll.scrollTo(
+          index: index,
+          alignment: alignment,
+          duration: WaveMotion.normal,
+          curve: Curves.easeOutCubic,
+        );
+      } else {
+        _scroll.jumpTo(index: index, alignment: alignment);
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _AppleLineLyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.following && !oldWidget.following) {
+      _scrollTo(_activeIndex(widget.positionListenable.value));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: widget.positionListenable,
+      builder: (context, posMs, _) {
+        final active = _activeIndex(posMs);
+        if (widget.following && active != _lastIndex && _scroll.isAttached) {
+          final wasUninitialized = _lastIndex < 0;
+          _lastIndex = active;
+          // Before the first cue (and on first attach) pin to the top
+          // instead of the 34% karaoke anchor.
+          _scrollTo(
+            active < 0 ? 0 : active,
+            animate: !wasUninitialized && active > 0,
+          );
+        } else if (!widget.following) {
+          _lastIndex = active;
+        }
+
+        return Stack(
+          children: [
+            NotificationListener<ScrollNotification>(
+              onNotification: (n) {
+                if (n is ScrollStartNotification && n.dragDetails != null) {
+                  widget.onUserScroll();
+                }
+                return false;
+              },
+              child: ScrollablePositionedList.builder(
+                itemScrollController: _scroll,
+                initialScrollIndex: 0,
+                initialAlignment: 0,
+                itemCount: widget.result.lines.length,
+                padding: EdgeInsets.fromLTRB(
+                  widget.compact ? 12 : 28,
+                  24,
+                  widget.compact ? 12 : 28,
+                  80,
+                ),
+                itemBuilder: (context, i) {
+                  final line = widget.result.lines[i];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () => widget.onSeekLineMs(line.timeMs),
+                        child: WaveKaraokeLyricLine(
+                          line: line,
+                          positionMs: posMs,
+                          isActive: i == active,
+                          isPast: i < active,
+                          compact: widget.compact,
+                          fontSize: widget.fontSize,
+                          showTransliteration: widget.showTransliteration,
+                          karaoke: false,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            if (!widget.following)
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: _ReturnToCurrentPill(onTap: widget.onResume),
+              ),
+          ],
+        );
+      },
     );
   }
 }

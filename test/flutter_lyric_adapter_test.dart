@@ -52,6 +52,27 @@ void main() {
       expect(line.words![7].end, equals(const Duration(milliseconds: 15500)));
     });
 
+    test('convertToFlutterLyricModel omits word timings for Apple line lyrics', () {
+      const result = lm.LyricsResult(
+        lines: [
+          lm.LyricLine(
+            timeMs: 1000,
+            durationMs: 2000,
+            text: 'Due',
+            syllables: [
+              lm.LyricSyllable(timeMs: 1000, durationMs: 400, text: 'Due'),
+            ],
+          ),
+        ],
+        isSynced: true,
+        isWordSynced: true,
+      );
+
+      final model = convertToFlutterLyricModel(result, wordByWord: false);
+      expect(model.lines.last.text, equals('Due'));
+      expect(model.lines.last.words, isNull);
+    });
+
     test('convertToFlutterLyricModel respects showTransliteration toggle', () {
       const result = lm.LyricsResult(
         lines: [
@@ -130,12 +151,14 @@ void main() {
               );
 
               // Validate Apple Music style properties
-              expect(style.activeAnchorPosition, equals(0.35));
-              expect(style.selectionAnchorPosition, equals(0.45));
-              expect(style.lineGap, equals(28.0));
+              expect(style.activeAnchorPosition, equals(0.34));
+              // Equal to activeAnchor so flutter_lyric does not clamp
+              // short tracks to the bottom of the panel.
+              expect(style.selectionAnchorPosition, equals(0.34));
+              expect(style.lineGap, equals(36.0));
               expect(style.fadeRange, isNotNull);
-              expect(style.fadeRange!.top, equals(70.0));
-              expect(style.fadeRange!.bottom, equals(100.0));
+              expect(style.fadeRange!.top, equals(90.0));
+              expect(style.fadeRange!.bottom, equals(180.0));
               expect(style.lineTextAlign, equals(TextAlign.left));
               expect(style.contentAlignment, equals(CrossAxisAlignment.start));
               expect(
