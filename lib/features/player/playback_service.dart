@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 
@@ -35,6 +36,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   Player? _player;
   final List<StreamSubscription> _subs = [];
+  final List<PlayerLog> _mpvLogTail = [];
+  static const int _mpvLogTailMax = 50;
   final Set<String> _unavailable = {};
   final Set<String> _losslessBypass = {};
   List<int> _shuffleOrder = [];
@@ -144,7 +147,21 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       p.stream.completed.listen((done) {
         if (done) _onTrackCompleted();
       }),
-      p.stream.error.listen((_) => unawaited(_onPlayerError())),
+      p.stream.log.listen((PlayerLog l) {
+        if (kDebugMode) {
+          _mpvLogTail.add(l);
+          if (_mpvLogTail.length > _mpvLogTailMax) {
+            _mpvLogTail.removeRange(0, _mpvLogTail.length - _mpvLogTailMax);
+          }
+        }
+      }),
+      p.stream.error.listen((e) {
+        if (kDebugMode) {
+          debugPrint('LastWave-Player: mpv error: $e');
+          _dumpMpvLog('p.stream.error');
+        }
+        unawaited(_onPlayerError());
+      }),
       p.stream.audioParams.listen((_) {
         unawaited(_refreshAoFormat());
       }),
@@ -343,6 +360,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     PcmFormat? outputFormat,
   }) async {
     await ensurePlayer();
+    if (!Platform.isWindows) {
+      _lockSoftwareVolume = false;
+      exclusiveApplied = false;
+      wasapiError = null;
+      _forcedAoFormat = null;
+      unawaited(_refreshAoFormat());
+      return;
+    }
     _lockSoftwareVolume = lockSoftwareVolume;
     final player = _player;
     if (player == null) {
@@ -1007,10 +1032,26 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       if (state.speed != 1.0) {
         await _player?.setRate(state.speed);
       }
-    } catch (_) {
+    } catch (e, st) {
+      if (kDebugMode) {
+        final host = Uri.tryParse(stream.url)?.host ?? '?';
+        debugPrint(
+            'LastWave-Player: open failed ($host, cache=${stream.cacheKey}): $e');
+        debugPrint('LastWave-Player: open stack: $st');
+        _dumpMpvLog('_open.exception');
+      }
       if (generation != _resolveGeneration) return;
       await _onPlayerError();
     }
+  }
+
+  void _dumpMpvLog(String trigger) {
+    if (!kDebugMode) return;
+    debugPrint('LastWave-Player: mpv log tail ($trigger):');
+    for (final l in _mpvLogTail) {
+      debugPrint('  [${l.prefix}/${l.level}] ${l.text}');
+    }
+    _mpvLogTail.clear();
   }
 
   void _resolveOfficialArtworkInBackground(

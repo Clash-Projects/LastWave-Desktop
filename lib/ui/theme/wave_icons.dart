@@ -45,7 +45,7 @@ class WaveIcons {
   // Content
   static const IconData music = FluentIcons.music_note;
   static const IconData musicCollection = FluentIcons.music_in_collection;
-  static const IconData lyrics = FluentIcons.microphone;
+  static const IconData lyrics = FluentIcons.music_note;
   static const IconData queue = FluentIcons.list_mirrored;
   static const IconData radio = FluentIcons.radio_btn_on;
   static const IconData speaker = FluentIcons.speakers;
