@@ -122,6 +122,54 @@ bool lyricsAreUntimed(List<LyricLine> lines) {
   return true;
 }
 
+int lyricsBodyLength(LyricsResult result) {
+  var n = 0;
+  for (final line in result.lines) {
+    n += line.text.trim().length;
+  }
+  if (n > 0) return n;
+  return result.plainLyrics.replaceAll(RegExp(r'\s+'), '').length;
+}
+
+/// Apple unsynced TTML often packs two sung phrases into one `<p>`.
+/// Split once at the midpoint so the second phrase is not clipped.
+List<String> expandPackedLyricLine(String text, {int maxLen = 48}) {
+  final t = text.trim();
+  if (t.isEmpty) return const [];
+  if (t.length <= maxLen) return [t];
+  final mid = t.length ~/ 2;
+  var at = t.lastIndexOf(' ', mid);
+  if (at < (t.length * 0.35).floor()) {
+    at = t.indexOf(' ', mid);
+  }
+  if (at <= 0 || at >= t.length - 1) return [t];
+  final left = t.substring(0, at).trim();
+  final right = t.substring(at + 1).trim();
+  if (left.length < 16 || right.length < 16) return [t];
+  return [left, right];
+}
+
+List<LyricLine> expandPackedLyricLines(List<LyricLine> lines) {
+  final out = <LyricLine>[];
+  for (final line in lines) {
+    final parts = expandPackedLyricLine(line.text);
+    if (parts.isEmpty) continue;
+    if (parts.length == 1) {
+      out.add(line);
+      continue;
+    }
+    for (final part in parts) {
+      out.add(LyricLine(
+        timeMs: line.timeMs,
+        durationMs: line.durationMs,
+        text: part,
+        transliteration: line.transliteration,
+      ));
+    }
+  }
+  return out;
+}
+
 int activeLyricLineIndex(List<LyricLine> lines, int positionMs) {
   if (lines.isEmpty) return -1;
   if (positionMs < lines.first.timeMs) return -1;

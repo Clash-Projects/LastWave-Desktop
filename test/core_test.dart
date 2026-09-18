@@ -353,6 +353,49 @@ void main() {
       expect(lyricsAreUntimed(result.lines), isTrue);
       expect(activeLyricLineIndex(result.lines, 0), equals(-1));
     });
+
+    test('untimed packed couplets keep order and split both halves', () {
+      final result = LyricsRepository.parseAppleWordByWord({
+        'type': null,
+        'content': [
+          {
+            'timestamp': 0,
+            'endtime': 0,
+            'duration': 0,
+            'text': [
+              {
+                'text':
+                    'numbe ras balanna mamat adin passe na adareta vada rasayi vaha kaduru',
+                'timestamp': 0,
+                'duration': 0,
+                'part': false,
+              },
+            ],
+          },
+          {
+            'timestamp': 0,
+            'endtime': 0,
+            'duration': 0,
+            'text': [
+              {
+                'text': 'kelle mam numbava balen allan inne na',
+                'timestamp': 0,
+                'duration': 0,
+                'part': false,
+              },
+            ],
+          },
+        ],
+      });
+      expect(result, isNotNull);
+      expect(result!.isSynced, isFalse);
+      expect(result.lines.first.text.toLowerCase(), contains('numbe ras'));
+      expect(
+        result.lines.any((l) => l.text.toLowerCase().contains('adareta')),
+        isTrue,
+      );
+      expect(result.lines.length, 3);
+    });
   });
 
   group('RTL detection', () {

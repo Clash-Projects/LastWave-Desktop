@@ -462,6 +462,43 @@ void main() {
       );
     });
 
+    test('complete unsynced Apple lyrics beat a shorter timed cut', () {
+      final complete = LyricsResult(
+        lines: [
+          LyricLine(timeMs: 0, text: 'full chorus ${'na ' * 80}'),
+          LyricLine(timeMs: 0, text: 'full verse ${'la ' * 80}'),
+        ],
+        source: 'Apple Music',
+      );
+      final truncated = LyricsResult(
+        lines: [
+          for (var i = 0; i < 12; i++)
+            LyricLine(timeMs: i * 1000, text: 'short unique line $i'),
+        ],
+        isSynced: true,
+        source: 'lrclib',
+      );
+      expect(lyricsBodyLength(complete), greaterThan(lyricsBodyLength(truncated)));
+      expect(
+        LyricsRepository.isBetterCandidate(complete, truncated),
+        isTrue,
+      );
+      expect(
+        LyricsRepository.isBetterCandidate(truncated, complete),
+        isFalse,
+      );
+    });
+
+    test('packed couplets split once and keep both sung phrases', () {
+      const packed =
+          'numbe ras balanna mamat adin passe na adareta vada rasayi vaha kaduru';
+      final parts = expandPackedLyricLine(packed);
+      expect(parts.length, 2);
+      expect(parts.first.toLowerCase(), contains('numbe ras'));
+      expect(parts.last.toLowerCase(), contains('adareta'));
+      expect(expandPackedLyricLine(parts.first).length, 1);
+    });
+
     test('word-by-word off keeps Lyrically text as line-synced', () {
       const wordSynced = LyricsResult(
         lines: [

@@ -328,7 +328,17 @@ class LyricsRepository {
       if (!newMentions && curMentions) return false;
     }
 
-    // 5. Unique-line richness beats a padded loop with the same raw count
+    // 5. Complete unsynced Apple text beats a shorter timed LRCLIB cut
+    final newLen = lyricsBodyLength(newRes);
+    final curLen = lyricsBodyLength(current);
+    if (newLen >= (curLen * 1.25).round() && newLen - curLen >= 120) {
+      return true;
+    }
+    if (curLen >= (newLen * 1.25).round() && curLen - newLen >= 120) {
+      return false;
+    }
+
+    // 6. Unique-line richness beats a padded loop with the same raw count
     final newUnique = lyricsUniqueLineCount(newRes);
     final curUnique = lyricsUniqueLineCount(current);
     if (newUnique >= (curUnique * 1.5).round() && newUnique - curUnique >= 4) {
@@ -338,18 +348,18 @@ class LyricsRepository {
       return false;
     }
 
-    // 6. Synced always beats unsynced (after the text is known to be right)
+    // 7. Synced always beats unsynced (after the text is known to be right)
     if (newRes.isSynced && !current.isSynced) return true;
     if (!newRes.isSynced && current.isSynced) return false;
 
-    // 7. Official curated sources (Apple Music) beat crowdsourced
+    // 8. Official curated sources (Apple Music) beat crowdsourced
     // user submissions (lrclib)
     final newIsCurated = newRes.source.toLowerCase().contains('apple');
     final curIsCurated = current.source.toLowerCase().contains('apple');
     if (newIsCurated && !curIsCurated) return true;
     if (!newIsCurated && curIsCurated) return false;
 
-    // 8. Line count: substantially richer lyrics beat short transcripts
+    // 9. Line count: substantially richer lyrics beat short transcripts
     if (newRes.lines.length >= (current.lines.length * 1.3).round()) {
       return true;
     }
@@ -496,6 +506,18 @@ class LyricsRepository {
     if (lyricsLooksLikePlaceholder(parsed) &&
         !queryTitle.toLowerCase().contains('instrumental')) {
       return null;
+    }
+    if (!parsed.isSynced && !parsed.isWordSynced) {
+      final unpacked = expandPackedLyricLines(parsed.lines);
+      if (unpacked.length > parsed.lines.length) {
+        return LyricsResult(
+          lines: unpacked,
+          isSynced: false,
+          isWordSynced: false,
+          plainLyrics: parsed.plainLyrics,
+          source: parsed.source,
+        );
+      }
     }
     return parsed;
   }
@@ -728,7 +750,7 @@ class LyricsRepository {
     if (parsed.isEmpty) return null;
     final timed = parsed.any((p) => p.start > 0 || p.duration > 0);
     final wordSynced = timed && (type == 'syllable' || sawMultiWordLine);
-    final lines = [
+    final rawLines = [
       for (final p in parsed)
         LyricLine(
           timeMs: p.start,
@@ -736,7 +758,19 @@ class LyricsRepository {
           text: p.text,
           syllables: wordSynced ? p.syllables : const [],
         ),
-    ]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
+    ];
+    List<LyricLine> lines;
+    if (timed) {
+      final indexed = [for (var i = 0; i < rawLines.length; i++) (i, rawLines[i])];
+      indexed.sort((a, b) {
+        final c = a.$2.timeMs.compareTo(b.$2.timeMs);
+        return c != 0 ? c : a.$1.compareTo(b.$1);
+      });
+      lines = [for (final e in indexed) e.$2];
+    } else {
+      // Keep source order. Sorting equal 0-timestamps shuffles verses.
+      lines = expandPackedLyricLines(rawLines);
+    }
     return LyricsResult(
       lines: lines,
       isSynced: timed,

@@ -580,6 +580,8 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
         widget.line.text,
         style: widget.isActive ? activeStyle : idleStyle,
         textDirection: widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
+        softWrap: true,
+        overflow: TextOverflow.visible,
       );
     }
 
@@ -1052,13 +1054,19 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
 
   @override
   Widget build(BuildContext context) {
+    final untimed = lyricsAreUntimed(widget.result.lines);
+    if (untimed) {
+      // Do not rebuild on the playback clock — that remounts the list
+      // and hides every line past the first screen.
+      return _buildLineList(posMs: 0, active: -1, untimed: true);
+    }
+
     return ValueListenableBuilder<int>(
       valueListenable: widget.positionListenable,
       builder: (context, posMs, _) {
-        final untimed = lyricsAreUntimed(widget.result.lines);
-        final active = untimed ? -1 : _activeIndex(posMs);
+        final active = _activeIndex(posMs);
         if (widget.following && _scroll.isAttached) {
-          if (untimed || active <= 0 || posMs < 400) {
+          if (active <= 0 || posMs < 400) {
             _pinOpeningToTop();
             _lastIndex = active;
           } else if (active != _lastIndex) {
@@ -1073,60 +1081,85 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           _lastIndex = active;
         }
 
-        return Stack(
-          children: [
-            NotificationListener<ScrollNotification>(
-              onNotification: (n) {
-                if (n is ScrollStartNotification && n.dragDetails != null) {
-                  widget.onUserScroll();
-                }
-                return false;
-              },
-              child: ScrollablePositionedList.builder(
-                itemScrollController: _scroll,
-                initialScrollIndex: 0,
-                initialAlignment: 0,
-                itemCount: widget.result.lines.length,
-                padding: EdgeInsets.fromLTRB(
-                  widget.compact ? 12 : 28,
-                  24,
-                  widget.compact ? 12 : 28,
-                  80,
-                ),
-                itemBuilder: (context, i) {
-                  final line = widget.result.lines[i];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        onTap: () => widget.onSeekLineMs(line.timeMs),
-                        child: WaveKaraokeLyricLine(
-                          line: line,
-                          positionMs: posMs,
-                          isActive: i == active,
-                          isPast: !untimed && i < active,
-                          compact: widget.compact,
-                          fontSize: widget.fontSize,
-                          showTransliteration: widget.showTransliteration,
-                          karaoke: false,
-                          softenIdle: !untimed,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            if (!widget.following)
-              Positioned(
-                right: 16,
-                bottom: 16,
-                child: _ReturnToCurrentPill(onTap: widget.onResume),
-              ),
-          ],
+        return _buildLineList(
+          posMs: posMs,
+          active: active,
+          untimed: false,
         );
       },
+    );
+  }
+
+  Widget _buildLineList({
+    required int posMs,
+    required int active,
+    required bool untimed,
+  }) {
+    Widget lineAt(int i) {
+      final line = widget.result.lines[i];
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () => widget.onSeekLineMs(line.timeMs),
+            child: WaveKaraokeLyricLine(
+              line: line,
+              positionMs: posMs,
+              isActive: i == active,
+              isPast: !untimed && i < active,
+              compact: widget.compact,
+              fontSize: widget.fontSize,
+              showTransliteration: widget.showTransliteration,
+              karaoke: false,
+              softenIdle: !untimed,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final padding = EdgeInsets.fromLTRB(
+      widget.compact ? 12 : 28,
+      24,
+      widget.compact ? 12 : 28,
+      80,
+    );
+
+    final list = untimed
+        ? ListView.builder(
+            physics: const ClampingScrollPhysics(),
+            padding: padding,
+            itemCount: widget.result.lines.length,
+            itemBuilder: (context, i) => lineAt(i),
+          )
+        : NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n is ScrollStartNotification && n.dragDetails != null) {
+                widget.onUserScroll();
+              }
+              return false;
+            },
+            child: ScrollablePositionedList.builder(
+              itemScrollController: _scroll,
+              initialScrollIndex: 0,
+              initialAlignment: 0,
+              itemCount: widget.result.lines.length,
+              padding: padding,
+              itemBuilder: (context, i) => lineAt(i),
+            ),
+          );
+
+    return Stack(
+      children: [
+        list,
+        if (!untimed && !widget.following)
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: _ReturnToCurrentPill(onTap: widget.onResume),
+          ),
+      ],
     );
   }
 }
