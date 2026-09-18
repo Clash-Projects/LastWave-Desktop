@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'pcm_format.dart';
 
 enum BitPerfectReason {
@@ -29,7 +31,9 @@ enum BitPerfectReason {
           'WASAPI Exclusive unavailable',
         BitPerfectReason.deviceUnavailable => 'Output device unavailable',
         BitPerfectReason.formatUnsupported => 'Native format unavailable',
-        BitPerfectReason.sharedMode => 'WASAPI Shared — mixer in path',
+        BitPerfectReason.sharedMode => Platform.isWindows
+            ? 'WASAPI Shared — mixer in path'
+            : 'Shared — mixer in path',
         BitPerfectReason.speedNotUnity =>
           'Bit-Perfect unavailable — playback speed ≠ 1.0.',
         BitPerfectReason.crossfadeActive =>

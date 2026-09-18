@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../ui/theme/tokens.dart';
@@ -43,7 +45,7 @@ class WaveStreamPathPanel extends StatelessWidget {
         row('Source', path.sourceLabel),
         row('Output', path.outputLabel),
         row(
-          'WASAPI',
+          Platform.isWindows ? 'WASAPI' : 'Mode',
           path.exclusiveActive ? 'Exclusive' : 'Shared',
         ),
         row(

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 import 'package:fluent_ui/fluent_ui.dart' hide RepeatMode;
 import 'package:flutter/services.dart';
@@ -521,15 +523,16 @@ class _StreamPathGlyph extends ConsumerWidget {
         ),
         MenuFlyoutItem(
           leading: const Icon(WaveIcons.device, size: 15),
-          text: Text('DAC · ${path.outputLabel}'),
+          text: Text('Output · ${path.outputLabel}'),
           onPressed: () {},
         ),
         MenuFlyoutItem(
           leading: const Icon(WaveIcons.speaker, size: 15),
           text: Text(
+            Platform.isWindows ? (
             path.exclusiveActive
                 ? 'WASAPI · Exclusive'
-                : 'WASAPI · Shared',
+                : 'WASAPI · Shared') : 'Output · System Default',
           ),
           onPressed: () {},
         ),
@@ -1054,7 +1057,7 @@ class _DeviceGlyph extends ConsumerWidget {
       menuItems: [
         MenuFlyoutItem(
           leading: const Icon(WaveIcons.device, size: 15),
-          text: const Text('Default Windows device'),
+          text: const Text('System Default'),
           onPressed: () =>
               ref.read(audioOutputProvider.notifier).selectDevice(''),
         ),

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -402,7 +404,7 @@ class _Audio extends ConsumerWidget {
         const SizedBox(height: 8),
         _Group(
           title: 'Audio output',
-          subtitle: 'WASAPI Exclusive bypasses the Windows mixer',
+          subtitle: Platform.isWindows ? 'WASAPI Exclusive bypasses the Windows mixer' : 'System audio output',
           child: _WasapiOutputSettings(onUpdate: onUpdate),
         ),
         const SizedBox(height: 8),
@@ -1082,7 +1084,7 @@ class _WasapiOutputSettings extends ConsumerWidget {
           isExpanded: true,
           value: devices.any((d) => d.id == selected) ? selected : '',
           items: [
-            const ComboBoxItem(value: '', child: Text('Default Windows device')),
+            const ComboBoxItem(value: '', child: Text('System Default')),
             for (final d in devices)
               ComboBoxItem(
                 value: d.id,
@@ -1100,6 +1102,7 @@ class _WasapiOutputSettings extends ConsumerWidget {
           },
         ),
         const SizedBox(height: 10),
+        if (Platform.isWindows)
         _SwitchRow(
           value: output.exclusiveRequested,
           onChanged: (v) async {
