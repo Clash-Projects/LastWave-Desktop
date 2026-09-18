@@ -484,7 +484,7 @@ class LosslessMusicApi {
           expectedDurationSeconds: expectedDurationSeconds,
         );
         if (candidate == null) return null;
-        return _tidal.fetchPlayable(
+        return await _tidal.fetchPlayable(
           candidate.id,
           preferredQuality,
           artworkUrl: candidate.albumArtUrl,

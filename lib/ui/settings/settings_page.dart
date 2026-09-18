@@ -180,7 +180,6 @@ class _SectionBody extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs))
       onUpdate;
   const _SectionBody({
-    super.key,
     required this.section,
     required this.onUpdate,
   });
@@ -243,7 +242,7 @@ class _SectionSwap extends StatelessWidget {
                     child: ExcludeSemantics(child: previous),
                   ),
                 ),
-              if (currentChild != null) currentChild,
+              ?currentChild,
             ],
           );
         },

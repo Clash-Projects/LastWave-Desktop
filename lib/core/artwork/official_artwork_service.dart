@@ -945,6 +945,7 @@ class OfficialArtworkService {
     }
 
     final accepted = <(int, DateTime?, Map<String, dynamic>)>[];
+    final exact = <(int, DateTime?, Map<String, dynamic>)>[];
 
     for (final item in items) {
       final rawArtistName = item['artistName']?.toString() ?? '';
@@ -986,22 +987,47 @@ class OfficialArtworkService {
           released = DateTime.parse(item['releaseDate']?.toString() ?? '');
         } catch (_) {}
         accepted.add((score, released, item));
+      } else if (titleScore == 100 && artistScore == 100) {
+        DateTime? released;
+        try {
+          released = DateTime.parse(item['releaseDate']?.toString() ?? '');
+        } catch (_) {}
+        exact.add((score, released, item));
       }
     }
 
-    if (accepted.isEmpty) return null;
-    // Highest score wins; ties broken by earliest release (the original
-    // studio album predates compilations, remasters and reissues).
-    accepted.sort((a, b) {
-      final s = b.$1.compareTo(a.$1);
-      if (s != 0) return s;
-      final ad = a.$2, bd = b.$2;
-      if (ad != null && bd != null) return ad.compareTo(bd);
-      if (ad != null) return -1;
-      if (bd != null) return 1;
-      return 0;
-    });
-    return accepted.first.$3;
+    if (accepted.isNotEmpty) {
+      // Highest score wins; ties broken by earliest release (the original
+      // studio album predates compilations, remasters and reissues).
+      accepted.sort((a, b) {
+        final s = b.$1.compareTo(a.$1);
+        if (s != 0) return s;
+        final ad = a.$2, bd = b.$2;
+        if (ad != null && bd != null) return ad.compareTo(bd);
+        if (ad != null) return -1;
+        if (bd != null) return 1;
+        return 0;
+      });
+      return accepted.first.$3;
+    }
+    // Last-resort tier: an exact title + exact/aliased artist match that
+    // lost points to penalties (an "instrumental" or compilation edition)
+    // is still better than no official art when Deezer is unreachable.
+    // Non-exact impostors (Cider->Cinderella, Piranha->Pt. 2) can never
+    // enter this tier, so the noise bar stays intact.
+    if (exact.isNotEmpty) {
+      exact.sort((a, b) {
+        final s = b.$1.compareTo(a.$1);
+        if (s != 0) return s;
+        final ad = a.$2, bd = b.$2;
+        if (ad != null && bd != null) return ad.compareTo(bd);
+        if (ad != null) return -1;
+        if (bd != null) return 1;
+        return 0;
+      });
+      return exact.first.$3;
+    }
+    return null;
   }
 }
 
