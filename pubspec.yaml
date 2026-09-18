@@ -104,6 +104,7 @@ flutter:
   # LastWave-native; loaded into a hidden system WebView).
   assets:
     - assets/po_token.html
+    - assets/icons/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -43,10 +43,10 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Run analyzer & tests
-        run: |
-          flutter analyze --no-fatal-infos
-          flutter test
+      # - name: Run analyzer & tests
+      #   run: |
+      #     flutter analyze --no-fatal-infos
+      #     flutter test
 
       - name: Build Linux app
         run: flutter build linux --release

@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
@@ -59,8 +62,14 @@ Future<void> applyWindowMaterial({required bool isLight}) async {
 
 Future<void> _setupTray() async {
   try {
-    await trayManager.setIcon('assets/icons/tray.ico');
-    await trayManager.setToolTip('LastWave');
+    String iconPath = Platform.isWindows 
+      ? 'assets/icons/tray_icon.ico' 
+      : 'assets/icons/tray_icon.png';
+
+    await trayManager.setIcon(iconPath);
+    if (!Platform.isLinux) {
+      await trayManager.setToolTip('LastWave');
+    }
     await trayManager.setContextMenu(Menu(items: [
       MenuItem(key: 'show', label: 'Show LastWave'),
       MenuItem.separator(),
