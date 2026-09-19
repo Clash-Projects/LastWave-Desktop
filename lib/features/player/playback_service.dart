@@ -323,11 +323,32 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       await retry();
       return;
     }
+    // Session restore loads queue/current but no Media in mpv — playOrPause
+    // on an empty player is a no-op (user hits play and nothing happens;
+    // next/prev/new track work because they re-resolve). Detect that case
+    // and open the restored track instead.
+    if (state.current != null && state.stream == null) {
+      final resumeAt = state.position;
+      await _resolveAndOpen(state.currentIndex);
+      if (resumeAt > Duration.zero) {
+        // Best-effort: resume where the session left off.
+        await seek(resumeAt);
+      }
+      return;
+    }
     await _player?.playOrPause();
   }
 
   Future<void> playResume() async {
     await ensurePlayer();
+    if (state.current != null && state.stream == null) {
+      final resumeAt = state.position;
+      await _resolveAndOpen(state.currentIndex);
+      if (resumeAt > Duration.zero) {
+        await seek(resumeAt);
+      }
+      return;
+    }
     await _player?.play();
   }
 
@@ -1405,6 +1426,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           .values[((data['repeat'] as num?)?.toInt() ?? 0)
               .clamp(0, RepeatMode.values.length - 1)],
       speed: ((data['speed'] as num?)?.toDouble() ?? 1.0),
+      position: Duration(
+          milliseconds: ((data['positionMs'] as num?)?.toInt() ?? 0)
+              .clamp(0, 1 << 31)),
     );
   }
 }
