@@ -1376,12 +1376,14 @@ class InnerTubeMusicApi {
 
   String _playlistBrowseId(String rawId) {
     if (rawId.startsWith('VL') ||
-        rawId.startsWith('RDCLAK') ||
         rawId.startsWith('FE') ||
         rawId.startsWith('MPRE') ||
         rawId.startsWith('UC')) {
       return rawId;
     }
+    // RDCLAK mixes (auto-generated radio) are browsed as VLRDCLAK…
+    // Previous code sent RDCLAK… without VL → 400 on both
+    // music.youtube.com and www.youtube.com.
     return 'VL$rawId';
   }
 
@@ -1483,16 +1485,29 @@ class InnerTubeMusicApi {
 
   Future<_PlaylistRoot?> _fetchPlaylistRoot(
       String browseId) async {
+    // YouTube Music playlists on music.youtube.com, regular YouTube
+    // playlists (e.g. Pop Hits RDCLAK → VLRDCLAK) 400 on music and
+    // need www.youtube.com fallback.
     if (_connection.connected) {
       try {
         final root =
             await _browseRoot(browseId, authenticated: true);
         return _PlaylistRoot(root, true);
       } catch (_) {}
+      try {
+        final root =
+            await _browseRootYoutube(browseId, authenticated: true);
+        return _PlaylistRoot(root, true);
+      } catch (_) {}
     }
     try {
       final root =
           await _browseRoot(browseId, authenticated: false);
+      return _PlaylistRoot(root, false);
+    } catch (_) {}
+    try {
+      final root =
+          await _browseRootYoutube(browseId, authenticated: false);
       return _PlaylistRoot(root, false);
     } catch (_) {
       return null;
@@ -1504,6 +1519,24 @@ class InnerTubeMusicApi {
     await _ensureConfig();
     return _post(
       '$musicApi/browse?key=$_apiKey&prettyPrint=false',
+      body: {
+        'context': _webContext(_clientVersion, _visitorData),
+        'browseId': browseId,
+      },
+      clientName: 'WEB_REMIX',
+      clientVersion: _clientVersion,
+      userAgent: webUserAgent,
+      authenticated: authenticated,
+    );
+  }
+
+  Future<_Map> _browseRootYoutube(String browseId,
+      {required bool authenticated}) async {
+    await _ensureConfig();
+    // Fallback for regular YouTube playlists (e.g. Pop Hits) that 400
+    // on music.youtube.com
+    return _post(
+      '$youtubeApi/browse?key=$_apiKey&prettyPrint=false',
       body: {
         'context': _webContext(_clientVersion, _visitorData),
         'browseId': browseId,

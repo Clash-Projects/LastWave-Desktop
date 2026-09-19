@@ -77,6 +77,11 @@ class DioFactory {
               handler.next(e);
               return;
             }
+            // LRCLIB 404 is expected (no lyrics) — handled via search fallback.
+            if (code == 404 && host.contains('lrclib.net')) {
+              handler.next(e);
+              return;
+            }
             logger.w(
               'HTTP $code ${e.requestOptions.method} '
               '$host${e.requestOptions.uri.path}',
