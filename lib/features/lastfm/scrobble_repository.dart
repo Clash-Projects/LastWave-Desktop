@@ -37,11 +37,18 @@ class ScrobbleRepository {
     String method,
     Map<String, String> extra,
   ) async {
+    // Drop empty values so the POST body and the signed string agree
+    // (server includes only sent params; sending `album=` while signing
+    // without it yields error 13).
+    final filteredExtra = {
+      for (final e in extra.entries)
+        if (e.value.isNotEmpty) e.key: e.value,
+    };
     final params = {
       'method': method,
       'api_key': _apiKey,
       'sk': _sessionKey,
-      ...extra,
+      ...filteredExtra,
     };
     return {
       ...params,
@@ -76,7 +83,11 @@ class ScrobbleRepository {
       await _paceWrites();
       final json = await _api.post(await _signed(
         'track.updateNowPlaying',
-        {'artist': artist, 'track': track, 'album': album},
+        {
+          'artist': artist,
+          'track': track,
+          if (album.isNotEmpty) 'album': album,
+        },
       ));
       if (json.containsKey('error')) return ScrobbleOutcome.failed;
       return ScrobbleOutcome.success;

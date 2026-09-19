@@ -51,6 +51,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   double _accumulatedSeconds = 0;
   DateTime? _lastTick;
   bool _nowPlayingSent = false;
+  PlayableTrack? _scrobbleTrack;
+  int _scrobbleDurationSec = 0;
 
   bool _endlessRadio = false;
   final Set<String> _radioSeeds = {};
@@ -139,6 +141,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       p.stream.duration.listen((v) {
         if (_resolving || state.error != null) return;
         state = state.copyWith(duration: v);
+        // Keep scrobble duration in sync with the track that owns the
+        // current window — not the next track that has already been
+        // written to state during resolve.
+        if (_scrobbleTrack != null &&
+            _scrobbleTrack!.queueKey == state.current?.queueKey) {
+          _scrobbleDurationSec = v.inSeconds;
+        }
       }),
       p.stream.volume.listen((v) {
         if (_lockSoftwareVolume) return;
@@ -1313,6 +1322,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   void _beginScrobbleWindow(PlayableTrack track) {
     _flushScrobble(completed: false);
+    _scrobbleTrack = track;
+    _scrobbleDurationSec = state.duration.inSeconds;
+    // If the new track already has a known duration in state (rare,
+    // e.g. replay), prefer it; otherwise keep 0 and let the duration
+    // listener fill it in.
+    if (_scrobbleTrack!.queueKey == state.current?.queueKey) {
+      _scrobbleDurationSec = state.duration.inSeconds;
+    }
     _scrobbleStartEpoch =
         DateTime.now().millisecondsSinceEpoch ~/ 1000;
     _accumulatedSeconds = 0;
@@ -1341,17 +1358,20 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   void _flushScrobble({required bool completed}) {
-    final track = state.current;
+    final track = _scrobbleTrack ?? state.current;
     if (track == null || _scrobbleStartEpoch == 0) return;
-    final durationSec = state.duration.inSeconds;
+    // Duration belongs to the scrobble window, not necessarily
+    // state.duration (which may already be 0 for the next track).
+    final durationSec = _scrobbleDurationSec > 0
+        ? _scrobbleDurationSec
+        : state.duration.inSeconds;
+    final percent = _prefs.scrobblePercent.clamp(25, 90);
+    // Last.fm rule: min(duration*percent/100, 240) clamped to at least 30s.
     final threshold = durationSec > 0
-        ? ([durationSec * 0.5, 240].reduce((a, b) => a < b ? a : b))
-            .clamp(30, 1 << 30)
-            .toInt()
+        ? (durationSec * percent / 100).round().clamp(30, 240)
         : 30;
-    final playedEnough =
-        _accumulatedSeconds >= 30 && _accumulatedSeconds >= threshold * 0.5 ||
-            (completed && _accumulatedSeconds >= 30);
+    final playedEnough = _accumulatedSeconds >= threshold ||
+        (completed && _accumulatedSeconds >= 30);
     if (playedEnough) {
       unawaited(_scrobbler.scrobble(
         artist: track.artist,
@@ -1362,6 +1382,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     _scrobbleStartEpoch = 0;
     _accumulatedSeconds = 0;
+    _scrobbleTrack = null;
+    _scrobbleDurationSec = 0;
   }
 
   // -- persistence ---------------------------------------------------------------
@@ -1434,13 +1456,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 }
 
 /// Thin prefs/session adapters to keep the service testable.
+/// Wraps live [Prefs] so scrobble thresholds and lossless choices
+/// reflect SharedPreferences changes without recreating the service.
 class PrefsHandle {
-  final bool preferLossless;
-  final int losslessQuality;
-  const PrefsHandle({
-    required this.preferLossless,
-    required this.losslessQuality,
-  });
+  final Prefs _prefs;
+  PrefsHandle(this._prefs);
+  bool get preferLossless => _prefs.preferLossless;
+  int get losslessQuality => _prefs.losslessQuality;
+  int get scrobblePercent => _prefs.scrobblePercent;
+  bool get scrobblerEnabled => _prefs.scrobblerEnabled;
 }
 
 class SessionStore {
@@ -1459,10 +1483,7 @@ final playbackServiceProvider =
     ref.watch(losslessApiProvider),
     ref.watch(scrobbleRepositoryProvider),
     ref.watch(downloadManagerProvider.notifier),
-    PrefsHandle(
-      preferLossless: ref.watch(prefsProvider).preferLossless,
-      losslessQuality: ref.watch(prefsProvider).losslessQuality,
-    ),
+    PrefsHandle(ref.watch(prefsProvider)),
     SessionStore(ref.watch(databaseProvider)),
     ref.watch(officialArtworkServiceProvider),
   );
