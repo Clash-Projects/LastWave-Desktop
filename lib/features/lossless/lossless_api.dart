@@ -123,15 +123,18 @@ class LosslessMusicApi {
   static const _versionTags = [
     'live', 'acoustic', 'karaoke', 'instrumental', 'tribute', 'cover',
     'remix', 'mashup', 'demo', 'slowed', 'reverb', 'sped up', 'sped-up',
-    'spaced', 'nightcore', 'radio edit', 'extended', 'interlude',
-    'intro', 'outro', 'reprise',
+    'spaced', 'nightcore', 'radio edit', 'extended',
   ];
 
   static Set<String> identityVariants(String s) {
     final n = cleanForSearch(s);
+    if (n.isEmpty) return {};
     final found = <String>{};
     for (final tag in _versionTags) {
-      if (n.contains(tag)) found.add(tag);
+      final hit = tag.contains(' ')
+          ? n.contains(tag)
+          : RegExp('\\b${RegExp.escape(tag)}\\b').hasMatch(n);
+      if (hit) found.add(tag);
     }
     return found;
   }
@@ -303,13 +306,25 @@ class LosslessMusicApi {
   }) async {
     final cleanT = normalizeTitle(title);
     final cleanA = cleanForSearch(artist);
+    final cleanAlbum = cleanForSearch(album);
+    final coreT = cleanT
+        .replaceAll(RegExp(r'\b(?:interlude|intro|outro|reprise)\b'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
     final queries = {
+      if (cleanAlbum.isNotEmpty && cleanA.isNotEmpty && cleanT.isNotEmpty)
+        '$cleanAlbum $cleanA $cleanT',
+      if (cleanAlbum.isNotEmpty && cleanA.isNotEmpty && coreT.isNotEmpty)
+        '$cleanAlbum $cleanA $coreT',
       if (cleanT.isNotEmpty && cleanA.isNotEmpty) '$cleanA - $cleanT',
       if (cleanT.isNotEmpty && cleanA.isNotEmpty) '$cleanT $cleanA',
       if (cleanT.isNotEmpty && cleanA.isNotEmpty) '$cleanA $cleanT',
+      if (coreT.isNotEmpty && coreT != cleanT && cleanA.isNotEmpty)
+        '$cleanA $coreT',
       '${cleanForSearch(title)} ${cleanForSearch(artist)}',
       '${cleanForSearch(artist)} ${cleanForSearch(title)}',
       if (cleanT.isNotEmpty) cleanT,
+      if (coreT.isNotEmpty) coreT,
       cleanForSearch(title),
       title,
     }.where((q) => q.trim().isNotEmpty);

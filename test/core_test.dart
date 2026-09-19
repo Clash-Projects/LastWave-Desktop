@@ -76,6 +76,48 @@ void main() {
           isFalse);
     });
 
+    test('Interlude feat. titles still match the catalog recording', () {
+      final api = LosslessMusicApi();
+      const youtube =
+          "I Can't Save You (Interlude) [feat. Don Toliver]";
+      expect(
+        LosslessMusicApi.identityVariants(youtube).contains('live'),
+        isFalse,
+      );
+      final withParen = LosslessCandidate(
+        id: '1',
+        title: "I Can't Save You (Interlude)",
+        performer: 'Metro Boomin',
+        albumTitle: 'HEROES & VILLAINS',
+        albumArtist: 'Metro Boomin',
+      );
+      final catalogShort = LosslessCandidate(
+        id: '2',
+        title: "I Can't Save You",
+        performer: 'Metro Boomin',
+        albumTitle: 'HEROES & VILLAINS',
+        albumArtist: 'Metro Boomin',
+      );
+      expect(
+          api.verifiedMatchScore(
+            withParen,
+            title: youtube,
+            artist: 'Metro Boomin',
+            album: 'HEROES & VILLAINS',
+            expectedDurationSeconds: 0,
+          ),
+          isNotNull);
+      expect(
+          api.verifiedMatchScore(
+            catalogShort,
+            title: youtube,
+            artist: 'Metro Boomin',
+            album: 'HEROES & VILLAINS',
+            expectedDurationSeconds: 0,
+          ),
+          isNotNull);
+    });
+
     test('titlesMatch allows a one-letter catalog typo', () {
       expect(
           LosslessMusicApi.titlesMatch('Nube Ras', 'Numbe Ras'),
