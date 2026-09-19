@@ -53,6 +53,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   bool _nowPlayingSent = false;
   PlayableTrack? _scrobbleTrack;
   int _scrobbleDurationSec = 0;
+  bool _scrobbledThisWindow = false;
 
   bool _endlessRadio = false;
   final Set<String> _radioSeeds = {};
@@ -179,6 +180,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   void disposePlayer() {
+    // Flush any past-threshold window before tearing down (manual pause/
+    // app close would otherwise leave it only as “Scrobbling now”).
+    _flushScrobble(completed: false);
     _resolveGeneration++;
     _resolving = false;
     _resolvingIndex = -1;
@@ -611,6 +615,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> stopAndClear() async {
+    _flushScrobble(completed: false);
     _resolveGeneration++;
     _resolving = false;
     _resolvingIndex = -1;
@@ -1169,8 +1174,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (_resolving || state.error != null) return;
     _flushScrobble(completed: true);
     if (state.repeatMode == RepeatMode.one) {
+      final loopTrack = state.current;
       seek(Duration.zero);
       playResume();
+      if (loopTrack != null) {
+        // Re-arm a fresh scrobble window for the looped play.
+        _beginScrobbleWindow(loopTrack);
+      }
       return;
     }
     final nextIndex = _nextIndex();
@@ -1333,6 +1343,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _scrobbleStartEpoch =
         DateTime.now().millisecondsSinceEpoch ~/ 1000;
     _accumulatedSeconds = 0;
+    _scrobbledThisWindow = false;
     _nowPlayingSent = false;
     _lastTick = DateTime.now();
     _sendNowPlaying(track);
@@ -1355,11 +1366,56 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           now.difference(last).inMilliseconds / 1000.0;
     }
     _lastTick = now;
+    // Eager scrobble at threshold so manual pause still appears in
+    // history (Last.fm otherwise expires “Scrobbling now” on pause).
+    if (_scrobbleStartEpoch != 0 &&
+        !_scrobbledThisWindow &&
+        _scrobbleTrack != null &&
+        state.isPlaying) {
+      final durationSec = _scrobbleDurationSec > 0
+          ? _scrobbleDurationSec
+          : state.duration.inSeconds;
+      if (durationSec > 0) {
+        final percent = _prefs.scrobblePercent.clamp(25, 90);
+        final threshold =
+            (durationSec * percent / 100).round().clamp(30, 240);
+        if (_accumulatedSeconds >= threshold) {
+          _scrobbledThisWindow = true;
+          final t = _scrobbleTrack!;
+          unawaited(_scrobbler.scrobble(
+            artist: t.artist,
+            track: t.title,
+            album: t.album,
+            timestampSec: _scrobbleStartEpoch,
+          ));
+        }
+      } else if (_accumulatedSeconds >= 30) {
+        // Duration still unknown — fall back to Last.fm’s 30s floor
+        // so long tracks don’t wait indefinitely on metadata.
+        _scrobbledThisWindow = true;
+        final t = _scrobbleTrack!;
+        unawaited(_scrobbler.scrobble(
+          artist: t.artist,
+          track: t.title,
+          album: t.album,
+          timestampSec: _scrobbleStartEpoch,
+        ));
+      }
+    }
   }
 
   void _flushScrobble({required bool completed}) {
     final track = _scrobbleTrack ?? state.current;
     if (track == null || _scrobbleStartEpoch == 0) return;
+    if (_scrobbledThisWindow) {
+      // Already scrobbled eagerly at threshold — just tear down window.
+      _scrobbleStartEpoch = 0;
+      _accumulatedSeconds = 0;
+      _scrobbleTrack = null;
+      _scrobbleDurationSec = 0;
+      _scrobbledThisWindow = false;
+      return;
+    }
     // Duration belongs to the scrobble window, not necessarily
     // state.duration (which may already be 0 for the next track).
     final durationSec = _scrobbleDurationSec > 0
@@ -1384,6 +1440,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _accumulatedSeconds = 0;
     _scrobbleTrack = null;
     _scrobbleDurationSec = 0;
+    _scrobbledThisWindow = false;
   }
 
   // -- persistence ---------------------------------------------------------------
