@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/library/playlists.dart';
@@ -65,6 +66,7 @@ class WavePlayerDock extends ConsumerWidget {
     final notifier = ref.read(playbackServiceProvider.notifier);
     final current = player.current;
     final artworkUrl = player.current?.artworkUrl ?? '';
+    ref.watch(animatedArtworkWarmupProvider);
     final dockTint = ref.watch(artworkSeedProvider(artworkUrl)).valueOrNull;
 
     final targetBase = () {

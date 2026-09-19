@@ -82,6 +82,10 @@ class DioFactory {
               handler.next(e);
               return;
             }
+            if (code == 404 && host.contains('artwork.m8tec.top')) {
+              handler.next(e);
+              return;
+            }
             logger.w(
               'HTTP $code ${e.requestOptions.method} '
               '$host${e.requestOptions.uri.path}',

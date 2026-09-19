@@ -6,11 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/artwork/animated_artwork_service.dart';
+import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
 import '../../widgets/ambient.dart';
+import '../../widgets/animated_artwork_video.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
@@ -73,17 +76,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
       playbackServiceProvider.select((s) => s.current),
     );
 
-    final upcomingKeys = ref.watch(
-      playbackServiceProvider.select((s) {
-        final q = s.queue;
-        final i = s.currentIndex;
-        if (i < 0 || q.isEmpty) return ('', '');
-        final a = i + 1 < q.length ? q[i + 1].artworkUrl : '';
-        final b = i + 2 < q.length ? q[i + 2].artworkUrl : '';
-        return (a, b);
-      }),
-    );
-
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
 
     if (current == null) {
@@ -104,17 +96,36 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
 
     if (current.queueKey != _preloadedKey) {
       _preloadedKey = current.queueKey;
+      final snap = ref.read(playbackServiceProvider);
+      final q = snap.queue;
+      final i = snap.currentIndex;
+      final upcoming = <PlayableTrack>[
+        if (i + 1 < q.length) q[i + 1],
+        if (i + 2 < q.length) q[i + 2],
+      ];
       final warm = [
         current.artworkUrl,
-        upcomingKeys.$1,
-        upcomingKeys.$2,
+        ...upcoming.map((t) => t.artworkUrl),
       ].where((u) => u.isNotEmpty).toList();
-      if (warm.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (warm.isNotEmpty) {
           ArtworkResolver.preload(context, warm, targetPx: 640);
-        });
-      }
+        }
+        final anim = ref.read(animatedArtworkServiceProvider);
+        anim.prefetch(AnimatedArtworkQuery(
+          artist: current.artist,
+          album: current.album,
+          title: current.title,
+        ));
+        for (final track in upcoming) {
+          anim.prefetch(AnimatedArtworkQuery(
+            artist: track.artist,
+            album: track.album,
+            title: track.title,
+          ));
+        }
+      });
     }
 
     return CallbackShortcuts(
@@ -583,10 +594,10 @@ class _NarrowCenteredPane extends StatelessWidget {
 
 /// Large Artwork Card with rounded corners and deep drop shadow.
 ///
-/// WinUI connected-motion feel: on track change the artwork crossfades
-/// while settling from 96% scale — reads as one surface morphing into
-/// the next rather than an image swap.
-class _HeroArtworkCard extends StatelessWidget {
+/// Motion art sits under a still sleeve that fades away once the first
+/// video frame is ready. Same-album tracks keep the looping clip; the
+/// player session survives leaving Now Playing so it does not reload.
+class _HeroArtworkCard extends ConsumerWidget {
   final PlayableTrack track;
   final double size;
 
@@ -596,8 +607,29 @@ class _HeroArtworkCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
+    final motion = ref.watch(animatedArtworkProvider(
+      AnimatedArtworkQuery(
+        artist: track.artist,
+        album: track.album,
+        title: track.title,
+      ),
+    ));
+    final motionUrl =
+        motion.valueOrNull?.hasUrl == true ? motion.valueOrNull!.url : '';
+    final motionReady = ref.watch(
+      animatedArtworkSessionProvider.select((s) => s.isReadyFor(motionUrl)),
+    );
+    WaveArtwork stillCover() => WaveArtwork(
+          url: track.artworkUrl,
+          videoId: track.videoId,
+          size: size,
+          radius: 18,
+          label: track.title,
+          title: track.title,
+          artist: track.artist,
+        );
 
     return Container(
       width: size,
@@ -617,29 +649,29 @@ class _HeroArtworkCard extends StatelessWidget {
           ),
         ],
       ),
-      child: AnimatedSwitcher(
-        duration: WaveMotion.slow,
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        transitionBuilder: (child, animation) => FadeTransition(
-          opacity: animation,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.96, end: 1).animate(animation),
-            child: child,
-          ),
-        ),
-        child: ClipRRect(
-          key: ValueKey(track.queueKey),
-          borderRadius: BorderRadius.circular(18),
-          child: WaveArtwork(
-            url: track.artworkUrl,
-            videoId: track.videoId,
-            size: size,
-            radius: 18,
-            label: track.title,
-            title: track.title,
-            artist: track.artist,
-          ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAliasWithSaveLayer,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            stillCover(),
+            if (motionUrl.isNotEmpty)
+              AnimatedArtworkVideo(
+                url: motionUrl,
+                size: size,
+              ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 480),
+                  curve: Curves.easeOutCubic,
+                  opacity: motionReady ? 0 : 1,
+                  child: stillCover(),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

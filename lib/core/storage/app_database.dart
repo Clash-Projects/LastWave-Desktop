@@ -430,6 +430,26 @@ class AppDatabase {
     }
   }
 
+  /// Same row as [loadArtworkEntry], plus [timestamp_millis] for TTL.
+  Map<String, dynamic>? loadArtworkRecord(String cacheKey) {
+    try {
+      final rows = _db.select(
+        'SELECT url, provider, timestamp_millis FROM artwork_cache '
+        'WHERE cache_key = ?;',
+        [cacheKey],
+      );
+      if (rows.isEmpty) return null;
+      return {
+        'url': rows.first['url'] as String,
+        'provider': rows.first['provider'] as String,
+        'timestamp_millis':
+            (rows.first['timestamp_millis'] as num?)?.toInt() ?? 0,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
   void saveArtworkEntry({
     required String cacheKey,
     required String url,
