@@ -395,32 +395,39 @@ class FeedRepository {
         limit: 12,
       );
 
+      // Parallel per-track hydration: the sequential loop paid up to
+      // 1.5s per missing cover (8 × 1.5s worst case inside a 3s cap,
+      // so slow items starved the rest). OfficialArtworkService
+      // throttles internally (concurrency 3), so fan-out is safe and
+      // order is preserved by Future.wait.
+      Future<GeneratedTrack> hydrateOne(
+          int i, GeneratedTrack t, int limit) async {
+        if (i < limit && t.artworkUrl.isEmpty && t.name.isNotEmpty) {
+          try {
+            final art = await OfficialArtworkService.instance
+                .resolveOfficialArtwork(title: t.name, artist: t.artist)
+                .timeout(const Duration(milliseconds: 1500));
+            if (art != null && art.artworkUrl.isNotEmpty) {
+              return GeneratedTrack(
+                name: t.name,
+                artist: t.artist,
+                artworkUrl: art.artworkUrl,
+                videoId: t.videoId,
+                listeners: t.listeners,
+                match: t.match,
+              );
+            }
+          } catch (_) {}
+        }
+        return t;
+      }
+
       Future<List<GeneratedTrack>> hydrateArtwork(
           List<GeneratedTrack> list, {int limit = 6}) async {
-        final out = <GeneratedTrack>[];
-        for (var i = 0; i < list.length; i++) {
-          final t = list[i];
-          if (i < limit && t.artworkUrl.isEmpty && t.name.isNotEmpty) {
-            try {
-              final art = await OfficialArtworkService.instance
-                  .resolveOfficialArtwork(title: t.name, artist: t.artist)
-                  .timeout(const Duration(milliseconds: 1500));
-              if (art != null && art.artworkUrl.isNotEmpty) {
-                out.add(GeneratedTrack(
-                  name: t.name,
-                  artist: t.artist,
-                  artworkUrl: art.artworkUrl,
-                  videoId: t.videoId,
-                  listeners: t.listeners,
-                  match: t.match,
-                ));
-                continue;
-              }
-            } catch (_) {}
-          }
-          out.add(t);
-        }
-        return out;
+        return Future.wait([
+          for (var i = 0; i < list.length; i++)
+            hydrateOne(i, list[i], limit),
+        ]);
       }
 
       var finalQuick = quick;

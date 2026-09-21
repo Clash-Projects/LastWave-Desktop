@@ -656,12 +656,21 @@ class _GenreTileState extends State<_GenreTile> {
                 fit: StackFit.expand,
                 children: [
                   if (widget.artworkUrl.isNotEmpty)
-                    CachedNetworkImage(
-                      imageUrl: widget.artworkUrl,
-                      memCacheWidth: 400,
-                      memCacheHeight: 300,
-                      maxWidthDiskCache: 512,
-                      maxHeightDiskCache: 512,
+                    Builder(builder: (context) {
+                      // dpr-aware decode: hardcoded 400x300 over-fetched
+                      // ~2x on hidpi and under-fetched on 4K. Tile height
+                      // is 104/148 logical; decode at 2x backing pixels.
+                      final dpr = MediaQuery.maybeDevicePixelRatioOf(
+                              context) ??
+                          1.0;
+                      final px =
+                          ((height * dpr * 2).round()).clamp(128, 1024);
+                      return CachedNetworkImage(
+                        imageUrl: widget.artworkUrl,
+                        memCacheWidth: px,
+                        memCacheHeight: (px * 3 ~/ 4).clamp(96, 768),
+                        maxWidthDiskCache: 512,
+                        maxHeightDiskCache: 512,
                       fit: BoxFit.cover,
                       fadeInDuration:
                           const Duration(milliseconds: 110),
@@ -669,7 +678,8 @@ class _GenreTileState extends State<_GenreTile> {
                           color: WaveColors.surfaceRaised),
                       errorWidget: (context, _, _) => Container(
                           color: WaveColors.surfaceRaised),
-                    ),
+                      );
+                    }),
                   Container(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(

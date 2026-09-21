@@ -29,7 +29,10 @@ final _waveAlbumsProvider =
     FutureProvider<List<_Album>>((ref) async {
   final api = ref.watch(lastFmApiProvider);
   final apiKey = ref.watch(prefsApiKeyProvider);
-  final user = ref.watch(prefsProvider).username;
+  // Select username only: any other prefs change (theme, quality,
+  // scrobble) must not rebuild the whole albums grid.
+  final user =
+      ref.watch(prefsProvider.select((p) => p.username));
   if (user.isEmpty) {
     try {
       final entities = await ref

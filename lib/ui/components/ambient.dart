@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -282,6 +284,56 @@ Future<ui.Image> _decodeArtwork(String url) {
   return completer.future.timeout(const Duration(seconds: 8));
 }
 
+/// Isolate job: raw RGBA bytes + dimensions. The 192px decode stays on
+/// the UI thread (GPU-backed, fast); the 4× quantizer passes
+/// (~200ms) run off-thread. Everything crossing the boundary is plain
+/// data (bytes + ArtworkPalette of int-backed Colors).
+class _PaletteJob {
+  final Uint8List bytes;
+  final int width;
+  final int height;
+  const _PaletteJob(this.bytes, this.width, this.height);
+}
+
+Future<ArtworkPalette> _extractPalette(_PaletteJob job) async {
+  final encoded = EncodedImage(
+    ByteData.sublistView(job.bytes),
+    width: job.width,
+    height: job.height,
+  );
+  final w = job.width.toDouble();
+  final h = job.height.toDouble();
+  final full = await PaletteGenerator.fromByteData(
+    encoded,
+    maximumColorCount: 24,
+    filters: const [],
+  );
+  final left = await PaletteGenerator.fromByteData(
+    encoded,
+    region: Rect.fromLTWH(0, 0, w * 0.42, h),
+    maximumColorCount: 10,
+    filters: const [],
+  );
+  final right = await PaletteGenerator.fromByteData(
+    encoded,
+    region: Rect.fromLTWH(w * 0.55, 0, w * 0.45, h),
+    maximumColorCount: 10,
+    filters: const [],
+  );
+  final bottom = await PaletteGenerator.fromByteData(
+    encoded,
+    region: Rect.fromLTWH(0, h * 0.58, w, h * 0.42),
+    maximumColorCount: 10,
+    filters: const [],
+  );
+  return _paletteFromRegions(
+    full: full,
+    left: left,
+    right: right,
+    bottom: bottom,
+  );
+}
+
 /// Shared artwork-derived multi-color palette, cached by image identity.
 final artworkPaletteProvider =
     FutureProvider.autoDispose.family<ArtworkPalette, String>((ref, url) async {
@@ -290,37 +342,17 @@ final artworkPaletteProvider =
   ui.Image? image;
   try {
     image = await _decodeArtwork(url);
-    final w = image.width.toDouble();
-    final h = image.height.toDouble();
-    final full = await PaletteGenerator.fromImage(
-      image,
-      maximumColorCount: 24,
-      filters: const [],
+    final bytes = await image.toByteData();
+    if (bytes == null) return ArtworkPalette.fallback;
+    final job = _PaletteJob(
+      bytes.buffer.asUint8List(
+          bytes.offsetInBytes, bytes.lengthInBytes),
+      image.width,
+      image.height,
     );
-    final left = await PaletteGenerator.fromImage(
-      image,
-      region: Rect.fromLTWH(0, 0, w * 0.42, h),
-      maximumColorCount: 10,
-      filters: const [],
-    );
-    final right = await PaletteGenerator.fromImage(
-      image,
-      region: Rect.fromLTWH(w * 0.55, 0, w * 0.45, h),
-      maximumColorCount: 10,
-      filters: const [],
-    );
-    final bottom = await PaletteGenerator.fromImage(
-      image,
-      region: Rect.fromLTWH(0, h * 0.58, w, h * 0.42),
-      maximumColorCount: 10,
-      filters: const [],
-    );
-    return _paletteFromRegions(
-      full: full,
-      left: left,
-      right: right,
-      bottom: bottom,
-    );
+    image.dispose();
+    image = null;
+    return await compute(_extractPalette, job);
   } catch (_) {
     return ArtworkPalette.fallback;
   } finally {

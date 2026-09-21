@@ -11,6 +11,7 @@ import '../../features/player/playback_service.dart';
 import '../components/buttons.dart' show LWTooltip, WaveGhostButton, WavePrimaryButton;
 import '../components/desktop_table.dart';
 import '../components/hero.dart';
+import '../components/menus.dart' show fastFlyoutTransition;
 import '../components/states.dart';
 import 'playlist_dialogs.dart'
     show
@@ -231,6 +232,7 @@ class _WavePlaylistDetailPageState
                     sortSlot: LWTooltip(
                       message: 'Sort (also sortable via table headers)',
                       child: DropDownButton(
+                        transitionBuilder: fastFlyoutTransition,
                         title: Text(
                           _sort == 'default'
                               ? 'Default order'

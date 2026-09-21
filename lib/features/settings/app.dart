@@ -105,6 +105,13 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         // ONE Fluent scrollbar treatment everywhere: thin, fades when
         // idle, no browser-style horizontal bars under carousels.
         scrollBehavior: const WaveScrollBehavior(),
+        // No acrylic anywhere: fluent MenuFlyout/ComboBox render a
+        // fullscreen BackdropFilter blur unless DisableAcrylic is
+        // present — that blur sample on the open frame is the hitch
+        // on every toolbar popup. The app is opaque dark anyway, so
+        // solid flyouts read identically. (Own haze system untouched.)
+        builder: (context, child) =>
+            DisableAcrylic(child: child ?? const SizedBox.shrink()),
       ),
     );
   }

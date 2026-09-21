@@ -324,19 +324,41 @@ class _WaveDesktopTableState<T extends Object>
 
         Widget list;
         if (widget.shrinkWrap) {
-          list = SuperListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount:
-                _order.length + (widget.showHeader ? 1 : 0),
-            itemBuilder: (context, i) => _buildSliverChild(
-              i,
-              showAlbum: showAlbum,
-              showQuality: showQuality,
-              showAdded: showAdded,
-              showArtist: showArtist,
-            ),
-          );
+          // Large shrink-wrapped lists (Liked Songs + YT 200) built
+          // 200 rows at once → 40MB spike (all CachedNetworkImages
+          // decode). Constrain height and virtualize inside.
+          if (_order.length > 60) {
+            final estHeight = _order.length * WaveDensity.trackRow +
+                (widget.showHeader ? 36 : 0);
+            list = SizedBox(
+              height: math.min(estHeight, 620),
+              child: SuperListView.builder(
+                itemCount:
+                    _order.length + (widget.showHeader ? 1 : 0),
+                itemBuilder: (context, i) => _buildSliverChild(
+                  i,
+                  showAlbum: showAlbum,
+                  showQuality: showQuality,
+                  showAdded: showAdded,
+                  showArtist: showArtist,
+                ),
+              ),
+            );
+          } else {
+            list = SuperListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount:
+                  _order.length + (widget.showHeader ? 1 : 0),
+              itemBuilder: (context, i) => _buildSliverChild(
+                i,
+                showAlbum: showAlbum,
+                showQuality: showQuality,
+                showAdded: showAdded,
+                showArtist: showArtist,
+              ),
+            );
+          }
         } else {
           list = CustomScrollView(
             controller: widget.scrollController,
@@ -1090,6 +1112,7 @@ class _HoverGlyphState extends State<_HoverGlyph> {
       return LWTooltip(
         message: widget.tooltip,
         child: DropDownButton(
+          transitionBuilder: fastFlyoutTransition,
           items: widget.menuItems!,
           buttonBuilder: (context, onOpen) => GestureDetector(
             onTap: onOpen,

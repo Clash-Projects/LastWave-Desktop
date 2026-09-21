@@ -436,6 +436,8 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
               _flyout.showFlyout(
                 barrierColor: Colors.transparent,
                 placementMode: FlyoutPlacementMode.topCenter,
+                transitionDuration:
+                    const Duration(milliseconds: 90),
                 builder: (context) => MenuFlyout(
                   items: [
                     MenuFlyoutItem(
@@ -639,6 +641,7 @@ class _GlyphState extends State<_Glyph> {
     if (widget.menuItems != null) {
       glyph = DropDownButton(
         placement: FlyoutPlacementMode.topRight,
+        transitionBuilder: fastFlyoutTransition,
         items: widget.menuItems!,
         buttonBuilder: (context, onOpen) => MouseRegion(
           cursor: SystemMouseCursors.click,

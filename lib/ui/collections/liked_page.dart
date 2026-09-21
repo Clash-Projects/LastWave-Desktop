@@ -13,6 +13,7 @@ import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../components/buttons.dart';
 import '../components/desktop_table.dart';
+import '../components/menus.dart' show fastFlyoutTransition;
 import '../components/hero.dart';
 import '../components/states.dart';
 import '../theme/motion.dart';
@@ -71,19 +72,18 @@ class _WaveLikedPageState
               .contains(_q.toLowerCase()),
         )
         .toList();
-    List<GeneratedTrack> asGenerated() => mergeYtTracks(
-          tracks
-              .map(
-                (t) => GeneratedTrack(
-                  name: t.name,
-                  artist: t.artist,
-                  artworkUrl: t.artworkUrl,
-                  videoId: t.videoId,
-                ),
-              )
-              .toList(),
-          ytFiltered,
-        );
+    final localGenerated = tracks
+        .map(
+          (t) => GeneratedTrack(
+            name: t.name,
+            artist: t.artist,
+            artworkUrl: t.artworkUrl,
+            videoId: t.videoId,
+          ),
+        )
+        .toList();
+    final mergedGenerated = mergeYtTracks(localGenerated, ytFiltered);
+    List<GeneratedTrack> asGenerated() => mergedGenerated;
     String cover = '';
     for (final t in all) {
       if (t.artworkUrl.isNotEmpty) {
@@ -215,6 +215,7 @@ class _WaveLikedPageState
                     sortSlot: LWTooltip(
                       message: 'Sort (also sortable via table headers)',
                       child: DropDownButton(
+                        transitionBuilder: fastFlyoutTransition,
                         title: Text(
                           _sort == 'default'
                               ? 'Default order'

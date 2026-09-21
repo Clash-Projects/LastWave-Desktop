@@ -15,7 +15,10 @@ final _waveArtistsProvider = FutureProvider<
     List<({String name, String artwork})>>((ref) async {
   final api = ref.watch(lastFmApiProvider);
   final apiKey = ref.watch(prefsApiKeyProvider);
-  final user = ref.watch(prefsProvider).username;
+  // Select username only: any other prefs change (theme, quality,
+  // scrobble) must not rebuild the whole artists grid.
+  final user =
+      ref.watch(prefsProvider.select((p) => p.username));
   try {
     final method =
         user.isEmpty ? 'chart.gettopartists' : 'user.gettopartists';

@@ -532,10 +532,12 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                                           excluding: !(_lyricsOpen && hasTrack),
                                           child: IgnorePointer(
                                             ignoring: !(_lyricsOpen && hasTrack),
-                                            child: WaveLyricsSidePanel(
-                                              onClose: () => setState(
-                                                  () => _lyricsOpen = false),
-                                            ),
+                                        child: WaveLyricsSidePanel(
+                                          visible: _lyricsOpen &&
+                                              hasTrack,
+                                          onClose: () => setState(
+                                              () => _lyricsOpen = false),
+                                        ),
                                           ),
                                         ),
                                       ),

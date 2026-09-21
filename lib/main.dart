@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app/window.dart';
+import 'core/artwork/artwork_resolver.dart';
 import 'core/artwork/official_artwork_service.dart';
 import 'core/storage/app_database.dart';
 import 'core/storage/prefs.dart';
@@ -13,6 +14,13 @@ import 'features/search/shared_providers.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Keep decoded-image memory bounded on long sessions: Home/Discover
+  // grids of 1400px covers fill the default 100MiB/1000-image cache
+  // and decode bursts spike RSS to 500MiB. 50MiB/200 images is plenty
+  // for visible tiles; offscreen tiles re-decode from disk cache.
+  PaintingBinding.instance.imageCache.maximumSize = 200;
+  PaintingBinding.instance.imageCache.maximumSizeBytes =
+      50 << 20; // 50 MiB
   if (runWebViewTitleBarWidget(args)) return;
   // Single persistent media_kit/libmpv backend (Limusic parity is
   // configured Dart-side in PlaybackService.ensurePlayer: audio-only
@@ -32,6 +40,11 @@ Future<void> main(List<String> args) async {
   OfficialArtworkService.instance.init(db: database);
 
   await setupWindow();
+
+  // Cap the on-disk image cache that backs CachedNetworkImage (default
+  // keeps 200+ files / 30 days → 759 CacheObjects in the heap dump).
+  // Bounded disk cache also keeps decoded-image re-creation cheap.
+  ArtworkResolver.trimDiskCacheIfNeeded();
 
   runApp(
     ProviderScope(

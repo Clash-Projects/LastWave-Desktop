@@ -89,11 +89,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     // instance with on-disk demuxer cache + gapless. media_kit already
     // defaults to vo=null (audio-only) + 32MiB buffer; we set the rest
     // best-effort via mpv properties. No Rust/C++ involved.
+    // 16MiB demuxer buffer: lossless 24/192 peaks ~9Mbps, so this
+    // still holds ~14s of the heaviest stream while halving the
+    // 32MiB RSS cost (was the single biggest native allocation).
     _player = Player(
       configuration: const PlayerConfiguration(
         vo: 'null',
         title: 'LastWave',
-        bufferSize: 32 * 1024 * 1024,
+        bufferSize: 16 * 1024 * 1024,
       ),
     );
     final created = _player!;
@@ -112,7 +115,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         } catch (_) {}
         try {
           await dyn.setProperty(
-              'demuxer-max-back-bytes', '${8 * 1024 * 1024}');
+              'demuxer-max-back-bytes', '${4 * 1024 * 1024}');
         } catch (_) {}
         try {
           await dyn.setProperty('vid', 'no');

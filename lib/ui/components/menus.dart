@@ -9,6 +9,45 @@ import '../../features/player/playback_service.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip;
 
+/// Snappy flyout entrance shared by every DropDownButton/menu in the
+/// app. Same slide-from-edge language as fluent's default, compressed
+/// into the first ~55% of the 167ms controller (≈90ms) plus a fast
+/// fade — the full-length slide reads as lag on click. Pass as
+/// `transitionBuilder:` on DropDownButton, or mirror with an explicit
+/// 90ms `transitionDuration` on direct `showFlyout` calls.
+Widget fastFlyoutTransition(
+  BuildContext context,
+  Animation<double> animation,
+  FlyoutPlacementMode placementMode,
+  Widget flyout,
+) {
+  if (animation.isCompleted || animation.isDismissed) return flyout;
+  if (animation.status == AnimationStatus.reverse) {
+    return FadeTransition(opacity: animation, child: flyout);
+  }
+  final textDirection = Directionality.of(context);
+  final begin = switch (placementMode) {
+    FlyoutPlacementMode.topCenter ||
+    FlyoutPlacementMode.topLeft ||
+    FlyoutPlacementMode.topRight =>
+      const Offset(0, 1),
+    _ => const Offset(0, -1),
+  };
+  const fast = Interval(0.0, 0.55, curve: Curves.easeOutCubic);
+  return ClipRect(
+    child: FadeTransition(
+      opacity: CurvedAnimation(parent: animation, curve: fast),
+      child: SlideTransition(
+        textDirection: textDirection,
+        position: Tween<Offset>(begin: begin, end: Offset.zero).animate(
+          CurvedAnimation(parent: animation, curve: fast),
+        ),
+        child: flyout,
+      ),
+    ),
+  );
+}
+
 /// Single Fluent menu source for every track row / card / hero.
 ///
 /// Replaces the old Material popup-menu items: one builder produces
@@ -210,6 +249,7 @@ class _WaveContextMenuState extends State<WaveContextMenu> {
     _controller.showFlyout(
       barrierColor: Colors.transparent,
       placementMode: FlyoutPlacementMode.auto,
+      transitionDuration: const Duration(milliseconds: 90),
       builder: (context) => MenuFlyout(
         items: widget.items(),
         shape: RoundedRectangleBorder(

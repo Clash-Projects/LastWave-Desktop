@@ -286,4 +286,11 @@ class ArtworkResolver {
       await CachedNetworkImage.evictFromCache(url);
     } catch (_) {}
   }
+
+  /// Hook for future disk-cache bounding. The heap dump showed 759
+  /// CacheObjects, but they are tiny metadata (~60KB total) — the RSS
+  /// win is already from the 50MiB imageCache cap in main.dart. Disk
+  /// eviction is handled by flutter_cache_manager's 200-object / 30-day
+  /// LRU on next access; no aggressive emptyCache here (would thrash).
+  static void trimDiskCacheIfNeeded() {}
 }

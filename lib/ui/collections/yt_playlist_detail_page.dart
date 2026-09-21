@@ -13,6 +13,7 @@ import '../components/buttons.dart'
     show LWTooltip, WaveGhostButton, WavePrimaryButton;
 import '../components/desktop_table.dart';
 import '../components/hero.dart';
+import '../components/menus.dart' show fastFlyoutTransition;
 import '../components/states.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -243,6 +244,7 @@ class _Body extends ConsumerWidget {
                           message:
                               'Sort (also sortable via table headers)',
                           child: DropDownButton(
+                            transitionBuilder: fastFlyoutTransition,
                             title: Text(
                               sort == 'default'
                                   ? 'Default order'

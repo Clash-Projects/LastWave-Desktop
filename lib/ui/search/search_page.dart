@@ -33,23 +33,27 @@ final waveSearchSongsProvider = FutureProvider.autoDispose.family<
   if (q.trim().isEmpty) return Future.value(const <SearchResultItem>[]);
   return ref.watch(searchRepositoryProvider).search(SearchTab.tracks, q);
 });
-final waveSearchAlbumsProvider = FutureProvider.family<
+// NOTE: ALL query-keyed families must be autoDispose — every distinct
+// keystroke prefix otherwise lives in the container forever with its
+// results (songs already was; albums/artists/playlists/suggestions
+// were not — unbounded retention per search session).
+final waveSearchAlbumsProvider = FutureProvider.autoDispose.family<
     List<SearchResultItem>, String>((ref, q) {
   if (q.trim().isEmpty) return Future.value(const <SearchResultItem>[]);
   return ref.watch(searchRepositoryProvider).search(SearchTab.albums, q);
 });
-final waveSearchArtistsProvider = FutureProvider.family<
+final waveSearchArtistsProvider = FutureProvider.autoDispose.family<
     List<SearchResultItem>, String>((ref, q) {
   if (q.trim().isEmpty) return Future.value(const <SearchResultItem>[]);
   return ref.watch(searchRepositoryProvider).search(SearchTab.artists, q);
 });
-final waveSearchPlaylistsProvider = FutureProvider.family<
+final waveSearchPlaylistsProvider = FutureProvider.autoDispose.family<
     List<SearchResultItem>, String>((ref, q) {
   if (q.trim().isEmpty) return Future.value(const <SearchResultItem>[]);
   return ref.watch(searchRepositoryProvider).search(SearchTab.playlists, q);
 });
-final waveSuggestionsProvider =
-    FutureProvider.family<List<SearchSuggestion>, String>((ref, q) async {
+final waveSuggestionsProvider = FutureProvider.autoDispose
+    .family<List<SearchSuggestion>, String>((ref, q) async {
   if (q.trim().length < 2) return const <SearchSuggestion>[];
   return ref.watch(searchRepositoryProvider).getSuggestions(q.trim());
 });

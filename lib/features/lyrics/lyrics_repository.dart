@@ -229,9 +229,32 @@ LyricsResult lyricsForDisplayMode(
 
 class LyricsRepository {
   final Dio _dio;
+
+  /// Bounded LRU (insertion-ordered map): one entry per unique track
+  /// incl. full karaoke syllable trees, so an unbounded map leaks
+  /// across long sessions. 50 covers current + recent history;
+  /// evicted tracks re-fetch on demand.
+  static const _maxCacheEntries = 50;
   final Map<String, LyricsResult> _cache = {};
 
   LyricsRepository([Dio? dio]) : _dio = dio ?? DioFactory.create();
+
+  void _store(String key, LyricsResult value) {
+    _cache
+      ..remove(key)
+      ..[key] = value;
+    while (_cache.length > _maxCacheEntries) {
+      _cache.remove(_cache.keys.first);
+    }
+  }
+
+  LyricsResult? _lookup(String key) {
+    final hit = _cache.remove(key);
+    if (hit == null) return null;
+    // Refresh recency.
+    _cache[key] = hit;
+    return hit;
+  }
 
   String _key(String title, String artist, [String album = '']) =>
       '${title.toLowerCase()}|${artist.toLowerCase()}|${album.toLowerCase()}';
@@ -247,7 +270,7 @@ class LyricsRepository {
   }) async {
     final key = _key(title, artist, album);
     if (!forceRefresh) {
-      final cached = _cache[key];
+      final cached = _lookup(key);
       if (cached != null) {
         if (!cached.isEmpty) onPartialResult?.call(cached);
         final fromLyrically = cached.source.toLowerCase().contains('apple');
@@ -273,11 +296,11 @@ class LyricsRepository {
       if (result == null || result.isEmpty) continue;
       final ready = normalizeKaraokeTimings(result);
       if (ready.isWordSynced) {
-        _cache[key] = ready;
+        _store(key, ready);
         return lyricsForDisplayMode(ready, wordByWord: wordByWord);
       }
       if (ready.isInstrumental && wantsAlt) {
-        _cache[key] = ready;
+        _store(key, ready);
         return ready;
       }
       if (lineFallback == null ||
@@ -290,11 +313,11 @@ class LyricsRepository {
     }
 
     if (lineFallback != null) {
-      _cache[key] = lineFallback;
+      _store(key, lineFallback);
       return lyricsForDisplayMode(lineFallback, wordByWord: wordByWord);
     }
     const empty = LyricsResult.empty();
-    _cache[key] = empty;
+    _store(key, empty);
     return empty;
   }
 

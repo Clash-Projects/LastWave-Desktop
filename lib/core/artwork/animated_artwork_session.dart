@@ -17,6 +17,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
   VideoController? _controller;
   StreamSubscription<int?>? _widthSub;
   Timer? _pauseTimer;
+  Timer? _disposeTimer;
   Timer? _readyTimer;
   VoidCallback? _rectListener;
   int _generation = 0;
@@ -35,6 +36,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
 
   void attach(String url) {
     _pauseTimer?.cancel();
+    _disposeTimer?.cancel();
     _refs++;
     unawaited(open(url));
   }
@@ -83,6 +85,31 @@ class AnimatedArtworkSession extends ChangeNotifier {
     _pauseTimer = Timer(const Duration(milliseconds: 400), () {
       if (_refs == 0) unawaited(_player?.pause());
     });
+    // Full teardown after 30s unreferenced: drops the second libmpv
+    // instance (8MiB buffer + video decode pipeline), which otherwise
+    // lived forever — the provider is app-scoped so dispose() never
+    // runs. Re-attach recreates on demand (stills cover the gap).
+    _disposeTimer?.cancel();
+    _disposeTimer = Timer(const Duration(seconds: 30), () {
+      if (_refs != 0) return;
+      _teardownPlayer();
+    });
+  }
+
+  void _teardownPlayer() {
+    // Invalidate in-flight open()/watchers.
+    _generation++;
+    _readyTimer?.cancel();
+    _widthSub?.cancel();
+    _unlistenRect();
+    final player = _player;
+    _player = null;
+    _controller = null;
+    _ready = false;
+    notifyListeners();
+    if (player != null) {
+      unawaited(player.stop().whenComplete(player.dispose));
+    }
   }
 
   void _watchReady(int gen) {
@@ -175,6 +202,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
   @override
   void dispose() {
     _pauseTimer?.cancel();
+    _disposeTimer?.cancel();
     _readyTimer?.cancel();
     _widthSub?.cancel();
     _unlistenRect();

@@ -717,6 +717,12 @@ class _WelcomeMosaic extends StatelessWidget {
                 child: CachedNetworkImage(
                   imageUrl:
                       'https://picsum.photos/seed/${_seeds[i]}/160/160',
+                  // Mosaic tiles render ~160 logical px: decode at 2x
+                  // backing instead of full resolution.
+                  memCacheWidth: 320,
+                  memCacheHeight: 320,
+                  maxWidthDiskCache: 320,
+                  maxHeightDiskCache: 320,
                   fit: BoxFit.cover,
                   fadeInDuration: WaveMotion.fast,
                   placeholder: (context, _) =>

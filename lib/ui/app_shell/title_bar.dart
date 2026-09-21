@@ -6,6 +6,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/buttons.dart' show LWTooltip;
+import '../components/menus.dart' show fastFlyoutTransition;
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -430,6 +431,7 @@ class _AppMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return DropDownButton(
       placement: FlyoutPlacementMode.bottomRight,
+      transitionBuilder: fastFlyoutTransition,
       items: [
         MenuFlyoutItem(
           leading: const Icon(WaveIcons.search, size: 15),

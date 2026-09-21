@@ -366,6 +366,7 @@ class _RowGlyphState extends State<_RowGlyph> {
       return LWTooltip(
         message: widget.tooltip,
         child: DropDownButton(
+          transitionBuilder: fastFlyoutTransition,
           items: widget.menuItems!,
           buttonBuilder: (context, onOpen) => MouseRegion(
             onEnter: (_) => setState(() => _hover = true),

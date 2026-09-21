@@ -4,6 +4,7 @@ import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import 'artwork.dart';
 import 'buttons.dart' show LWTooltip;
+import 'menus.dart' show fastFlyoutTransition;
 
 /// Artwork-led collection header.
 ///
@@ -82,6 +83,7 @@ class WaveCollectionHero extends StatelessWidget {
                 if (overflowItems.isNotEmpty)
                   DropDownButton(
                     placement: FlyoutPlacementMode.bottomRight,
+                    transitionBuilder: fastFlyoutTransition,
                     items: overflowItems,
                     buttonBuilder: (context, onOpen) => LWTooltip(
                       message: 'More actions',

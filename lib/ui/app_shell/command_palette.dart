@@ -9,7 +9,6 @@ import '../../core/audio/stream_models.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip;
 import '../search/search_page.dart';
 import '../theme/tokens.dart';
 
@@ -294,62 +293,20 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
             ref.watch(waveSearchAlbumsProvider(_liveQ)).isLoading ||
             ref.watch(waveSearchArtistsProvider(_liveQ)).isLoading);
 
-    // Group consecutive entries under mini-section headers.
-    final children = <Widget>[];
+    // Group consecutive entries under mini-section headers. Rows are
+    // built lazily (ListView.builder below) so open only pays for
+    // visible items; each row is a light _PaletteRow with NO tooltip
+    // (tooltips spin up an overlay portal per row — pure open-frame
+    // cost for labels that are already visible).
+    final items = <Object>[];
     String? lastGroup;
     for (var i = 0; i < results.length; i++) {
       final r = results[i];
       if (r.group != lastGroup) {
         lastGroup = r.group;
-        children.add(
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 10, 10, 2),
-            child: Text(
-              r.group.toUpperCase(),
-              style: WaveType.overline.copyWith(
-                fontSize: 9,
-                color: waveTextTertiary(context),
-              ),
-            ),
-          ),
-        );
+        items.add(_PaletteHeader(title: r.group));
       }
-      final selected = i == sel;
-      final leading = r.art.isNotEmpty
-          ? (r.circleArt
-              ? WaveArtwork.circle(
-                  url: r.art, size: 28, label: r.label)
-              : WaveArtwork(
-                  url: r.art,
-                  size: 28,
-                  radius: WaveRadius.artwork,
-                  label: r.label,
-                ))
-          : Icon(r.icon, size: 15);
-      children.add(
-        LWTooltip(
-          message: r.label,
-          child: ListTile.selectable(
-            selected: selected,
-            selectionMode: ListTileSelectionMode.single,
-            leading: SizedBox(width: 28, height: 28, child: leading),
-            title: Text(
-              r.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              r.sub,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            onPressed: () {
-              Navigator.of(context).pop();
-              r.action();
-            },
-          ),
-        ),
-      );
+      items.add(_PaletteRowData(entry: r, selected: i == sel));
     }
 
     return Focus(
@@ -369,11 +326,14 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
             border: Border.all(
               color: waveDivider(context),
             ),
+            // Cheap open frame: blur 28/2 rasterizes a large shadow on
+            // the exact frame the dialog appears; 12/0 reads the same
+            // at 440px width.
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: dark ? 0.6 : 0.2),
-                blurRadius: 28,
-                spreadRadius: 2,
+                blurRadius: 12,
+                spreadRadius: 0,
                 offset: const Offset(0, 8),
               ),
             ],
@@ -422,9 +382,34 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
                                     : 'No matches — press Enter to search for "${widget.controller.text.trim()}".',
                               ),
                       )
-                    : ListView(
+                    : ListView.builder(
                         physics: const ClampingScrollPhysics(),
-                        children: children,
+                        itemCount: items.length,
+                        itemBuilder: (context, i) {
+                          final item = items[i];
+                          if (item is _PaletteHeader) {
+                            return Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                  10, 10, 10, 2),
+                              child: Text(
+                                item.title.toUpperCase(),
+                                style: WaveType.overline.copyWith(
+                                  fontSize: 9,
+                                  color: waveTextTertiary(context),
+                                ),
+                              ),
+                            );
+                          }
+                          final row = item as _PaletteRowData;
+                          return _PaletteRow(
+                            entry: row.entry,
+                            selected: row.selected,
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              row.entry.action();
+                            },
+                          );
+                        },
                       ),
               ),
             ],
@@ -437,6 +422,65 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Mini-section header marker for the lazy results list.
+class _PaletteHeader {
+  final String title;
+  const _PaletteHeader({required this.title});
+}
+
+/// Row payload: entry + selection state, rendered by [_PaletteRow].
+class _PaletteRowData {
+  final _PaletteEntry entry;
+  final bool selected;
+  const _PaletteRowData({required this.entry, required this.selected});
+}
+
+/// Single palette row. Stateless + tooltip-free by design: the label
+/// is already visible, and each tooltip would cost an overlay portal
+/// on the dialog's open frame.
+class _PaletteRow extends StatelessWidget {
+  final _PaletteEntry entry;
+  final bool selected;
+  final VoidCallback onTap;
+  const _PaletteRow({
+    required this.entry,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final r = entry;
+    final leading = r.art.isNotEmpty
+        ? (r.circleArt
+            ? WaveArtwork.circle(
+                url: r.art, size: 28, label: r.label)
+            : WaveArtwork(
+                url: r.art,
+                size: 28,
+                radius: WaveRadius.artwork,
+                label: r.label,
+              ))
+        : Icon(r.icon, size: 15);
+    return ListTile.selectable(
+      selected: selected,
+      selectionMode: ListTileSelectionMode.single,
+      leading: SizedBox(width: 28, height: 28, child: leading),
+      title: Text(
+        r.label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        r.sub,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      onPressed: onTap,
     );
   }
 }

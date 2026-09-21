@@ -166,9 +166,19 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     super.dispose();
   }
 
+  DateTime _lastTickWall = DateTime.now();
+
   void _onTick(Duration _) {
     if (!_isPlaying) return;
-    final elapsed = DateTime.now().difference(_lastSyncTime).inMilliseconds;
+    // Cap interpolation at ~60Hz: the ticker fires at display refresh
+    // (up to 144Hz), and every tick pushes setProgress + a lyric-view
+    // update. Syllable transitions are 50-200ms, so 60Hz loses nothing
+    // visible while cutting per-frame Dart work ~2.4x. Accuracy is
+    // unaffected — elapsed is wall-clock based, not tick-counted.
+    final wall = DateTime.now();
+    if (wall.difference(_lastTickWall).inMicroseconds < 16000) return;
+    _lastTickWall = wall;
+    final elapsed = wall.difference(_lastSyncTime).inMilliseconds;
     final currentMs =
         _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
     _interpolatedPositionMs.value = currentMs;
@@ -188,7 +198,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     );
     final offsetMs = ref.watch(lyricsOffsetProvider(widget.track.queueKey));
     final showTransliteration = ref.watch(lyricsTransliterationProvider);
-    final wordByWord = ref.watch(prefsProvider).wordByWord;
+    // Select the single pref: toggling theme/quality elsewhere must
+    // not rebuild the karaoke view (it recreates the lyric adapter).
+    final wordByWord =
+        ref.watch(prefsProvider.select((p) => p.wordByWord));
     final async = ref.watch(waveLyricsProvider(widget.track.queueKey));
 
     _isPlaying = isPlaying;
