@@ -14,9 +14,9 @@ import '../ui/collections/history_page.dart';
 import '../ui/collections/liked_page.dart';
 import '../ui/collections/playlist_detail_page.dart';
 import '../ui/collections/playlists_page.dart';
+import '../ui/collections/yt_playlist_detail_page.dart';
 import '../ui/discover/discover_page.dart';
 import '../ui/home/home_page.dart';
-import '../ui/library/library_page.dart';
 import '../ui/lyrics/lyrics_screen.dart';
 import '../ui/misc/support_pages.dart';
 import '../ui/now_playing/now_playing_page.dart';
@@ -104,11 +104,6 @@ GoRouter buildRouter({required AuthGate gate}) {
             )),
           ),
           GoRoute(
-            path: '/library',
-            pageBuilder: (c, s) =>
-                _page(const WaveLibraryPage()),
-          ),
-          GoRoute(
             path: '/liked',
             pageBuilder: (c, s) =>
                 _page(const WaveLikedPage()),
@@ -157,6 +152,19 @@ GoRouter buildRouter({required AuthGate gate}) {
                 ),
               ),
             ],
+          ),
+          GoRoute(
+            path: '/ytplaylist/:id',
+            pageBuilder: (c, s) => _page(
+              WaveYtPlaylistDetailPage(
+                playlistId:
+                    s.pathParameters['id'] ?? '',
+                title: s.uri.queryParameters['title'] ??
+                    '',
+                artworkUrl:
+                    s.uri.queryParameters['art'] ?? '',
+              ),
+            ),
           ),
           GoRoute(
             path: '/mixes',

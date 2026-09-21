@@ -2,8 +2,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/track_actions.dart'
-    show formatDuration, playGenerated, playableFromGenerated;
+    show
+        formatDuration,
+        mergeYtTracks,
+        playGenerated,
+        playableFromGenerated;
 import '../../features/feed/feed_repository.dart';
+import '../../features/innertube/yt_library_providers.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../components/buttons.dart';
@@ -56,16 +61,29 @@ class _WaveLikedPageState
     final playingKey = ref.watch(
       playbackServiceProvider.select((s) => s.current?.queueKey),
     );
-    List<GeneratedTrack> asGenerated() => tracks
-        .map(
-          (t) => GeneratedTrack(
-            name: t.name,
-            artist: t.artist,
-            artworkUrl: t.artworkUrl,
-            videoId: t.videoId,
-          ),
+    // Signed-in YouTube Music likes merge in, deduped (local wins).
+    final ytLiked =
+        ref.watch(ytLikedSongsProvider).value ?? const [];
+    final ytFiltered = ytLiked
+        .where(
+          (t) => '${t.title} ${t.artist}'
+              .toLowerCase()
+              .contains(_q.toLowerCase()),
         )
         .toList();
+    List<GeneratedTrack> asGenerated() => mergeYtTracks(
+          tracks
+              .map(
+                (t) => GeneratedTrack(
+                  name: t.name,
+                  artist: t.artist,
+                  artworkUrl: t.artworkUrl,
+                  videoId: t.videoId,
+                ),
+              )
+              .toList(),
+          ytFiltered,
+        );
     String cover = '';
     for (final t in all) {
       if (t.artworkUrl.isNotEmpty) {
@@ -73,9 +91,24 @@ class _WaveLikedPageState
         break;
       }
     }
+    // Unfiltered total including YouTube Music likes (for counts +
+    // the empty state); asGenerated() is the query-filtered view.
+    final mergedTotal = mergeYtTracks(
+      all
+          .map(
+            (t) => GeneratedTrack(
+              name: t.name,
+              artist: t.artist,
+              artworkUrl: t.artworkUrl,
+              videoId: t.videoId,
+            ),
+          )
+          .toList(),
+      ytLiked,
+    ).length;
     // Empty: ONE compact state only — simple text header, no artwork hero
     // plus a second giant icon.
-    if (all.isEmpty) {
+    if (mergedTotal == 0) {
       return ListView(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
         children: [
@@ -132,11 +165,11 @@ class _WaveLikedPageState
                     overline: 'Playlist',
                     title: 'Liked Songs',
                     meta:
-                        '${all.length} tracks${_q.isNotEmpty ? ' · ${tracks.length} match' : ''}',
+                        '$mergedTotal tracks${_q.isNotEmpty ? ' · ${asGenerated().length} match' : ''}',
                     artworkUrl: cover,
                     fallbackIcon: FluentIcons.heart_fill,
                     primaryActions: [
-                      if (tracks.isNotEmpty)
+                      if (asGenerated().isNotEmpty)
                         WavePrimaryButton(
                           label: 'Play all',
                           icon: FluentIcons.play,
@@ -152,7 +185,7 @@ class _WaveLikedPageState
                       WaveGhostButton(
                         label: 'Shuffle',
                         icon: WaveIcons.shuffle,
-                        onPressed: tracks.isEmpty
+                        onPressed: asGenerated().isEmpty
                             ? null
                             : () {
                                 // Shuffle BEFORE picking first —
@@ -178,7 +211,7 @@ class _WaveLikedPageState
                         setState(() => _q = v),
                     hint: 'Filter liked songs…',
                     countLabel:
-                        '${tracks.length} tracks',
+                        '${asGenerated().length} tracks',
                     sortSlot: LWTooltip(
                       message: 'Sort (also sortable via table headers)',
                       child: DropDownButton(
@@ -221,7 +254,7 @@ class _WaveLikedPageState
             ),
           ),
         ),
-        if (tracks.isEmpty)
+        if (asGenerated().isEmpty)
           const SliverToBoxAdapter(
             child: WaveEmpty(
               icon: FluentIcons.heart,

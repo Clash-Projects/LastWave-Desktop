@@ -167,7 +167,40 @@ class YouTubePlaylistSummary {
   });
 }
 
+/// Signed-in Google account identity (best-effort: any field may be
+/// empty when YouTube omits it). [handle] is the real @handle parsed
+/// from the `channelHandle` node (any shape, else subtree scan);
+/// [email] is the Google account address and roster key.
+class YtAccount {
+  final String name;
+  final String handle;
+  final String email;
+  final String photoUrl;
+
+  const YtAccount({
+    this.name = '',
+    this.handle = '',
+    this.email = '',
+    this.photoUrl = '',
+  });
+
+  bool get isEmpty =>
+      name.isEmpty && handle.isEmpty && photoUrl.isEmpty;
+}
+
+class _AccountCacheEntry {
+  final YtAccount account;
+  final DateTime at;
+  const _AccountCacheEntry(this.account, this.at);
+}
+
 /// Authenticated YTM connection (raw cookie header + identity).
+///
+/// [profileEmail] keys the owning Google login in the roster;
+/// [activePageId] selects its channel: '' = main channel (no header),
+/// otherwise the 21-digit brand page ID from
+/// `ytcfg.data_.DELEGATED_SESSION_ID`, routed per-request via
+/// `X-Goog-PageId`.
 class YtConnection {
   final bool connected;
   final String cookies;
@@ -175,6 +208,8 @@ class YtConnection {
   final String channelHandle;
   final String photoUrl;
   final int connectedAtMillis;
+  final String profileEmail;
+  final String activePageId;
 
   const YtConnection({
     this.connected = false,
@@ -183,7 +218,121 @@ class YtConnection {
     this.channelHandle = '',
     this.photoUrl = '',
     this.connectedAtMillis = 0,
+    this.profileEmail = '',
+    this.activePageId = '',
   });
+}
+
+/// One selectable YouTube identity: a Google account's main channel
+/// (`pageId` empty) or one of its brand channels. Brand routing is
+/// per-request ([YtConnection.activePageId] → `X-Goog-PageId`), so
+/// channels share their profile's cookie jar.
+class YtChannel {
+  final String pageId;
+  final String name;
+  final String handle;
+  final String photoUrl;
+
+  const YtChannel({
+    this.pageId = '',
+    this.name = '',
+    this.handle = '',
+    this.photoUrl = '',
+  });
+
+  bool get isMain => pageId.isEmpty;
+
+  Map<String, dynamic> toJson() => {
+        'pageId': pageId,
+        'name': name,
+        'handle': handle,
+        'photoUrl': photoUrl,
+      };
+
+  factory YtChannel.fromJson(Map<String, dynamic> json) =>
+      YtChannel(
+        pageId: json['pageId']?.toString() ?? '',
+        name: json['name']?.toString() ?? '',
+        handle: json['handle']?.toString() ?? '',
+        photoUrl: json['photoUrl']?.toString() ?? '',
+      );
+}
+
+/// One Google login: its cookie jar plus its channels. Roster key is
+/// the account email (stable per Google login); channels key by page
+/// ID (`''` for the main channel).
+class YtProfile {
+  final String email;
+  final String cookies;
+  final List<YtChannel> channels;
+  final String activePageId;
+  final int lastUsedMillis;
+
+  const YtProfile({
+    required this.email,
+    this.cookies = '',
+    this.channels = const [],
+    this.activePageId = '',
+    this.lastUsedMillis = 0,
+  });
+
+  YtProfile copyWith({
+    String? cookies,
+    List<YtChannel>? channels,
+    String? activePageId,
+    int? lastUsedMillis,
+  }) =>
+      YtProfile(
+        email: email,
+        cookies: cookies ?? this.cookies,
+        channels: channels ?? this.channels,
+        activePageId: activePageId ?? this.activePageId,
+        lastUsedMillis:
+            lastUsedMillis ?? this.lastUsedMillis,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'email': email,
+        'cookies': cookies,
+        'channels': channels.map((c) => c.toJson()).toList(),
+        'activePageId': activePageId,
+        'lastUsedMillis': lastUsedMillis,
+      };
+
+  factory YtProfile.fromJson(Map<String, dynamic> json) {
+    final rawChannels = json['channels'];
+    return YtProfile(
+      email: json['email']?.toString() ?? '',
+      cookies: json['cookies']?.toString() ?? '',
+      channels: rawChannels is List
+          ? rawChannels
+              .whereType<Map<String, dynamic>>()
+              .map(YtChannel.fromJson)
+              .toList()
+          : const [],
+      activePageId:
+          json['activePageId']?.toString() ?? '',
+      lastUsedMillis:
+          (json['lastUsedMillis'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  static List<YtProfile> listFromJson(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map<String, dynamic>>()
+            .map(YtProfile.fromJson)
+            .where((p) => p.email.isNotEmpty)
+            .toList();
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  static String listToJson(List<YtProfile> profiles) =>
+      jsonEncode(profiles.map((p) => p.toJson()).toList());
 }
 
 class PlayerClient {
@@ -625,30 +774,583 @@ class InnerTubeMusicApi {
   void setConnection(YtConnection c) => _connection = c;
 
   Future<void> loadPersistedConnection() async {
-    final cookies = await _secure.readYtCookies() ?? '';
-    if (cookies.isNotEmpty) {
-      _connection = YtConnection(
-        connected: true,
-        cookies: cookies,
-        connectedAtMillis:
-            DateTime.now().millisecondsSinceEpoch,
+    final stored = await _secure.readYtCookies() ?? '';
+    if (stored.isEmpty) return;
+    // Stored values predate normalization — re-normalize so old
+    // cookies.txt pastes keep working after upgrade.
+    String cookies = stored;
+    try {
+      cookies = normalizeCookies(stored);
+    } catch (_) {
+      // Keep raw stored value as fallback; _sapisid may still find it.
+      cookies = stored.trim();
+    }
+    if (cookies.isEmpty) return;
+    // Restore the active profile pointer (email + brand page ID).
+    // Absent on pre-roster installs → main channel, as before.
+    var profileEmail = '';
+    var activePageId = '';
+    try {
+      final rawActive = await _secure.readYtActive() ?? '';
+      if (rawActive.isNotEmpty) {
+        final decoded = jsonDecode(rawActive);
+        if (decoded is Map<String, dynamic>) {
+          profileEmail =
+              decoded['email']?.toString() ?? '';
+          activePageId =
+              decoded['pageId']?.toString() ?? '';
+        }
+      }
+    } catch (_) {}
+    _connection = YtConnection(
+      connected: true,
+      cookies: cookies,
+      connectedAtMillis:
+          DateTime.now().millisecondsSinceEpoch,
+      profileEmail: profileEmail,
+      activePageId: activePageId,
+    );
+  }
+
+  /// Persist the active identity pointer alongside the jar.
+  Future<void> _persistActivePointer() => _secure.writeYtActive(
+        jsonEncode({
+          'email': _connection.profileEmail,
+          'pageId': _connection.activePageId,
+        }),
       );
+
+  /// Normalize user-pasted cookies into a `Cookie` header value.
+  ///
+  /// Accepts:
+  /// - header string: `A=1; B=2`
+  /// - Netscape cookies.txt (TSV, `#HttpOnly` lines, `Cookie:` prefix)
+  /// - JSON object / array exports from cookie extensions
+  /// - multiline pastes (newlines treated as `; ` separators)
+  /// Throws [FormatException] when nothing usable is found.
+  static String normalizeCookies(String raw) {
+    final input = raw.trim();
+    if (input.isEmpty) {
+      throw const FormatException('Empty cookies');
+    }
+    final pairs = <String, String>{};
+    void addPair(String name, String value) {
+      final n = name.trim();
+      var v = value.trim();
+      if (n.isEmpty || v.isEmpty) return;
+      // Strip surrounding quotes some exporters add.
+      if (v.length >= 2 &&
+          ((v.startsWith('"') && v.endsWith('"')) ||
+              (v.startsWith("'") && v.endsWith("'")))) {
+        v = v.substring(1, v.length - 1);
+      }
+      if (v.isEmpty) return;
+      pairs[n] = v;
+    }
+
+    // JSON export? e.g. [{"name":"SID","value":"..."}] or {"SID":"..."}.
+    if (input.startsWith('[') || input.startsWith('{')) {
+      try {
+        final decoded = jsonDecode(input);
+        if (decoded is List) {
+          for (final e in decoded) {
+            if (e is Map) {
+              final n = e['name']?.toString() ?? '';
+              final v = e['value']?.toString() ?? '';
+              addPair(n, v);
+            }
+          }
+        } else if (decoded is Map) {
+          // {"cookies": [...] } wrapper or plain {name: value} map.
+          final list = decoded['cookies'];
+          if (list is List) {
+            for (final e in list) {
+              if (e is Map) {
+                addPair(e['name']?.toString() ?? '',
+                    e['value']?.toString() ?? '');
+              }
+            }
+          } else {
+            decoded.forEach((k, v) {
+              if (k.toString() == 'cookies') return;
+              addPair(k.toString(), v.toString());
+            });
+          }
+        }
+      } catch (_) {
+        // Not JSON — fall through to header/TSV parsing.
+      }
+    }
+
+    if (pairs.isEmpty) {
+      // Line-oriented parse: handles header strings, multiline pastes,
+      // Netscape cookies.txt (7 TAB columns), and `Cookie: ...` prefixes.
+      for (var line in input.split(RegExp(r'\r?\n'))) {
+        line = line.trim();
+        if (line.isEmpty) continue;
+        // `#HttpOnly` lines are DATA (HttpOnly cookies), not comments —
+        // only `# ...` lines are comments.
+        if (line.startsWith('#HttpOnly')) {
+          line = line.substring('#HttpOnly'.length).trim();
+        } else if (line.startsWith('#')) {
+          continue;
+        }
+        if (line.toLowerCase().startsWith('cookie:')) {
+          line = line.substring(7).trim();
+        }
+        // Netscape format: domain, flag, path, secure, expiry, name, value.
+        if (line.contains('\t')) {
+          final cols = line.split('\t');
+          if (cols.length >= 7) {
+            addPair(cols[5], cols[6]);
+            continue;
+          }
+          // Fall through: treat tabs as separators.
+          line = line.replaceAll('\t', '; ');
+        }
+        // Semicolon-separated header chunks on this line.
+        for (final part in line.split(';')) {
+          final chunk = part.trim();
+          if (chunk.isEmpty || chunk.startsWith('#')) continue;
+          final idx = chunk.indexOf('=');
+          if (idx <= 0) continue;
+          addPair(chunk.substring(0, idx),
+              chunk.substring(idx + 1));
+        }
+      }
+    }
+
+    if (pairs.isEmpty) {
+      throw const FormatException(
+          'No cookies found — paste the Cookie header or cookies.txt');
+    }
+    // SAPISID family is mandatory for the Authorization header; without
+    // it every authenticated call goes out cookie-only and YT ignores it.
+    const sapisids = ['__Secure-3PAPISID', 'SAPISID', 'APISID'];
+    final hasSapisid =
+        sapisids.any((k) => pairs.containsKey(k));
+    if (!hasSapisid) {
+      throw const FormatException(
+          'Missing SAPISID — export cookies from music.youtube.com while signed in (need __Secure-3PAPISID/SAPISID)');
+    }
+    // Deterministic order keeps the cache-key digest stable.
+    final names = pairs.keys.toList()..sort();
+    return names.map((n) => '$n=${pairs[n]}').join('; ');
+  }
+
+  Future<void> connect(String rawCookies) => connectAs(
+        cookies: rawCookies,
+      );
+
+  /// Connect (or switch) to a jar + channel. Atomic: the previous
+  /// connection is only replaced after the new combination verifies.
+  /// [profileEmail] keys the owning Google login in the roster;
+  /// [pageId] selects its brand channel ('' = main channel).
+  Future<void> connectAs({
+    required String cookies,
+    String profileEmail = '',
+    String pageId = '',
+  }) async {
+    _clearAccountCache();
+    final normalized = normalizeCookies(cookies);
+    if (kDebugMode) {
+      debugPrint(
+          'InnerTube: connect persist ${normalized.length} chars');
+    }
+    final next = YtConnection(
+      connected: true,
+      cookies: normalized,
+      connectedAtMillis:
+          DateTime.now().millisecondsSinceEpoch,
+      profileEmail: profileEmail,
+      activePageId: pageId,
+    );
+    final prev = _connection;
+    _connection = next;
+    try {
+      // Fail fast: a lightweight authenticated browse proves the
+      // combination is accepted before anything is persisted.
+      await verifyConnection();
+    } catch (_) {
+      _connection = prev;
+      rethrow;
+    }
+    await _secure.writeYtCookies(normalized);
+    await _persistActivePointer();
+    if (kDebugMode) {
+      debugPrint('InnerTube: connect verified');
     }
   }
 
-  Future<void> connect(String rawCookies) async {
-    await _secure.writeYtCookies(rawCookies);
-    _connection = YtConnection(
-      connected: true,
-      cookies: rawCookies,
-      connectedAtMillis:
-          DateTime.now().millisecondsSinceEpoch,
-    );
+  /// Lightweight authenticated check: browses the account's playlist
+  /// shelf. Throws on HTTP error or when the response shows the
+  /// session was treated as anonymous (login wall / no contents).
+  Future<void> verifyConnection() async {
+    if (!_connection.connected) {
+      throw StateError('Not connected');
+    }
+    final root = await _browseRoot(libraryPlaylistsBrowseId,
+        authenticated: true);
+    final contents = root['contents'];
+    final text = jsonEncode(root);
+    if (contents == null ||
+        (text.contains('SIGN_IN') &&
+            !text.contains('music_liked_playlists'))) {
+      if (kDebugMode) {
+        debugPrint('YtVerify: REJECTED ${_authDebug()}');
+      }
+      throw const FormatException(
+          'YouTube rejected the cookies (signed out) — re-export from music.youtube.com while signed in');
+    }
+    if (kDebugMode) {
+      debugPrint('YtVerify: ok ${_authDebug()}');
+    }
+  }
+
+  // -- account surfaces (liked / history / playlists) -------------------------
+
+  /// One-line context for account-fetch diagnostics: channel mode,
+  /// jar size, SAPISID presence. No secret material ever logged.
+  String _authDebug() {
+    final pageId = _connection.activePageId;
+    return 'page=${pageId.isEmpty ? 'main' : '${pageId.length}d'} '
+        'jar=${_connection.cookies.length}ch '
+        'sapisid=${_sapisid() != null}';
+  }
+
+  /// Account liked songs (VLLM), authenticated. Empty when signed out
+  /// or on any failure — callers render their normal empty state.
+  Future<List<YouTubeMusicTrack>> fetchLikedSongs(
+      {int limit = 200}) async {
+    if (!_connection.connected) return const [];
+    try {
+      await _ensureConfig();
+      final root = await _browseRoot(likedBrowseId,
+          authenticated: true);
+      final pages = await _collectBrowseSongPages(root, limit,
+          authenticated: true);
+      if (kDebugMode) {
+        debugPrint(
+            'YtFetch: liked=${pages.tracks.length} '
+            'titled=${pages.tracks.where((t) => t.title.isNotEmpty).length} '
+            'withId=${pages.tracks.where((t) => t.videoId.isNotEmpty).length} '
+            '${_authDebug()}');
+      }
+      return pages.tracks;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('YtFetch: liked FAILED $e ${_authDebug()}');
+      }
+      return const [];
+    }
+  }
+
+  /// Account YouTube Music watch history, authenticated.
+  Future<List<YouTubeMusicTrack>> fetchYtHistory(
+      {int limit = 100}) async {
+    if (!_connection.connected) return const [];
+    try {
+      await _ensureConfig();
+      final root = await _browseRoot(historyBrowseId,
+          authenticated: true);
+      final pages = await _collectBrowseSongPages(root, limit,
+          authenticated: true);
+      if (kDebugMode) {
+        debugPrint(
+            'YtFetch: history=${pages.tracks.length} ${_authDebug()}');
+      }
+      return pages.tracks;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('YtFetch: history FAILED $e ${_authDebug()}');
+      }
+      return const [];
+    }
+  }
+
+  /// Account playlists shelf (liked + created), authenticated.
+  /// Non-playlist lookalikes (channels/albums) are filtered by id.
+  Future<List<YouTubePlaylistSummary>> fetchAccountPlaylists() async {
+    if (!_connection.connected) return const [];
+    try {
+      await _ensureConfig();
+      final root = await _browseRoot(libraryPlaylistsBrowseId,
+          authenticated: true);
+      final lists = _parsePlaylistRenderers(root)
+          .where((p) =>
+              !p.id.startsWith('UC') &&
+              !p.id.startsWith('MPRE'))
+          .toList();
+      if (kDebugMode) {
+        debugPrint(
+            'YtFetch: playlists=${lists.length} ${_authDebug()}');
+      }
+      return lists;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('YtFetch: playlists FAILED $e ${_authDebug()}');
+      }
+      return const [];
+    }
+  }
+
+  final Map<String, _AccountCacheEntry> _accountCaches = {};
+
+  void _clearAccountCache() {
+    _accountCaches.clear();
+  }
+
+  _AccountCacheEntry? _cachedAccount(String pageId) {
+    final e = _accountCaches[pageId];
+    if (e == null) return null;
+    if (DateTime.now().difference(e.at) >
+        const Duration(hours: 1)) {
+      _accountCaches.remove(pageId);
+      return null;
+    }
+    return e;
+  }
+
+  /// Signed-in account identity via `account/account_menu`
+  /// (authenticated). [pageId] scopes to a brand channel ('' = main
+  /// channel, routed via `X-Goog-PageId`). Null when signed out, on
+  /// failure, or when YouTube returns no usable fields. Cached an
+  /// hour per channel.
+  Future<YtAccount?> fetchAccountInfo(
+      {bool forceRefresh = false, String pageId = ''}) async {
+    if (!_connection.connected) return null;
+    if (!forceRefresh) {
+      final hit = _cachedAccount(pageId);
+      if (hit != null) return hit.account;
+    }
+    try {
+      await _ensureConfig();
+      // music.youtube.com first, www.youtube.com fallback. Each host
+      // needs its OWN Origin/Referer — a music Origin on www gets
+      // rejected with "Origin doesn't match Host".
+      var merged = const YtAccount();
+      for (final (api, origin) in [
+        (musicApi, musicOrigin),
+        (youtubeApi, youtubeOrigin),
+      ]) {
+        Map<String, dynamic>? root;
+        try {
+          root = await _post(
+            '$api/account/account_menu?key=$_apiKey&prettyPrint=false',
+            body: {
+              'context':
+                  _webContext(_clientVersion, _visitorData),
+            },
+            clientName: 'WEB_REMIX',
+            clientVersion: _clientVersion,
+            userAgent: webUserAgent,
+            authenticated: true,
+            origin: origin,
+            referer: '$origin/',
+            pageId: pageId,
+          );
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('YtAccount: $api failed: $e');
+          }
+          continue;
+        }
+        final account = _parseAccount(root);
+        if (kDebugMode) {
+          debugPrint(
+              'YtAccount: $api keys=${root.keys.join(',')} '
+              'name=${account.name.isNotEmpty} '
+              'handle=${account.handle.isNotEmpty} '
+              'photo=${account.photoUrl.isNotEmpty}');
+        }
+        // Best-of-both-hosts merge: response shapes vary per host
+        // (one may carry name+photo while the other has the handle),
+        // so accumulate fields instead of returning the first
+        // non-empty parse. Stops early once name+photo+handle land.
+        merged = YtAccount(
+          name: merged.name.isNotEmpty
+              ? merged.name
+              : account.name,
+          handle: merged.handle.isNotEmpty
+              ? merged.handle
+              : account.handle,
+          email: merged.email.isNotEmpty
+              ? merged.email
+              : account.email,
+          photoUrl: merged.photoUrl.isNotEmpty
+              ? merged.photoUrl
+              : account.photoUrl,
+        );
+        if (merged.name.isNotEmpty &&
+            merged.photoUrl.isNotEmpty &&
+            merged.handle.isNotEmpty) {
+          break;
+        }
+      }
+      if (!merged.isEmpty) {
+        _accountCaches[pageId] = _AccountCacheEntry(
+          merged,
+          DateTime.now(),
+        );
+        return merged;
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('YtAccount: failed: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Best-effort identity extraction. The `account_menu` response is
+  /// an actions envelope whose popup header is an
+  /// `activeAccountHeaderRenderer` carrying `accountName` runs,
+  /// `accountPhoto` thumbnails, `email`, and a `channelHandle` node.
+  /// Name/photo/email come from ONE row only — mixing across rows
+  /// produced mismatched avatars. The @handle is resolved separately
+  /// (any node shape, else subtree scan) since its shape varies.
+  YtAccount _parseAccount(Map<String, dynamic> root) {
+    final active = <Map<String, dynamic>>[];
+    final generic = <Map<String, dynamic>>[];
+    final items = <Map<String, dynamic>>[];
+    _collectObjects(root, 'activeAccountHeaderRenderer', active);
+    _collectObjects(root, 'accountHeader', generic);
+    _collectObjects(root, 'accountItemRenderer', items);
+    final handle = _channelHandleText(root);
+    for (final h in [...active, ...generic, ...items]) {
+      final name =
+          (_runsText((h['accountName'] as Map?)?['runs']) ??
+                  '')
+              .trim();
+      final photo = _accountPhoto(h);
+      if (name.isEmpty || photo.isEmpty) continue;
+      return YtAccount(
+        name: name,
+        handle: handle,
+        email: _accountEmail(h),
+        photoUrl: photo,
+      );
+    }
+    return const YtAccount();
+  }
+
+  /// Real @handle from the `channelHandle` node: substring search, not
+  /// prefix/full match — runs often join to "Name (@handle)" shapes.
+  /// Confined to channelHandle subtrees (never the whole response, so
+  /// emails elsewhere can't false-positive).
+  static final RegExp _handleSearch =
+      RegExp(r'@[\w.\-·]{1,39}');
+
+  String _channelHandleText(Map<String, dynamic> root) {
+    final handles = <Map<String, dynamic>>[];
+    _collectObjects(root, 'channelHandle', handles);
+    for (final h in handles) {
+      final hit = _searchHandleText(h);
+      if (hit != null) return hit;
+    }
+    return '';
+  }
+
+  /// First @handle-looking token anywhere in the subtree, or null.
+  String? _searchHandleText(Object? node) {
+    if (node is String) {
+      return _handleSearch.firstMatch(node)?.group(0);
+    }
+    if (node is Map<String, dynamic>) {
+      // Text-bearing shapes first for precision.
+      for (final k in ['runs', 'simpleText', 'text']) {
+        final hit = _searchHandleText(node[k]);
+        if (hit != null) return hit;
+      }
+      for (final entry in node.entries) {
+        if (entry.key == 'runs' ||
+            entry.key == 'simpleText' ||
+            entry.key == 'text') {
+          continue;
+        }
+        final hit = _searchHandleText(entry.value);
+        if (hit != null) return hit;
+      }
+    } else if (node is List) {
+      for (final v in node) {
+        final hit = _searchHandleText(v);
+        if (hit != null) return hit;
+      }
+    }
+    return null;
+  }
+
+  /// The row's OWN photo node only — never a whole-object fallback
+  /// (its first thumbnails array may belong to something else).
+  String _accountPhoto(Map<String, dynamic> h) {
+    final node = h['accountPhoto'];
+    if (node is String && node.trim().isNotEmpty) {
+      return node.trim();
+    }
+    return _extractThumbnailsUrl(node) ?? '';
+  }
+
+  /// Account email in whatever shape YouTube sends it (runs,
+  /// simpleText, or raw string).
+  String _accountEmail(Map<String, dynamic> h) {
+    final e = h['email'];
+    if (e is Map<String, dynamic>) {
+      final runs = _runsText(e['runs']);
+      if (runs != null && runs.trim().isNotEmpty) {
+        return runs.trim();
+      }
+      final simple = e['simpleText']?.toString().trim() ?? '';
+      if (simple.isNotEmpty) return simple;
+      return '';
+    }
+    if (e is String && e.trim().isNotEmpty) return e.trim();
+    return '';
   }
 
   Future<void> signOut() async {
     await _secure.writeYtCookies(null);
+    await _secure.writeYtProfiles(null);
+    await _secure.writeYtActive(null);
     _connection = const YtConnection();
+    _clearAccountCache();
+  }
+
+  /// Resolve identity for an ARBITRARY jar (not the active
+  /// connection): used when capturing a new profile/channel to label
+  /// the roster entry. Saves + restores connection and caches, so the
+  /// active session is untouched. [pageId] scopes to a brand channel.
+  Future<YtAccount?> resolveIdentityFor(
+    String cookies, {
+    String pageId = '',
+  }) async {
+    String normalized;
+    try {
+      normalized = normalizeCookies(cookies);
+    } catch (_) {
+      return null;
+    }
+    final savedConnection = _connection;
+    final savedCaches =
+        Map<String, _AccountCacheEntry>.of(_accountCaches);
+    _connection = YtConnection(
+      connected: true,
+      cookies: normalized,
+      connectedAtMillis:
+          DateTime.now().millisecondsSinceEpoch,
+      activePageId: pageId,
+    );
+    try {
+      return await fetchAccountInfo(
+          forceRefresh: true, pageId: pageId);
+    } catch (_) {
+      return null;
+    } finally {
+      _connection = savedConnection;
+      _accountCaches
+        ..clear()
+        ..addAll(savedCaches);
+    }
   }
 
   // -- auth helpers (mirror YtMusicAuthManager) ------------------------------
@@ -687,7 +1389,8 @@ class InnerTubeMusicApi {
   String _playbackAuthScope() {
     if (!_connection.connected) return 'anonymous';
     final digest = sha256
-        .convert(utf8.encode(_connection.cookies))
+        .convert(utf8.encode(
+            '${_connection.cookies}|${_connection.activePageId}'))
         .bytes
         .take(8)
         .map((b) =>
@@ -814,6 +1517,10 @@ class InnerTubeMusicApi {
     String? visitorData,
     int maxAttempts = 2,
     Duration? callTimeout,
+    // Brand-channel routing override. Null = the active channel
+    // (`_connection.activePageId`). Null/empty both mean the main
+    // channel (no header — today's behavior, unchanged).
+    String? pageId,
   }) async {
     await _ensureConfig();
     origin ??= clientName == 'WEB_REMIX'
@@ -822,6 +1529,7 @@ class InnerTubeMusicApi {
     referer ??= clientName == 'WEB_REMIX'
         ? '$musicOrigin/'
         : '$youtubeOrigin/';
+    final effectivePageId = pageId ?? _connection.activePageId;
     final headers = {
       'Content-Type': 'application/json',
       'User-Agent': userAgent,
@@ -839,6 +1547,12 @@ class InnerTubeMusicApi {
       if (authenticated && _connection.connected) ...{
         'Cookie': ?_cookieHeaderValue(),
         'Authorization': ?_authorizationHeaderValue(origin),
+        // Brand-channel delegation: same jar, per-request routing.
+        // Main channel (empty) sends nothing — unchanged behavior.
+        if (effectivePageId.isNotEmpty) ...{
+          'X-Goog-PageId': effectivePageId,
+          'X-Goog-AuthUser': '0',
+        },
       },
     };
     Object? lastError;
@@ -1160,7 +1874,8 @@ class InnerTubeMusicApi {
   }
 
   Future<_BrowsePages> _collectBrowseSongPages(
-      Map<String, dynamic> root, int? limit) async {
+      Map<String, dynamic> root, int? limit,
+      {bool authenticated = false}) async {
     final shelves = <Map<String, dynamic>>[];
     _collectObjects(root, 'musicPlaylistShelfRenderer', shelves);
     if (shelves.isEmpty) {
@@ -1199,8 +1914,8 @@ class InnerTubeMusicApi {
       if (!seenTokens.add(token)) break;
       Map<String, dynamic>? nextPage;
       try {
-        nextPage =
-            await _browseContinuation(token, authenticated: false);
+        nextPage = await _browseContinuation(token,
+            authenticated: authenticated);
       } catch (_) {
         break;
       }
@@ -1534,7 +2249,9 @@ class InnerTubeMusicApi {
       {required bool authenticated}) async {
     await _ensureConfig();
     // Fallback for regular YouTube playlists (e.g. Pop Hits) that 400
-    // on music.youtube.com
+    // on music.youtube.com. Origin/Referer MUST match the www host —
+    // the WEB_REMIX default (music.youtube.com) gets rejected with
+    // "Origin doesn't match Host".
     return _post(
       '$youtubeApi/browse?key=$_apiKey&prettyPrint=false',
       body: {
@@ -1545,6 +2262,8 @@ class InnerTubeMusicApi {
       clientVersion: _clientVersion,
       userAgent: webUserAgent,
       authenticated: authenticated,
+      origin: youtubeOrigin,
+      referer: '$youtubeOrigin/',
     );
   }
 
@@ -3587,6 +4306,335 @@ class _PlaylistRoot {
 
 typedef _Map = Map<String, dynamic>;
 
+/// Reactive mirror of [InnerTubeMusicApi.connection].
+///
+/// The API object itself is a long-lived mutable singleton exposed via
+/// a plain [Provider], so mutating `_connection` never rebuilds
+/// `ref.watch(innerTubeProvider)` widgets. UI must watch THIS for the
+/// connected flag and update it after every connect/signOut/restore.
+final ytConnectionProvider =
+    StateProvider<YtConnection>((_) => const YtConnection());
+
+/// Multi-profile roster (Google logins + their brand channels).
+/// Hydrated at startup from secure storage; the active jar/channel
+/// itself lives in [ytConnectionProvider].
+final ytProfilesProvider =
+    StateProvider<List<YtProfile>>((_) => const []);
+
+/// Publish + persist the roster (profiles carry their own jars).
+Future<void> persistYtProfiles(
+    WidgetRef ref, List<YtProfile> profiles) async {
+  ref.read(ytProfilesProvider.notifier).state = profiles;
+  try {
+    await ref
+        .read(secureStoreProvider)
+        .writeYtProfiles(YtProfile.listToJson(profiles));
+  } catch (_) {}
+}
+
+/// Upsert a captured jar into the roster, keyed by account email +
+/// channel name. Resolves identity (optionally scoped to a brand
+/// [pageId]), creates the profile/channel on first sight, refreshes
+/// cookies + photo afterwards. Returns the upserted profile, or null
+/// when identity resolution fails (roster untouched).
+///
+/// Brand-scoped menus often omit the email — pass [emailHint] (e.g.
+/// the main channel's resolved email for the same jar) so the entry
+/// still keys correctly instead of degrading to 'unknown'.
+Future<YtProfile?> upsertYtCapture(
+  WidgetRef ref, {
+  required String cookies,
+  String pageId = '',
+  String emailHint = '',
+}) async {
+  final api = ref.read(innerTubeProvider);
+  final identity =
+      await api.resolveIdentityFor(cookies, pageId: pageId);
+  if (identity == null || identity.name.isEmpty) {
+    if (kDebugMode) {
+      debugPrint('YtProfile: identity unresolvable, skipped');
+    }
+    return null;
+  }
+  // Roster key is the Google account email (stable across channels
+  // and handle renames); the display handle lives on the channel
+  // entry. Matching is handle-first so re-captures find their entry
+  // even if the stored email is stale.
+  //
+  // Brand-scoped menus omit the email, so when it is missing here the
+  // owning account is resolved via the main channel of the SAME jar.
+  // This keeps every caller correct without threading hints around.
+  var hint = emailHint;
+  if (hint.isEmpty &&
+      pageId.isNotEmpty &&
+      identity.email.isEmpty) {
+    try {
+      final owner =
+          await api.resolveIdentityFor(cookies);
+      hint = owner?.email ?? '';
+      if (hint.isNotEmpty && kDebugMode) {
+        debugPrint('YtProfile: owner email via main identity');
+      }
+    } catch (_) {}
+  }
+  final email = identity.email.isNotEmpty
+      ? identity.email
+      : (hint.isNotEmpty
+          ? hint
+          : (identity.handle.isNotEmpty
+              ? identity.handle
+              : 'unknown'));
+  if (email == 'unknown') {
+  if (kDebugMode) {
+    debugPrint(
+        'YtProfile: no email anywhere (page=${pageId.isEmpty ? 'main' : 'brand'})');
+  }
+  }
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final roster = [...ref.read(ytProfilesProvider)];
+  final channel = YtChannel(
+    pageId: pageId,
+    name: identity.name,
+    handle: identity.handle,
+    photoUrl: identity.photoUrl,
+  );
+  YtProfile profile;
+  // Handle-first matching: finds the entry even when the stored
+  // email is stale or was never resolved. Email match second.
+  final handle = identity.handle;
+  final pi = roster.indexWhere((p) =>
+      (handle.isNotEmpty &&
+          p.channels.any((c) => c.handle == handle)) ||
+      p.email == email);
+  if (pi < 0) {
+    profile = YtProfile(
+      email: email,
+      cookies: cookies,
+      channels: [channel],
+      activePageId: pageId,
+      lastUsedMillis: now,
+    );
+    roster.add(profile);
+  } else {
+    final channels = [...roster[pi].channels];
+    final ci =
+        channels.indexWhere((c) => c.pageId == pageId);
+    if (ci < 0) {
+      channels.add(channel);
+    } else {
+      channels[ci] = channel;
+    }
+    profile = roster[pi].copyWith(
+      cookies: cookies,
+      channels: channels,
+      activePageId: pageId,
+      lastUsedMillis: now,
+    );
+    roster[pi] = profile;
+  }
+  await persistYtProfiles(ref, roster);
+  if (kDebugMode) {
+    debugPrint(
+        'YtProfile: upserted $email page=${pageId.isEmpty ? 'main' : '${pageId.length} digits'} '
+        'roster=${_rosterDebug(roster)}');
+  }
+  return profile;
+}
+
+/// Roster summary for diagnostics: emails, channel page modes, jar
+/// sizes. No secret material ever logged.
+String _rosterDebug(List<YtProfile> roster) {
+  return roster
+      .map((p) =>
+          '${p.email}(${p.cookies.length}ch,active=${p.activePageId.isEmpty ? 'main' : '${p.activePageId.length}d'}'
+          ',ch=[${p.channels.map((c) => c.pageId.isEmpty ? 'main' : '${c.pageId.length}d').join('/')}]')
+      .join(' ');
+}
+
+/// Self-heal for stale roster entries: literal 'unknown' strings
+/// (written into email/handle/name slots by pre-hint builds),
+/// missing handles, and unkeyed profiles. Re-resolves identity from
+/// stored jars — email via the main channel (jars are account-level;
+/// brand menus omit it), name/handle/photo per channel pageId — and
+/// merges into correctly-keyed profiles. Bounded, fail-soft, runs at
+/// startup restore; rows already complete are never refetched, so
+/// this is a no-op after the first heal. Dead jars stay untouched.
+///
+/// Takes [Ref] (not [WidgetRef]) so the provider-restore path can
+/// call it; persistence is inlined for the same reason.
+Future<void> repairUnknownYtProfiles(Ref ref) async {
+  Future<void> persist(List<YtProfile> roster) async {
+    ref.read(ytProfilesProvider.notifier).state = roster;
+    try {
+      await ref
+          .read(secureStoreProvider)
+          .writeYtProfiles(YtProfile.listToJson(roster));
+    } catch (_) {}
+  }
+
+  final roster = [...ref.read(ytProfilesProvider)];
+  final api = ref.read(innerTubeProvider);
+  var changed = false;
+
+  // Pass 1: scrub literal 'unknown' sentinels (keep the jar + pageId).
+  for (var i = 0; i < roster.length; i++) {
+    final p = roster[i];
+    if (p.email != 'unknown' &&
+        !p.channels.any((c) =>
+            c.name == 'unknown' || c.handle == 'unknown')) {
+      continue;
+    }
+    roster[i] = YtProfile(
+      email: p.email == 'unknown' ? '' : p.email,
+      cookies: p.cookies,
+      channels: p.channels
+          .map((c) => YtChannel(
+                pageId: c.pageId,
+                name: c.name == 'unknown' ? '' : c.name,
+                handle:
+                    c.handle == 'unknown' ? '' : c.handle,
+                photoUrl: c.photoUrl,
+              ))
+          .toList(),
+      activePageId: p.activePageId,
+      lastUsedMillis: p.lastUsedMillis,
+    );
+    changed = true;
+  }
+
+  // Pass 2: re-key email-less profiles via the main identity of the
+  // stored jar; merge into the correctly-keyed profile when one
+  // exists.
+  for (var i = 0; i < roster.length; i++) {
+    if (roster[i].email.isNotEmpty) continue;
+    YtAccount? identity;
+    try {
+      identity = await api.resolveIdentityFor(
+          roster[i].cookies);
+    } catch (_) {
+      identity = null;
+    }
+    final email = identity?.email ?? '';
+    if (identity == null || email.isEmpty) continue;
+    if (kDebugMode) {
+      debugPrint('YtProfile: repaired unknown -> $email');
+    }
+    final stale = roster[i];
+    final target =
+        roster.indexWhere((p) => p.email == email);
+    if (target < 0) {
+      roster[i] = YtProfile(
+        email: email,
+        cookies: stale.cookies,
+        channels: stale.channels,
+        activePageId: stale.activePageId,
+        lastUsedMillis: stale.lastUsedMillis,
+      );
+    } else if (target != i) {
+      final channels = [...roster[target].channels];
+      for (final c in stale.channels) {
+        if (!channels.any((e) => e.pageId == c.pageId)) {
+          channels.add(c);
+        }
+      }
+      roster[target] = roster[target].copyWith(
+        channels: channels,
+      );
+      roster.removeAt(i);
+      await persist(roster);
+      return repairUnknownYtProfiles(ref);
+    }
+    changed = true;
+  }
+
+  // Pass 3: refresh rows missing handle/name/photo via their own
+  // pageId identity. Rows already complete are skipped, so steady
+  // state performs zero network calls.
+  for (var i = 0; i < roster.length; i++) {
+    final p = roster[i];
+    if (p.cookies.isEmpty) continue;
+    var channels = [...p.channels];
+    var touched = false;
+    for (var ci = 0; ci < channels.length; ci++) {
+      final c = channels[ci];
+      if (c.name.isNotEmpty &&
+          c.handle.isNotEmpty &&
+          c.photoUrl.isNotEmpty) {
+        continue;
+      }
+      YtAccount? identity;
+      try {
+        identity = await api.resolveIdentityFor(
+          p.cookies,
+          pageId: c.pageId,
+        );
+      } catch (_) {
+        identity = null;
+      }
+      if (identity == null) continue;
+      final name = identity.name.isNotEmpty
+          ? identity.name
+          : c.name;
+      var handle = identity.handle.isNotEmpty
+          ? identity.handle
+          : c.handle;
+      if (handle == 'unknown') handle = '';
+      final photo = identity.photoUrl.isNotEmpty
+          ? identity.photoUrl
+          : c.photoUrl;
+      if (name != c.name ||
+          handle != c.handle ||
+          photo != c.photoUrl) {
+        channels[ci] = YtChannel(
+          pageId: c.pageId,
+          name: name,
+          handle: handle,
+          photoUrl: photo,
+        );
+        touched = true;
+      }
+    }
+    if (touched) {
+      roster[i] = p.copyWith(channels: channels);
+      changed = true;
+    }
+  }
+
+  if (changed) await persist(roster);
+}
+
+/// Switch the active identity to a roster jar + channel. Atomic via
+/// [InnerTubeMusicApi.connectAs] (previous session restored on
+/// failure), then roster bookkeeping + reactive publish (account
+/// providers refetch automatically).
+Future<void> switchYtIdentity(
+  WidgetRef ref, {
+  required YtProfile profile,
+  required String pageId,
+}) async {
+  final api = ref.read(innerTubeProvider);
+  if (kDebugMode) {
+    debugPrint(
+        'YtProfile: switching to ${profile.email} page=${pageId.isEmpty ? 'main' : '${pageId.length} digits'} '
+        'jar=${profile.cookies.length}ch');
+  }
+  await api.connectAs(
+    cookies: profile.cookies,
+    profileEmail: profile.email,
+    pageId: pageId,
+  );
+  final roster = [...ref.read(ytProfilesProvider)];
+  final pi = roster.indexWhere((p) => p.email == profile.email);
+  if (pi >= 0) {
+    roster[pi] = roster[pi].copyWith(
+      activePageId: pageId,
+      lastUsedMillis: DateTime.now().millisecondsSinceEpoch,
+    );
+    await persistYtProfiles(ref, roster);
+  }
+  ref.read(ytConnectionProvider.notifier).state = api.connection;
+}
+
 final innerTubeProvider = Provider<InnerTubeMusicApi>((ref) {
   final dio = DioFactory.create();
   final api = InnerTubeMusicApi(
@@ -3594,7 +4642,25 @@ final innerTubeProvider = Provider<InnerTubeMusicApi>((ref) {
     ref.watch(secureStoreProvider),
     ref.watch(poTokenEngineProvider),
   );
-  api.loadPersistedConnection();
+  // Fire-and-forget restore, then publish to the reactive mirrors so
+  // the settings row flips to Connected without needing a rebuild.
+  unawaited(() async {
+    try {
+      await api.loadPersistedConnection();
+      ref.read(ytConnectionProvider.notifier).state =
+          api.connection;
+    } catch (_) {}
+    try {
+      final raw =
+          await ref.read(secureStoreProvider).readYtProfiles() ??
+              '';
+      if (raw.isNotEmpty) {
+        ref.read(ytProfilesProvider.notifier).state =
+            YtProfile.listFromJson(raw);
+        await repairUnknownYtProfiles(ref);
+      }
+    } catch (_) {}
+  }());
   // Persistent disk cache only. BotGuard is LAZY (see
   // _resolveAudioStreamInternal.ensureAux): direct-URL clients never
   // mint poTokens, so most sessions open zero WebViews.

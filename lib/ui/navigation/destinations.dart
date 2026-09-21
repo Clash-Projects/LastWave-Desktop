@@ -6,7 +6,7 @@ import '../theme/wave_icons.dart';
 ///
 /// Layout:
 /// - Top: Home / Discover / Search (daily music use)
-/// - Middle: Library / Liked / Albums / Artists / Playlists
+/// - Middle: Liked / Albums / Artists / Playlists (your collections)
 /// - Then: Downloads
 /// - Bottom (pinned): Friends / Settings
 ///
@@ -25,7 +25,6 @@ const waveListenDestinations = [
 ];
 
 const waveCollectionDestinations = [
-  WaveDestination('/library', 'Library', WaveIcons.library),
   WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
@@ -61,7 +60,7 @@ String waveActivePath(String location) {
   if (path.startsWith('/artist')) return '/artists';
   if (path.startsWith('/now')) return '/home';
   if (path.startsWith('/lyrics')) return '/home';
-  if (path.startsWith('/history')) return '/library';
+  if (path.startsWith('/history')) return '/liked';
   if (path.startsWith('/mixes')) return '/discover';
   if (path.startsWith('/profile')) return '/friends';
   return '/home';

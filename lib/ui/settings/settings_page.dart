@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../app/window.dart';
 import '../../app/auth_gate.dart';
@@ -11,6 +14,10 @@ import '../../core/audio/stream_models.dart';
 import '../../core/env/app_env.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/innertube/innertube_api.dart';
+import '../../features/innertube/yt_library_providers.dart';
+import '../../features/innertube/yt_web_login.dart';
+import '../components/artwork.dart';
+import 'yt_profile_chooser.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/audio_output/output_controller.dart';
@@ -758,72 +765,655 @@ class _Ytm extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tube = ref.watch(innerTubeProvider);
+    // Reactive mirror — the API singleton never changes identity, so
+    // watching innerTubeProvider alone would never rebuild this row.
+    final connection = ref.watch(ytConnectionProvider);
+    final account =
+        ref.watch(ytAccountProvider).valueOrNull;
     return _Group(
       title: 'YouTube Music',
       subtitle: 'Personal library, history and uploads',
-      child: Row(
-        children: [
-          const Icon(FluentIcons.video, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              tube.connection.connected
-                  ? 'Connected'
-                  : 'Not connected',
-              style: WaveType.trackTitle,
-            ),
-          ),
-          tube.connection.connected
-              ? Button(
-                  onPressed: () async {
-                    await tube.signOut();
-                  },
-                  child: const Text('Disconnect'),
-                )
-              : FilledButton(
+      child: connection.connected
+          ? _connectedRow(context, ref, connection, account)
+          : Row(
+              children: [
+                const Icon(FluentIcons.video, size: 18),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Not connected',
+                    style: WaveType.trackTitle,
+                  ),
+                ),
+                FilledButton(
                   onPressed: () =>
                       _ytConnect(context, ref),
                   child: const Text('Connect'),
                 ),
-        ],
-      ),
+              ],
+            ),
     );
   }
 
+  Widget _connectedRow(
+    BuildContext context,
+    WidgetRef ref,
+    YtConnection connection,
+    YtAccount? account,
+  ) {
+    final name = account?.name ?? '';
+    // Same @-gate as the chooser: fresh parses never emit junk, but
+    // this keeps every path honest if a shape ever surprises us.
+    final handle = (account?.handle ?? '').startsWith('@')
+        ? account!.handle
+        : '';
+    final email = account?.email ?? '';
+    final idLine = handle.isNotEmpty
+        ? handle
+        : ytDisplayEmail(email);
+    final since = DateTime.fromMillisecondsSinceEpoch(
+      connection.connectedAtMillis,
+      isUtc: false,
+    );
+    final sinceText =
+        connection.connectedAtMillis > 0 ? ' · since ${since.year}-'
+            '${since.month.toString().padLeft(2, '0')}-'
+            '${since.day.toString().padLeft(2, '0')}' : '';
+    final sub = [
+      if (idLine.isNotEmpty) idLine,
+      'Connected$sinceText',
+    ].join(' · ');
+    return Row(
+      children: [
+        if (account?.photoUrl.isNotEmpty == true)
+          WaveArtwork.circle(
+            url: account!.photoUrl,
+            size: 40,
+            label: name,
+            // Identity avatar: never let the official-source upgrade
+            // swap it for a Deezer artist photo matching the name.
+            upgrade: false,
+          )
+        else
+          const Icon(FluentIcons.video, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                name.isNotEmpty ? name : 'Connected',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WaveType.trackTitle,
+              ),
+              Text(
+                name.isNotEmpty
+                    ? sub
+                    : 'Connected$sinceText',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WaveType.meta.copyWith(
+                    color:
+                        waveTextSecondary(context)),
+              ),
+            ],
+          ),
+        ),
+        const _CardActions(),
+      ],
+    );
+  }
+
+  /// In-app Google sign-in: opens music.youtube.com in a system
+  /// WebView, waits for login, captures cookies automatically, then
+  /// runs the shared roster upsert + chooser tail.
   Future<void> _ytConnect(
     BuildContext context,
     WidgetRef ref,
   ) async {
-    final controller = TextEditingController();
-    final cookies = await showDialog<String>(
+    var cancelled = false;
+    // Non-blocking wait dialog — Cancel just stops listening; the
+    // user closes the browser window via the native guard (hide).
+    // NOTE: popped via the dialog's OWN context. A rootNavigator pop
+    // here would eat the settings page under the go_router ShellRoute.
+    BuildContext? waitDialogContext;
+    unawaited(showDialog(
       context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Connect YouTube Music'),
-        content: TextBox(
-          controller: controller,
-          placeholder:
-              '__Secure-3PAPISID=…; SAPISID=…',
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        waitDialogContext = dialogContext;
+        return ContentDialog(
+          title: const Text('Sign in with Google'),
+          content: const Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: ProgressRing(),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+              child: Text(
+                'Complete the sign-in in the browser window. '
+                'This dialog closes automatically.',
+                style: TextStyle(fontSize: 12),
+              ),
+              ),
+            ],
+          ),
+          actions: [
+            Button(
+              onPressed: () {
+                cancelled = true;
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    ));
+    if (kDebugMode) {
+      debugPrint('YtWebSignIn: waiting for browser login');
+    }
+    String? header;
+    try {
+      header = await YtWebLogin.signIn();
+    } catch (_) {
+      header = null;
+    }
+    if (kDebugMode) {
+      debugPrint(
+          'YtWebSignIn: flow returned header=${header == null ? 'null' : '${header.length} chars'} cancelled=$cancelled');
+    }
+    // Dismiss the wait dialog if it is still up.
+    final waitCtx = waitDialogContext;
+    if (waitCtx != null && waitCtx.mounted) {
+      Navigator.of(waitCtx).maybePop();
+    }
+    if (cancelled || header == null || header.isEmpty) {
+      if (!cancelled && context.mounted) {
+        await showDialog(
+          context: context,
+          builder: (dialogContext) => ContentDialog(
+            title: const Text('Sign-in incomplete'),
+            content: const Text(
+                'No session was captured. Please try again — if Google '
+                'refuses the embedded browser, make sure you complete '
+                'the sign-in fully before closing the window.'),
+            actions: [
+              FilledButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    await _ytConnectCaptured(
+      context,
+      ref,
+      header: header,
+      pageId: YtWebLogin.lastCapturedPageId ?? '',
+    );
+    await _refocusMain();
+  }
+}
+
+/// Card buttons: Switch (multi-channel roster), Add (account/channel),
+/// Disconnect. Extracted so the row rebuilds cheaply.
+class _CardActions extends ConsumerWidget {
+  const _CardActions();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    var channels = 0;
+    for (final p in ref.watch(ytProfilesProvider)) {
+      channels +=
+          p.channels.isEmpty ? 1 : p.channels.length;
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (channels >= 2)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Button(
+              onPressed: () =>
+                  _ytSwitch(context, ref),
+              child: const Text('Switch'),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Button(
+            onPressed: () =>
+                _ytAddMenu(context, ref),
+            child: const Text('Add'),
+          ),
+        ),
+        Button(
+          onPressed: () async {
+            final tube = ref.read(innerTubeProvider);
+            await tube.signOut();
+            ref
+                .read(ytConnectionProvider.notifier)
+                .state = tube.connection;
+          },
+          child: const Text('Disconnect'),
+        ),
+      ],
+    );
+  }
+
+  static Future<void> _ytSwitch(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final roster = ref.read(ytProfilesProvider);
+    final conn = ref.read(ytConnectionProvider);
+    final sel = await showYtProfileChooser(
+      context: context,
+      roster: roster,
+      activeEmail: conn.profileEmail,
+      activePageId: conn.activePageId,
+      title: 'Switch channel',
+    );
+    if (sel == null || !context.mounted) return;
+    YtProfile? target;
+    for (final p in ref.read(ytProfilesProvider)) {
+      if (p.email == sel.email) {
+        target = p;
+        break;
+      }
+    }
+    if (target == null) return;
+    if (target.email == conn.profileEmail &&
+        sel.pageId == conn.activePageId) {
+      return; // already active
+    }
+    try {
+      await switchYtIdentity(ref,
+          profile: target, pageId: sel.pageId);
+      if (context.mounted) {
+        await _showYtOk(
+          context,
+          'Switched',
+          'Now using ${target.email}'
+          '${sel.pageId.isEmpty ? '' : ' · brand channel'}. '
+          'Library, history and uploads reloaded.',
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        await _showYtFail(context, e);
+      }
+    }
+  }
+
+  static Future<void> _ytAddMenu(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final mode = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => ContentDialog(
+        title: const Text('Add to YouTube Music'),
+        content: const Text(
+          'Add another Google login, or a brand channel on the '
+          'current login.',
+          style: TextStyle(fontSize: 12),
         ),
         actions: [
           Button(
             onPressed: () =>
-                Navigator.of(context).pop(),
+                Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
+          Button(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop('channel'),
+            child: const Text('Brand channel'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.of(context)
-                .pop(controller.text.trim()),
-            child: const Text('Connect'),
+            onPressed: () =>
+                Navigator.of(dialogContext).pop('account'),
+            child: const Text('Google account'),
           ),
         ],
       ),
     );
-    controller.dispose();
-    if (cookies != null && cookies.isNotEmpty) {
-      await ref.read(innerTubeProvider).connect(cookies);
+    if (mode == null || !context.mounted) return;
+    if (mode == 'account') {
+      await _ytAddAccount(context, ref);
+    } else {
+      await _ytAddChannel(context, ref);
     }
   }
+
+  /// Add another Google login: clean-room sign-in (logout URL first,
+  /// same window, never destroyed), then the shared capture tail.
+  static Future<void> _ytAddAccount(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    var cancelled = false;
+    BuildContext? waitCtx;
+    unawaited(showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        waitCtx = dialogContext;
+        return ContentDialog(
+          title: const Text('Add Google account'),
+          content: const Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: ProgressRing(),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Log in as the other Google account in the '
+                  'browser window. This dialog closes automatically.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            Button(
+              onPressed: () {
+                cancelled = true;
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    ));
+    String? header;
+    try {
+      header = await YtWebLogin.signInFresh();
+    } catch (_) {
+      header = null;
+    }
+    final wc = waitCtx;
+    if (wc != null && wc.mounted) {
+      Navigator.of(wc).maybePop();
+    }
+    if (cancelled || header == null || header.isEmpty) {
+      if (!cancelled && context.mounted) {
+        await _showYtFail(context,
+            'No session was captured. Please try again.');
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    await _ytConnectCaptured(
+      context,
+      ref,
+      header: header,
+      pageId: YtWebLogin.lastCapturedPageId ?? '',
+    );
+    await _refocusMain();
+  }
+
+  /// Add a brand channel: the window already holds the Google login;
+  /// the user flips to the brand channel in-page, presses Done, and
+  /// the delegation page ID is read from ytcfg.
+  static Future<void> _ytAddChannel(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final w = await YtWebLogin.ensureWindow();
+    if (w == null) {
+      if (context.mounted) {
+        await _showYtFail(
+            context, 'No system WebView available.');
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    try {
+      w.launch('https://music.youtube.com/');
+    } catch (_) {}
+    var cancelled = false;
+    var done = false;
+    BuildContext? waitCtx;
+    unawaited(showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        waitCtx = dialogContext;
+        return ContentDialog(
+          title: const Text('Add brand channel'),
+          content: const Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: ProgressRing(),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Sign in if needed, then switch to the brand '
+                  'channel in the browser window and press Done.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            Button(
+              onPressed: () {
+                cancelled = true;
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                done = true;
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Done'),
+            ),
+          ],
+        );
+      },
+    ));
+    String? header;
+    try {
+      // Generous window: user may need to sign in first.
+      header = await YtWebLogin.waitForLoginSession(
+        w,
+        timeout: const Duration(minutes: 5),
+      );
+      if (header != null && !cancelled) {
+        // Wait for Done/Cancel (the dialog above stays up).
+        while (!done && !cancelled) {
+          await Future<void>.delayed(
+              const Duration(milliseconds: 300));
+        }
+      }
+    } catch (_) {
+      header = null;
+    }
+    final wc = waitCtx;
+    if (wc != null && wc.mounted) {
+      Navigator.of(wc).maybePop();
+    }
+    await YtWebLogin.hideWindow();
+    await _refocusMain();
+    if (cancelled || header == null || header.isEmpty) {
+      if (!cancelled && context.mounted) {
+        await _showYtFail(context,
+            'No session was captured. Please try again.');
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    final pageId =
+        await YtWebLogin.readDelegatedPageId(w) ?? '';
+    if (kDebugMode) {
+      debugPrint(
+          'YtChannel: Done with pageId=${pageId.isEmpty ? 'main' : '${pageId.length} digits'}');
+    }
+    if (!context.mounted) return;
+    await _ytConnectCaptured(
+      context,
+      ref,
+      header: header,
+      pageId: pageId,
+    );
+  }
+
+}
+
+/// Shared capture tail: roster upsert → ALWAYS show the channel
+/// chooser (even a single row — identity double-check) → switch to
+/// the pick. Cancelled chooser falls back to connecting the captured
+/// jar directly (legacy behavior).
+Future<void> _ytConnectCaptured(
+  BuildContext context,
+  WidgetRef ref, {
+  required String header,
+  required String pageId,
+}) async {
+  final profile = await upsertYtCapture(
+    ref,
+    cookies: header,
+    pageId: pageId,
+  );
+  if (!context.mounted) return;
+  final roster = ref.read(ytProfilesProvider);
+  final conn = ref.read(ytConnectionProvider);
+  final sel = await showYtProfileChooser(
+    context: context,
+    roster: roster,
+    activeEmail: profile?.email ?? conn.profileEmail,
+    activePageId: pageId,
+  );
+  if (!context.mounted) return;
+  if (sel == null) {
+    await _YtmStaticFallback.finish(
+        context, ref, header, profile, pageId);
+    return;
+  }
+  YtProfile? target;
+  for (final p in ref.read(ytProfilesProvider)) {
+    if (p.email == sel.email) {
+      target = p;
+      break;
+    }
+  }
+  target ??= profile;
+  if (target == null) {
+    await _showYtFail(
+        context, 'Profile vanished — please try again.');
+    return;
+  }
+  try {
+    await switchYtIdentity(ref,
+        profile: target, pageId: sel.pageId);
+    if (context.mounted) {
+      await _showYtOk(
+        context,
+        'YouTube Music connected',
+        'Account verified — library, history and uploads are unlocked.',
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      await _showYtFail(context, e);
+    }
+  }
+}
+
+/// Cancelled-chooser fallback: connect the captured jar directly.
+abstract class _YtmStaticFallback {
+  static Future<void> finish(
+    BuildContext context,
+    WidgetRef ref,
+    String header,
+    YtProfile? profile,
+    String pageId,
+  ) async {
+    final tube = ref.read(innerTubeProvider);
+    try {
+      await tube.connectAs(
+        cookies: header,
+        profileEmail: profile?.email ?? '',
+        pageId: pageId,
+      );
+      ref.read(ytConnectionProvider.notifier).state =
+          tube.connection;
+      if (context.mounted) {
+        await _showYtOk(
+          context,
+          'YouTube Music connected',
+          'Account verified — library, history and uploads are unlocked.',
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        await _showYtFail(context, e);
+      }
+    }
+  }
+}
+
+Future<void> _showYtOk(
+    BuildContext context, String title, String message) {
+  return showDialog(
+    context: context,
+    builder: (dialogContext) => ContentDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        FilledButton(
+          onPressed: () =>
+              Navigator.of(dialogContext).pop(),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _showYtFail(BuildContext context, Object e) {
+  return showDialog(
+    context: context,
+    builder: (dialogContext) => ContentDialog(
+      title: const Text('Connection failed'),
+      content: Text('$e'),
+      actions: [
+        FilledButton(
+          onPressed: () =>
+              Navigator.of(dialogContext).pop(),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _refocusMain() async {
+  try {
+    await windowManager.focus();
+  } catch (_) {}
 }
 
 class _About extends StatelessWidget {

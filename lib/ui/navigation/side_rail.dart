@@ -262,8 +262,17 @@ class _RailItemState extends State<_RailItem> {
                       horizontal: widget.expanded ? 14 : 0,
                     ),
                     child: Center(
-                      child: widget.expanded
-                          ? Row(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          // Follow the animating rail width, not the
+                          // instant `expanded` flag: the rail container
+                          // animates 60<->200px over WaveMotion.normal
+                          // while the flag flips immediately, which
+                          // overflowed the Row mid-flight.
+                          final isWide =
+                              constraints.maxWidth > 100;
+                          return isWide
+                              ? Row(
                               children: [
                                 AnimatedScale(
                                   scale: widget.selected
@@ -323,7 +332,9 @@ class _RailItemState extends State<_RailItem> {
                                   ),
                                 ),
                               ],
-                            ),
+                            );
+                      },
+                      ),
                     ),
                   ),
                 ),

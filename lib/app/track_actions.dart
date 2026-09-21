@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -44,6 +45,7 @@ List<GeneratedTrack> mergeYtTracks(
         'k:${t.key}',
   };
   final out = List<GeneratedTrack>.of(local);
+  var added = 0;
   for (final t in yt) {
     final vKey =
         t.videoId.isNotEmpty ? 'v:${t.videoId}' : null;
@@ -55,6 +57,7 @@ List<GeneratedTrack> mergeYtTracks(
     }
     if (vKey != null) seen.add(vKey);
     seen.add(kKey);
+    added++;
     out.add(GeneratedTrack(
       name: t.title,
       artist: t.artist,
@@ -63,6 +66,10 @@ List<GeneratedTrack> mergeYtTracks(
       videoId: t.videoId,
       durationSeconds: t.durationSeconds,
     ));
+  }
+  if (kDebugMode) {
+    debugPrint(
+        'mergeYtTracks: local=${local.length} yt=${yt.length} added=$added');
   }
   return out;
 }

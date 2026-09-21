@@ -5,6 +5,7 @@ import 'package:super_sliver_list/super_sliver_list.dart';
 import '../../app/track_actions.dart'
     show playGenerated, relativeTime;
 import '../../features/feed/feed_repository.dart';
+import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/player/playback_service.dart';
 import '../components/states.dart';
@@ -39,6 +40,9 @@ class WaveHistoryPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final history = ref.watch(_waveHistoryProvider);
+    // Signed-in YouTube Music watch history (own section below).
+    final ytTracks =
+        ref.watch(ytHistoryProvider).value ?? const [];
     return history.when(
       loading: () => const WaveLoading(
         label: 'Loading history…',
@@ -185,6 +189,80 @@ class WaveHistoryPage extends ConsumerWidget {
                   },
                 ),
               ],
+            if (ytTracks.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      24, 16, 24, 2),
+                  child: WaveEntrance(
+                    rise: 8,
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'YOUTUBE MUSIC',
+                          style:
+                              WaveType.overline.copyWith(
+                            color:
+                                waveAccent(context),
+                          ),
+                        ),
+                        Text(
+                          'YouTube History',
+                          style: WaveType.sectionTitle
+                              .copyWith(fontSize: 13),
+                        ),
+                        Text(
+                          '${ytTracks.length} recent plays',
+                          style: WaveType.body.copyWith(
+                            color: waveTextSecondary(
+                                context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              SuperSliverList.builder(
+                itemCount: ytTracks.length.clamp(0, 100),
+                itemBuilder: (context, j) {
+                  final t = ytTracks[j];
+                  return WaveEntrance(
+                    index: j,
+                    rise: 10,
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.symmetric(
+                        horizontal: 16,
+                      ),
+                      child: WaveTrackRow(
+                        index: j + 1,
+                        title: t.title,
+                        artist: t.artist,
+                        artworkUrl: t.artworkUrl,
+                        meta: 'YouTube Music',
+                        playing: false,
+                        isCurrent: false,
+                        onTap: () => playGenerated(
+                          ref,
+                          context,
+                          GeneratedTrack(
+                            name: t.title,
+                            artist: t.artist,
+                            artworkUrl: t.artworkUrl,
+                            videoId: t.videoId,
+                          ),
+                          sourceLabel:
+                              'YouTube History',
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
             const SliverToBoxAdapter(
               child: SizedBox(height: 24),
             ),

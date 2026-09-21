@@ -8,6 +8,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class SecureStore {
   static const _sessionKey = 'lastwave.session_key';
   static const _ytCookies = 'lastwave.yt_cookies';
+  static const _ytProfiles = 'lastwave.yt_profiles';
+  static const _ytActive = 'lastwave.yt_active';
 
   final FlutterSecureStorage _storage;
   final Map<String, String> _memoryFallback = {};
@@ -44,6 +46,16 @@ class SecureStore {
 
   Future<String?> readYtCookies() => _read(_ytCookies);
   Future<void> writeYtCookies(String? v) => _write(_ytCookies, v);
+
+  /// Multi-profile roster (`YtProfile.listToJson`) + active pointer
+  /// (`{"email": ..., "pageId": ...}`). The active jar itself stays in
+  /// [_ytCookies], so single-profile behavior is unchanged.
+  Future<String?> readYtProfiles() => _read(_ytProfiles);
+  Future<void> writeYtProfiles(String? v) =>
+      _write(_ytProfiles, v);
+
+  Future<String?> readYtActive() => _read(_ytActive);
+  Future<void> writeYtActive(String? v) => _write(_ytActive, v);
 
   Future<void> clearAll() async {
     _memoryFallback.clear();

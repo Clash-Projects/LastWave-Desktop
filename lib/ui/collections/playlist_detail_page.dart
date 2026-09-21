@@ -12,7 +12,7 @@ import '../components/buttons.dart' show LWTooltip, WaveGhostButton, WavePrimary
 import '../components/desktop_table.dart';
 import '../components/hero.dart';
 import '../components/states.dart';
-import '../library/library_page.dart'
+import 'playlist_dialogs.dart'
     show
         showWaveDeletePlaylist,
         showWaveRenamePlaylist;

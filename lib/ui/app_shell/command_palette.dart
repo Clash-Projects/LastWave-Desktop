@@ -30,7 +30,6 @@ Future<void> showWaveCommandPalette(
   final routes = <(String path, String label, IconData icon)>[
     (('/home'), 'Go to Home', FluentIcons.home),
     (('/search'), 'Go to Search', FluentIcons.search),
-    (('/library'), 'Go to Library', FluentIcons.library),
     (('/liked'), 'Go to Liked Songs', FluentIcons.heart),
     (('/albums'), 'Go to Albums', FluentIcons.music_note),
     (('/artists'), 'Go to Artists', FluentIcons.contact),

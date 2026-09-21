@@ -39,6 +39,11 @@ class WaveArtwork extends StatefulWidget {
   /// photos. Defaults to artist when [isCircle], else track.
   final ArtworkKind? kind;
 
+  /// When false, the official-source upgrade is skipped and [url] shows
+  /// as-is. Use for identity avatars (account photo, …) where a store
+  /// search on the label would swap in an unrelated artist's photo.
+  final bool upgrade;
+
   const WaveArtwork({
     super.key,
     required this.url,
@@ -51,6 +56,7 @@ class WaveArtwork extends StatefulWidget {
     this.title = '',
     this.artist = '',
     this.kind,
+    this.upgrade = true,
   });
 
   const WaveArtwork.circle({
@@ -62,6 +68,7 @@ class WaveArtwork extends StatefulWidget {
     this.label = '',
     this.title = '',
     this.artist = '',
+    this.upgrade = true,
   })  : radius = 999,
         isCircle = true,
         kind = ArtworkKind.artist;
@@ -164,6 +171,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
         old.videoId != widget.videoId ||
         !_fallbacksEqual(old.fallbackUrls, widget.fallbackUrls) ||
         old.size != widget.size ||
+        old.upgrade != widget.upgrade ||
         old.label != widget.label) {
       if (old.url != widget.url ||
           old.title != widget.title ||
@@ -209,6 +217,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
   /// hot-swap it in. The current image keeps showing until then and
   /// stays in the chain as fallback if the official source has no match.
   void _maybeUpgradeOfficial() {
+    if (!widget.upgrade) return;
     if (_upgradeAttempted || _resolveFailed || _isResolving) return;
     if (_resolvedUrl != null) return;
     final title = widget.title.isNotEmpty ? widget.title : widget.label;

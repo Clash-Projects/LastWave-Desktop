@@ -2,13 +2,15 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/innertube/innertube_api.dart';
+import '../../features/innertube/yt_library_providers.dart';
 import '../../features/library/playlists.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/hero.dart';
 import '../components/menus.dart';
 import '../components/states.dart';
-import '../library/library_page.dart'
+import 'playlist_dialogs.dart'
     show
         showWaveCreatePlaylist,
         showWaveDeletePlaylist,
@@ -43,6 +45,15 @@ class _WavePlaylistsPageState
         .where((p) => !p.isLikedSongs)
         .toList();
     final shown = all
+        .where(
+          (p) =>
+              p.title.toLowerCase().contains(_q.toLowerCase()),
+        )
+        .toList();
+    // Signed-in YouTube Music playlists (own + liked), read-only.
+    // Rendered as their own section below the local grid.
+    final ytLists = (ref.watch(ytAccountPlaylistsProvider).value ??
+            const [])
         .where(
           (p) =>
               p.title.toLowerCase().contains(_q.toLowerCase()),
@@ -89,7 +100,7 @@ class _WavePlaylistsPageState
                 countLabel: '${shown.length} shown',
               ),
               const SizedBox(height: 12),
-              if (shown.isEmpty)
+              if (shown.isEmpty && ytLists.isEmpty)
                 WaveEmpty(
                   icon: FluentIcons.list_mirrored,
                   title: 'No playlists yet',
@@ -103,31 +114,38 @@ class _WavePlaylistsPageState
                           context, ref)
                       : null,
                 )
-              else
-                LayoutBuilder(builder: (context, c) {
-                  final cols =
-                      (c.maxWidth / 170).floor().clamp(2, 6);
-                  return GridView.builder(
-                    shrinkWrap: true,
-                    physics:
-                        const NeverScrollableScrollPhysics(),
-                    gridDelegate:
-                        SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: cols,
-                      mainAxisSpacing: 16,
-                      crossAxisSpacing: 12,
-                      mainAxisExtent: 214,
-                    ),
-                    itemCount: shown.length,
-                    itemBuilder: (context, i) =>
-                        WaveEntrance(
-                      index: i,
-                      rise: 10,
-                      child: _PlaylistCard(
-                          playlist: shown[i]),
-                    ),
-                  );
-                }),
+              else ...[
+                if (shown.isNotEmpty)
+                  LayoutBuilder(builder: (context, c) {
+                    final cols = (c.maxWidth / 170)
+                        .floor()
+                        .clamp(2, 6);
+                    return GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: cols,
+                        mainAxisSpacing: 16,
+                        crossAxisSpacing: 12,
+                        mainAxisExtent: 214,
+                      ),
+                      itemCount: shown.length,
+                      itemBuilder: (context, i) =>
+                          WaveEntrance(
+                        index: i,
+                        rise: 10,
+                        child: _PlaylistCard(
+                            playlist: shown[i]),
+                      ),
+                    );
+                  }),
+                if (ytLists.isNotEmpty) ...[
+                  if (shown.isNotEmpty)
+                    const SizedBox(height: 18),
+                  _YtSection(lists: ytLists),
+                ],
+              ],
             ],
           ),
         ),
@@ -142,6 +160,83 @@ String? _coverOf(SavedPlaylist p) {
     if (t.artworkUrl.isNotEmpty) return t.artworkUrl;
   }
   return null;
+}
+
+/// YouTube Music account playlists (own + liked). Read-only grid
+/// mirroring the local cards; tap opens the YT detail page.
+class _YtSection extends StatelessWidget {
+  final List<YouTubePlaylistSummary> lists;
+  const _YtSection({required this.lists});
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('YOUTUBE MUSIC',
+            style: WaveType.overline
+                .copyWith(color: waveAccent(context))),
+        const SizedBox(height: 2),
+        Text(
+            '${lists.length} ${lists.length == 1 ? 'playlist' : 'playlists'}',
+            style: WaveType.meta
+                .copyWith(color: waveTextTertiary(context))),
+        const SizedBox(height: 6),
+        LayoutBuilder(builder: (context, c) {
+          final cols =
+              (c.maxWidth / 170).floor().clamp(2, 6);
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate:
+                SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: cols,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 12,
+              mainAxisExtent: 214,
+            ),
+            itemCount: lists.length,
+            itemBuilder: (context, i) {
+              final p = lists[i];
+              return WaveEntrance(
+                index: i,
+                rise: 10,
+                child: GestureDetector(
+                  onTap: () => context.go('/ytplaylist/${p.id}'
+                      '?title=${Uri.encodeComponent(p.title)}'
+                      '&art=${Uri.encodeComponent(p.artworkUrl)}'),
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      WaveArtwork(
+                          url: p.artworkUrl,
+                          size: 150,
+                          radius: 6,
+                          label: p.title),
+                      const SizedBox(height: 6),
+                      Text(p.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.trackTitle
+                              .copyWith(fontSize: 12.5)),
+                      Text(
+                          p.trackCountText.isNotEmpty
+                              ? p.trackCountText
+                              : 'YouTube playlist',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.meta
+                              .copyWith(fontSize: 11.5)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        }),
+      ],
+    );
+  }
 }
 
 class _PlaylistCard extends ConsumerStatefulWidget {
