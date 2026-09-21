@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-import '../core/artwork/animated_artwork_session.dart';
+import '../../core/artwork/animated_artwork_session.dart';
 
 /// Looping muted motion-art player — Now Playing cover only.
 ///

@@ -12,7 +12,7 @@ import '../../features/downloads/download_manager.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/audio_output/output_controller.dart';
-import '../../widgets/ambient.dart';
+import '../components/ambient.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, LWVolumeSlider;
 import '../components/menus.dart';

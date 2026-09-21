@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../ui/theme/tokens.dart';
+import '../theme/tokens.dart';
 
 /// Thin Wave skeleton primitives: static ledger shapes, no shimmer
 /// (reduced-motion safe). Radii follow [WaveRadius]; no radius >= 16.

@@ -7,10 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:palette_generator/palette_generator.dart';
 
-import '../core/storage/prefs.dart';
-import '../features/player/playback_service.dart';
-import '../ui/theme/haze.dart';
-import '../ui/theme/tokens.dart';
+import '../../core/storage/prefs.dart';
+import '../../features/player/playback_service.dart';
+import '../theme/haze.dart';
+import '../theme/tokens.dart';
 
 /// Provider for visualizer toggle (persisted in preferences).
 final visualizerEnabledProvider =

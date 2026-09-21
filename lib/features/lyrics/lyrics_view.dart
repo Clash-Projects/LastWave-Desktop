@@ -6,8 +6,8 @@ import '../../core/audio/stream_models.dart';
 import '../../design_system/components.dart';
 import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
-import '../../widgets/empty_state.dart';
-import '../../widgets/skeletons.dart';
+import '../../ui/components/skeletons.dart';
+import '../../ui/components/states.dart';
 import '../player/playback_service.dart';
 import 'lyrics_models.dart';
 import 'lyrics_repository.dart';
@@ -102,21 +102,21 @@ class _LyricsColumnState extends ConsumerState<LyricsColumn> {
         _lyricsForTrackProvider(widget.track.queueKey));
     return async.when(
       loading: () => const SkeletonRow(count: 8),
-      error: (e, _) => EmptyState(
+      error: (e, _) => WaveEmpty(
         icon: LucideIcons.micVocal,
         title: 'Lyrics unavailable',
         subtitle: e.toString(),
       ),
       data: (result) {
         if (result.isInstrumental) {
-          return const EmptyState(
+          return const WaveEmpty(
             icon: Icons.music_note_outlined,
             title: 'Instrumental',
             subtitle: 'No lyrics for this track.',
           );
         }
         if (result.isEmpty) {
-          return const EmptyState(
+          return const WaveEmpty(
             icon: Icons.lyrics_outlined,
             title: 'No lyrics found',
             subtitle:
