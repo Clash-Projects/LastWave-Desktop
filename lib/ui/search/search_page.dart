@@ -757,19 +757,20 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
   Future<void> _playSongs(
       WidgetRef ref, BuildContext context, int start) async {
     if (_songs.isEmpty) return;
-    final generated = _songs
-        .map((e) => GeneratedTrack(
+    // Search rankings are not a listening queue: play ONLY the tapped
+    // track and let endless radio (Settings → Playback) pick what
+    // follows, instead of the next-best search match.
+    final e = _songs[start.clamp(0, _songs.length - 1)];
+    await playGenerated(
+        ref,
+        context,
+        GeneratedTrack(
             name: e.name,
             artist: e.artist,
             artworkUrl: e.artworkUrl,
             videoId: e.videoId,
-            durationSeconds: e.durationSeconds))
-        .toList();
-    final at = start.clamp(0, generated.length - 1);
-    await playGenerated(ref, context, generated[at],
-        sourceLabel: 'Search',
-        queueAll: generated,
-        startIndex: at);
+            durationSeconds: e.durationSeconds),
+        sourceLabel: 'Search');
   }
 
   Future<void> _playSingle(

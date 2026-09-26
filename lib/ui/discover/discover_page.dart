@@ -164,6 +164,9 @@ class _WaveDiscoverPageState extends ConsumerState<WaveDiscoverPage> {
           sliver: SliverToBoxAdapter(
             child: _NewReleasesExplorer(
               albumsAsync: albums,
+              affinities:
+                  feed.valueOrNull?.tasteAffinities ??
+                      const {},
               filter: _filter,
               query: _q,
               sort: _sort,
@@ -779,6 +782,11 @@ class _GenreTileState extends State<_GenreTile> {
 /// New releases explorer: real filter + sort over the live browse.
 class _NewReleasesExplorer extends StatelessWidget {
   final AsyncValue<List<YouTubeMusicEntity>> albumsAsync;
+
+  /// Normalized artist → affinity weight from the feed. The default
+  /// 'featured' order ranks known artists first (stable ties keep
+  /// shelf order); explicit sorts ignore taste.
+  final Map<String, double> affinities;
   final TextEditingController filter;
   final String query;
   final String sort;
@@ -786,6 +794,7 @@ class _NewReleasesExplorer extends StatelessWidget {
   final ValueChanged<String?> onSort;
   const _NewReleasesExplorer({
     required this.albumsAsync,
+    required this.affinities,
     required this.filter,
     required this.query,
     required this.sort,
@@ -809,6 +818,9 @@ class _NewReleasesExplorer extends StatelessWidget {
                         .toLowerCase()
                         .contains(q))
                 .toList();
+        if (sort == 'featured') {
+          items = rankNewReleases(items, affinities);
+        }
         if (sort == 'az') {
           items.sort((a, b) =>
               a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -1074,9 +1086,7 @@ class _PopularShelves extends ConsumerWidget {
                   rise: 10,
                   child: GestureDetector(
                   onTap: () => playGenerated(ref, context, t,
-                      sourceLabel: 'Popular right now',
-                      queueAll: rotation,
-                      startIndex: i),
+                      sourceLabel: 'Popular right now'),
                   child: SizedBox(
                     width: 152,
                     child: Column(

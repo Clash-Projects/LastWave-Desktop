@@ -62,6 +62,13 @@ class Prefs {
       _sp.setInt('lw_download_quality', _clampQuality(q));
 
   // -- Playback behaviour -------------------------------------------------
+  /// Keep playing similar tracks (endless radio) after a queue runs
+  /// out. Default on — matches Spotify/YTM autoplay behaviour.
+  bool get autoplaySimilar =>
+      _sp.getBool('lw_autoplay_similar') ?? true;
+  Future<void> setAutoplaySimilar(bool v) =>
+      _sp.setBool('lw_autoplay_similar', v);
+
   bool get crossfadeEnabled =>
       _sp.getBool('lw_crossfade_enabled') ?? false;
   int get crossfadeSeconds {

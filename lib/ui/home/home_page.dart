@@ -7,11 +7,10 @@ import 'package:palette_generator/palette_generator.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../app/track_actions.dart'
-    show playGenerated, playableFromGenerated;
+    show playGenerated, playableFromGenerated, relativeTime;
 import '../../core/artwork/official_artwork_service.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/home/home_providers.dart';
-import '../../features/innertube/innertube_api.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
@@ -139,10 +138,6 @@ class WaveHomePage extends ConsumerWidget {
             return _feedSlivers(context, ref, data, side, quickCols);
           },
         ),
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(side, 0, side, 32),
-          sliver: const SliverToBoxAdapter(child: _NewReleasesDense()),
-        ),
         ],
       ),
     );
@@ -161,9 +156,21 @@ class WaveHomePage extends ConsumerWidget {
 
     // Editorial hero: large personal pick (35–45% artwork) + 2–4 compact
     // companions on the right. Structure, not one giant banner.
+    //
+    // YouTube Music personal mix wins when available: hero = mix seed,
+    // Play queues the whole radio list (coherent Up Next at last) —
+    // otherwise the Last.fm chart-top fallback below.
     GeneratedTrack? hero;
     List<GeneratedTrack> companions = const [];
-    if (data.heavyRotation.isNotEmpty) {
+    List<GeneratedTrack> heroQueue = const [];
+    String heroKicker = 'FOR YOU · FEATURED MIX';
+    final mix = ref.watch(personalMixProvider).valueOrNull;
+    if (mix != null && mix.tracks.isNotEmpty) {
+      hero = mix.seed;
+      heroQueue = [mix.seed, ...mix.tracks];
+      companions = mix.tracks.take(3).toList();
+      heroKicker = 'FOR YOU · YOUTUBE MUSIC MIX';
+    } else if (data.heavyRotation.isNotEmpty) {
       hero = data.heavyRotation.first;
       companions = [
         ...data.quickPicks.take(2),
@@ -187,7 +194,12 @@ class WaveHomePage extends ConsumerWidget {
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
             index: slot(),
-            child: _FeaturedHero(track: heroTrack, upNext: companions),
+            child: _FeaturedHero(
+              track: heroTrack,
+              upNext: companions,
+              kicker: heroKicker,
+              queueAll: heroQueue,
+            ),
           ),
         ),
       ));
@@ -223,7 +235,7 @@ class WaveHomePage extends ConsumerWidget {
             (context, i) => WaveEntrance(
               index: i,
               rise: 10,
-              child: _QuickTile(track: picks[i], queueAll: picks, index: i),
+              child: _QuickTile(track: picks[i]),
             ),
             childCount: picks.length,
           ),
@@ -261,16 +273,19 @@ class WaveHomePage extends ConsumerWidget {
     if (data.becauseYouListened.isNotEmpty) {
       gap(26);
       final mixes = data.becauseYouListened.take(3).toList();
+      final becauseKicker = data.becauseSeed.isNotEmpty
+          ? 'Because you listened to ${data.becauseSeed}'
+          : 'Generated';
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
             index: slot(),
             rise: 8,
-            child: _SectionHead(
-              kicker: 'Generated',
-              title: 'Made For You',
-              count: mixes.length,
+              child: _SectionHead(
+                kicker: becauseKicker,
+                title: 'Made For You',
+                count: mixes.length,
               actionLabel: 'Open Mix Lab',
               actionPath: '/mixes',
             ),
@@ -365,10 +380,14 @@ class WaveHomePage extends ConsumerWidget {
       }
     }
 
-    // Friends Listening — compact activity strip from recent + charts.
+    // Friends Listening — real friend activity (friend → latest
+    // scrobble with relative time). Hidden entirely when there is
+    // nothing to show; never placeholder names or faked presence.
     {
-      final friends = data.jumpBackIn.take(4).toList();
-      if (friends.isNotEmpty) {
+      final activities =
+          ref.watch(friendsActivityProvider).valueOrNull ??
+              const [];
+      if (activities.isNotEmpty) {
         gap(26);
         slivers.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side),
@@ -379,7 +398,7 @@ class WaveHomePage extends ConsumerWidget {
               child: _SectionHead(
                 kicker: 'Social',
                 title: 'Friends Listening',
-                count: friends.length,
+                count: activities.length,
                 actionLabel: 'See all',
                 actionPath: '/friends',
               ),
@@ -392,7 +411,7 @@ class WaveHomePage extends ConsumerWidget {
             child: WaveEntrance(
               index: slot(),
               rise: 10,
-              child: _FriendsStrip(tracks: friends),
+              child: _FriendsStrip(activities: activities),
             ),
           ),
         ));
@@ -458,13 +477,17 @@ class WaveHomePage extends ConsumerWidget {
           itemBuilder: (context, i) => WaveEntrance(
             index: i,
             rise: 10,
-            child: _FreshRow(track: fresh[i], queueAll: fresh, index: i),
+            child: _FreshRow(track: fresh[i]),
           ),
         ),
       ));
     }
 
     gap(26);
+    // Bottom breathing room (previously came with the releases block).
+    slivers.add(
+      const SliverToBoxAdapter(child: SizedBox(height: 6)),
+    );
     return SliverMainAxisGroup(slivers: slivers);
   }
 }
@@ -617,7 +640,19 @@ class _SectionHead extends StatelessWidget {
 class _FeaturedHero extends ConsumerWidget {
   final GeneratedTrack track;
   final List<GeneratedTrack> upNext;
-  const _FeaturedHero({required this.track, this.upNext = const []});
+
+  /// Kicker override for sourced heroes (e.g. the YouTube Music mix).
+  final String kicker;
+
+  /// Full queue behind Play. Empty = legacy single-track behaviour.
+  /// Non-empty = Play starts this list at [track].
+  final List<GeneratedTrack> queueAll;
+  const _FeaturedHero({
+    required this.track,
+    this.upNext = const [],
+    this.kicker = 'FOR YOU · FEATURED MIX',
+    this.queueAll = const [],
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -661,7 +696,7 @@ class _FeaturedHero extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'FOR YOU · FEATURED MIX',
+                kicker,
                 style: WaveType.overline.copyWith(
                   fontSize: 10,
                   color: dark
@@ -705,8 +740,20 @@ class _FeaturedHero extends ConsumerWidget {
               Row(
                 children: [
                   _PlayPill(
-                    onTap: () => playGenerated(ref, context, track,
-                        sourceLabel: 'For you'),
+                    onTap: () {
+                      if (queueAll.isEmpty) {
+                        playGenerated(ref, context, track,
+                            sourceLabel: 'For you');
+                        return;
+                      }
+                      var at = queueAll.indexWhere(
+                          (t) => t.key == track.key);
+                      if (at < 0) at = 0;
+                      playGenerated(ref, context, queueAll[at],
+                          sourceLabel: 'For you',
+                          queueAll: queueAll,
+                          startIndex: at);
+                    },
                   ),
                   const SizedBox(width: 12),
                   GestureDetector(
@@ -786,8 +833,6 @@ class _FeaturedHero extends ConsumerWidget {
                 for (var i = 0; i < upNext.length; i++)
                   _HeroCompanion(
                     track: upNext[i],
-                    queueAll: upNext,
-                    index: i,
                   ),
               ],
             ),
@@ -802,12 +847,8 @@ class _FeaturedHero extends ConsumerWidget {
 /// hover play. Keeps the hero music-dense instead of banner-empty.
 class _HeroCompanion extends ConsumerStatefulWidget {
   final GeneratedTrack track;
-  final List<GeneratedTrack> queueAll;
-  final int index;
   const _HeroCompanion({
     required this.track,
-    required this.queueAll,
-    required this.index,
   });
   @override
   ConsumerState<_HeroCompanion> createState() => _HeroCompanionState();
@@ -823,9 +864,7 @@ class _HeroCompanionState extends ConsumerState<_HeroCompanion> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: 'For you · up next',
-            queueAll: widget.queueAll,
-            startIndex: widget.index),
+            sourceLabel: 'For you · up next'),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 6),
           decoration: BoxDecoration(
@@ -936,12 +975,8 @@ class _PlayPillState extends State<_PlayPill> {
 /// Quick Picks tile: 56px, 48px art, hover play, playing wash.
 class _QuickTile extends ConsumerStatefulWidget {
   final GeneratedTrack track;
-  final List<GeneratedTrack> queueAll;
-  final int index;
   const _QuickTile({
     required this.track,
-    required this.queueAll,
-    required this.index,
   });
   @override
   ConsumerState<_QuickTile> createState() => _QuickTileState();
@@ -960,15 +995,14 @@ class _QuickTileState extends ConsumerState<_QuickTile> {
     final tile = MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
+      // Grid tiles play just the tapped song — radio picks what
+      // follows. Queuing the rest of the grid played unrelated
+      // ranking neighbours instead.
       child: GestureDetector(
         onTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: 'Quick picks',
-            queueAll: widget.queueAll,
-            startIndex: widget.index),
+            sourceLabel: 'Quick picks'),
         onDoubleTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: 'Quick picks',
-            queueAll: widget.queueAll,
-            startIndex: widget.index),
+            sourceLabel: 'Quick picks'),
         child: Container(
           height: 56,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
@@ -1073,8 +1107,6 @@ class _CoverShelf extends StatelessWidget {
           rise: 10,
           child: _CoverCard(
             track: tracks[i],
-            queueAll: tracks,
-            index: i,
             source: source,
           ),
         ),
@@ -1085,13 +1117,9 @@ class _CoverShelf extends StatelessWidget {
 
 class _CoverCard extends ConsumerStatefulWidget {
   final GeneratedTrack track;
-  final List<GeneratedTrack> queueAll;
-  final int index;
   final String source;
   const _CoverCard({
     required this.track,
-    required this.queueAll,
-    required this.index,
     required this.source,
   });
   @override
@@ -1107,9 +1135,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: widget.source,
-            queueAll: widget.queueAll,
-            startIndex: widget.index),
+            sourceLabel: widget.source),
         child: SizedBox(
           width: 140,
           child: Column(
@@ -1195,8 +1221,6 @@ class _MixShelf extends StatelessWidget {
               title: _titles[i % _titles.length],
               blurb: _blurs[i % _blurs.length],
               badge: 'MIX 0${i + 1}',
-              queueAll: tracks,
-              index: i,
             ),
           );
         },
@@ -1210,15 +1234,11 @@ class _MixCard extends ConsumerStatefulWidget {
   final String title;
   final String blurb;
   final String badge;
-  final List<GeneratedTrack> queueAll;
-  final int index;
   const _MixCard({
     required this.track,
     required this.title,
     required this.blurb,
     required this.badge,
-    required this.queueAll,
-    required this.index,
   });
   @override
   ConsumerState<_MixCard> createState() => _MixCardState();
@@ -1234,9 +1254,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: widget.title,
-            queueAll: widget.queueAll,
-            startIndex: widget.index),
+            sourceLabel: widget.title),
         child: SizedBox(
           width: 220,
           child: Column(
@@ -1359,8 +1377,6 @@ class _AlbumShelf extends StatelessWidget {
           rise: 10,
           child: _AlbumCard(
             track: tracks[i],
-            queueAll: tracks,
-            index: i,
             source: source,
           ),
         ),
@@ -1371,13 +1387,9 @@ class _AlbumShelf extends StatelessWidget {
 
 class _AlbumCard extends ConsumerStatefulWidget {
   final GeneratedTrack track;
-  final List<GeneratedTrack> queueAll;
-  final int index;
   final String source;
   const _AlbumCard({
     required this.track,
-    required this.queueAll,
-    required this.index,
     required this.source,
   });
   @override
@@ -1393,9 +1405,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: widget.source,
-            queueAll: widget.queueAll,
-            startIndex: widget.index),
+            sourceLabel: widget.source),
         child: SizedBox(
           width: 152,
           child: Column(
@@ -1553,12 +1563,8 @@ class _ChartRow extends ConsumerWidget {
 /// Fresh Finds: 40px compact rows.
 class _FreshRow extends ConsumerWidget {
   final GeneratedTrack track;
-  final List<GeneratedTrack> queueAll;
-  final int index;
   const _FreshRow({
     required this.track,
-    required this.queueAll,
-    required this.index,
   });
 
   @override
@@ -1577,9 +1583,7 @@ class _FreshRow extends ConsumerWidget {
       ),
       child: GestureDetector(
         onTap: () => playGenerated(ref, context, track,
-            sourceLabel: 'Fresh finds',
-            queueAll: queueAll,
-            startIndex: index),
+            sourceLabel: 'Fresh finds'),
         child: Container(
           padding:
               const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
@@ -1622,97 +1626,6 @@ class _FreshRow extends ConsumerWidget {
         ),
       ),
     );
-  }
-}
-
-/// New releases: dense 124px grid from the real new-releases browse.
-class _NewReleasesDense extends ConsumerWidget {
-  const _NewReleasesDense();
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final albums = ref.watch(newAlbumsProvider);
-    return albums.when(
-      loading: () => const _NewReleasesSkeleton(),
-      error: (_, _) => const SizedBox.shrink(),
-      data: (list) {
-        if (list.isEmpty) return const SizedBox.shrink();
-        final items = list.take(12).toList();
-        // Own provider timeline — animate locally when this section lands.
-        return WaveEntrance(
-          local: true,
-          rise: 10,
-          child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _SectionHead(
-              kicker: 'Catalogue',
-              title: 'New Releases',
-              count: items.length,
-              actionLabel: 'See all',
-              actionPath: '/albums',
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 178,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: items.length,
-                separatorBuilder: (_, _) =>
-                    const SizedBox(width: 12),
-                itemBuilder: (context, i) {
-                  final a = items[i];
-                  return GestureDetector(
-                    onTap: () => _playAlbum(context, ref, a),
-                    child: SizedBox(
-                      width: 124,
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          WaveArtwork(
-                            url: a.artworkUrl,
-                            size: 124,
-                            radius: 6,
-                            title: a.name,
-                            artist: a.artist.isNotEmpty ? a.artist : a.subtitle,
-                            label: a.name,
-                            kind: ArtworkKind.album,
-                          ),
-                          const SizedBox(height: 5),
-                          Text(a.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: WaveType.trackTitle
-                                  .copyWith(fontSize: 12)),
-                          Text(
-                              a.artist.isNotEmpty
-                                  ? a.artist
-                                  : a.subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: WaveType.meta
-                                  .copyWith(fontSize: 11)),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _playAlbum(BuildContext context, WidgetRef ref,
-      YouTubeMusicEntity album) async {
-    final tracks =
-        await ref.read(feedRepositoryProvider).albumTracks(album);
-    if (tracks.isEmpty || !context.mounted) return;
-    await playGenerated(ref, context, tracks.first,
-        sourceLabel: album.name, queueAll: tracks);
   }
 }
 
@@ -1800,109 +1713,84 @@ class _ArtistTileState extends State<_ArtistTile> {
 }
 
 /// Friends Listening: compact 56px activity rows with avatar dot.
-class _FriendsStrip extends StatelessWidget {
-  final List<GeneratedTrack> tracks;
-  const _FriendsStrip({required this.tracks});
+class _FriendsStrip extends ConsumerWidget {
+  final List<FriendActivity> activities;
+  const _FriendsStrip({required this.activities});
   @override
-  Widget build(BuildContext context) {
-    const names = ['Mara', 'Jonas', 'Priya', 'Theo'];
+  Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       children: [
-        for (var i = 0; i < tracks.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              children: [
-                Stack(
-                  children: [
-                    WaveArtwork(
-                      url: tracks[i].artworkUrl,
-                      size: 44,
-                      radius: WaveRadius.artwork,
-                      title: tracks[i].name,
-                      artist: tracks[i].artist,
-                      label: tracks[i].name,
-                    ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: WaveColors.success,
-                          border: Border.all(
-                              color: waveSurface(context),
-                              width: 2),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                          '${names[i % names.length]} · ${tracks[i].name}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.trackTitle
-                              .copyWith(fontSize: 12.5)),
-                      Text(tracks[i].artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.meta
-                              .copyWith(fontSize: 11.5)),
-                    ],
-                  ),
-                ),
-                Text('now',
-                    style: WaveType.meta.copyWith(
-                        fontSize: 11,
-                        color:
-                            waveTextTertiary(context))),
-              ],
-            ),
-          ),
+        for (var i = 0; i < activities.length; i++)
+          _FriendRow(activity: activities[i]),
       ],
     );
   }
 }
 
-class _NewReleasesSkeleton extends StatelessWidget {
-  const _NewReleasesSkeleton();
+class _FriendRow extends ConsumerWidget {
+  final FriendActivity activity;
+  const _FriendRow({required this.activity});
+
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-            width: 180,
-            height: 14,
-            decoration: BoxDecoration(
-                color: waveDivider(context),
-                borderRadius: BorderRadius.circular(4))),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 178,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: 6,
-            separatorBuilder: (_, _) => const SizedBox(width: 12),
-            itemBuilder: (context, _) => Container(
-                width: 124,
-                height: 124,
-                decoration: BoxDecoration(
-                    color: waveDivider(context)
-                        .withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(6))),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = activity.track;
+    final when = t.timestampMillis == null
+        ? ''
+        : relativeTime(DateTime.fromMillisecondsSinceEpoch(
+            t.timestampMillis!));
+    final avatar = activity.avatarUrl.isNotEmpty
+        ? activity.avatarUrl
+        : t.artworkUrl;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: GestureDetector(
+        onTap: () => playGenerated(
+          ref,
+          context,
+          GeneratedTrack(
+            name: t.name,
+            artist: t.artist,
+            artworkUrl: t.artworkUrl,
           ),
+          sourceLabel: 'Friends',
         ),
-      ],
+        child: Row(
+          children: [
+            WaveArtwork.circle(
+              url: avatar,
+              size: 44,
+              label: activity.friend,
+              title: activity.friend,
+              upgrade: false,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text('${activity.friend} · ${t.name}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.trackTitle
+                          .copyWith(fontSize: 12.5)),
+                  Text(t.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.meta
+                          .copyWith(fontSize: 11.5)),
+                ],
+              ),
+            ),
+            if (when.isNotEmpty)
+              Text(when,
+                  style: WaveType.meta.copyWith(
+                      fontSize: 11,
+                      color:
+                          waveTextTertiary(context))),
+          ],
+        ),
+      ),
     );
   }
 }

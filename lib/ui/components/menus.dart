@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
+import '../../features/home/home_providers.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/search/shared_providers.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip;
 
@@ -186,6 +188,22 @@ List<MenuFlyoutItemBase> waveTrackMenuItems({
       ),
     );
   }
+  items.add(const MenuFlyoutSeparator());
+  items.add(
+    MenuFlyoutItem(
+      leading: const Icon(FluentIcons.blocked, size: 15),
+      text: const Text("Don't recommend"),
+      onPressed: () {
+        try {
+          ref
+              .read(databaseProvider)
+              .addExclusion(name: title, artist: artist);
+          // Recommendations rebuild without it on next load.
+          ref.invalidate(feedProvider);
+        } catch (_) {}
+      },
+    ),
+  );
   return items;
 }
 

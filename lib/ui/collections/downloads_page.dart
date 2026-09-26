@@ -5,6 +5,7 @@ import 'package:super_sliver_list/super_sliver_list.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../../core/storage/prefs.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
@@ -163,6 +164,7 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
             playbackUrl: e.filePath ?? '',
           ),
           sourceLabel: 'Downloads',
+          startRadio: ref.read(prefsProvider).autoplaySimilar,
         );
   }
 

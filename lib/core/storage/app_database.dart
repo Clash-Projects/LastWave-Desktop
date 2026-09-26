@@ -187,6 +187,45 @@ class AppDatabase {
     _db.execute('DELETE FROM search_history WHERE query = ?;', [query]);
   }
 
+  // -- recommendation exclusions ("don't recommend") --------------------
+  //
+  // Key format matches GeneratedTrack.key / HomeTrack.key exactly
+  // ('name|artist', lowercased) so feed filtering is a set lookup.
+
+  static String exclusionKey(String name, String artist) =>
+      '${name.toLowerCase()}|${artist.toLowerCase()}';
+
+  Set<String> loadExclusionKeys() {
+    return {
+      for (final r in _db.select(
+          'SELECT track_key FROM recommendation_exclusions;'))
+        (r['track_key'] as String?) ?? '',
+    }..remove('');
+  }
+
+  void addExclusion({
+    required String name,
+    required String artist,
+  }) {
+    _db.execute(
+      'INSERT OR REPLACE INTO recommendation_exclusions '
+      '(track_key, excluded_at_millis, track_name, artist_name) '
+      'VALUES (?, ?, ?, ?);',
+      [
+        exclusionKey(name, artist),
+        DateTime.now().millisecondsSinceEpoch,
+        name,
+        artist,
+      ],
+    );
+  }
+
+  void removeExclusion(String key) {
+    _db.execute(
+        'DELETE FROM recommendation_exclusions WHERE track_key = ?;',
+        [key]);
+  }
+
   // -- playback session -------------------------------------------------
 
   Map<String, dynamic> loadPlaybackSession() {

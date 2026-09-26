@@ -5,8 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/audio/stream_models.dart';
-import '../../features/player/playback_service.dart';
+import '../../app/track_actions.dart' show playGenerated;
+import '../../features/feed/feed_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../search/search_page.dart';
@@ -248,17 +248,19 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
   }
 
   void _playSong(SearchResultItem s) {
-    ref.read(playbackServiceProvider.notifier).playQueue(
-      [
-        PlayableTrack(
-          title: s.name,
-          artist: s.artist,
-          album: s.subtitle,
-          artworkUrl: s.artworkUrl,
-          videoId: s.videoId,
-        ),
-      ],
-      0,
+    // Single track through the shared helper: autoplay-similar pref
+    // applies, so radio follows (a raw single-track playQueue would
+    // just stop).
+    playGenerated(
+      ref,
+      context,
+      GeneratedTrack(
+        name: s.name,
+        artist: s.artist,
+        album: s.subtitle,
+        artworkUrl: s.artworkUrl,
+        videoId: s.videoId,
+      ),
       sourceLabel: 'Command palette',
     );
   }

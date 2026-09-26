@@ -1744,6 +1744,15 @@ class _Playback extends ConsumerWidget {
       child: Column(
         children: [
           _SwitchRow(
+            value: prefs.autoplaySimilar,
+            onChanged: (v) =>
+                onUpdate((p) => p.setAutoplaySimilar(v)),
+            title: 'Autoplay similar',
+            subtitle:
+                'Keep playing related tracks after a queue ends',
+          ),
+          const SizedBox(height: 8),
+          _SwitchRow(
             value: prefs.crossfadeEnabled,
             onChanged: (v) async {
               await onUpdate((p) => p.setCrossfade(v));

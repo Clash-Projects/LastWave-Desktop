@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/audio/stream_models.dart';
+import '../core/storage/prefs.dart';
 import '../features/feed/feed_repository.dart';
 import '../features/innertube/innertube_api.dart';
 import '../features/player/playback_service.dart';
@@ -26,6 +27,10 @@ Future<void> playGenerated(
     list.map(playableFromGenerated).toList(),
     index,
     sourceLabel: sourceLabel,
+    // Autoplay similar once the queue runs out (Settings → Playback).
+    // Every list surface funnels through here, so one flag covers
+    // Quick Picks, Liked, History, albums and playlists.
+    endlessRadio: ref.read(prefsProvider).autoplaySimilar,
   );
 }
 

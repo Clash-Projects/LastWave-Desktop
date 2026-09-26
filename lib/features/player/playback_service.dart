@@ -1296,13 +1296,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       if (videoId == null) return;
       final related =
           await _tube.fetchRelatedSongs(videoId, limit: 25);
-      final existing =
-          state.queue.map((t) => t.queueKey).toSet();
+      final current = state.queue;
       final fresh = related
           .where((t) =>
               !_isDisallowedRadioTitle(t.title) &&
-              !existing.contains(
-                  '${t.title.toLowerCase()}|${t.artist.toLowerCase()}') &&
+              !_isRadioDuplicate(t, current) &&
               !_radioSeeds.contains(t.videoId))
           .take(10)
           .map((t) => PlayableTrack(
@@ -1329,6 +1327,35 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         t.contains('nonstop') ||
         t.contains('all songs') ||
         t.contains('compilation');
+  }
+
+  /// Radio duplicate check with fuzzy matching: exact lowercase keys
+  /// miss artist variants ("X - Topic", feat. credits) and title
+  /// suffixes, which then play the same song twice in a row. Same
+  /// 85/50 thresholds as the library matching in `fillMissingMetadata`.
+  bool _isRadioDuplicate(
+      YouTubeMusicTrack t, List<PlayableTrack> queue) {
+    final key =
+        '${t.title.toLowerCase()}|${t.artist.toLowerCase()}';
+    final base = InnerTubeMusicApi.baseTitle(t.title);
+    for (final q in queue) {
+      if (q.queueKey == key) return true;
+      if (InnerTubeMusicApi.similarity(
+              InnerTubeMusicApi.baseTitle(q.title), base) <
+          85) {
+        continue;
+      }
+      final qa = q.artist.toLowerCase();
+      final ta = t.artist.toLowerCase();
+      if (qa.isNotEmpty &&
+          ta.isNotEmpty &&
+          (qa.contains(ta) ||
+              ta.contains(qa) ||
+              InnerTubeMusicApi.similarity(qa, ta) >= 50)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // -- scrobbling ---------------------------------------------------------------

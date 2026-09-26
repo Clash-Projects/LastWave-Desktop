@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../../core/storage/prefs.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../theme/tokens.dart';
@@ -92,6 +93,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
     ref.read(playbackServiceProvider.notifier).play(
           track,
           sourceLabel: 'Track list',
+          startRadio: ref.read(prefsProvider).autoplaySimilar,
         );
   }
 
