@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -216,6 +218,28 @@ class Prefs {
 
   Future<void> setCdMode(bool v) =>
       _sp.setBool('lw_cd_mode', v);
+
+  // -- Addon sources (personal addon URLs) ----------------------------------
+  /// User-pasted addon roots (`{base}/a/<token>/`), JSON-encoded.
+  List<String> get addonUrls {
+    final raw = _sp.getString('lw_addon_urls') ?? '';
+    if (raw.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  Future<void> setAddonUrls(List<String> urls) => _sp.setString(
+      'lw_addon_urls',
+      jsonEncode(
+          urls.map((e) => e.trim()).where((e) => e.isNotEmpty).toList()));
 }
 
 final prefsProvider = Provider<Prefs>((_) {

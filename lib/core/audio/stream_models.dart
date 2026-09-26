@@ -1,6 +1,6 @@
 /// Shared audio/track models.
 ///
-/// Quality tier constants mirror LastWave-native `LosslessMusicApi`:
+/// Quality tier constants (YouTube / 320k / 16·44.1 / 24·96 / 24·192):
 /// -1 = YouTube only, 5 = 320k MP3, 6 = CD 16/44.1 FLAC,
 /// 7 = Hi-Res 24/96, 27 = Max Hi-Res 24/192.
 class AudioQualityTiers {

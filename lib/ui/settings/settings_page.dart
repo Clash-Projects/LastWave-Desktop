@@ -13,6 +13,7 @@ import '../../app/auth_gate.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/env/app_env.dart';
 import '../../core/storage/prefs.dart';
+import '../../features/addons/addon_api.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/innertube/yt_web_login.dart';
@@ -34,6 +35,7 @@ const _waveSettingsSections = [
   ('appearance', 'Appearance', FluentIcons.brush),
   ('lastfm', 'Last.fm', FluentIcons.heart),
   ('integrations', 'Integrations', FluentIcons.link),
+  ('sources', 'Sources', FluentIcons.cloud),
   ('experimental', 'Experimental', FluentIcons.bug),
   ('about', 'About', FluentIcons.info),
 ];
@@ -214,6 +216,8 @@ class _SectionBody extends ConsumerWidget {
         return _LastFm(onUpdate: onUpdate);
       case 'integrations':
         return const _Ytm();
+      case 'sources':
+        return _Sources(onUpdate: onUpdate);
       case 'experimental':
         return _Experimental(onUpdate: onUpdate);
       default:
@@ -1414,6 +1418,214 @@ Future<void> _refocusMain() async {
   try {
     await windowManager.focus();
   } catch (_) {}
+}
+
+/// Addon sources: personal addon URLs replace the built-in lossless
+/// backend as the lossless tier (see [AddonApi]). Quota meters fill
+/// in after playback; unknown until the first stream attempt.
+class _Sources extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _Sources({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final urls = ref.watch(prefsProvider).addonUrls;
+    final src = ref.watch(losslessApiProvider);
+    final quotas = src is AddonApi
+        ? src.quotaByBase
+        : const <String, AddonQuota>{};
+    return _Group(
+      title: 'Addon sources',
+      subtitle: urls.isEmpty
+          ? 'No addon configured — using the built-in lossless backend'
+          : 'Addons serve the lossless tier instead of the built-in backend',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (AppEnv.addonClientSecret.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'This build has no addon app key — addon calls will fail. '
+                'Rebuild with ADDON_CLIENT_SECRET set.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+          for (final u in urls)
+            _AddonRow(
+              url: u,
+              quota: quotas[u],
+              onRemove: () async {
+                await onUpdate((p) => p.setAddonUrls(
+                    urls.where((e) => e != u).toList()));
+                ref.invalidate(losslessApiProvider);
+              },
+            ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton(
+              onPressed: () =>
+                  _addAddonDialog(context, ref, urls, onUpdate),
+              child: const Text('Add addon'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Paste the full addon URL from your dashboard. Anyone holding '
+            'it plays on your quota — keep the dashboard backup safe.',
+            style: TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addAddonDialog(
+    BuildContext context,
+    WidgetRef ref,
+    List<String> urls,
+    Future<void> Function(Future<void> Function(Prefs)) onUpdate,
+  ) async {
+    final controller = TextEditingController();
+    final pasted = await showDialog<String>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text('Add addon'),
+        content: TextBox(
+          controller: controller,
+          placeholder: 'https://…/a/<token>/',
+          maxLines: 2,
+        ),
+        actions: [
+          Button(
+            onPressed: () =>
+                Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context)
+                .pop(controller.text.trim()),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    final raw = pasted ?? '';
+    controller.dispose();
+    if (raw.isEmpty || !context.mounted) return;
+    final parsed = AddonApi.parseAddonUrl(raw);
+    if (parsed == null) {
+      if (context.mounted) {
+        await showDialog(
+          context: context,
+          builder: (dialogContext) => ContentDialog(
+            title: const Text('Not an addon URL'),
+            content: const Text(
+                'Expected something like https://host/a/<token>/.'),
+            actions: [
+              FilledButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+    AddonManifest? manifest;
+    try {
+      manifest =
+          await AddonApi([parsed.root]).manifestFor(parsed.root);
+    } catch (_) {
+      manifest = null;
+    }
+    if (!context.mounted) return;
+    if (manifest == null) {
+      await showDialog(
+        context: context,
+        builder: (dialogContext) => ContentDialog(
+          title: const Text('Addon unreachable'),
+          content: const Text(
+              'No usable addon answered there — revoked, offline, '
+              'or wrong URL. Nothing was saved.'),
+          actions: [
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    final root = parsed.root;
+    final next = [
+      ...urls.where((e) => e != root),
+      root,
+    ];
+    await onUpdate((p) => p.setAddonUrls(next));
+    ref.invalidate(losslessApiProvider);
+    ref.invalidate(addonManifestProvider);
+  }
+}
+
+class _AddonRow extends ConsumerWidget {
+  final String url;
+  final AddonQuota? quota;
+  final Future<void> Function() onRemove;
+  const _AddonRow({
+    required this.url,
+    required this.quota,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final manifest = ref.watch(addonManifestProvider(url)).valueOrNull;
+    final host = Uri.tryParse(url)?.host ?? url;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          const Icon(FluentIcons.cloud, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  manifest?.name ?? host,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WaveType.trackTitle,
+                ),
+                Text(
+                  manifest == null
+                      ? '$host · unreachable'
+                      : host,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WaveType.meta.copyWith(
+                      color:
+                          waveTextSecondary(context)),
+                ),
+              ],
+            ),
+          ),
+          Button(
+            onPressed: () => onRemove(),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _About extends StatelessWidget {

@@ -6,10 +6,10 @@ import '../../../app/track_actions.dart'
     show formatDuration, playGenerated, playableFromGenerated;
 import '../../../core/audio/stream_models.dart';
 import '../../../core/storage/prefs.dart';
+import '../../../features/addons/addon_api.dart';
 import '../../../features/downloads/download_manager.dart';
 import '../../../features/feed/feed_repository.dart';
 import '../../../features/innertube/innertube_api.dart';
-import '../../../features/lossless/lossless_api.dart';
 import '../../../features/player/playback_service.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show WaveChip;

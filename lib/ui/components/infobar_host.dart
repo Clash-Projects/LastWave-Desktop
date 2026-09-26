@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/network/network_monitor.dart';
+import '../../features/addons/addon_api.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../theme/tokens.dart';
@@ -12,6 +13,7 @@ import '../theme/tokens.dart';
 /// Shows (highest priority first):
 /// - offline network
 /// - Last.fm session expired
+/// - addon daily quota spent (falls through to YouTube)
 /// - latest download done/error
 ///
 /// Dismissible per-bar, auto-collapses when clear. Rendered by [WaveShell]
@@ -26,6 +28,7 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
   bool _dismissedOffline = false;
   bool _dismissedAuth = false;
   String? _dismissedDownloadKey;
+  String? _dismissedQuotaNotice;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +57,19 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
           child: const Text('Connect'),
         ),
         onClose: () => setState(() => _dismissedAuth = true),
+      ));
+    }
+    final quotaNotice = ref.watch(addonNoticeProvider);
+    if (quotaNotice != null && _dismissedQuotaNotice != quotaNotice) {
+      bars.add(InfoBar(
+        title: const Text('Addon quota reached'),
+        content: Text('$quotaNotice Playing from YouTube instead.'),
+        severity: InfoBarSeverity.warning,
+        isLong: false,
+        onClose: () {
+          setState(() => _dismissedQuotaNotice = quotaNotice);
+          ref.read(addonNoticeProvider.notifier).state = null;
+        },
       ));
     }
     DownloadEntry? latest;

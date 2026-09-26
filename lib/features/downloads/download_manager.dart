@@ -10,7 +10,8 @@ import '../../core/network/dio_factory.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
 import '../innertube/innertube_api.dart';
-import '../lossless/lossless_api.dart';
+import '../addons/addon_api.dart';
+import '../lossless/lossless_source.dart';
 import '../lyrics/lyrics_repository.dart';
 import '../search/shared_providers.dart';
 
@@ -66,7 +67,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   final Dio _dio;
   final AppDatabase _db;
   final Prefs _prefs;
-  final LosslessMusicApi _lossless;
+  final LosslessSource _lossless;
   final InnerTubeMusicApi _tube;
   final LyricsRepository _lyrics;
   final Set<String> _active = {};

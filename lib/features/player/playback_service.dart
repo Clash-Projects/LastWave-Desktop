@@ -10,9 +10,10 @@ import '../../core/audio/stream_models.dart';
 import '../audio_output/pcm_format.dart';
 import '../audio_output/wasapi_engine.dart';
 import '../downloads/download_manager.dart';
+import '../addons/addon_api.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/scrobble_repository.dart';
-import '../lossless/lossless_api.dart';
+import '../lossless/lossless_source.dart';
 import 'player_state.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
@@ -27,7 +28,8 @@ import '../search/shared_providers.dart';
 /// - stream failure backoff (client cooldown + unavailable set)
 class PlaybackService extends StateNotifier<PlayerSnapshot> {
   final InnerTubeMusicApi _tube;
-  final LosslessMusicApi _lossless;
+  final LosslessSource _lossless;
+  final void Function(String notice)? _onAddonQuota;
   final ScrobbleRepository _scrobbler;
   final DownloadManager _downloads;
   final PrefsHandle _prefs;
@@ -80,6 +82,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     this._prefs,
     this._sessions, [
     OfficialArtworkService? artworkService,
+    this._onAddonQuota,
   ])  : _artworkService = artworkService ?? OfficialArtworkService(),
         super(const PlayerSnapshot());
 
@@ -825,6 +828,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         preferredQuality: _prefs.losslessQuality,
       );
       if (stream != null) return stream;
+    } on AddonQuotaException catch (e) {
+      // Daily addon quota spent: tell the UI once, then fall through
+      // to YouTube like any other backend miss.
+      try {
+        _onAddonQuota?.call(e.message);
+      } catch (_) {}
     } catch (_) {
       // The backend failed; continue with YouTube for this request.
     }
@@ -1546,6 +1555,11 @@ final playbackServiceProvider =
     PrefsHandle(ref.watch(prefsProvider)),
     SessionStore(ref.watch(databaseProvider)),
     ref.watch(officialArtworkServiceProvider),
+    (notice) {
+      try {
+        ref.read(addonNoticeProvider.notifier).state = notice;
+      } catch (_) {}
+    },
   );
   ref.onDispose(service.disposePlayer);
   return service;

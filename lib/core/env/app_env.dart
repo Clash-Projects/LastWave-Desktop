@@ -32,19 +32,11 @@ class AppEnv {
     }
   }
 
-  /// clashflac-compatible backend base URL, e.g. https://your-backend.com
-  static String get losslessBackendUrl =>
-      _decode(secrets.kLosslessBackendUrl)
-          .replaceAll(RegExp(r'/+$'), '');
-
-  static String get losslessApiKey =>
-      _decode(secrets.kLosslessApiKey);
-
-  /// Tidal HiFi-API proxy (search + decrypted stream URLs).
-  static String get tidalBackendUrl =>
-      _decode(secrets.kBackendBUrl).replaceAll(RegExp(r'/+$'), '');
-
-  static String get tidalApiKey => _decode(secrets.kBackendBKey);
+  /// Addon one-way-lock secret (HMAC-SHA256 request proofs). Baked in
+  /// like the other keys: never logged, never sent except as a keyed
+  /// proof. Empty = addon calls fail closed server-side (404).
+  static String get addonClientSecret =>
+      _decode(secrets.kAddonClientSecret);
 
   static String get lyricsApiKey =>
       _decode(secrets.kLyricsApiKey);
@@ -60,28 +52,13 @@ class AppEnv {
   static bool get isLastFmConfigured =>
       lastfmApiKey.isNotEmpty && lastfmApiSecret.isNotEmpty;
 
-  static bool get hasLosslessBackend =>
-      losslessBackendUrl.isNotEmpty && losslessApiKey.isNotEmpty;
-
-  static bool get hasTidalBackend =>
-      tidalBackendUrl.isNotEmpty && tidalApiKey.isNotEmpty;
-
-  static bool get hasAnyLosslessCatalog =>
-      hasLosslessBackend || hasTidalBackend;
-
   /// About-screen catalog list. Never includes URLs or keys.
-  static String get losslessCatalogLabel {
-    final parts = <String>[
-      if (hasLosslessBackend) 'Qobuz',
-      if (hasTidalBackend) 'Tidal',
-    ];
-    return parts.isEmpty ? 'not configured' : parts.join(' · ');
-  }
+  /// (Settings → Sources) are the only lossless catalog now.
+  static String get losslessCatalogLabel => 'Addons';
 
   /// Non-sensitive diagnostics only — never includes secret values.
   static Map<String, bool> get configuredFlags => {
-        'losslessBackend': hasLosslessBackend,
-        'tidalBackend': hasTidalBackend,
+        'addonKey': addonClientSecret.isNotEmpty,
         'lyricsKey': lyricsApiKey.isNotEmpty,
         'lastfmOverride':
             _decode(secrets.kLastfmApiKey).isNotEmpty,

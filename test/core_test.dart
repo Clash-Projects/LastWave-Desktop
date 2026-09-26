@@ -3,187 +3,94 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/network/lastfm_crypto.dart';
 import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
 import 'package:lastwave_desktop/features/innertube/signature_decipher.dart';
-import 'package:lastwave_desktop/features/lossless/lossless_api.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_models.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_repository.dart';
 
 void main() {
   group('LastFmSigner', () {
     test('sign is deterministic and order-independent', () {
-      final a = LastFmSigner.sign(
-          {'b': '2', 'a': '1'}, 'secret');
-      final b = LastFmSigner.sign(
-          {'a': '1', 'b': '2'}, 'secret');
+      final a = LastFmSigner.sign({'b': '2', 'a': '1'}, 'secret');
+      final b = LastFmSigner.sign({'a': '1', 'b': '2'}, 'secret');
       expect(a, equals(b));
       expect(a.length, 32);
     });
 
     test('sign skips format/callback/api_sig', () {
       final a = LastFmSigner.sign({'a': '1'}, 's');
-      final b = LastFmSigner.sign(
-          {'a': '1', 'format': 'json', 'api_sig': 'x'},
-          's');
+      final b = LastFmSigner.sign({
+        'a': '1',
+        'format': 'json',
+        'api_sig': 'x',
+      }, 's');
       expect(a, equals(b));
     });
 
     test('sapisidHash format', () {
-      final h = LastFmSigner.sapisidHash(
-          'abc123', 'https://music.youtube.com');
+      final h = LastFmSigner.sapisidHash('abc123', 'https://music.youtube.com');
       expect(h.startsWith('SAPISIDHASH '), isTrue);
       expect(h.split('_').length, 2);
     });
   });
 
-  group('Lossless quality order', () {
-    test('preferred first, higher tiers next', () {
-      expect(
-          LosslessMusicApi.getQualityAttemptOrder(6),
-          equals([6, 7, 27, 5]));
-      expect(
-          LosslessMusicApi.getQualityAttemptOrder(27),
-          equals([27, 7, 6, 5]));
-      expect(
-          LosslessMusicApi.getQualityAttemptOrder(5),
-          equals([5, 6, 7, 27]));
-      expect(
-          LosslessMusicApi.getQualityAttemptOrder(-1),
-          isEmpty);
-    });
-
-    test('normalization strips artist prefix', () {
-      expect(
-          LosslessMusicApi.normalizeTitle('Adele - Hello'),
-          equals('hello'));
-    });
-
-    test('normalization collapses apostrophes and explicit tags', () {
-      expect(
-          LosslessMusicApi.normalizeTitle("I Can't Save You"),
-          equals(LosslessMusicApi.normalizeTitle('I Cant Save You')));
-      expect(
-          LosslessMusicApi.normalizeTitle('The Hills (Explicit)'),
-          equals('the hills'));
-    });
-
-    test('titlesMatch accepts YouTube vs Qobuz wording', () {
-      expect(
-          LosslessMusicApi.titlesMatch(
-              "I Can't Save You (Interlude)",
-              'I Cant Save You (Interlude)'),
-          isTrue);
-      expect(
-          LosslessMusicApi.titlesMatch('Hello', 'Goodbye'),
-          isFalse);
-    });
-
-    test('Interlude feat. titles still match the catalog recording', () {
-      final api = LosslessMusicApi();
-      const youtube =
-          "I Can't Save You (Interlude) [feat. Don Toliver]";
-      expect(
-        LosslessMusicApi.identityVariants(youtube).contains('live'),
-        isFalse,
-      );
-      final withParen = LosslessCandidate(
-        id: '1',
-        title: "I Can't Save You (Interlude)",
-        performer: 'Metro Boomin',
-        albumTitle: 'HEROES & VILLAINS',
-        albumArtist: 'Metro Boomin',
-      );
-      final catalogShort = LosslessCandidate(
-        id: '2',
-        title: "I Can't Save You",
-        performer: 'Metro Boomin',
-        albumTitle: 'HEROES & VILLAINS',
-        albumArtist: 'Metro Boomin',
-      );
-      expect(
-          api.verifiedMatchScore(
-            withParen,
-            title: youtube,
-            artist: 'Metro Boomin',
-            album: 'HEROES & VILLAINS',
-            expectedDurationSeconds: 0,
-          ),
-          isNotNull);
-      expect(
-          api.verifiedMatchScore(
-            catalogShort,
-            title: youtube,
-            artist: 'Metro Boomin',
-            album: 'HEROES & VILLAINS',
-            expectedDurationSeconds: 0,
-          ),
-          isNotNull);
-    });
-
-    test('titlesMatch allows a one-letter catalog typo', () {
-      expect(
-          LosslessMusicApi.titlesMatch('Nube Ras', 'Numbe Ras'),
-          isTrue);
-    });
-  });
-
   group('InnerTube matching (Android parity)', () {
     test('similarity is 100 for identical strings', () {
-      expect(
-          InnerTubeMusicApi.similarity('hello', 'hello'),
-          100);
+      expect(InnerTubeMusicApi.similarity('hello', 'hello'), 100);
     });
 
     test('noise words do not hurt similarity', () {
       // official/video are MATCH_NOISE_WORDS: token sets equal.
       expect(
-          InnerTubeMusicApi.similarity(
-              'hello', 'hello (official video)'),
-          100);
+        InnerTubeMusicApi.similarity('hello', 'hello (official video)'),
+        100,
+      );
     });
 
     test('unrelated strings score 0', () {
-      expect(
-          InnerTubeMusicApi.similarity('hello', 'goodbye'),
-          0);
+      expect(InnerTubeMusicApi.similarity('hello', 'goodbye'), 0);
     });
 
     test('substring with enough overlap scores >= 85', () {
       expect(
-          InnerTubeMusicApi.similarity(
-              'midnight memories', 'midnight memories deluxe'),
-          greaterThanOrEqualTo(85));
+        InnerTubeMusicApi.similarity(
+          'midnight memories',
+          'midnight memories deluxe',
+        ),
+        greaterThanOrEqualTo(85),
+      );
     });
 
     test('short title inside a longer unrelated title does not match', () {
+      expect(InnerTubeMusicApi.similarity('Cider', 'Cinderella'), lessThan(85));
       expect(
-          InnerTubeMusicApi.similarity('Cider', 'Cinderella'),
-          lessThan(85));
-      expect(
-          InnerTubeMusicApi.similarity(
-              'Piranha', 'Wisakda Me (Piranha, Pt. 2)'),
-          lessThan(85));
+        InnerTubeMusicApi.similarity('Piranha', 'Wisakda Me (Piranha, Pt. 2)'),
+        lessThan(85),
+      );
     });
 
     test('normalize strips diacritics and punctuation', () {
-      expect(InnerTubeMusicApi.normalize('Beyoncé!  Hello'),
-          'beyonce hello');
+      expect(InnerTubeMusicApi.normalize('Beyoncé!  Hello'), 'beyonce hello');
     });
 
     test('baseTitle strips featuring clauses', () {
       expect(
-          InnerTubeMusicApi.baseTitle('Song (feat. Someone)')
-              .trim(),
-          'Song');
+        InnerTubeMusicApi.baseTitle('Song (feat. Someone)').trim(),
+        'Song',
+      );
     });
 
     test('highResolutionArtwork upgrades google hosts', () {
       expect(
-          InnerTubeMusicApi.highResolutionArtwork(
-              'https://lh3.googleusercontent.com/a=w60-h60-l90-rj'),
-          'https://lh3.googleusercontent.com/a=w512-h512-l90-rj');
+        InnerTubeMusicApi.highResolutionArtwork(
+          'https://lh3.googleusercontent.com/a=w60-h60-l90-rj',
+        ),
+        'https://lh3.googleusercontent.com/a=w512-h512-l90-rj',
+      );
       expect(
-          InnerTubeMusicApi.highResolutionArtwork(
-              'https://i.ytimg.com/vi/x/hqdefault.jpg'),
-          'https://i.ytimg.com/vi/x/hqdefault.jpg');
+        InnerTubeMusicApi.highResolutionArtwork(
+          'https://i.ytimg.com/vi/x/hqdefault.jpg',
+        ),
+        'https://i.ytimg.com/vi/x/hqdefault.jpg',
+      );
     });
 
     test('parseDuration matches Android fold', () {
@@ -196,7 +103,8 @@ void main() {
 
   group('Signature decipher (offline, synthetic player)', () {
     // Synthetic base.js exercising reverse + splice + swap ops.
-    const js = 'var Q={r:function(a){a.reverse()},'
+    const js =
+        'var Q={r:function(a){a.reverse()},'
         's:function(a,b){a.splice(0,b)},'
         'w:function(a,b){var c=a[0];a[0]=a[b%a.length];a[b]=c}};'
         'QZ=function(a){a=a.split("");Q.r(a);Q.s(a,2);Q.w(a,3);'
@@ -204,32 +112,30 @@ void main() {
 
     test('parses ops and deciphers signature', () {
       final decipher = SignatureDecipher(Dio());
-      final script =
-          decipher.parseForTest('https://x/base.js', js);
+      final script = decipher.parseForTest('https://x/base.js', js);
       expect(script, isNotNull);
       expect(script!.sigOps.length, 3);
       // reverse(abcdef)=fedcba, splice(0,2)->dcba, swap(3): d<->a => acbd
       final url = decipher.decipherUrl(
-          'url=${Uri.encodeComponent('https://ex.com/v')}&s=abcdef&sp=sig',
-          script);
+        'url=${Uri.encodeComponent('https://ex.com/v')}&s=abcdef&sp=sig',
+        script,
+      );
       expect(url, 'https://ex.com/v?sig=acbd');
     });
 
     test('passes through plain urls without s param', () {
       final decipher = SignatureDecipher(Dio());
-      final script =
-          decipher.parseForTest('https://x/base.js', js);
+      final script = decipher.parseForTest('https://x/base.js', js);
       final url = decipher.decipherUrl(
-          'url=${Uri.encodeComponent('https://ex.com/v')}', script!);
+        'url=${Uri.encodeComponent('https://ex.com/v')}',
+        script!,
+      );
       expect(url, 'https://ex.com/v');
     });
 
     test('returns null when undecipherable', () {
       final decipher = SignatureDecipher(Dio());
-      expect(
-          decipher.parseForTest(
-              'https://x/base.js', 'var x = 1;'),
-          isNull);
+      expect(decipher.parseForTest('https://x/base.js', 'var x = 1;'), isNull);
     });
   });
 
@@ -252,11 +158,11 @@ void main() {
 
   group('TTML parsing', () {
     test('parses words into syllables', () {
-      const ttml = '<p begin="1.0" end="3.0">'
+      const ttml =
+          '<p begin="1.0" end="3.0">'
           '<span begin="1.0" end="2.0">Hello</span>'
           '<span begin="2.0" end="3.0">world</span></p>';
-      final lines =
-          LyricsRepository.parseTtml(ttml);
+      final lines = LyricsRepository.parseTtml(ttml);
       expect(lines.length, 1);
       expect(lines.first.text, 'Hello world');
       expect(lines.first.syllables.length, 2);
@@ -277,8 +183,18 @@ void main() {
             'background': false,
             'text': [
               {'text': 'a', 'timestamp': 1000, 'duration': 100, 'part': false},
-              {'text': 'conver', 'timestamp': 1100, 'duration': 300, 'part': true},
-              {'text': 'sation', 'timestamp': 1400, 'duration': 600, 'part': false},
+              {
+                'text': 'conver',
+                'timestamp': 1100,
+                'duration': 300,
+                'part': true,
+              },
+              {
+                'text': 'sation',
+                'timestamp': 1400,
+                'duration': 600,
+                'part': false,
+              },
             ],
           },
         ],
@@ -316,43 +232,46 @@ void main() {
       expect(result!.lines.first.syllables.first.isBackground, isTrue);
     });
 
-    test('line-synced payloads stay syllable-free for interpolated karaoke',
-        () {
-      final result = LyricsRepository.parseAppleWordByWord({
-        'type': 'Line',
-        'content': [
-          {
-            'timestamp': 1409,
-            'endtime': 3060,
-            'duration': 1651,
-            'background': false,
-            'text': [
-              {
-                'text': "I'm tweakin', I'm geekin'",
-                'timestamp': 1409,
-                'duration': 1651,
-                'part': false,
-              },
-            ],
-          },
-        ],
-      });
-      expect(result, isNotNull);
-      expect(result!.isSynced, isTrue);
-      expect(result.isWordSynced, isFalse);
-      expect(result.lines.first.text, "I'm tweakin', I'm geekin'");
-      expect(result.lines.first.timeMs, 1409);
-      expect(result.lines.first.durationMs, 1651);
-      // No whole-line pseudo syllable — the adapter interpolates per-word
-      // timing so the karaoke wipe still animates.
-      expect(result.lines.first.hasSyllables, isFalse);
-    });
+    test(
+      'line-synced payloads stay syllable-free for interpolated karaoke',
+      () {
+        final result = LyricsRepository.parseAppleWordByWord({
+          'type': 'Line',
+          'content': [
+            {
+              'timestamp': 1409,
+              'endtime': 3060,
+              'duration': 1651,
+              'background': false,
+              'text': [
+                {
+                  'text': "I'm tweakin', I'm geekin'",
+                  'timestamp': 1409,
+                  'duration': 1651,
+                  'part': false,
+                },
+              ],
+            },
+          ],
+        });
+        expect(result, isNotNull);
+        expect(result!.isSynced, isTrue);
+        expect(result.isWordSynced, isFalse);
+        expect(result.lines.first.text, "I'm tweakin', I'm geekin'");
+        expect(result.lines.first.timeMs, 1409);
+        expect(result.lines.first.durationMs, 1651);
+        // No whole-line pseudo syllable — the adapter interpolates per-word
+        // timing so the karaoke wipe still animates.
+        expect(result.lines.first.hasSyllables, isFalse);
+      },
+    );
 
     test('error payload yields null', () {
       expect(
-        LyricsRepository.parseAppleWordByWord(
-          const {'message': 'No lyrics for this track', 'error': true},
-        ),
+        LyricsRepository.parseAppleWordByWord(const {
+          'message': 'No lyrics for this track',
+          'error': true,
+        }),
         isNull,
       );
     });
@@ -406,8 +325,7 @@ void main() {
             'duration': 0,
             'text': [
               {
-                'text':
-                    'numbe ras balanna mamat adin passe na adareta vada rasayi vaha kaduru',
+                'text': 'numbe ras balanna mamat adin passe na adareta vada rasayi vaha kaduru',
                 'timestamp': 0,
                 'duration': 0,
                 'part': false,
