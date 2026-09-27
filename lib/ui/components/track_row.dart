@@ -338,7 +338,7 @@ class _RowGlyph extends StatefulWidget {
   final IconData icon;
   final bool active;
   final VoidCallback? onTap;
-  final List<MenuFlyoutItemBase>? menuItems;
+  final List<WaveMenuEntry>? menuItems;
   const _RowGlyph({
     required this.tooltip,
     required this.icon,
@@ -367,9 +367,8 @@ class _RowGlyphState extends State<_RowGlyph> {
     if (widget.menuItems != null) {
       return LWTooltip(
         message: widget.tooltip,
-        child: DropDownButton(
-          transitionBuilder: fastFlyoutTransition,
-          items: widget.menuItems!,
+        child: WaveMenuButton(
+          entries: widget.menuItems!,
           buttonBuilder: (context, onOpen) => MouseRegion(
             onEnter: (_) => setState(() => _hover = true),
             onExit: (_) => setState(() => _hover = false),

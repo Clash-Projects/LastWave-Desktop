@@ -208,7 +208,17 @@ class _WaveArtworkState extends State<WaveArtwork> {
     );
     _chain = ArtworkResolver.resolve(req).urls;
 
-    _maybeUpgradeOfficial();
+    // Store-search kickoff runs post-frame, not in the build phase:
+    // a fresh page mounts N artworks in one frame (the settings-open
+    // trace showed ~7 WaveArtwork subtrees in a single BUILD), and
+    // starting N iTunes/Deezer resolutions synchronously inside that
+    // frame's didChangeDependencies piles store machinery onto the
+    // navigation frame. One frame later is visually identical.
+    final gen = _gen;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || gen != _gen) return;
+      _maybeUpgradeOfficial();
+    });
   }
 
   /// Proactive official-source upgrade: when the primary image is NOT

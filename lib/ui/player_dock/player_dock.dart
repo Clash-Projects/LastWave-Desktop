@@ -438,34 +438,35 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
                 placementMode: FlyoutPlacementMode.topCenter,
                 transitionDuration:
                     const Duration(milliseconds: 90),
-                builder: (context) => MenuFlyout(
-                  items: [
-                    MenuFlyoutItem(
+                transitionBuilder: fastFlyoutTransition,
+                builder: (context) => WaveFlyoutPanel.items(
+                  entries: [
+                    WaveMenuAction(
                       leading: const Icon(WaveIcons.gauge, size: 15),
-                      text: Text('${s.qualityBadge} · ${s.audioCodec}'),
+                      label: '${s.qualityBadge} · ${s.audioCodec}',
                       onPressed: () {},
                     ),
-                    const MenuFlyoutSeparator(),
-                    MenuFlyoutItem(
+                    const WaveMenuSeparator(),
+                    WaveMenuAction(
                       leading: const Icon(WaveIcons.music, size: 15),
-                      text: Text('Sample rate · ${s.samplingRateKhz} kHz'),
+                      label: 'Sample rate · ${s.samplingRateKhz} kHz',
                       onPressed: () {},
                     ),
-                    MenuFlyoutItem(
+                    WaveMenuAction(
                       leading: const Icon(WaveIcons.mixes, size: 15),
-                      text: Text('Bit depth · ${s.bitDepth}-bit'),
+                      label: 'Bit depth · ${s.bitDepth}-bit',
                       onPressed: () {},
                     ),
                     if (s.bitrateKbps > 0)
-                      MenuFlyoutItem(
+                      WaveMenuAction(
                         leading: const Icon(WaveIcons.clock, size: 15),
-                        text: Text('Bitrate · ${s.bitrateKbps} kbps'),
+                        label: 'Bitrate · ${s.bitrateKbps} kbps',
                         onPressed: () {},
                       ),
-                    const MenuFlyoutSeparator(),
-                    MenuFlyoutItem(
+                    const WaveMenuSeparator(),
+                    WaveMenuAction(
                       leading: const Icon(WaveIcons.settings, size: 15),
-                      text: const Text('Quality settings'),
+                      label: 'Quality settings',
                       onPressed: () => context.go('/settings'),
                     ),
                   ],
@@ -520,49 +521,45 @@ class _StreamPathGlyph extends ConsumerWidget {
       icon: WaveIcons.streamPath,
       active: path.bitPerfect,
       menuItems: [
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.music, size: 15),
-          text: Text('Source · ${path.sourceLabel}'),
+          label: 'Source · ${path.sourceLabel}',
           onPressed: () {},
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.device, size: 15),
-          text: Text('Output · ${path.outputLabel}'),
+          label: 'Output · ${path.outputLabel}',
           onPressed: () {},
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.speaker, size: 15),
-          text: Text(
-            Platform.isWindows ? (
+          label: Platform.isWindows ? (
             path.exclusiveActive
                 ? 'WASAPI · Exclusive'
                 : 'WASAPI · Shared') : 'Output · System Default',
-          ),
           onPressed: () {},
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.volume, size: 15),
-          text: Text(
-            path.hardwareVolume
-                ? 'Volume · DAC hardware'
-                : (path.softwareVolume
-                    ? 'Volume · Software'
-                    : 'Volume · Unity'),
-          ),
+          label: path.hardwareVolume
+              ? 'Volume · DAC hardware'
+              : (path.softwareVolume
+                  ? 'Volume · Software'
+                  : 'Volume · Unity'),
           onPressed: () {},
         ),
-        const MenuFlyoutSeparator(),
-        MenuFlyoutItem(
+        const WaveMenuSeparator(),
+        WaveMenuAction(
           leading: Icon(
             path.bitPerfect ? WaveIcons.likedFill : WaveIcons.streamPath,
             size: 15,
           ),
-          text: Text(path.bitPerfect ? 'Bit-Perfect' : path.reason.label),
+          label: path.bitPerfect ? 'Bit-Perfect' : path.reason.label,
           onPressed: () {},
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.settings, size: 15),
-          text: const Text('Output settings'),
+          label: 'Output settings',
           onPressed: () => context.go('/settings'),
         ),
       ],
@@ -577,7 +574,7 @@ class _Glyph extends StatefulWidget {
   final bool active;
   final bool large;
   final VoidCallback? onTap;
-  final List<MenuFlyoutItemBase>? menuItems;
+  final List<WaveMenuEntry>? menuItems;
   const _Glyph({
     required this.tooltip,
     required this.icon,
@@ -639,10 +636,9 @@ class _GlyphState extends State<_Glyph> {
       ),
     );
     if (widget.menuItems != null) {
-      glyph = DropDownButton(
+      glyph = WaveMenuButton(
+        entries: widget.menuItems!,
         placement: FlyoutPlacementMode.topRight,
-        transitionBuilder: fastFlyoutTransition,
-        items: widget.menuItems!,
         buttonBuilder: (context, onOpen) => MouseRegion(
           cursor: SystemMouseCursors.click,
           onEnter: (_) => setState(() => _hover = true),
@@ -1060,27 +1056,27 @@ class _DeviceGlyph extends ConsumerWidget {
       tooltip: 'Output: $name',
       icon: WaveIcons.device,
       menuItems: [
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.device, size: 15),
-          text: const Text('System Default'),
+          label: 'System Default',
           onPressed: () =>
               ref.read(audioOutputProvider.notifier).selectDevice(''),
         ),
         for (final d in output.devices.take(8))
-          MenuFlyoutItem(
+          WaveMenuAction(
             leading: Icon(
               WaveIcons.device,
               size: 15,
               color: d.id == output.selectedId ? waveAccent(context) : null,
             ),
-            text: Text(d.displayName, maxLines: 1),
+            label: d.displayName,
             onPressed: () =>
                 ref.read(audioOutputProvider.notifier).selectDevice(d.id),
           ),
-        const MenuFlyoutSeparator(),
-        MenuFlyoutItem(
+        const WaveMenuSeparator(),
+        WaveMenuAction(
           leading: const Icon(WaveIcons.settings, size: 15),
-          text: const Text('Output settings'),
+          label: 'Output settings',
           onPressed: () => context.go('/settings'),
         ),
       ],
@@ -1198,33 +1194,36 @@ class _VolumeFlyoutGlyphState extends ConsumerState<_VolumeFlyoutGlyph> {
             _controller.showFlyout(
               barrierColor: Colors.transparent,
               placementMode: FlyoutPlacementMode.topCenter,
-              builder: (context) => FlyoutContent(
-                padding: const EdgeInsets.all(12),
-                constraints:
-                    const BoxConstraints(maxWidth: 240),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Volume ${(volume * 100).round()}%',
-                      style: WaveType.label,
-                    ),
-                    const SizedBox(height: 8),
-                    LWVolumeSlider(
-                      value: volume.clamp(0.0, 1.0),
-                      onChanged: widget.onVolume,
-                    ),
-                    const SizedBox(height: 4),
-                    HyperlinkButton(
-                      onPressed: () {
-                        widget.onMute();
-                        _controller.close();
-                      },
-                      child: Text(volume == 0 ? 'Unmute' : 'Mute',
-                          style: WaveType.label),
-                    ),
-                  ],
+              transitionDuration: const Duration(milliseconds: 90),
+              transitionBuilder: fastFlyoutTransition,
+              builder: (context) => WaveFlyoutPanel.child(
+                maxWidth: 240,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Volume ${(volume * 100).round()}%',
+                        style: WaveType.label,
+                      ),
+                      const SizedBox(height: 8),
+                      LWVolumeSlider(
+                        value: volume.clamp(0.0, 1.0),
+                        onChanged: widget.onVolume,
+                      ),
+                      const SizedBox(height: 4),
+                      HyperlinkButton(
+                        onPressed: () {
+                          widget.onMute();
+                          _controller.close();
+                        },
+                        child: Text(volume == 0 ? 'Unmute' : 'Mute',
+                            style: WaveType.label),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -1280,58 +1279,55 @@ class _DockOverflow extends ConsumerWidget {
         // Collapsed priority controls reappear here — nothing is lost
         // at narrow widths, nothing overflows the window.
         if (showLyricsItem)
-          MenuFlyoutItem(
+          WaveMenuAction(
             leading: const Icon(WaveIcons.lyrics, size: 15),
-            text: const Text('Lyrics  (Ctrl+L)'),
+            label: 'Lyrics  (Ctrl+L)',
             onPressed: onToggleLyrics,
           ),
         if (showQualityItem && stream != null)
-          MenuFlyoutItem(
+          WaveMenuAction(
             leading: const Icon(WaveIcons.gauge, size: 15),
-            text: Text(
-                '${stream.qualityBadge} · ${stream.audioCodec}'),
+            label: '${stream.qualityBadge} · ${stream.audioCodec}',
             onPressed: () => context.go('/settings'),
           ),
         if (showQualityItem)
-          MenuFlyoutItem(
+          WaveMenuAction(
             leading: const Icon(WaveIcons.streamPath, size: 15),
-            text: Text(
-              ref.watch(audioOutputProvider.select((s) => s.path.bitPerfect))
-                  ? 'Stream path · Bit-Perfect'
-                  : 'Stream path',
-            ),
+            label: ref.watch(audioOutputProvider.select((s) => s.path.bitPerfect))
+                ? 'Stream path · Bit-Perfect'
+                : 'Stream path',
             onPressed: () => context.go('/settings'),
           ),
         if (showDeviceItem)
-          MenuFlyoutItem(
+          WaveMenuAction(
             leading: const Icon(WaveIcons.device, size: 15),
-            text: const Text('Output: System default'),
+            label: 'Output: System default',
             onPressed: () {},
           ),
         if (showExpandItem)
-          MenuFlyoutItem(
+          WaveMenuAction(
             leading: const Icon(WaveIcons.expand, size: 15),
-            text: const Text('Open Now Playing'),
+            label: 'Open Now Playing',
             onPressed: onExpand,
           ),
         if (showMiniItem)
-          MenuFlyoutItem(
+          WaveMenuAction(
             leading:
                 const Icon(WaveIcons.miniPlayer, size: 15),
-            text: const Text('Mini player'),
+            label: 'Mini player',
             onPressed: onToggleMini,
           ),
-        if (hasCollapsed) const MenuFlyoutSeparator(),
-        MenuFlyoutItem(
+        if (hasCollapsed) const WaveMenuSeparator(),
+        WaveMenuAction(
           leading: const Icon(WaveIcons.gauge, size: 15),
-          text: Text('Speed $speedLabel×'),
+          label: 'Speed $speedLabel×',
           onPressed: notifier.cycleSpeed,
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.clock, size: 15),
-          text: Text(sleep == null
+          label: sleep == null
               ? 'Sleep timer · 30 min'
-              : 'Sleep ${sleep.inMinutes}m (tap to clear)'),
+              : 'Sleep ${sleep.inMinutes}m (tap to clear)',
           onPressed: () {
             if (sleep != null) {
               notifier.setSleepTimer(null);
@@ -1340,9 +1336,9 @@ class _DockOverflow extends ConsumerWidget {
             }
           },
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.downloadAction, size: 15),
-          text: const Text('Download this track'),
+          label: 'Download this track',
           onPressed: () {
             final current =
                 ref.read(playbackServiceProvider).current;

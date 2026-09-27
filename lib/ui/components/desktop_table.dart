@@ -86,7 +86,7 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
   final String? removeLabel;
   final void Function(int index)? onRemove;
 
-  final List<MenuFlyoutItemBase> Function(WidgetRef ref, T item)? menuBuilder;
+  final List<WaveMenuEntry> Function(WidgetRef ref, T item)? menuBuilder;
   final bool showHeader;
   final bool showLike;
   final bool showArtistColumn;
@@ -676,7 +676,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
   final VoidCallback onDoubleTap;
   final VoidCallback onPlayOverlay;
   final VoidCallback? onToggleLike;
-  final List<MenuFlyoutItemBase> Function() menuItems;
+  final List<WaveMenuEntry> Function() menuItems;
   const _TableRow({
     required this.index,
     required this.hovered,
@@ -1064,7 +1064,7 @@ class _HoverGlyph extends StatefulWidget {
   final IconData icon;
   final bool active;
   final VoidCallback? onTap;
-  final List<MenuFlyoutItemBase>? menuItems;
+  final List<WaveMenuEntry>? menuItems;
   const _HoverGlyph({
     required this.tooltip,
     required this.icon,
@@ -1111,9 +1111,8 @@ class _HoverGlyphState extends State<_HoverGlyph> {
     if (widget.menuItems != null) {
       return LWTooltip(
         message: widget.tooltip,
-        child: DropDownButton(
-          transitionBuilder: fastFlyoutTransition,
-          items: widget.menuItems!,
+        child: WaveMenuButton(
+          entries: widget.menuItems!,
           buttonBuilder: (context, onOpen) => GestureDetector(
             onTap: onOpen,
             child: hovered,

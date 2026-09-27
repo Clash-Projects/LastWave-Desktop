@@ -4,7 +4,7 @@ import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import 'artwork.dart';
 import 'buttons.dart' show LWTooltip;
-import 'menus.dart' show fastFlyoutTransition;
+import 'menus.dart';
 
 /// Artwork-led collection header.
 ///
@@ -20,7 +20,7 @@ class WaveCollectionHero extends StatelessWidget {
   final IconData fallbackIcon;
   final double artworkSize;
   final List<Widget> primaryActions;
-  final List<MenuFlyoutItemBase> overflowItems;
+  final List<WaveMenuEntry> overflowItems;
   final Widget? trailing;
   const WaveCollectionHero({
     super.key,
@@ -81,10 +81,9 @@ class WaveCollectionHero extends StatelessWidget {
               children: [
                 ...primaryActions,
                 if (overflowItems.isNotEmpty)
-                  DropDownButton(
+                  WaveMenuButton(
+                    entries: overflowItems,
                     placement: FlyoutPlacementMode.bottomRight,
-                    transitionBuilder: fastFlyoutTransition,
-                    items: overflowItems,
                     buttonBuilder: (context, onOpen) => LWTooltip(
                       message: 'More actions',
                       child: SizedBox(

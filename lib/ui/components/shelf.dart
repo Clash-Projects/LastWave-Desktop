@@ -471,7 +471,7 @@ class WaveQuickTile extends ConsumerStatefulWidget {
   final String artworkUrl;
   final bool playing;
   final VoidCallback onTap;
-  final List<MenuFlyoutItemBase> Function()? menuBuilder;
+  final List<WaveMenuEntry> Function()? menuBuilder;
   const WaveQuickTile({
     super.key,
     required this.title,

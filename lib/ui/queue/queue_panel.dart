@@ -362,33 +362,33 @@ class _QueueRow extends ConsumerStatefulWidget {
 class _QueueRowState extends ConsumerState<_QueueRow> {
   bool _hover = false;
 
-  List<MenuFlyoutItemBase> _menuItems(WidgetRef ref) {
+  List<WaveMenuEntry> _menuItems(WidgetRef ref) {
     final notifier = ref.read(playbackServiceProvider.notifier);
     final t = widget.track;
     return [
-      MenuFlyoutItem(
+      WaveMenuAction(
         leading: const Icon(WaveIcons.queue, size: 15),
-        text: const Text('Play next'),
+        label: 'Play next',
         onPressed: () => notifier.playNext(t),
       ),
-      MenuFlyoutItem(
+      WaveMenuAction(
         leading: const Icon(WaveIcons.albums, size: 15),
-        text: const Text('Go to album'),
+        label: 'Go to album',
         onPressed: t.album.isEmpty
             ? null
             : () => context.go(
                 '/search?q=${Uri.encodeComponent(t.album)}'),
       ),
-      MenuFlyoutItem(
+      WaveMenuAction(
         leading: const Icon(WaveIcons.artists, size: 15),
-        text: const Text('Go to artist'),
+        label: 'Go to artist',
         onPressed: () => context.go(
             '/artist/${Uri.encodeComponent(t.artist)}'),
       ),
-      const MenuFlyoutSeparator(),
-      MenuFlyoutItem(
+      const WaveMenuSeparator(),
+      WaveMenuAction(
         leading: const Icon(WaveIcons.downloadAction, size: 15),
-        text: const Text('Download'),
+        label: 'Download',
         onPressed: () => ref
             .read(downloadManagerProvider.notifier)
             .downloadTrack(
@@ -398,19 +398,19 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
               artworkUrl: t.artworkUrl,
             ),
       ),
-      MenuFlyoutItem(
+      WaveMenuAction(
         leading: const Icon(WaveIcons.addTo, size: 15),
-        text: const Text('Add to playlist'),
+        label: 'Add to playlist',
         onPressed: () => showWaveAddToPlaylist(context, ref,
             title: t.title,
             artist: t.artist,
             artworkUrl: t.artworkUrl,
             videoId: t.videoId),
       ),
-      const MenuFlyoutSeparator(),
-      MenuFlyoutItem(
+      const WaveMenuSeparator(),
+      WaveMenuAction(
         leading: const Icon(WaveIcons.delete, size: 15),
-        text: const Text('Remove'),
+        label: 'Remove',
         onPressed: () => notifier.removeAt(widget.queueIndex),
       ),
     ];

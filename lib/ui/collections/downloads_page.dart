@@ -179,21 +179,21 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
     return WaveContextMenu(
       items: () => [
         if (e.status == DownloadStatus.done)
-          MenuFlyoutItem(
+          WaveMenuAction(
             leading: const Icon(FluentIcons.play, size: 13),
-            text: const Text('Play offline file'),
+            label: 'Play offline file',
             onPressed: _play,
           ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(FluentIcons.contact, size: 13),
-          text: const Text('Go to artist'),
+          label: 'Go to artist',
           onPressed: () => context.go(
               '/artist/${Uri.encodeComponent(e.artist)}'),
         ),
-        const MenuFlyoutSeparator(),
-        MenuFlyoutItem(
+        const WaveMenuSeparator(),
+        WaveMenuAction(
           leading: const Icon(FluentIcons.delete, size: 13),
-          text: const Text('Delete download'),
+          label: 'Delete download',
           onPressed: () => manager.delete(e.key),
         ),
       ],

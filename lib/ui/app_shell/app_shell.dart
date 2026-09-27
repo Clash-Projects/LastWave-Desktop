@@ -47,7 +47,9 @@ class WaveShell extends ConsumerStatefulWidget {
 }
 
 class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
-  bool _railExpanded = true;
+  // Boot collapsed: the overlay rail covers content when open, so it
+  // starts shut (toggle via hamburger, auto-collapses on outside tap).
+  bool _railExpanded = false;
   bool _queueOpen = false;
   bool _lyricsOpen = false;
   bool _miniOpen = false;
@@ -57,6 +59,33 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
   final List<String> _backStack = [];
   final List<String> _forwardStack = [];
   bool _historyLocked = false;
+  // Memoized slide-over panels: the content LayoutBuilder below re-runs on
+  // every rail-animation tick (width animates 60<->200px), which would
+  // otherwise reconstruct + rebuild both panels ~15x per toggle (queue =
+  // full row list, lyrics = karaoke view). Same widget instance across
+  // ticks => element update short-circuits, zero child builds. Queue has
+  // no changing params (reads providers internally); lyrics is recreated
+  // only on visibility flips (reopen refollows to the current line).
+  Widget? _queuePanelCache;
+  Widget? _lyricsPanelCache;
+  bool _lyricsCacheVisible = false;
+
+  void _closeQueue() => setState(() => _queueOpen = false);
+  void _closeLyrics() => setState(() => _lyricsOpen = false);
+
+  /// Cached lyrics panel: recreated only when visibility flips so the
+  /// LayoutBuilder ticks during rail animation reuse the same instance
+  /// (no karaoke rebuilds). Reopen refollows to the current line.
+  Widget _lyricsPanelFor(bool visible) {
+    if (_lyricsPanelCache == null || _lyricsCacheVisible != visible) {
+      _lyricsCacheVisible = visible;
+      _lyricsPanelCache = WaveLyricsSidePanel(
+        visible: visible,
+        onClose: _closeLyrics,
+      );
+    }
+    return _lyricsPanelCache!;
+  }
 
   @override
   void initState() {
@@ -372,6 +401,9 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
             setState(() => _queueOpen = false);
           } else if (_miniOpen) {
             setState(() => _miniOpen = false);
+          } else if (!collapsed) {
+            // Overlay rail light-dismisses via keyboard too.
+            setState(() => _railExpanded = false);
           } else if (isNowPlaying) {
             if (context.canPop()) {
               context.pop();
@@ -414,20 +446,17 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                 onForward: _goForward,
               ),
               const WaveInfoBarHost(),
+              // Overlay rail: the content below keeps full width and the
+              // rail floats above its left edge (60 collapsed, 200
+              // expanded). Toggling used to reflow the whole window, so
+              // every animation frame re-laid-out every page + panel.
+              // Now constraints stay constant during the animation and
+              // only the tiny rail subtree lays out per tick.
               Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                child: Column(
                   children: [
-                    WaveSideRail(
-                      expanded: !collapsed,
-                      active: active,
-                      onGo: _go,
-                    ),
                     Expanded(
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: DropTarget(
+                      child: DropTarget(
                               onDragEntered: (_) => setState(
                                   () => _draggingFiles = true),
                               onDragExited: (_) => setState(
@@ -454,7 +483,44 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
 
                                   return Stack(
                                     children: [
-                                      Positioned.fill(child: widget.child),
+                                      // Page reserves the collapsed rail
+                                      // strip; the rail floats above it.
+                                      Positioned.fill(
+                                        left: WaveDensity.railCollapsed,
+                                        child: widget.child,
+                                      ),
+                                      // Light-dismiss: tapping outside the
+                                      // expanded rail collapses it (tap is
+                                      // absorbed, content doesn't activate).
+                                      // Below the rail + panels, so those
+                                      // keep working while it is open.
+                                      if (!collapsed)
+                                        Positioned.fill(
+                                          child: ExcludeSemantics(
+                                            child: GestureDetector(
+                                              behavior: HitTestBehavior
+                                                  .translucent,
+                                              onTap: () => setState(() =>
+                                                  _railExpanded = false),
+                                              child:
+                                                  const SizedBox.expand(),
+                                            ),
+                                          ),
+                                        ),
+                                      // Overlay rail: width animates
+                                      // internally; content constraints
+                                      // stay constant, so nothing reflows
+                                      // or rebuilds during the animation.
+                                      Positioned(
+                                        left: 0,
+                                        top: 0,
+                                        bottom: 0,
+                                        child: WaveSideRail(
+                                          expanded: !collapsed,
+                                          active: active,
+                                          onGo: _go,
+                                        ),
+                                      ),
                                       if (_draggingFiles)
                                         Positioned.fill(
                                           child: Container(
@@ -470,8 +536,10 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                                         ),
                                       // Dim only the page beside the drawer so
                                       // the lyrics panel can frost the artwork.
+                                      // Starts past the rail (which is never
+                                      // dimmed) — the rail floats above.
                                       Positioned(
-                                        left: 0,
+                                        left: WaveDensity.railCollapsed,
                                         top: 0,
                                         bottom: 0,
                                         right: showOverlay
@@ -511,9 +579,19 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                                           excluding: !_queueOpen,
                                           child: IgnorePointer(
                                             ignoring: !_queueOpen,
-                                            child: WaveQueuePanel(
-                                              onClose: () => setState(
-                                                  () => _queueOpen = false),
+                                            // Offstage when slid shut: the 8-row
+                                            // list (images, menus, tooltips)
+                                            // skips paint/raster entirely, so
+                                            // every page navigation no longer
+                                            // rasterizes a hidden panel.
+                                            // Layout still runs (cheap box
+                                            // math); scroll offset is kept.
+                                            child: Offstage(
+                                              offstage: !_queueOpen,
+                                              child: _queuePanelCache ??=
+                                                  WaveQueuePanel(
+                                                onClose: _closeQueue,
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -532,11 +610,24 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                                           excluding: !(_lyricsOpen && hasTrack),
                                           child: IgnorePointer(
                                             ignoring: !(_lyricsOpen && hasTrack),
-                                        child: WaveLyricsSidePanel(
-                                          visible: _lyricsOpen &&
-                                              hasTrack,
-                                          onClose: () => setState(
-                                              () => _lyricsOpen = false),
+                                        child: Offstage(
+                                          // See queue panel above: skips
+                                          // rasterizing the hidden karaoke
+                                          // view on every navigation.
+                                          // TickerMode mutes the karaoke
+                                          // ticker itself while shut: it
+                                          // would otherwise fire 30Hz
+                                          // setStates into an off-screen
+                                          // layer on every page. Resumes
+                                          // transparently (position resyncs).
+                                          offstage:
+                                              !(_lyricsOpen && hasTrack),
+                                          child: TickerMode(
+                                            enabled:
+                                                _lyricsOpen && hasTrack,
+                                            child: _lyricsPanelFor(
+                                                _lyricsOpen && hasTrack),
+                                          ),
                                         ),
                                           ),
                                         ),
@@ -589,9 +680,6 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
             ],
           ),
         ),

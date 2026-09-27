@@ -170,15 +170,15 @@ class _ArtistCellState extends State<_ArtistCell> {
     final dark = waveIsDark(context);
     return WaveContextMenu(
       items: () => [
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(FluentIcons.contact, size: 13),
-          text: const Text('Open artist'),
+          label: 'Open artist',
           onPressed: () => context.go(
               '/artist/${Uri.encodeComponent(widget.name)}'),
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(FluentIcons.search, size: 13),
-          text: const Text('Search for artist'),
+          label: 'Search for artist',
           onPressed: () => context.go(
               '/search?q=${Uri.encodeComponent(widget.name)}'),
         ),

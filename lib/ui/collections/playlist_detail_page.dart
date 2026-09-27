@@ -11,7 +11,7 @@ import '../../features/player/playback_service.dart';
 import '../components/buttons.dart' show LWTooltip, WaveGhostButton, WavePrimaryButton;
 import '../components/desktop_table.dart';
 import '../components/hero.dart';
-import '../components/menus.dart' show fastFlyoutTransition;
+import '../components/menus.dart';
 import '../components/states.dart';
 import 'playlist_dialogs.dart'
     show
@@ -172,16 +172,14 @@ class _WavePlaylistDetailPageState
                       ],
                     ],
                     overflowItems: [
-                      MenuFlyoutItem(
+                      WaveMenuAction(
                         leading: const Icon(
                           FluentIcons.pin,
                           size: 13,
                         ),
-                        text: Text(
-                          playlist.isPinned
-                              ? 'Unpin'
-                              : 'Pin',
-                        ),
+                        label: playlist.isPinned
+                            ? 'Unpin'
+                            : 'Pin',
                         onPressed: () => ref
                             .read(
                               playlistRepositoryProvider
@@ -192,12 +190,12 @@ class _WavePlaylistDetailPageState
                               !playlist.isPinned,
                             ),
                       ),
-                      MenuFlyoutItem(
+                      WaveMenuAction(
                         leading: const Icon(
                           FluentIcons.edit,
                           size: 13,
                         ),
-                        text: const Text('Rename'),
+                        label: 'Rename',
                         onPressed: () =>
                             showWaveRenamePlaylist(
                           context,
@@ -206,12 +204,12 @@ class _WavePlaylistDetailPageState
                         ),
                       ),
                       if (!playlist.isLikedSongs)
-                        MenuFlyoutItem(
+                        WaveMenuAction(
                           leading: const Icon(
                             FluentIcons.delete,
                             size: 13,
                           ),
-                          text: const Text('Delete'),
+                          label: 'Delete',
                           onPressed: () =>
                               showWaveDeletePlaylist(
                             context,

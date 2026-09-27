@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -50,12 +53,52 @@ Widget fastFlyoutTransition(
   );
 }
 
+/// Menu data model for [WaveFlyoutPanel].
+///
+/// Labels are plain strings (not Text widgets) so rows can enforce
+/// single-line ellipsis inside the fixed-width panel. Carries no layout
+/// of its own — rendering is owned by the panel.
+sealed class WaveMenuEntry {
+  const WaveMenuEntry();
+}
+
+/// One tappable row. `onPressed == null` renders disabled.
+class WaveMenuAction extends WaveMenuEntry {
+  final Widget? leading;
+  final String label;
+  final String? hint;
+  final VoidCallback? onPressed;
+  const WaveMenuAction({
+    this.leading,
+    required this.label,
+    this.hint,
+    this.onPressed,
+  });
+}
+
+/// Horizontal divider.
+class WaveMenuSeparator extends WaveMenuEntry {
+  const WaveMenuSeparator();
+}
+
+/// Hover-cascade nested menu (e.g. "Add to playlist").
+class WaveMenuSubmenu extends WaveMenuEntry {
+  final Widget? leading;
+  final String label;
+  final List<WaveMenuEntry> Function() items;
+  const WaveMenuSubmenu({
+    this.leading,
+    required this.label,
+    required this.items,
+  });
+}
+
 /// Single Fluent menu source for every track row / card / hero.
 ///
-/// Replaces the old Material popup-menu items: one builder produces
-/// Fluent [MenuFlyoutItemBase] lists consumed by DropDownButton and by
-/// right-click GestureDetector flyouts.
-List<MenuFlyoutItemBase> waveTrackMenuItems({
+/// One builder produces [WaveMenuEntry] lists rendered by
+/// [WaveFlyoutPanel] (right-click menus). Plugin DropDownButtons keep
+/// their own inline item lists and are unaffected.
+List<WaveMenuEntry> waveTrackMenuItems({
   required WidgetRef ref,
   required String title,
   required String artist,
@@ -85,39 +128,37 @@ List<MenuFlyoutItemBase> waveTrackMenuItems({
         videoId: track.videoId,
       );
 
-  final items = <MenuFlyoutItemBase>[
-    MenuFlyoutItem(
+  final items = <WaveMenuEntry>[
+    WaveMenuAction(
       leading: const Icon(FluentIcons.play, size: 15),
-      text: const Text('Play'),
-      trailing: const Text('Enter',
-          style: TextStyle(fontSize: 11)),
+      label: 'Play',
+      hint: 'Enter',
       onPressed: () =>
           player.play(track, sourceLabel: 'Context menu'),
     ),
-    MenuFlyoutItem(
+    WaveMenuAction(
       leading: const Icon(FluentIcons.add, size: 15),
-      text: const Text('Play next'),
+      label: 'Play next',
       onPressed: () => player.playNext(track),
     ),
-    MenuFlyoutItem(
+    WaveMenuAction(
       leading: const Icon(FluentIcons.list, size: 15),
-      text: const Text('Add to queue'),
+      label: 'Add to queue',
       onPressed: () => player.addToQueue(track),
     ),
-    const MenuFlyoutSeparator(),
-    MenuFlyoutItem(
+    const WaveMenuSeparator(),
+    WaveMenuAction(
       leading: Icon(
         liked ? FluentIcons.heart_fill : FluentIcons.heart,
         size: 15,
       ),
-      text: Text(liked ? 'Unlike' : 'Like'),
+      label: liked ? 'Unlike' : 'Like',
       onPressed: () => library.toggleLiked(stored()),
     ),
-    MenuFlyoutItem(
+    WaveMenuAction(
       leading: const Icon(FluentIcons.download, size: 15),
-      text: const Text('Download'),
-      trailing: const Text('Ctrl+D',
-          style: TextStyle(fontSize: 11)),
+      label: 'Download',
+      hint: 'Ctrl+D',
       onPressed: () => downloads.downloadTrack(
         title: title,
         artist: artist,
@@ -127,47 +168,47 @@ List<MenuFlyoutItemBase> waveTrackMenuItems({
   ];
   if (playlists.isNotEmpty) {
     items.add(
-      MenuFlyoutSubItem(
+      WaveMenuSubmenu(
         leading: const Icon(FluentIcons.list_mirrored, size: 15),
-        text: const Text('Add to playlist'),
-        items: (context) => [
+        label: 'Add to playlist',
+        items: () => [
           for (final p in playlists)
-            MenuFlyoutItem(
+            WaveMenuAction(
               leading: Icon(
                 p.isLikedSongs
                     ? FluentIcons.heart
                     : FluentIcons.list_mirrored,
                 size: 15,
               ),
-              text: Text(p.title),
+              label: p.title,
               onPressed: () => library.addTrack(p.id, stored()),
             ),
         ],
       ),
     );
   }
-  items.add(const MenuFlyoutSeparator());
+  items.add(const WaveMenuSeparator());
   items.add(
-    MenuFlyoutItem(
+    WaveMenuAction(
       leading: const Icon(FluentIcons.album, size: 15),
-      text: const Text('Go to album'),
+      label: 'Go to album',
       onPressed: () => ref.context.go(
           '/search?q=${Uri.encodeComponent(track.album.isNotEmpty ? track.album : title)}'),
     ),
   );
   items.add(
-    MenuFlyoutItem(
+    WaveMenuAction(
       leading: const Icon(FluentIcons.microphone, size: 15),
-      text: const Text('Go to artist'),
+      label: 'Go to artist',
       onPressed: () => ref.context
           .go('/artist/${Uri.encodeComponent(artist)}'),
     ),
   );
-  items.add(const MenuFlyoutSeparator());
+  items.add(const WaveMenuSeparator());
   items.add(
-    MenuFlyoutItem(
+    WaveMenuAction(
       leading: const Icon(FluentIcons.info, size: 15),
-      text: const Text('Properties'),
+      label: 'Properties',
       onPressed: () => showWaveTrackProperties(
         ref.context,
         title: title,
@@ -177,22 +218,21 @@ List<MenuFlyoutItemBase> waveTrackMenuItems({
     ),
   );
   if (removeLabel != null && onRemove != null) {
-    items.add(const MenuFlyoutSeparator());
+    items.add(const WaveMenuSeparator());
     items.add(
-      MenuFlyoutItem(
+      WaveMenuAction(
         leading: const Icon(FluentIcons.delete, size: 15),
-        text: Text(removeLabel),
-        trailing: const Text('Del',
-            style: TextStyle(fontSize: 11)),
+        label: removeLabel,
+        hint: 'Del',
         onPressed: onRemove,
       ),
     );
   }
-  items.add(const MenuFlyoutSeparator());
+  items.add(const WaveMenuSeparator());
   items.add(
-    MenuFlyoutItem(
+    WaveMenuAction(
       leading: const Icon(FluentIcons.blocked, size: 15),
-      text: const Text("Don't recommend"),
+      label: "Don't recommend",
       onPressed: () {
         try {
           ref
@@ -241,9 +281,290 @@ Future<void> showWaveTrackProperties(
   );
 }
 
-/// Right-click region that opens a Fluent menu flyout at the cursor.
+/// Opaque fixed-width menu surface replacing plugin [MenuFlyout] /
+/// [FlyoutContent] for our popups.
+///
+/// WHY: plugin MenuFlyout wraps content in IntrinsicWidth (an uncached
+/// bottom-up measurement of the whole subtree on every open — the
+/// RenderPhysicalModel/ClipPath/CustomPaint intrinsics cascade from the
+/// profiles) plus an Acrylic/PhysicalModel shell. This panel sizes by
+/// top-down constraints instead (stretch inside a fixed max width: O(n),
+/// cached, nothing to measure) with an opaque surface + cacheable
+/// BoxShadows. Rows are the theme's own [FlyoutListTile], so item
+/// visuals (hover fill, typography, trailing style) are pixel-identical.
+class WaveFlyoutPanel extends StatefulWidget {
+  final List<WaveMenuEntry>? entries;
+  final Widget? child;
+  final double maxWidth;
+  const WaveFlyoutPanel.items({
+    super.key,
+    required this.entries,
+    this.maxWidth = 280,
+  }) : child = null;
+  const WaveFlyoutPanel.child({
+    super.key,
+    required this.child,
+    this.maxWidth = 280,
+  }) : entries = null;
+  @override
+  State<WaveFlyoutPanel> createState() => _WaveFlyoutPanelState();
+}
+
+class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
+  int _highlight = -1;
+  FlyoutController? _openSubmenu;
+  final Map<int, GlobalKey<_WaveSubmenuRowState>> _subKeys = {};
+
+  @override
+  void dispose() {
+    // Cascaded submenu is its own route: close it with the parent.
+    // Guarded + caught: dispose order vs. the child route is not
+    // contractual, and close() asserts attached+open in debug.
+    try {
+      final sub = _openSubmenu;
+      _openSubmenu = null;
+      if (sub != null && sub.isOpen) sub.close();
+    } catch (_) {}
+    super.dispose();
+  }
+
+  /// Indices of keyboard-focusable rows (actions + submenus, no dividers).
+  List<int> get _actionable => [
+        for (var i = 0; i < (widget.entries?.length ?? 0); i++)
+          if (widget.entries![i] is WaveMenuAction ||
+              widget.entries![i] is WaveMenuSubmenu)
+            i,
+      ];
+
+  void _moveHighlight(int dir) {
+    final stops = _actionable;
+    if (stops.isEmpty) return;
+    setState(() {
+      final at = stops.indexOf(_highlight);
+      _highlight = at < 0
+          ? (dir > 0 ? stops.first : stops.last)
+          : stops[(at + dir) % stops.length];
+    });
+  }
+
+  void _activate(BuildContext context, int index) {
+    final entry = widget.entries![index];
+    if (entry is WaveMenuSubmenu) {
+      _subKeys[index]?.currentState?.openNow();
+    } else if (entry is WaveMenuAction) {
+      final onPressed = entry.onPressed;
+      if (onPressed == null) return;
+      Navigator.of(context).maybePop();
+      onPressed();
+    }
+  }
+
+  KeyEventResult _onKey(FocusNode _, KeyEvent e) {
+    if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    if (e.logicalKey == LogicalKeyboardKey.arrowDown) {
+      _moveHighlight(1);
+      return KeyEventResult.handled;
+    }
+    if (e.logicalKey == LogicalKeyboardKey.arrowUp) {
+      _moveHighlight(-1);
+      return KeyEventResult.handled;
+    }
+    if (e.logicalKey == LogicalKeyboardKey.enter &&
+        _highlight >= 0 &&
+        widget.entries != null &&
+        _highlight < widget.entries!.length) {
+      _activate(context, _highlight);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    Widget body;
+    if (widget.child != null) {
+      body = widget.child!;
+    } else {
+      final rows = <Widget>[];
+      for (var i = 0; i < widget.entries!.length; i++) {
+        final entry = widget.entries![i];
+        if (entry is WaveMenuSeparator) {
+          // Same spec as the plugin separator: 5px bottom pad, zero-margin
+          // divider. Built inline — the plugin's is not a Widget.
+          rows.add(const Padding(
+            padding: EdgeInsetsDirectional.only(bottom: 5),
+            child: Divider(
+              style: DividerThemeData(
+                  horizontalMargin: EdgeInsetsDirectional.zero),
+            ),
+          ));
+        } else if (entry is WaveMenuSubmenu) {
+          rows.add(_WaveSubmenuRow(
+            key: _subKeys.putIfAbsent(
+                i, () => GlobalKey<_WaveSubmenuRowState>()),
+            entry: entry,
+            highlighted: i == _highlight,
+            onOpened: (c) {
+              if (_openSubmenu != null &&
+                  _openSubmenu != c &&
+                  _openSubmenu!.isOpen) {
+                _openSubmenu!.close();
+              }
+              _openSubmenu = c;
+            },
+          ));
+        } else if (entry is WaveMenuAction) {
+          final onPressed = entry.onPressed;
+          rows.add(FlyoutListTile(
+            margin: EdgeInsetsDirectional.zero,
+            selected: i == _highlight,
+            showSelectedIndicator: false,
+            icon: entry.leading,
+            text: Text(
+              entry.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: entry.hint == null
+                ? null
+                : Text(entry.hint!,
+                    style: const TextStyle(fontSize: 11)),
+            onPressed: onPressed == null
+                ? null
+                : () {
+                    Navigator.of(context).maybePop();
+                    onPressed();
+                  },
+          ));
+        }
+      }
+      body = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: rows,
+      );
+    }
+
+    final panel = Container(
+      decoration: BoxDecoration(
+        color: theme.menuColor,
+        borderRadius: BorderRadius.circular(7),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x21000000),
+            blurRadius: 7.2,
+            offset: Offset(0, 3.2),
+          ),
+          BoxShadow(
+            color: Color(0x1C000000),
+            blurRadius: 1.8,
+            offset: Offset(0, 0.68),
+          ),
+        ],
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: widget.maxWidth),
+        child: Padding(
+          padding:
+              const EdgeInsetsDirectional.symmetric(vertical: 2, horizontal: 4),
+          child: body,
+        ),
+      ),
+    );
+
+    if (widget.entries == null) return panel;
+    return Focus(
+      autofocus: true,
+      onKeyEvent: _onKey,
+      child: panel,
+    );
+  }
+}
+
+/// Cascading submenu row: same [FlyoutListTile] visuals as actions, opens
+/// a nested [WaveFlyoutPanel] on hover (250ms) or tap/click/Enter.
+class _WaveSubmenuRow extends StatefulWidget {
+  final WaveMenuSubmenu entry;
+  final bool highlighted;
+  final ValueChanged<FlyoutController> onOpened;
+  const _WaveSubmenuRow({
+    super.key,
+    required this.entry,
+    required this.highlighted,
+    required this.onOpened,
+  });
+
+  @override
+  State<_WaveSubmenuRow> createState() => _WaveSubmenuRowState();
+}
+
+class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
+  final _controller = FlyoutController();
+  Timer? _hoverTimer;
+
+  @override
+  void dispose() {
+    _hoverTimer?.cancel();
+    // If the parent route is torn down with our submenu open, close it
+    // ourselves; the panel dispose covers the reverse order. Caught:
+    // the target may already be detached in debug asserts.
+    try {
+      if (_controller.isOpen) _controller.close();
+    } catch (_) {}
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void openNow() {
+    _hoverTimer?.cancel();
+    if (_controller.isOpen) return;
+    _controller.showFlyout(
+      barrierColor: Colors.transparent,
+      placementMode: FlyoutPlacementMode.rightTop,
+      transitionDuration: const Duration(milliseconds: 90),
+      transitionBuilder: fastFlyoutTransition,
+      builder: (context) => WaveFlyoutPanel.items(
+        entries: widget.entry.items(),
+      ),
+    );
+    widget.onOpened(_controller);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FlyoutTarget(
+      controller: _controller,
+      child: MouseRegion(
+        onEnter: (_) {
+          _hoverTimer?.cancel();
+          _hoverTimer = Timer(
+            const Duration(milliseconds: 250),
+            openNow,
+          );
+        },
+        onExit: (_) => _hoverTimer?.cancel(),
+        child: FlyoutListTile(
+          margin: EdgeInsetsDirectional.zero,
+          selected: widget.highlighted,
+          showSelectedIndicator: false,
+          icon: widget.entry.leading,
+          text: Text(
+            widget.entry.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(FluentIcons.chevron_right, size: 12),
+          onPressed: openNow,
+        ),
+      ),
+    );
+  }
+}
+
+/// Right-click region opening a [WaveFlyoutPanel] at the cursor.
 class WaveContextMenu extends StatefulWidget {
-  final List<MenuFlyoutItemBase> Function() items;
+  final List<WaveMenuEntry> Function() items;
   final Widget child;
   const WaveContextMenu({
     super.key,
@@ -268,11 +589,9 @@ class _WaveContextMenuState extends State<WaveContextMenu> {
       barrierColor: Colors.transparent,
       placementMode: FlyoutPlacementMode.auto,
       transitionDuration: const Duration(milliseconds: 90),
-      builder: (context) => MenuFlyout(
-        items: widget.items(),
-        shape: RoundedRectangleBorder(
-          borderRadius: WaveRadius.menuRadius,
-        ),
+      transitionBuilder: fastFlyoutTransition,
+      builder: (context) => WaveFlyoutPanel.items(
+        entries: widget.items(),
       ),
     );
   }
@@ -301,10 +620,58 @@ class LWContextMenu extends WaveContextMenu {
   });
 }
 
-/// Overflow button backed by a Fluent drop-down flyout.
+/// Button opening a [WaveFlyoutPanel]; the trigger keeps caller visuals
+/// verbatim (replaces plugin DropDownButton, whose MenuFlyout pays the
+/// IntrinsicWidth measurement on every open).
+class WaveMenuButton extends StatefulWidget {
+  final List<WaveMenuEntry> entries;
+  final FlyoutPlacementMode placement;
+  final Widget Function(BuildContext context, VoidCallback onOpen)
+      buttonBuilder;
+  const WaveMenuButton({
+    super.key,
+    required this.entries,
+    required this.buttonBuilder,
+    this.placement = FlyoutPlacementMode.auto,
+  });
+  @override
+  State<WaveMenuButton> createState() => _WaveMenuButtonState();
+}
+
+class _WaveMenuButtonState extends State<WaveMenuButton> {
+  final _controller = FlyoutController();
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _open() {
+    if (widget.entries.isEmpty) return;
+    _controller.showFlyout(
+      barrierColor: Colors.transparent,
+      placementMode: widget.placement,
+      transitionDuration: const Duration(milliseconds: 90),
+      transitionBuilder: fastFlyoutTransition,
+      builder: (context) => WaveFlyoutPanel.items(
+        entries: widget.entries,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FlyoutTarget(
+      controller: _controller,
+      child: widget.buttonBuilder(context, _open),
+    );
+  }
+}
+
+/// Overflow button opening a [WaveFlyoutPanel] below-right.
 class WaveOverflowButton extends StatelessWidget {
   final String tooltip;
-  final List<MenuFlyoutItemBase> items;
+  final List<WaveMenuEntry> items;
   final IconData icon;
   const WaveOverflowButton({
     super.key,
@@ -318,9 +685,9 @@ class WaveOverflowButton extends StatelessWidget {
     final dark = waveIsDark(context);
     return LWTooltip(
       message: tooltip,
-      child: DropDownButton(
+      child: WaveMenuButton(
+        entries: items,
         placement: FlyoutPlacementMode.bottomRight,
-        items: items,
         buttonBuilder: (context, onOpen) => SizedBox(
           width: WaveDensity.hitArea,
           height: WaveDensity.hitArea,

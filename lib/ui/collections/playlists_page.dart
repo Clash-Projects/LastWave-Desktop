@@ -257,36 +257,36 @@ class _PlaylistCardState
     final cover = _coverOf(p);
     return WaveContextMenu(
       items: () => [
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading:
               const Icon(FluentIcons.play, size: 13),
-          text: const Text('Open'),
+          label: 'Open',
           onPressed: () =>
               context.go('/playlists/${p.id}'),
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: Icon(
               p.isPinned
                   ? FluentIcons.pinned
                   : FluentIcons.pin,
               size: 13),
-          text: Text(p.isPinned ? 'Unpin' : 'Pin'),
+          label: p.isPinned ? 'Unpin' : 'Pin',
           onPressed: () => ref
               .read(playlistRepositoryProvider.notifier)
               .setPinned(p.id, !p.isPinned),
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading:
               const Icon(FluentIcons.edit, size: 13),
-          text: const Text('Rename'),
+          label: 'Rename',
           onPressed: () => showWaveRenamePlaylist(
               context, ref, p),
         ),
         if (!p.isLikedSongs)
-          MenuFlyoutItem(
+          WaveMenuAction(
             leading: const Icon(FluentIcons.delete,
                 size: 13),
-            text: const Text('Delete'),
+            label: 'Delete',
             onPressed: () => showWaveDeletePlaylist(
                 context, ref, p),
           ),

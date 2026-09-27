@@ -6,7 +6,8 @@ import 'package:window_manager/window_manager.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/buttons.dart' show LWTooltip;
-import '../components/menus.dart' show fastFlyoutTransition;
+import '../components/menus.dart'
+    show fastFlyoutTransition, WaveFlyoutPanel, WaveMenuAction, WaveMenuSeparator;
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -231,13 +232,15 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
         barrierDismissible: true,
         dismissWithEsc: true,
         placementMode: FlyoutPlacementMode.bottomCenter,
-        builder: (context) => MenuFlyout(
-          items: [
+        transitionDuration: const Duration(milliseconds: 90),
+        transitionBuilder: fastFlyoutTransition,
+        builder: (context) => WaveFlyoutPanel.items(
+          entries: [
             for (final h in history)
-              MenuFlyoutItem(
+              WaveMenuAction(
                 leading:
                     const Icon(WaveIcons.history, size: 15),
-                text: Text(h),
+                label: h,
                 onPressed: () {
                   widget.controller.text = h;
                   _closeFlyout();
@@ -245,10 +248,10 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                   widget.onSubmit(h);
                 },
               ),
-            const MenuFlyoutSeparator(),
-            MenuFlyoutItem(
+            const WaveMenuSeparator(),
+            WaveMenuAction(
               leading: const Icon(WaveIcons.command, size: 15),
-              text: const Text('All commands  (Ctrl+K)'),
+              label: 'All commands  (Ctrl+K)',
               onPressed: () {
                 _closeFlyout();
                 widget.focus.unfocus();
