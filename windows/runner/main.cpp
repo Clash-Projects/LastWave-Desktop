@@ -5,8 +5,32 @@
 #include <timeapi.h>
 #pragma comment(lib, "winmm.lib")
 
+#include <uxtheme.h>
+#pragma comment(lib, "uxtheme.lib")
+
 #include "flutter_window.h"
 #include "utils.h"
+
+// Opt the process into dark Win32 popup menus (tray icon menu, ...).
+//
+// tray_manager shows a raw HMENU via TrackPopupMenu, which renders light
+// unless the app allows dark mode. Both uxtheme entry points are
+// undocumented ordinals, so resolve them dynamically and fail open on
+// older Windows builds.
+void EnableDarkWin32Menus() {
+  HMODULE uxtheme = ::LoadLibraryExW(L"uxtheme.dll", nullptr,
+                                     LOAD_LIBRARY_SEARCH_SYSTEM32);
+  if (uxtheme == nullptr) return;
+  using SetPreferredAppModeFn = int(WINAPI*)(int);
+  using FlushMenuThemesFn = void(WINAPI*)();
+  auto setPreferredAppMode = reinterpret_cast<SetPreferredAppModeFn>(
+      ::GetProcAddress(uxtheme, MAKEINTRESOURCEA(135)));
+  auto flushMenuThemes = reinterpret_cast<FlushMenuThemesFn>(
+      ::GetProcAddress(uxtheme, MAKEINTRESOURCEA(136)));
+  constexpr int kAllowDark = 1;
+  if (setPreferredAppMode != nullptr) setPreferredAppMode(kAllowDark);
+  if (flushMenuThemes != nullptr) flushMenuThemes();
+}
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -43,6 +67,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::timeEndPeriod(1);
     return EXIT_FAILURE;
   }
+  // Dark owner-drawn theme for Win32 popup menus (tray menu included).
+  // Ignored on builds without immersive dark menus — fails open to light.
+  EnableDarkWin32Menus();
+  ::SetWindowTheme(window.GetHandle(), L"DarkMode_Explorer", nullptr);
   window.SetQuitOnClose(true);
 
   ::MSG msg;

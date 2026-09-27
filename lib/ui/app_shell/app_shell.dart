@@ -310,6 +310,14 @@ class _WaveShellState extends ConsumerState<WaveShell>
   }
 
   @override
+  void onTrayIconRightMouseDown() {
+    // bringAppToFront is the SetForegroundWindow call TrackPopupMenu needs
+    // so outside clicks dismiss the menu (upstream default leaves it stuck).
+    // ignore: deprecated_member_use
+    trayManager.popUpContextMenu(bringAppToFront: true).catchError((_) {});
+  }
+
+  @override
   void didUpdateWidget(WaveShell oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.location == widget.location) return;
