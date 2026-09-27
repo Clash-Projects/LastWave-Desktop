@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/stream_models.dart';
@@ -11,6 +11,7 @@ import '../../core/env/app_env.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/storage/prefs.dart';
 import '../lossless/lossless_source.dart';
+import 'local_media_server.dart';
 
 /// Personal addon source (LastWave addon protocol).
 ///
@@ -376,6 +377,29 @@ class AddonApi implements LosslessSource {
         manifestXml.contains('definatelynagato')) {
       return null;
     }
+    // Payload-shape breadcrumb (keys only, never values): tells us
+    // whether the server offers a progressive URL next to the
+    // manifest. Windows libmpv 0.36 cannot open a second DASH
+    // manifest per process, so progressive (when present) wins.
+    try {
+      const keys = [
+        'url',
+        'dataUrl',
+        'directUrl',
+        'streamUrl',
+        'downloadUrl',
+        'mediaUrl',
+        'manifestXml',
+      ];
+      final present = [
+        for (final k in keys)
+          if ((data[k]?.toString() ?? '').isNotEmpty) k,
+      ];
+      if (kDebugMode) {
+        debugPrint(
+            'LastWave-Addon: stream fields($trackId): ${present.join(',')}');
+      }
+    } catch (_) {}
 
     final hiRes = serverQuality == 'hi_res';
     final mp3 = serverQuality == 'high';
@@ -415,18 +439,29 @@ class AddonApi implements LosslessSource {
       return null;
     }();
     if (inlineManifest != null && inlineManifest.contains('<MPD')) {
-      final file = await _writeManifestFile(trackId, inlineManifest);
-      if (file == null) return null;
+      // Windows libmpv 0.36 dies on its second DASH manifest per
+      // process, and full pre-assembly stalls first audio for tens
+      // of seconds — so mpv streams the assembly live from loopback
+      // while the same bytes tee to disk. Null only when the
+      // manifest can't be served at all (callers fall through).
+      final uri = await LocalMediaServer.instance.urlFor(
+        manifestXml: inlineManifest,
+        cacheName:
+            '${Uri.tryParse(root)?.host ?? 'addon'}_${trackId}_$serverQuality',
+      );
+      if (uri == null) return null;
       return ResolvedStream(
-        url: file,
-        mimeType: 'application/dash+xml',
+        url: uri.toString(),
+        mimeType: 'audio/mp4',
         bitrateKbps: bitrateKbps,
         audioCodec: codec,
         cacheKey: cacheKey,
         isLossless: !mp3,
         bitDepth: bitDepth,
         samplingRateKhz: sampleRate,
-        expiresAt: expiresAt,
+        // The file doesn't expire (signatures only gate minting);
+        // the disk cache is the durable layer, memory follows along.
+        expiresAt: DateTime.now().add(const Duration(hours: 24)),
       );
     }
 
@@ -439,9 +474,31 @@ class AddonApi implements LosslessSource {
     // protocol); progressive files likewise.
     final lower = direct.split('?').first.toLowerCase();
     final isMpd = lower.endsWith('.mpd');
-    final mime = isMpd
-        ? 'application/dash+xml'
-        : lower.endsWith('.mp3')
+    if (isMpd) {
+      // Same rule as inline manifests: stream the assembly from
+      // loopback, never hand mpv an MPD.
+      final xmlText = await _manifestText(direct);
+      final uri = xmlText != null
+          ? await LocalMediaServer.instance.urlFor(
+              manifestXml: xmlText,
+              cacheName:
+                  '${Uri.tryParse(root)?.host ?? 'addon'}_${trackId}_$serverQuality',
+            )
+          : null;
+      if (uri == null) return null;
+      return ResolvedStream(
+        url: uri.toString(),
+        mimeType: 'audio/mp4',
+        bitrateKbps: bitrateKbps,
+        audioCodec: codec,
+        cacheKey: cacheKey,
+        isLossless: !mp3,
+        bitDepth: bitDepth,
+        samplingRateKhz: sampleRate,
+        expiresAt: DateTime.now().add(const Duration(hours: 24)),
+      );
+    }
+    final mime = lower.endsWith('.mp3')
             ? 'audio/mpeg'
             : (lower.endsWith('.m4a') || lower.endsWith('.mp4'))
                 ? 'audio/mp4'
@@ -459,20 +516,16 @@ class AddonApi implements LosslessSource {
     );
   }
 
-  Future<String?> _writeManifestFile(
-      String trackId, String xml) async {
+  /// Fetch a remote manifest document (plain text). Null unless it
+  /// parses as an MPD — callers assemble it or fall through.
+  Future<String?> _manifestText(String url) async {
     try {
-      final safeId =
-          trackId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-      final dir = Directory(
-          '${Directory.systemTemp.path}${Platform.pathSeparator}lastwave_addon');
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
-      final file = File(
-          '${dir.path}${Platform.pathSeparator}$safeId.mpd');
-      await file.writeAsString(xml, flush: true);
-      return file.path;
+      final res = await _dio
+          .get<String>(url,
+              options: Options(responseType: ResponseType.plain))
+          .timeout(const Duration(seconds: 15));
+      final text = res.data ?? '';
+      return text.contains('<MPD') ? text : null;
     } catch (_) {
       return null;
     }

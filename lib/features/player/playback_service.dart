@@ -74,6 +74,46 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   final Set<String> _prefetchInflight = {};
   String _prefetchSeedKey = '';
 
+  // -- native mpv serialization -------------------------------------------
+  //
+  // Windows libmpv corrupts its heap when stop/open/property writes
+  // overlap: the first track plays, the next transition dies in ntdll
+  // with 0xc0000005 and no Dart log (the await never returns). Every
+  // stream-lifecycle native call goes through [_serializedMpv] so only
+  // one is ever in flight. Hot-path transport (seek/volume/rate) stays
+  // direct — serializing those would queue-jank playback.
+  Future<void> _mpvTail = Future.value();
+
+  Future<T> _serializedMpv<T>(Future<T> Function() op) {
+    final run = _mpvTail.then((_) => op());
+    _mpvTail = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
+  /// True when mpv currently holds a DASH manifest. DASH teardown on
+  /// Windows lags the stop call (segment fetches still in flight), so
+  /// the next open waits for idle first — otherwise loadfile races
+  /// the dying demuxer and corrupts the heap.
+  bool _lastWasDash = false;
+
+  /// Crash-surviving breadcrumb file (`<temp>/lastwave/mpv-ops.log`).
+  /// Written synchronously with flush BEFORE each native op, so the
+  /// last line names the call that killed the process. Never logs
+  /// URLs, cookies, or headers — op names and stream shapes only.
+  String? _crumbPath;
+
+  void _crumb(String line) {
+    try {
+      final path = _crumbPath;
+      if (path == null) return;
+      File(path).writeAsStringSync(
+        '${DateTime.now().toIso8601String()} $line\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {}
+  }
+
   PlaybackService(
     this._tube,
     this._lossless,
@@ -124,6 +164,26 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           await dyn.setProperty('vid', 'no');
         } catch (_) {}
       }
+    } catch (_) {}
+    // Crash-surviving trail: mpv logs to disk continuously and Dart
+    // appends one line per native op — both outlive a segfault,
+    // unlike stdout. All best-effort; never blocks startup.
+    try {
+      final trailDir = Directory(
+          '${Directory.systemTemp.path}${Platform.pathSeparator}lastwave');
+      trailDir.createSync(recursive: true);
+      _crumbPath =
+          '${trailDir.path}${Platform.pathSeparator}mpv-ops.log';
+      try {
+        File(_crumbPath!).writeAsStringSync(
+            '--- player created ${DateTime.now().toIso8601String()} ---\n',
+            flush: true);
+      } catch (_) {}
+      try {
+        final dyn = created.platform as dynamic;
+        await dyn.setProperty('log-file',
+            '${trailDir.path}${Platform.pathSeparator}mpv.log');
+      } catch (_) {}
     } catch (_) {}
     final p = _player!;
     _subs.addAll([
@@ -199,8 +259,20 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _subs.clear();
     _sleepTimer?.cancel();
     _persistThrottle?.cancel();
-    _player?.dispose();
+    // Queue teardown behind any in-flight open: disposing mid-loadfile
+    // is the same heap race as overlapping stop/open (Alt+F4 path).
+    final player = _player;
     _player = null;
+    if (player != null) {
+      unawaited(_serializedMpv(() async {
+        try {
+          await player.stop();
+        } catch (_) {}
+        try {
+          await player.dispose();
+        } catch (_) {}
+      }));
+    }
   }
 
   // -- queue API ---------------------------------------------------------------
@@ -419,7 +491,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     wasapiError = null;
     _forcedAoFormat =
         exclusive && outputFormat != null ? mpvSampleFormat(outputFormat.bitDepth) : null;
-    try {
+    _crumb('configureWasapi exclusive=$exclusive device=$mpvDevice');
+    await _serializedMpv(() async {
       final dyn = player.platform as dynamic;
       try {
         await dyn.setProperty('ao', 'wasapi');
@@ -437,11 +510,18 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         await dyn.setProperty(
             'gapless-audio', exclusive ? 'weak' : 'yes');
       } catch (_) {}
-      try {
-        await dyn.setProperty('audio-format', _forcedAoFormat ?? 'no');
-      } catch (e) {
-        if (exclusive) {
-          wasapiError = 'audio-format failed: $e';
+      // audio-format accepts only real format names — writing 'no'
+      // (the old shared-mode default) errors out of mpv on every
+      // call and fires a spurious p.stream.error → re-resolve.
+      // Skip when unset; mpv keeps its negotiated default.
+      final forced = _forcedAoFormat;
+      if (forced != null) {
+        try {
+          await dyn.setProperty('audio-format', forced);
+        } catch (e) {
+          if (exclusive) {
+            wasapiError = 'audio-format failed: $e';
+          }
         }
       }
       if (exclusive) {
@@ -456,20 +536,20 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         } catch (_) {}
       }
       exclusiveApplied = exclusive && wasapiError == null;
-    } catch (e) {
+      try {
+        if (mpvDevice.isEmpty || mpvDevice == 'auto') {
+          await player.setAudioDevice(AudioDevice.auto());
+        } else {
+          await player.setAudioDevice(AudioDevice(mpvDevice, ''));
+        }
+      } catch (_) {}
+      if (lockSoftwareVolume) {
+        await player.setVolume(100);
+      }
+    }).catchError((e) {
       exclusiveApplied = false;
       wasapiError = 'WASAPI init failed: $e';
-    }
-    try {
-      if (mpvDevice.isEmpty || mpvDevice == 'auto') {
-        await player.setAudioDevice(AudioDevice.auto());
-      } else {
-        await player.setAudioDevice(AudioDevice(mpvDevice, ''));
-      }
-    } catch (_) {}
-    if (lockSoftwareVolume) {
-      await player.setVolume(100);
-    }
+    });
     if (outputFormat != null && exclusive) {
       state = state.copyWith(
         outputFormat: outputFormat,
@@ -626,9 +706,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _resolving = false;
     _resolvingIndex = -1;
     _activeQueueKey = '';
+    _crumb('stop requested (stopAndClear)');
     try {
-      await _player?.stop();
+      await _serializedMpv(() async {
+        await _player?.stop();
+      });
     } catch (_) {}
+    _lastWasDash = false;
     _endlessRadio = false;
     _sessions.clear();
     _playCache.clear();
@@ -698,8 +782,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         return;
       }
       if (cached == null) {
+        // Cut audio fast, but serialized: a stop racing an in-flight
+        // open corrupts the Windows libmpv heap.
+        _crumb('stop requested resolve=$index key=$wantedQueueKey');
         try {
-          await _player?.stop();
+          await _serializedMpv(() async {
+            await _player?.stop();
+          });
         } catch (_) {}
       }
       final stream = cached ??
@@ -1070,10 +1159,56 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
 
     try {
-      await _player?.open(
-        Media(stream.url, httpHeaders: stream.requestHeaders),
-        play: true,
-      );
+      // Pre-open breadcrumb: runs BEFORE the native call, so it
+      // survives a segfault. Shape only (kind/ext/mime) — never URLs.
+      final rawUrl = stream.url;
+      final kind = rawUrl.startsWith('http')
+          ? 'remote'
+          : (rawUrl.startsWith('file:') ||
+                  rawUrl.contains(':\\') ||
+                  rawUrl.startsWith('/'))
+              ? 'local-file'
+              : 'other';
+      final ext = rawUrl.split('?').first.split('.').last;
+      _crumb('open key=$wantedQueueKey kind=$kind ext=$ext '
+          'mime=${stream.mimeType} lossless=${stream.isLossless} '
+          'cache=${stream.cacheKey}');
+      // Materialized manifests arrive as raw `C:\…` paths; mpv opens
+      // them, but the backslash form poisons the DASH demux handoff
+      // on Windows — always use a file:// URI (mirrors _localStream).
+      var playUrl = rawUrl;
+      if (kind == 'local-file' && !rawUrl.startsWith('file:')) {
+        try {
+          playUrl = Uri.file(rawUrl).toString();
+          _crumb('open key=$wantedQueueKey file-uri=yes');
+        } catch (_) {}
+      }
+      final wasDash = _lastWasDash;
+      final isDash = stream.mimeType.contains('dash');
+      await _serializedMpv(() async {
+        // Always tear down before loading: opening over a live stream
+        // (or racing its teardown) corrupts the Windows libmpv heap —
+        // first track plays, the next dies in ntdll.
+        try {
+          await _player?.stop();
+        } catch (_) {}
+        if (generation != _resolveGeneration) return;
+        if (_activeQueueKey != wantedQueueKey) return;
+        if (wasDash) {
+          // Proven crash window (mpv.log): the previous DASH demuxer
+          // is still unwinding when loadfile arrives — the second
+          // manifest dies mid-probe ~10ms after open. Bounded grace.
+          _crumb('open key=$wantedQueueKey dash-grace');
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (generation != _resolveGeneration) return;
+          if (_activeQueueKey != wantedQueueKey) return;
+        }
+        await _player?.open(
+          Media(playUrl, httpHeaders: stream.requestHeaders),
+          play: true,
+        );
+        _lastWasDash = isDash;
+      });
       if (generation != _resolveGeneration) return;
       if (_activeQueueKey != wantedQueueKey) return;
       if (state.speed != 1.0) {

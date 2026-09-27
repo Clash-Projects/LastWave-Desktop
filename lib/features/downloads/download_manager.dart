@@ -197,7 +197,13 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         if (stream != null) {
           isLossless = stream.isLossless;
           badge = stream.qualityBadge;
-          ext = stream.audioCodec.contains('MP3') ? 'mp3' : 'flac';
+          // Assembled addon files are fMP4 in an .m4a body regardless
+          // of the FLAC codec badge — name the container, not the codec.
+          ext = stream.audioCodec.contains('MP3')
+              ? 'mp3'
+              : stream.mimeType.contains('mp4')
+                  ? 'm4a'
+                  : 'flac';
         }
       }
       if (stream == null) {
@@ -215,23 +221,28 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       final dir = await _musicDir();
       final file = File(
           p.join(dir.path, '${_sanitize('$artist - $title')}.$ext'));
-      await _dio.download(
-        stream.url,
-        file.path,
-        options: Options(headers: stream.requestHeaders),
-        onReceiveProgress: (received, total) {
-          if (total > 0) {
-            _upsert(DownloadEntry(
-              key: key,
-              title: title,
-              artist: artist,
-              status: DownloadStatus.downloading,
-              progress: received / total,
-              badge: badge,
-            ));
-          }
-        },
-      );
+      if (!stream.url.startsWith('http')) {
+        // Locally assembled addon file: copy it, don't (re-)download.
+        await File(stream.url).copy(file.path);
+      } else {
+        await _dio.download(
+          stream.url,
+          file.path,
+          options: Options(headers: stream.requestHeaders),
+          onReceiveProgress: (received, total) {
+            if (total > 0) {
+              _upsert(DownloadEntry(
+                key: key,
+                title: title,
+                artist: artist,
+                status: DownloadStatus.downloading,
+                progress: received / total,
+                badge: badge,
+              ));
+            }
+          },
+        );
+      }
 
       // Lyrics sidecar.
       var lrcPath = '';
