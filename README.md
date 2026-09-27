@@ -1,17 +1,26 @@
-# lastwave_desktop
+<div align="center">
 
-A new Flutter project.
+<img src="lastwave-logo.png" alt="LastWave Logo" width="120" height="120" style="border-radius: 50%;" />
 
-## Getting Started
+# LastWave
 
-This project is a starting point for a Flutter application.
+**Next-Gen Lossless Music player with Algorithmic Smart Playlist Generator, Real-Time Synced Lyrics & Last.fm Scrobbler for Desktop.**
 
-A few resources to get you started if this is your first Flutter project:
+<p align="center">
+  <a href="https://github.com/Clash-Projects/LastWave-Desktop/stargazers">
+    <img src="https://img.shields.io/github/stars/Clash-Projects/LastWave-Desktop?style=for-the-badge&color=ffd0b0&labelColor=2d2d2d" alt="Stars" />
+  </a>
+  <a href="#">
+    <img src="https://img.shields.io/badge/Client-Lossless%20Music-FF0000?style=for-the-badge&logo=lossless&logoColor=white&labelColor=2d2d2d" alt="Lossless Music Client" />
+  </a>
+  <a href="#">
+    <img src="https://img.shields.io/badge/Scrobbler-Last.fm-D51007?style=for-the-badge&logo=lastdotfm&logoColor=white&labelColor=2d2d2d" alt="Last.fm Scrobbler" />
+  </a>
+  <a href="#">
+    <img src="https://img.shields.io/badge/Platform-Desktop-3DDC84?style=for-the-badge&logo=windows&logoColor=white&labelColor=2d2d2d" alt="Platform" />
+  </a>
+</p>
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+</div>
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+<br/>
