@@ -18,6 +18,10 @@ import '../theme/tokens.dart';
 ///
 /// Dismissible per-bar, auto-collapses when clear. Rendered by [WaveShell]
 /// directly under the title bar so it never blocks playback.
+/// One-shot "running in the tray" hint, set on first hide-to-tray.
+/// Session-scoped (resets on relaunch) — the pref itself lives in Prefs.
+final trayHintProvider = StateProvider<bool>((_) => false);
+
 class WaveInfoBarHost extends ConsumerStatefulWidget {
   const WaveInfoBarHost({super.key});
   @override
@@ -37,6 +41,17 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
     final downloads = ref.watch(downloadManagerProvider);
 
     final bars = <Widget>[];
+    if (ref.watch(trayHintProvider)) {
+      bars.add(InfoBar(
+        title: const Text('Playing in the tray'),
+        content: const Text(
+            'Closing hides LastWave — Quit from the tray menu to exit.'),
+        severity: InfoBarSeverity.info,
+        isLong: false,
+        onClose: () =>
+            ref.read(trayHintProvider.notifier).state = false,
+      ));
+    }
     if (!online && !_dismissedOffline) {
       bars.add(InfoBar(
         title: const Text('You are offline'),

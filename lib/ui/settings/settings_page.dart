@@ -49,17 +49,13 @@ class WaveSettingsPage extends ConsumerStatefulWidget {
   const WaveSettingsPage({super.key});
 
   @override
-  ConsumerState<WaveSettingsPage> createState() =>
-      _WaveSettingsPageState();
+  ConsumerState<WaveSettingsPage> createState() => _WaveSettingsPageState();
 }
 
-class _WaveSettingsPageState
-    extends ConsumerState<WaveSettingsPage> {
+class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
   String _section = 'general';
 
-  Future<void> _update(
-    Future<void> Function(Prefs) fn,
-  ) async {
+  Future<void> _update(Future<void> Function(Prefs) fn) async {
     await fn(ref.read(prefsProvider));
     ref.read(themeControllerProvider.notifier).refresh();
     if (mounted) setState(() {});
@@ -75,19 +71,13 @@ class _WaveSettingsPageState
         if (narrow) {
           return ListView(
             physics: const ClampingScrollPhysics(),
-            padding:
-                const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
               Text(
                 'SYSTEM',
-                style: WaveType.overline.copyWith(
-                  color: waveAccent(context),
-                ),
+                style: WaveType.overline.copyWith(color: waveAccent(context)),
               ),
-              const Text(
-                'Settings',
-                style: WaveType.pageTitle,
-              ),
+              const Text('Settings', style: WaveType.pageTitle),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 6,
@@ -96,8 +86,7 @@ class _WaveSettingsPageState
                   for (final s in _waveSettingsSections)
                     ToggleButton(
                       checked: _section == s.$1,
-                      onChanged: (_) =>
-                          setState(() => _section = s.$1),
+                      onChanged: (_) => setState(() => _section = s.$1),
                       child: Text(s.$2),
                     ),
                 ],
@@ -106,10 +95,7 @@ class _WaveSettingsPageState
               _SectionSwap(
                 child: RepaintBoundary(
                   key: ValueKey(_section),
-                  child: _SectionBody(
-                    section: _section,
-                    onUpdate: _update,
-                  ),
+                  child: _SectionBody(section: _section, onUpdate: _update),
                 ),
               ),
             ],
@@ -122,8 +108,7 @@ class _WaveSettingsPageState
               width: 220,
               child: SingleChildScrollView(
                 physics: const ClampingScrollPhysics(),
-                padding:
-                    const EdgeInsets.fromLTRB(24, 20, 12, 20),
+                padding: const EdgeInsets.fromLTRB(24, 20, 12, 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -133,39 +118,28 @@ class _WaveSettingsPageState
                         color: waveAccent(context),
                       ),
                     ),
-                    const Text(
-                      'Settings',
-                      style: WaveType.pageTitle,
-                    ),
+                    const Text('Settings', style: WaveType.pageTitle),
                     const SizedBox(height: 12),
                     for (final s in _waveSettingsSections)
                       ListTile.selectable(
                         selected: _section == s.$1,
-                        selectionMode:
-                            ListTileSelectionMode.single,
+                        selectionMode: ListTileSelectionMode.single,
                         leading: Icon(s.$3, size: 15),
                         title: Text(s.$2),
-                        onPressed: () =>
-                            setState(() => _section = s.$1),
+                        onPressed: () => setState(() => _section = s.$1),
                       ),
                   ],
                 ),
               ),
             ),
-            Container(
-              width: 1,
-              color: waveDivider(context),
-            ),
+            Container(width: 1, color: waveDivider(context)),
             Expanded(
               child: ListView(
                 physics: const ClampingScrollPhysics(),
-                padding:
-                    const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
                 children: [
                   ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: 640,
-                    ),
+                    constraints: const BoxConstraints(maxWidth: 640),
                     child: _SectionSwap(
                       child: RepaintBoundary(
                         key: ValueKey(_section),
@@ -188,12 +162,8 @@ class _WaveSettingsPageState
 
 class _SectionBody extends ConsumerWidget {
   final String section;
-  final Future<void> Function(Future<void> Function(Prefs))
-      onUpdate;
-  const _SectionBody({
-    required this.section,
-    required this.onUpdate,
-  });
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _SectionBody({required this.section, required this.onUpdate});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -259,10 +229,8 @@ class _SectionSwap extends StatelessWidget {
             ],
           );
         },
-        transitionBuilder: (child, animation) => FadeTransition(
-          opacity: animation,
-          child: child,
-        ),
+        transitionBuilder: (child, animation) =>
+            FadeTransition(opacity: animation, child: child),
         child: child,
       ),
     );
@@ -317,8 +285,9 @@ class _Group extends StatelessWidget {
               right: BorderSide(color: stroke),
               bottom: BorderSide(color: stroke),
             ),
-            borderRadius:
-                const BorderRadius.vertical(bottom: Radius.circular(6)),
+            borderRadius: const BorderRadius.vertical(
+              bottom: Radius.circular(6),
+            ),
           ),
           child: child,
         ),
@@ -328,8 +297,7 @@ class _Group extends StatelessWidget {
 }
 
 class _Account extends ConsumerWidget {
-  final Future<void> Function(Future<void> Function(Prefs))
-      onUpdate;
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Account({required this.onUpdate});
 
   @override
@@ -344,13 +312,10 @@ class _Account extends ConsumerWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  auth.username.isEmpty
-                      ? 'Not connected'
-                      : auth.username,
+                  auth.username.isEmpty ? 'Not connected' : auth.username,
                   style: WaveType.trackTitle,
                 ),
                 Text(
@@ -364,13 +329,11 @@ class _Account extends ConsumerWidget {
           ),
           auth.username.isEmpty
               ? FilledButton(
-                  onPressed: () =>
-                      context.go('/welcome'),
+                  onPressed: () => context.go('/welcome'),
                   child: const Text('Connect'),
                 )
               : Button(
-                  onPressed: () =>
-                      signOutEverywhere(ref),
+                  onPressed: () => signOutEverywhere(ref),
                   child: const Text('Sign out'),
                 ),
         ],
@@ -380,70 +343,20 @@ class _Account extends ConsumerWidget {
 }
 
 class _Audio extends ConsumerWidget {
-  final Future<void> Function(Future<void> Function(Prefs))
-      onUpdate;
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Audio({required this.onUpdate});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final prefs = ref.watch(prefsProvider);
     return Column(
       children: [
-        _Group(
-          title: 'Streaming',
-          subtitle: 'Lossless-first with YouTube fallback',
-          child: Column(
-            children: [
-              _QualityRow(
-                title: 'Streaming quality',
-                value: prefs.losslessQuality,
-                onChanged: (q) => onUpdate(
-                  (p) => p.setLosslessQuality(q),
-                ),
-              ),
-              const SizedBox(height: 8),
-              _QualityRow(
-                title: 'Download quality',
-                value: prefs.downloadQuality,
-                onChanged: (q) => onUpdate(
-                  (p) => p.setDownloadQuality(q),
-                ),
-              ),
-            ],
-          ),
-        ),
         const SizedBox(height: 8),
         _Group(
           title: 'Audio output',
-          subtitle: Platform.isWindows ? 'WASAPI Exclusive bypasses the Windows mixer' : 'System audio output',
+          subtitle: Platform.isWindows
+              ? 'WASAPI Exclusive bypasses the Windows mixer'
+              : 'System audio output',
           child: _WasapiOutputSettings(onUpdate: onUpdate),
-        ),
-        const SizedBox(height: 8),
-        _Group(
-          title: 'Output',
-          subtitle: 'Playback and offline behaviour',
-          child: Column(
-            children: [
-              _SwitchRow(
-                value: prefs.preferLossless,
-                onChanged: (v) => onUpdate(
-                  (p) => p.setPreferLossless(v),
-                ),
-                title: 'Prefer lossless',
-                subtitle:
-                    'Try lossless first, fall back to Opus',
-              ),
-              _SwitchRow(
-                value: prefs.downloadLyrics,
-                onChanged: (v) => onUpdate(
-                  (p) => p.setDownloadLyrics(v),
-                ),
-                title: 'Download lyrics',
-                subtitle:
-                    'Save synced .lrc sidecars with downloads',
-              ),
-            ],
-          ),
         ),
       ],
     );
@@ -451,8 +364,7 @@ class _Audio extends ConsumerWidget {
 }
 
 class _Appearance extends ConsumerWidget {
-  final Future<void> Function(Future<void> Function(Prefs))
-      onUpdate;
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Appearance({required this.onUpdate});
 
   @override
@@ -465,8 +377,7 @@ class _Appearance extends ConsumerWidget {
           title: 'Theme',
           subtitle: 'Midnight charcoal or pearl light',
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
@@ -475,12 +386,9 @@ class _Appearance extends ConsumerWidget {
                       checked: !theme.isLight,
                       onChanged: (_) async {
                         await ref
-                            .read(themeControllerProvider
-                                .notifier)
+                            .read(themeControllerProvider.notifier)
                             .setThemeMode(false);
-                        await applyWindowMaterial(
-                          isLight: false,
-                        );
+                        await applyWindowMaterial(isLight: false);
                       },
                       child: const Text('Midnight'),
                     ),
@@ -491,12 +399,9 @@ class _Appearance extends ConsumerWidget {
                       checked: theme.isLight,
                       onChanged: (_) async {
                         await ref
-                            .read(themeControllerProvider
-                                .notifier)
+                            .read(themeControllerProvider.notifier)
                             .setThemeMode(true);
-                        await applyWindowMaterial(
-                          isLight: true,
-                        );
+                        await applyWindowMaterial(isLight: true);
                       },
                       child: const Text('Pearl'),
                     ),
@@ -504,26 +409,18 @@ class _Appearance extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              const Text(
-                'Accent source',
-                style: WaveType.trackTitle,
-              ),
+              const Text('Accent source', style: WaveType.trackTitle),
               const SizedBox(height: 6),
               ComboBox<String>(
                 value: theme.accentSource,
                 items: const [
+                  ComboBoxItem(value: 'custom', child: Text('Custom colour')),
                   ComboBoxItem(
-                      value: 'custom',
-                      child: Text('Custom colour')),
-                  ComboBoxItem(
-                      value: 'lastwave',
-                      child: Text('LastWave neutral')),
-                  ComboBoxItem(
-                      value: 'system',
-                      child: Text('System accent')),
-                  ComboBoxItem(
-                      value: 'artwork',
-                      child: Text('Artwork tint')),
+                    value: 'lastwave',
+                    child: Text('LastWave neutral'),
+                  ),
+                  ComboBoxItem(value: 'system', child: Text('System accent')),
+                  ComboBoxItem(value: 'artwork', child: Text('Artwork tint')),
                 ],
                 onChanged: (v) {
                   if (v != null) {
@@ -532,10 +429,7 @@ class _Appearance extends ConsumerWidget {
                 },
               ),
               const SizedBox(height: 10),
-              const Text(
-                'Accent colour',
-                style: WaveType.trackTitle,
-              ),
+              const Text('Accent colour', style: WaveType.trackTitle),
               const SizedBox(height: 6),
               Wrap(
                 spacing: 8,
@@ -551,9 +445,8 @@ class _Appearance extends ConsumerWidget {
                     const Color(0xFFE0507A),
                   ])
                     GestureDetector(
-                      onTap: () => onUpdate(
-                        (p) => p.setAccentColor(c.toARGB32()),
-                      ),
+                      onTap: () =>
+                          onUpdate((p) => p.setAccentColor(c.toARGB32())),
                       child: Container(
                         width: 28,
                         height: 28,
@@ -561,16 +454,13 @@ class _Appearance extends ConsumerWidget {
                           shape: BoxShape.circle,
                           color: c,
                           border: Border.all(
-                            color: theme.accent
-                                        .toARGB32() ==
-                                    c.toARGB32()
+                            color: theme.accent.toARGB32() == c.toARGB32()
                                 ? waveAccent(context)
                                 : waveDivider(context),
                             width: 2,
                           ),
                         ),
-                        child: theme.accent.toARGB32() ==
-                                c.toARGB32()
+                        child: theme.accent.toARGB32() == c.toARGB32()
                             ? Icon(
                                 FluentIcons.check_mark,
                                 size: 14,
@@ -597,13 +487,9 @@ class _Appearance extends ConsumerWidget {
               ComboBox<String>(
                 value: theme.hazeMaterial,
                 items: const [
-                  ComboBoxItem(
-                      value: 'automatic',
-                      child: Text('Automatic')),
-                  ComboBoxItem(
-                      value: 'haze', child: Text('Haze')),
-                  ComboBoxItem(
-                      value: 'solid', child: Text('Solid')),
+                  ComboBoxItem(value: 'automatic', child: Text('Automatic')),
+                  ComboBoxItem(value: 'haze', child: Text('Haze')),
+                  ComboBoxItem(value: 'solid', child: Text('Solid')),
                 ],
                 onChanged: (v) {
                   if (v != null) {
@@ -612,24 +498,20 @@ class _Appearance extends ConsumerWidget {
                 },
               ),
               const SizedBox(height: 10),
-              const Text(
-                'Haze intensity',
-                style: WaveType.trackTitle,
-              ),
+              const Text('Haze intensity', style: WaveType.trackTitle),
               const SizedBox(height: 6),
               Row(
                 children: [
                   for (final opt in ['low', 'medium', 'high'])
                     Padding(
-                      padding:
-                          const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.only(right: 6),
                       child: ToggleButton(
                         checked: theme.hazeIntensity == opt,
-                        onChanged: (_) => onUpdate(
-                          (p) => p.setHazeIntensity(opt),
-                        ),
+                        onChanged: (_) =>
+                            onUpdate((p) => p.setHazeIntensity(opt)),
                         child: Text(
-                            '${opt[0].toUpperCase()}${opt.substring(1)}'),
+                          '${opt[0].toUpperCase()}${opt.substring(1)}',
+                        ),
                       ),
                     ),
                 ],
@@ -645,18 +527,14 @@ class _Appearance extends ConsumerWidget {
             children: [
               _SwitchRow(
                 value: prefs.amoled,
-                onChanged: (v) =>
-                    onUpdate((p) => p.setAmoled(v)),
+                onChanged: (v) => onUpdate((p) => p.setAmoled(v)),
                 title: 'AMOLED black',
               ),
               _SwitchRow(
                 value: prefs.dynamicNowPlaying,
-                onChanged: (v) => onUpdate(
-                  (p) => p.setDynamicNowPlaying(v),
-                ),
+                onChanged: (v) => onUpdate((p) => p.setDynamicNowPlaying(v)),
                 title: 'Dynamic artwork theme',
-                subtitle:
-                    'Tint Now Playing from album art',
+                subtitle: 'Tint Now Playing from album art',
               ),
             ],
           ),
@@ -667,8 +545,7 @@ class _Appearance extends ConsumerWidget {
 }
 
 class _Lyrics extends ConsumerWidget {
-  final Future<void> Function(Future<void> Function(Prefs))
-      onUpdate;
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Lyrics({required this.onUpdate});
 
   @override
@@ -679,19 +556,16 @@ class _Lyrics extends ConsumerWidget {
       subtitle: 'Synced lyrics providers',
       child: _SwitchRow(
         value: prefs.wordByWord,
-        onChanged: (v) =>
-            onUpdate((p) => p.setWordByWord(v)),
+        onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
         title: 'Word-by-word lyrics',
-        subtitle:
-            'Karaoke word highlight. Off uses Apple Music line lyrics.',
+        subtitle: 'Karaoke word highlight. Off uses Apple Music line lyrics.',
       ),
     );
   }
 }
 
 class _Scrobbler extends ConsumerStatefulWidget {
-  final Future<void> Function(Future<void> Function(Prefs))
-      onUpdate;
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Scrobbler({required this.onUpdate});
 
   @override
@@ -704,10 +578,9 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
   @override
   Widget build(BuildContext context) {
     final prefs = ref.watch(prefsProvider);
-    final percent =
-        (_dragPercent ?? prefs.scrobblePercent.toDouble())
-            .clamp(25, 90)
-            .toDouble();
+    final percent = (_dragPercent ?? prefs.scrobblePercent.toDouble())
+        .clamp(25, 90)
+        .toDouble();
     return _Group(
       title: 'Last.fm scrobbling',
       subtitle: 'Thresholds mirror Last.fm rules',
@@ -715,18 +588,15 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
         children: [
           _SwitchRow(
             value: prefs.scrobblerEnabled,
-            onChanged: (v) => widget.onUpdate(
-              (p) => p.setScrobbler(enabled: v),
-            ),
+            onChanged: (v) =>
+                widget.onUpdate((p) => p.setScrobbler(enabled: v)),
             title: 'Enable scrobbling',
-            subtitle:
-                'Requires a write-capable session',
+            subtitle: 'Requires a write-capable session',
           ),
           _SwitchRow(
             value: prefs.scrobbleNowPlaying,
-            onChanged: (v) => widget.onUpdate(
-              (p) => p.setScrobbler(nowPlaying: v),
-            ),
+            onChanged: (v) =>
+                widget.onUpdate((p) => p.setScrobbler(nowPlaying: v)),
             title: 'Now playing updates',
           ),
           Padding(
@@ -745,8 +615,7 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
                     value: percent,
                     min: 25,
                     max: 90,
-                    onChanged: (v) =>
-                        setState(() => _dragPercent = v),
+                    onChanged: (v) => setState(() => _dragPercent = v),
                     onChangeEnd: (v) {
                       setState(() => _dragPercent = null);
                       widget.onUpdate(
@@ -772,8 +641,7 @@ class _Ytm extends ConsumerWidget {
     // Reactive mirror — the API singleton never changes identity, so
     // watching innerTubeProvider alone would never rebuild this row.
     final connection = ref.watch(ytConnectionProvider);
-    final account =
-        ref.watch(ytAccountProvider).valueOrNull;
+    final account = ref.watch(ytAccountProvider).valueOrNull;
     return _Group(
       title: 'YouTube Music',
       subtitle: 'Personal library, history and uploads',
@@ -784,14 +652,10 @@ class _Ytm extends ConsumerWidget {
                 const Icon(FluentIcons.video, size: 18),
                 const SizedBox(width: 10),
                 const Expanded(
-                  child: Text(
-                    'Not connected',
-                    style: WaveType.trackTitle,
-                  ),
+                  child: Text('Not connected', style: WaveType.trackTitle),
                 ),
                 FilledButton(
-                  onPressed: () =>
-                      _ytConnect(context, ref),
+                  onPressed: () => _ytConnect(context, ref),
                   child: const Text('Connect'),
                 ),
               ],
@@ -812,17 +676,16 @@ class _Ytm extends ConsumerWidget {
         ? account!.handle
         : '';
     final email = account?.email ?? '';
-    final idLine = handle.isNotEmpty
-        ? handle
-        : ytDisplayEmail(email);
+    final idLine = handle.isNotEmpty ? handle : ytDisplayEmail(email);
     final since = DateTime.fromMillisecondsSinceEpoch(
       connection.connectedAtMillis,
       isUtc: false,
     );
-    final sinceText =
-        connection.connectedAtMillis > 0 ? ' · since ${since.year}-'
-            '${since.month.toString().padLeft(2, '0')}-'
-            '${since.day.toString().padLeft(2, '0')}' : '';
+    final sinceText = connection.connectedAtMillis > 0
+        ? ' · since ${since.year}-'
+              '${since.month.toString().padLeft(2, '0')}-'
+              '${since.day.toString().padLeft(2, '0')}'
+        : '';
     final sub = [
       if (idLine.isNotEmpty) idLine,
       'Connected$sinceText',
@@ -843,8 +706,7 @@ class _Ytm extends ConsumerWidget {
         const SizedBox(width: 10),
         Expanded(
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
@@ -854,14 +716,12 @@ class _Ytm extends ConsumerWidget {
                 style: WaveType.trackTitle,
               ),
               Text(
-                name.isNotEmpty
-                    ? sub
-                    : 'Connected$sinceText',
+                name.isNotEmpty ? sub : 'Connected$sinceText',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: WaveType.meta.copyWith(
-                    color:
-                        waveTextSecondary(context)),
+                  color: waveTextSecondary(context),
+                ),
               ),
             ],
           ),
@@ -874,52 +734,47 @@ class _Ytm extends ConsumerWidget {
   /// In-app Google sign-in: opens music.youtube.com in a system
   /// WebView, waits for login, captures cookies automatically, then
   /// runs the shared roster upsert + chooser tail.
-  Future<void> _ytConnect(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
+  Future<void> _ytConnect(BuildContext context, WidgetRef ref) async {
     var cancelled = false;
     // Non-blocking wait dialog — Cancel just stops listening; the
     // user closes the browser window via the native guard (hide).
     // NOTE: popped via the dialog's OWN context. A rootNavigator pop
     // here would eat the settings page under the go_router ShellRoute.
     BuildContext? waitDialogContext;
-    unawaited(showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        waitDialogContext = dialogContext;
-        return ContentDialog(
-          title: const Text('Sign in with Google'),
-          content: const Row(
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: ProgressRing(),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-              child: Text(
-                'Complete the sign-in in the browser window. '
-                'This dialog closes automatically.',
-                style: TextStyle(fontSize: 12),
-              ),
+    unawaited(
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          waitDialogContext = dialogContext;
+          return ContentDialog(
+            title: const Text('Sign in with Google'),
+            content: const Row(
+              children: [
+                SizedBox(width: 20, height: 20, child: ProgressRing()),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Complete the sign-in in the browser window. '
+                    'This dialog closes automatically.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              Button(
+                onPressed: () {
+                  cancelled = true;
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('Cancel'),
               ),
             ],
-          ),
-          actions: [
-            Button(
-              onPressed: () {
-                cancelled = true;
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text('Cancel'),
-            ),
-          ],
-        );
-      },
-    ));
+          );
+        },
+      ),
+    );
     if (kDebugMode) {
       debugPrint('YtWebSignIn: waiting for browser login');
     }
@@ -931,7 +786,8 @@ class _Ytm extends ConsumerWidget {
     }
     if (kDebugMode) {
       debugPrint(
-          'YtWebSignIn: flow returned header=${header == null ? 'null' : '${header.length} chars'} cancelled=$cancelled');
+        'YtWebSignIn: flow returned header=${header == null ? 'null' : '${header.length} chars'} cancelled=$cancelled',
+      );
     }
     // Dismiss the wait dialog if it is still up.
     final waitCtx = waitDialogContext;
@@ -945,13 +801,13 @@ class _Ytm extends ConsumerWidget {
           builder: (dialogContext) => ContentDialog(
             title: const Text('Sign-in incomplete'),
             content: const Text(
-                'No session was captured. Please try again — if Google '
-                'refuses the embedded browser, make sure you complete '
-                'the sign-in fully before closing the window.'),
+              'No session was captured. Please try again — if Google '
+              'refuses the embedded browser, make sure you complete '
+              'the sign-in fully before closing the window.',
+            ),
             actions: [
               FilledButton(
-                onPressed: () =>
-                    Navigator.of(dialogContext).pop(),
+                onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('OK'),
               ),
             ],
@@ -980,8 +836,7 @@ class _CardActions extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     var channels = 0;
     for (final p in ref.watch(ytProfilesProvider)) {
-      channels +=
-          p.channels.isEmpty ? 1 : p.channels.length;
+      channels += p.channels.isEmpty ? 1 : p.channels.length;
     }
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -990,16 +845,14 @@ class _CardActions extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Button(
-              onPressed: () =>
-                  _ytSwitch(context, ref),
+              onPressed: () => _ytSwitch(context, ref),
               child: const Text('Switch'),
             ),
           ),
         Padding(
           padding: const EdgeInsets.only(right: 8),
           child: Button(
-            onPressed: () =>
-                _ytAddMenu(context, ref),
+            onPressed: () => _ytAddMenu(context, ref),
             child: const Text('Add'),
           ),
         ),
@@ -1007,9 +860,7 @@ class _CardActions extends ConsumerWidget {
           onPressed: () async {
             final tube = ref.read(innerTubeProvider);
             await tube.signOut();
-            ref
-                .read(ytConnectionProvider.notifier)
-                .state = tube.connection;
+            ref.read(ytConnectionProvider.notifier).state = tube.connection;
           },
           child: const Text('Disconnect'),
         ),
@@ -1017,10 +868,7 @@ class _CardActions extends ConsumerWidget {
     );
   }
 
-  static Future<void> _ytSwitch(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
+  static Future<void> _ytSwitch(BuildContext context, WidgetRef ref) async {
     final roster = ref.read(ytProfilesProvider);
     final conn = ref.read(ytConnectionProvider);
     final sel = await showYtProfileChooser(
@@ -1039,20 +887,18 @@ class _CardActions extends ConsumerWidget {
       }
     }
     if (target == null) return;
-    if (target.email == conn.profileEmail &&
-        sel.pageId == conn.activePageId) {
+    if (target.email == conn.profileEmail && sel.pageId == conn.activePageId) {
       return; // already active
     }
     try {
-      await switchYtIdentity(ref,
-          profile: target, pageId: sel.pageId);
+      await switchYtIdentity(ref, profile: target, pageId: sel.pageId);
       if (context.mounted) {
         await _showYtOk(
           context,
           'Switched',
           'Now using ${target.email}'
-          '${sel.pageId.isEmpty ? '' : ' · brand channel'}. '
-          'Library, history and uploads reloaded.',
+              '${sel.pageId.isEmpty ? '' : ' · brand channel'}. '
+              'Library, history and uploads reloaded.',
         );
       }
     } catch (e) {
@@ -1062,10 +908,7 @@ class _CardActions extends ConsumerWidget {
     }
   }
 
-  static Future<void> _ytAddMenu(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
+  static Future<void> _ytAddMenu(BuildContext context, WidgetRef ref) async {
     final mode = await showDialog<String>(
       context: context,
       builder: (dialogContext) => ContentDialog(
@@ -1077,18 +920,15 @@ class _CardActions extends ConsumerWidget {
         ),
         actions: [
           Button(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           Button(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop('channel'),
+            onPressed: () => Navigator.of(dialogContext).pop('channel'),
             child: const Text('Brand channel'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop('account'),
+            onPressed: () => Navigator.of(dialogContext).pop('account'),
             child: const Text('Google account'),
           ),
         ],
@@ -1104,48 +944,43 @@ class _CardActions extends ConsumerWidget {
 
   /// Add another Google login: clean-room sign-in (logout URL first,
   /// same window, never destroyed), then the shared capture tail.
-  static Future<void> _ytAddAccount(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
+  static Future<void> _ytAddAccount(BuildContext context, WidgetRef ref) async {
     var cancelled = false;
     BuildContext? waitCtx;
-    unawaited(showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        waitCtx = dialogContext;
-        return ContentDialog(
-          title: const Text('Add Google account'),
-          content: const Row(
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: ProgressRing(),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Log in as the other Google account in the '
-                  'browser window. This dialog closes automatically.',
-                  style: TextStyle(fontSize: 12),
+    unawaited(
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          waitCtx = dialogContext;
+          return ContentDialog(
+            title: const Text('Add Google account'),
+            content: const Row(
+              children: [
+                SizedBox(width: 20, height: 20, child: ProgressRing()),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Log in as the other Google account in the '
+                    'browser window. This dialog closes automatically.',
+                    style: TextStyle(fontSize: 12),
+                  ),
                 ),
+              ],
+            ),
+            actions: [
+              Button(
+                onPressed: () {
+                  cancelled = true;
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('Cancel'),
               ),
             ],
-          ),
-          actions: [
-            Button(
-              onPressed: () {
-                cancelled = true;
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text('Cancel'),
-            ),
-          ],
-        );
-      },
-    ));
+          );
+        },
+      ),
+    );
     String? header;
     try {
       header = await YtWebLogin.signInFresh();
@@ -1158,8 +993,10 @@ class _CardActions extends ConsumerWidget {
     }
     if (cancelled || header == null || header.isEmpty) {
       if (!cancelled && context.mounted) {
-        await _showYtFail(context,
-            'No session was captured. Please try again.');
+        await _showYtFail(
+          context,
+          'No session was captured. Please try again.',
+        );
       }
       return;
     }
@@ -1176,15 +1013,11 @@ class _CardActions extends ConsumerWidget {
   /// Add a brand channel: the window already holds the Google login;
   /// the user flips to the brand channel in-page, presses Done, and
   /// the delegation page ID is read from ytcfg.
-  static Future<void> _ytAddChannel(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
+  static Future<void> _ytAddChannel(BuildContext context, WidgetRef ref) async {
     final w = await YtWebLogin.ensureWindow();
     if (w == null) {
       if (context.mounted) {
-        await _showYtFail(
-            context, 'No system WebView available.');
+        await _showYtFail(context, 'No system WebView available.');
       }
       return;
     }
@@ -1195,49 +1028,47 @@ class _CardActions extends ConsumerWidget {
     var cancelled = false;
     var done = false;
     BuildContext? waitCtx;
-    unawaited(showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        waitCtx = dialogContext;
-        return ContentDialog(
-          title: const Text('Add brand channel'),
-          content: const Row(
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: ProgressRing(),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Sign in if needed, then switch to the brand '
-                  'channel in the browser window and press Done.',
-                  style: TextStyle(fontSize: 12),
+    unawaited(
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          waitCtx = dialogContext;
+          return ContentDialog(
+            title: const Text('Add brand channel'),
+            content: const Row(
+              children: [
+                SizedBox(width: 20, height: 20, child: ProgressRing()),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Sign in if needed, then switch to the brand '
+                    'channel in the browser window and press Done.',
+                    style: TextStyle(fontSize: 12),
+                  ),
                 ),
+              ],
+            ),
+            actions: [
+              Button(
+                onPressed: () {
+                  cancelled = true;
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  done = true;
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('Done'),
               ),
             ],
-          ),
-          actions: [
-            Button(
-              onPressed: () {
-                cancelled = true;
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                done = true;
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text('Done'),
-            ),
-          ],
-        );
-      },
-    ));
+          );
+        },
+      ),
+    );
     String? header;
     try {
       // Generous window: user may need to sign in first.
@@ -1248,8 +1079,7 @@ class _CardActions extends ConsumerWidget {
       if (header != null && !cancelled) {
         // Wait for Done/Cancel (the dialog above stays up).
         while (!done && !cancelled) {
-          await Future<void>.delayed(
-              const Duration(milliseconds: 300));
+          await Future<void>.delayed(const Duration(milliseconds: 300));
         }
       }
     } catch (_) {
@@ -1263,27 +1093,23 @@ class _CardActions extends ConsumerWidget {
     await _refocusMain();
     if (cancelled || header == null || header.isEmpty) {
       if (!cancelled && context.mounted) {
-        await _showYtFail(context,
-            'No session was captured. Please try again.');
+        await _showYtFail(
+          context,
+          'No session was captured. Please try again.',
+        );
       }
       return;
     }
     if (!context.mounted) return;
-    final pageId =
-        await YtWebLogin.readDelegatedPageId(w) ?? '';
+    final pageId = await YtWebLogin.readDelegatedPageId(w) ?? '';
     if (kDebugMode) {
       debugPrint(
-          'YtChannel: Done with pageId=${pageId.isEmpty ? 'main' : '${pageId.length} digits'}');
+        'YtChannel: Done with pageId=${pageId.isEmpty ? 'main' : '${pageId.length} digits'}',
+      );
     }
     if (!context.mounted) return;
-    await _ytConnectCaptured(
-      context,
-      ref,
-      header: header,
-      pageId: pageId,
-    );
+    await _ytConnectCaptured(context, ref, header: header, pageId: pageId);
   }
-
 }
 
 /// Shared capture tail: roster upsert → ALWAYS show the channel
@@ -1296,11 +1122,7 @@ Future<void> _ytConnectCaptured(
   required String header,
   required String pageId,
 }) async {
-  final profile = await upsertYtCapture(
-    ref,
-    cookies: header,
-    pageId: pageId,
-  );
+  final profile = await upsertYtCapture(ref, cookies: header, pageId: pageId);
   if (!context.mounted) return;
   final roster = ref.read(ytProfilesProvider);
   final conn = ref.read(ytConnectionProvider);
@@ -1312,8 +1134,7 @@ Future<void> _ytConnectCaptured(
   );
   if (!context.mounted) return;
   if (sel == null) {
-    await _YtmStaticFallback.finish(
-        context, ref, header, profile, pageId);
+    await _YtmStaticFallback.finish(context, ref, header, profile, pageId);
     return;
   }
   YtProfile? target;
@@ -1325,13 +1146,11 @@ Future<void> _ytConnectCaptured(
   }
   target ??= profile;
   if (target == null) {
-    await _showYtFail(
-        context, 'Profile vanished — please try again.');
+    await _showYtFail(context, 'Profile vanished — please try again.');
     return;
   }
   try {
-    await switchYtIdentity(ref,
-        profile: target, pageId: sel.pageId);
+    await switchYtIdentity(ref, profile: target, pageId: sel.pageId);
     if (context.mounted) {
       await _showYtOk(
         context,
@@ -1362,8 +1181,7 @@ abstract class _YtmStaticFallback {
         profileEmail: profile?.email ?? '',
         pageId: pageId,
       );
-      ref.read(ytConnectionProvider.notifier).state =
-          tube.connection;
+      ref.read(ytConnectionProvider.notifier).state = tube.connection;
       if (context.mounted) {
         await _showYtOk(
           context,
@@ -1379,8 +1197,7 @@ abstract class _YtmStaticFallback {
   }
 }
 
-Future<void> _showYtOk(
-    BuildContext context, String title, String message) {
+Future<void> _showYtOk(BuildContext context, String title, String message) {
   return showDialog(
     context: context,
     builder: (dialogContext) => ContentDialog(
@@ -1388,8 +1205,7 @@ Future<void> _showYtOk(
       content: Text(message),
       actions: [
         FilledButton(
-          onPressed: () =>
-              Navigator.of(dialogContext).pop(),
+          onPressed: () => Navigator.of(dialogContext).pop(),
           child: const Text('OK'),
         ),
       ],
@@ -1405,8 +1221,7 @@ Future<void> _showYtFail(BuildContext context, Object e) {
       content: Text('$e'),
       actions: [
         FilledButton(
-          onPressed: () =>
-              Navigator.of(dialogContext).pop(),
+          onPressed: () => Navigator.of(dialogContext).pop(),
           child: const Text('OK'),
         ),
       ],
@@ -1456,8 +1271,9 @@ class _Sources extends ConsumerWidget {
               url: u,
               quota: quotas[u],
               onRemove: () async {
-                await onUpdate((p) => p.setAddonUrls(
-                    urls.where((e) => e != u).toList()));
+                await onUpdate(
+                  (p) => p.setAddonUrls(urls.where((e) => e != u).toList()),
+                );
                 ref.invalidate(losslessApiProvider);
               },
             ),
@@ -1465,8 +1281,7 @@ class _Sources extends ConsumerWidget {
           Align(
             alignment: Alignment.centerLeft,
             child: FilledButton(
-              onPressed: () =>
-                  _addAddonDialog(context, ref, urls, onUpdate),
+              onPressed: () => _addAddonDialog(context, ref, urls, onUpdate),
               child: const Text('Add addon'),
             ),
           ),
@@ -1499,13 +1314,11 @@ class _Sources extends ConsumerWidget {
         ),
         actions: [
           Button(
-            onPressed: () =>
-                Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context)
-                .pop(controller.text.trim()),
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
             child: const Text('Add'),
           ),
         ],
@@ -1522,11 +1335,11 @@ class _Sources extends ConsumerWidget {
           builder: (dialogContext) => ContentDialog(
             title: const Text('Not an addon URL'),
             content: const Text(
-                'Expected something like https://host/a/<token>/.'),
+              'Expected something like https://host/a/<token>/.',
+            ),
             actions: [
               FilledButton(
-                onPressed: () =>
-                    Navigator.of(dialogContext).pop(),
+                onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('OK'),
               ),
             ],
@@ -1537,8 +1350,7 @@ class _Sources extends ConsumerWidget {
     }
     AddonManifest? manifest;
     try {
-      manifest =
-          await AddonApi([parsed.root]).manifestFor(parsed.root);
+      manifest = await AddonApi([parsed.root]).manifestFor(parsed.root);
     } catch (_) {
       manifest = null;
     }
@@ -1549,12 +1361,12 @@ class _Sources extends ConsumerWidget {
         builder: (dialogContext) => ContentDialog(
           title: const Text('Addon unreachable'),
           content: const Text(
-              'No usable addon answered there — revoked, offline, '
-              'or wrong URL. Nothing was saved.'),
+            'No usable addon answered there — revoked, offline, '
+            'or wrong URL. Nothing was saved.',
+          ),
           actions: [
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('OK'),
             ),
           ],
@@ -1563,10 +1375,7 @@ class _Sources extends ConsumerWidget {
       return;
     }
     final root = parsed.root;
-    final next = [
-      ...urls.where((e) => e != root),
-      root,
-    ];
+    final next = [...urls.where((e) => e != root), root];
     await onUpdate((p) => p.setAddonUrls(next));
     ref.invalidate(losslessApiProvider);
     ref.invalidate(addonManifestProvider);
@@ -1595,8 +1404,7 @@ class _AddonRow extends ConsumerWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
@@ -1606,22 +1414,17 @@ class _AddonRow extends ConsumerWidget {
                   style: WaveType.trackTitle,
                 ),
                 Text(
-                  manifest == null
-                      ? '$host · unreachable'
-                      : host,
+                  manifest == null ? '$host · unreachable' : host,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: WaveType.meta.copyWith(
-                      color:
-                          waveTextSecondary(context)),
+                    color: waveTextSecondary(context),
+                  ),
                 ),
               ],
             ),
           ),
-          Button(
-            onPressed: () => onRemove(),
-            child: const Text('Remove'),
-          ),
+          Button(onPressed: () => onRemove(), child: const Text('Remove')),
         ],
       ),
     );
@@ -1635,8 +1438,7 @@ class _About extends StatelessWidget {
     final uri = Uri.parse(url);
     try {
       if (await canLaunchUrl(uri)) {
-        await launchUrl(uri,
-            mode: LaunchMode.externalApplication);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
     } catch (_) {}
   }
@@ -1645,28 +1447,19 @@ class _About extends StatelessWidget {
   Widget build(BuildContext context) {
     return _Group(
       title: 'About LastWave',
-      subtitle: 'Build, backend status, and project links',
+      subtitle: 'Build and project links',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'LastWave Desktop · v1.0.0',
-            style: WaveType.trackTitle,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Lossless: ${AppEnv.losslessCatalogLabel} · '
-            'Lyrics key: ${AppEnv.lyricsApiKey.isNotEmpty ? 'set' : 'missing'}',
-            style: WaveType.meta,
-          ),
+          Text('LastWave Desktop · v1.0.0', style: WaveType.trackTitle),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
               Button(
-                onPressed: () => _open(
-                    'https://github.com/Clash-Projects/LastWave-Desktop'),
+                onPressed: () =>
+                    _open('https://github.com/Clash-Projects/LastWave-Desktop'),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1678,7 +1471,8 @@ class _About extends StatelessWidget {
               ),
               Button(
                 onPressed: () => _open(
-                    'https://github.com/Clash-Projects/LastWave-Desktop/issues'),
+                  'https://github.com/Clash-Projects/LastWave-Desktop/issues',
+                ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1689,8 +1483,8 @@ class _About extends StatelessWidget {
                 ),
               ),
               Button(
-                onPressed: () => _open(
-                    'https://github.com/Clash-Projects/LastWave-Desktop'),
+                onPressed: () =>
+                    _open('https://github.com/Clash-Projects/LastWave-Desktop'),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1713,18 +1507,17 @@ class _General extends ConsumerWidget {
   const _General({required this.onUpdate});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(prefsProvider);
     return Column(
       children: [
-        _Account(onUpdate: onUpdate),
-        const SizedBox(height: 8),
         _Group(
           title: 'Behaviour',
           subtitle: 'Startup and window defaults',
-          child: Text(
-            'Last.fm sign-in is required at startup. The shell restores your last route and rail width automatically.',
-            style: WaveType.meta.copyWith(
-              color: waveTextSecondary(context),
-            ),
+          child: _SwitchRow(
+            value: prefs.closeToTray,
+            onChanged: (v) => onUpdate((p) => p.setCloseToTray(v)),
+            title: 'Close button minimize to tray.',
+            subtitle: 'Keep the player running in the background when closed.',
           ),
         ),
       ],
@@ -1745,11 +1538,9 @@ class _Playback extends ConsumerWidget {
         children: [
           _SwitchRow(
             value: prefs.autoplaySimilar,
-            onChanged: (v) =>
-                onUpdate((p) => p.setAutoplaySimilar(v)),
+            onChanged: (v) => onUpdate((p) => p.setAutoplaySimilar(v)),
             title: 'Autoplay similar',
-            subtitle:
-                'Keep playing related tracks after a queue ends',
+            subtitle: 'Keep playing related tracks after a queue ends',
           ),
           const SizedBox(height: 8),
           _SwitchRow(
@@ -1759,8 +1550,7 @@ class _Playback extends ConsumerWidget {
               ref.read(audioOutputProvider.notifier).refreshPath();
             },
             title: 'Crossfade',
-            subtitle:
-                '${prefs.crossfadeSeconds}s · gapless otherwise',
+            subtitle: '${prefs.crossfadeSeconds}s · gapless otherwise',
           ),
         ],
       ),
@@ -1775,28 +1565,25 @@ class _Quality extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     return _Group(
-      title: 'Streaming quality',
+      title: 'Streaming and Download quality',
       subtitle: 'Lossless-first with YouTube fallback',
       child: Column(
         children: [
           _QualityRow(
             title: 'Streaming quality',
             value: prefs.losslessQuality,
-            onChanged: (q) =>
-                onUpdate((p) => p.setLosslessQuality(q)),
+            onChanged: (q) => onUpdate((p) => p.setLosslessQuality(q)),
           ),
           const SizedBox(height: 8),
           _QualityRow(
             title: 'Download quality',
             value: prefs.downloadQuality,
-            onChanged: (q) =>
-                onUpdate((p) => p.setDownloadQuality(q)),
+            onChanged: (q) => onUpdate((p) => p.setDownloadQuality(q)),
           ),
           const SizedBox(height: 8),
           _SwitchRow(
             value: prefs.preferLossless,
-            onChanged: (v) =>
-                onUpdate((p) => p.setPreferLossless(v)),
+            onChanged: (v) => onUpdate((p) => p.setPreferLossless(v)),
             title: 'Prefer lossless',
             subtitle: 'Try lossless first, fall back to Opus',
           ),
@@ -1819,8 +1606,7 @@ class _Downloads extends ConsumerWidget {
         children: [
           _SwitchRow(
             value: prefs.downloadLyrics,
-            onChanged: (v) =>
-                onUpdate((p) => p.setDownloadLyrics(v)),
+            onChanged: (v) => onUpdate((p) => p.setDownloadLyrics(v)),
             title: 'Download lyrics',
             subtitle: 'Save synced .lrc sidecars with downloads',
           ),
@@ -1858,15 +1644,13 @@ class _Experimental extends ConsumerWidget {
         children: [
           _SwitchRow(
             value: prefs.liquidGlass,
-            onChanged: (v) =>
-                onUpdate((p) => p.setLiquidGlass(v)),
+            onChanged: (v) => onUpdate((p) => p.setLiquidGlass(v)),
             title: 'Extra translucency',
             subtitle: 'Stronger Haze on panels (may cost FPS)',
           ),
           _SwitchRow(
             value: prefs.wavySeekbar,
-            onChanged: (v) =>
-                onUpdate((p) => p.setWavySeekbar(v)),
+            onChanged: (v) => onUpdate((p) => p.setWavySeekbar(v)),
             title: 'Wavy seekbar',
             subtitle: 'Experimental timeline treatment',
           ),
@@ -1914,19 +1698,19 @@ class _WasapiOutputSettings extends ConsumerWidget {
         ),
         const SizedBox(height: 10),
         if (Platform.isWindows)
-        _SwitchRow(
-          value: output.exclusiveRequested,
-          onChanged: (v) async {
-            await notifier.setExclusive(v);
-            await onUpdate((_) async {});
-          },
-          title: 'WASAPI Exclusive',
-          subtitle: output.path.bitPerfect
-              ? 'Mixer bypassed · bit-perfect when the DAC matches the source'
-              : (output.exclusiveRequested
-                  ? output.path.reason.label
-                  : 'Shared mode — mixer may resample'),
-        ),
+          _SwitchRow(
+            value: output.exclusiveRequested,
+            onChanged: (v) async {
+              await notifier.setExclusive(v);
+              await onUpdate((_) async {});
+            },
+            title: 'WASAPI Exclusive',
+            subtitle: output.path.bitPerfect
+                ? 'Mixer bypassed · bit-perfect when the DAC matches the source'
+                : (output.exclusiveRequested
+                      ? output.path.reason.label
+                      : 'Shared mode — mixer may resample'),
+          ),
         const SizedBox(height: 8),
         Text(
           output.selected == null
@@ -1957,40 +1741,21 @@ class _QualityRow extends StatelessWidget {
       children: [
         Expanded(
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title, style: WaveType.trackTitle),
-              Text(
-                AudioQualityTiers.label(value),
-                style: WaveType.meta,
-              ),
+              Text(AudioQualityTiers.label(value), style: WaveType.meta),
             ],
           ),
         ),
         ComboBox<int>(
           value: value,
           items: const [
-            ComboBoxItem(
-              value: 27,
-              child: Text('Hi-Res · 24/192'),
-            ),
-            ComboBoxItem(
-              value: 7,
-              child: Text('Hi-Res · 24/96'),
-            ),
-            ComboBoxItem(
-              value: 6,
-              child: Text('Lossless · 16/44.1'),
-            ),
-            ComboBoxItem(
-              value: 5,
-              child: Text('320k MP3'),
-            ),
-            ComboBoxItem(
-              value: -1,
-              child: Text('Opus · YouTube'),
-            ),
+            ComboBoxItem(value: 27, child: Text('Hi-Res · 24/192')),
+            ComboBoxItem(value: 7, child: Text('Hi-Res · 24/96')),
+            ComboBoxItem(value: 6, child: Text('Lossless · 16/44.1')),
+            ComboBoxItem(value: 5, child: Text('320k MP3')),
+            ComboBoxItem(value: -1, child: Text('Opus · YouTube')),
           ],
           onChanged: (v) {
             if (v != null) onChanged(v);
@@ -2016,40 +1781,28 @@ class _SwitchRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding:
-          const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title, style: WaveType.trackTitle),
                 if (subtitle != null)
                   Text(
                     subtitle!,
                     style: WaveType.meta.copyWith(
-                      color:
-                          waveTextSecondary(context),
+                      color: waveTextSecondary(context),
                     ),
                   ),
               ],
             ),
           ),
           const SizedBox(width: 10),
-          ToggleSwitch(
-            checked: value,
-            onChanged: onChanged,
-          ),
+          ToggleSwitch(checked: value, onChanged: onChanged),
         ],
       ),
     );
   }
 }
-
-
-
-
-
-

@@ -35,19 +35,14 @@ class AppEnv {
   /// Addon one-way-lock secret (HMAC-SHA256 request proofs). Baked in
   /// like the other keys: never logged, never sent except as a keyed
   /// proof. Empty = addon calls fail closed server-side (404).
-  static String get addonClientSecret =>
-      _decode(secrets.kAddonClientSecret);
-
-  static String get lyricsApiKey =>
-      _decode(secrets.kLyricsApiKey);
+  static String get addonClientSecret => _decode(secrets.kAddonClientSecret);
 
   /// Last.fm app credentials — ONLY from `.env` (obfuscated at build
   /// time). No hardcoded keys anywhere in source: if `.env` lacks
   /// them, Last.fm features report "not configured" instead.
   static String get lastfmApiKey => _decode(secrets.kLastfmApiKey);
 
-  static String get lastfmApiSecret =>
-      _decode(secrets.kLastfmApiSecret);
+  static String get lastfmApiSecret => _decode(secrets.kLastfmApiSecret);
 
   static bool get isLastFmConfigured =>
       lastfmApiKey.isNotEmpty && lastfmApiSecret.isNotEmpty;
@@ -58,9 +53,7 @@ class AppEnv {
 
   /// Non-sensitive diagnostics only — never includes secret values.
   static Map<String, bool> get configuredFlags => {
-        'addonKey': addonClientSecret.isNotEmpty,
-        'lyricsKey': lyricsApiKey.isNotEmpty,
-        'lastfmOverride':
-            _decode(secrets.kLastfmApiKey).isNotEmpty,
-      };
+    'addonKey': addonClientSecret.isNotEmpty,
+    'lastfmOverride': _decode(secrets.kLastfmApiKey).isNotEmpty,
+  };
 }

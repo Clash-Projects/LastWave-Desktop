@@ -16,6 +16,11 @@ Future<void> setupWindow() async {
   await _setupAcrylic();
   try {
     await windowManager.ensureInitialized();
+    // Route every close request (× button, Alt+F4) through Dart
+    // instead of raw GTK destroy: the shell decides hide-to-tray vs
+    // ordered quit. Without this, Alt+F4 tears the engine down while
+    // libmpv's thread is still calling into Dart (startup crash).
+    await windowManager.setPreventClose(true);
     const options = WindowOptions(
       size: Size(1360, 860),
       minimumSize: Size(1024, 640),

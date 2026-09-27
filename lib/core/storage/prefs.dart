@@ -20,8 +20,7 @@ class Prefs {
   // are stored.
   String get sessionKey => _sp.getString('lw_sessionkey') ?? '';
   String get username => _sp.getString('lw_username') ?? '';
-  bool get isAuthenticated =>
-      username.isNotEmpty && sessionKey.isNotEmpty;
+  bool get isAuthenticated => username.isNotEmpty && sessionKey.isNotEmpty;
 
   Future<void> saveSession({
     required String sessionKey,
@@ -46,13 +45,12 @@ class Prefs {
 
   bool get preferLossless =>
       _sp.getBool('lw_prefer_lossless_streaming') ?? true;
-  int get losslessQuality => _clampQuality(
-      _sp.getInt('lw_lossless_quality') ?? 27);
-  int get downloadQuality => _clampQuality(
-      _sp.getInt('lw_download_quality') ?? 27);
+  int get losslessQuality =>
+      _clampQuality(_sp.getInt('lw_lossless_quality') ?? 27);
+  int get downloadQuality =>
+      _clampQuality(_sp.getInt('lw_download_quality') ?? 27);
 
-  static int _clampQuality(int q) =>
-      allowedQualities.contains(q) ? q : 27;
+  static int _clampQuality(int q) => allowedQualities.contains(q) ? q : 27;
 
   Future<void> setPreferLossless(bool v) =>
       _sp.setBool('lw_prefer_lossless_streaming', v);
@@ -60,6 +58,14 @@ class Prefs {
       _sp.setInt('lw_lossless_quality', _clampQuality(q));
   Future<void> setDownloadQuality(int q) =>
       _sp.setInt('lw_download_quality', _clampQuality(q));
+  // -- Window behaviour ---------------------------------------------------
+  /// Close button / Alt+F4 hides to the tray instead of quitting.
+  /// Real quit stays in tray → Quit (ordered player teardown first).
+  /// Default on.
+  bool get closeToTray =>
+      _sp.getBool('lw_close_to_tray') ?? true;
+  Future<void> setCloseToTray(bool v) =>
+      _sp.setBool('lw_close_to_tray', v);
 
   // -- Playback behaviour -------------------------------------------------
   /// Keep playing similar tracks (endless radio) after a queue runs
@@ -69,8 +75,7 @@ class Prefs {
   Future<void> setAutoplaySimilar(bool v) =>
       _sp.setBool('lw_autoplay_similar', v);
 
-  bool get crossfadeEnabled =>
-      _sp.getBool('lw_crossfade_enabled') ?? false;
+  bool get crossfadeEnabled => _sp.getBool('lw_crossfade_enabled') ?? false;
   int get crossfadeSeconds {
     final v = _sp.getInt('lw_crossfade_seconds') ?? 5;
     return v.clamp(1, 12);
@@ -84,16 +89,14 @@ class Prefs {
   }
 
   bool get bitPerfect => _sp.getBool('lw_bit_perfect') ?? false;
-  Future<void> setBitPerfect(bool v) =>
-      _sp.setBool('lw_bit_perfect', v);
+  Future<void> setBitPerfect(bool v) => _sp.setBool('lw_bit_perfect', v);
 
   /// Empty = Windows default render endpoint.
   String get audioDeviceId => _sp.getString('lw_audio_device_id') ?? '';
   Future<void> setAudioDeviceId(String v) =>
       _sp.setString('lw_audio_device_id', v);
 
-  bool get wasapiExclusive =>
-      _sp.getBool('lw_wasapi_exclusive') ?? false;
+  bool get wasapiExclusive => _sp.getBool('lw_wasapi_exclusive') ?? false;
   Future<void> setWasapiExclusive(bool v) =>
       _sp.setBool('lw_wasapi_exclusive', v);
 
@@ -103,8 +106,7 @@ class Prefs {
 
   // -- Lyrics --------------------------------------------------------------
   bool get wordByWord => _sp.getBool('lw_word_by_word') ?? true;
-  Future<void> setWordByWord(bool v) =>
-      _sp.setBool('lw_word_by_word', v);
+  Future<void> setWordByWord(bool v) => _sp.setBool('lw_word_by_word', v);
 
   String get lyricsAnimation =>
       _sp.getString('lw_lyrics_animation') ?? 'apple_fluid';
@@ -117,19 +119,16 @@ class Prefs {
 
   /// 'dark' (midnight observatory) or 'light' (pearl white).
   String get themeMode => _sp.getString('lw_theme_mode') ?? 'dark';
-  Future<void> setThemeMode(String v) =>
-      _sp.setString('lw_theme_mode', v);
+  Future<void> setThemeMode(String v) => _sp.setString('lw_theme_mode', v);
   bool get isLight => themeMode == 'light';
 
   String get accentMode => _sp.getString('lw_accent_mode') ?? 'manual';
-  Future<void> setAccentMode(String v) =>
-      _sp.setString('lw_accent_mode', v);
+  Future<void> setAccentMode(String v) => _sp.setString('lw_accent_mode', v);
 
   int get accentColor => _sp.getInt('lw_accent') ?? 0xFFE03030;
   Future<void> setAccentColor(int v) => _sp.setInt('lw_accent', v);
 
-  bool get dynamicNowPlaying =>
-      _sp.getBool('lw_dynamic_now_playing') ?? false;
+  bool get dynamicNowPlaying => _sp.getBool('lw_dynamic_now_playing') ?? false;
   Future<void> setDynamicNowPlaying(bool v) =>
       _sp.setBool('lw_dynamic_now_playing', v);
 
@@ -142,8 +141,7 @@ class Prefs {
       _sp.setString('lw_haze_material', v);
 
   /// 'low' | 'medium' | 'high'. Scales L1–L3 blur sigma.
-  String get hazeIntensity =>
-      _sp.getString('lw_haze_intensity') ?? 'medium';
+  String get hazeIntensity => _sp.getString('lw_haze_intensity') ?? 'medium';
   Future<void> setHazeIntensity(String v) =>
       _sp.setString('lw_haze_intensity', v);
 
@@ -152,7 +150,8 @@ class Prefs {
   /// resolves the effective accent; artwork mode tints from the current
   /// palette seed where available, otherwise falls back to custom.
   String get accentSource {
-    final v = _sp.getString('lw_accent_source') ??
+    final v =
+        _sp.getString('lw_accent_source') ??
         _sp.getString('lw_accent_mode') ??
         'custom';
     if (v == 'manual') return 'custom';
@@ -165,18 +164,14 @@ class Prefs {
   }
 
   bool get liquidGlass => _sp.getBool('lw_liquid_glass') ?? false;
-  Future<void> setLiquidGlass(bool v) =>
-      _sp.setBool('lw_liquid_glass', v);
+  Future<void> setLiquidGlass(bool v) => _sp.setBool('lw_liquid_glass', v);
 
-  bool get wavySeekbar => _sp.getBool('lw_wavy_seekbar') ?? true;
-  Future<void> setWavySeekbar(bool v) =>
-      _sp.setBool('lw_wavy_seekbar', v);
+  bool get wavySeekbar => _sp.getBool('lw_wavy_seekbar') ?? false;
+  Future<void> setWavySeekbar(bool v) => _sp.setBool('lw_wavy_seekbar', v);
 
   // -- Scrobbler --------------------------------------------------------------
-  bool get scrobblerEnabled =>
-      _sp.getBool('lw_scrobbler_enabled') ?? false;
-  bool get scrobbleNowPlaying =>
-      _sp.getBool('lw_submit_now_playing') ?? true;
+  bool get scrobblerEnabled => _sp.getBool('lw_scrobbler_enabled') ?? false;
+  bool get scrobbleNowPlaying => _sp.getBool('lw_submit_now_playing') ?? true;
   int get scrobblePercent {
     final v = _sp.getInt('lw_scrobble_percent') ?? 50;
     return v.clamp(25, 90);
@@ -214,17 +209,14 @@ class Prefs {
   Future<void> setLyricsTransliteration(bool v) =>
       _sp.setBool('lw_lyrics_transliteration', v);
 
-  bool get visualizerEnabled =>
-      _sp.getBool('lw_visualizer_enabled') ?? true;
+  bool get visualizerEnabled => _sp.getBool('lw_visualizer_enabled') ?? true;
 
   Future<void> setVisualizerEnabled(bool v) =>
       _sp.setBool('lw_visualizer_enabled', v);
 
-  bool get cdMode =>
-      _sp.getBool('lw_cd_mode') ?? false;
+  bool get cdMode => _sp.getBool('lw_cd_mode') ?? false;
 
-  Future<void> setCdMode(bool v) =>
-      _sp.setBool('lw_cd_mode', v);
+  Future<void> setCdMode(bool v) => _sp.setBool('lw_cd_mode', v);
 
   // -- Addon sources (personal addon URLs) ----------------------------------
   /// User-pasted addon roots (`{base}/a/<token>/`), JSON-encoded.
@@ -244,9 +236,9 @@ class Prefs {
   }
 
   Future<void> setAddonUrls(List<String> urls) => _sp.setString(
-      'lw_addon_urls',
-      jsonEncode(
-          urls.map((e) => e.trim()).where((e) => e.isNotEmpty).toList()));
+    'lw_addon_urls',
+    jsonEncode(urls.map((e) => e.trim()).where((e) => e.isNotEmpty).toList()),
+  );
 }
 
 final prefsProvider = Provider<Prefs>((_) {
