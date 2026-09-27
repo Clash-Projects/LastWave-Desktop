@@ -163,6 +163,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         try {
           await dyn.setProperty('vid', 'no');
         } catch (_) {}
+        try {
+          // Stall tolerance for slow stream starts (loopback assembly
+          // waits on CDN first bytes; mpv otherwise aborts the open
+          // after ~5s and forces a wasteful retry cycle). Applies to
+          // YouTube too — strictly more patient, never less.
+          await dyn.setProperty('stream-lavf-o', 'timeout=15000000');
+        } catch (_) {}
       }
     } catch (_) {}
     // Crash-surviving trail: mpv logs to disk continuously and Dart
@@ -1288,9 +1295,20 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (track.videoId.isNotEmpty) {
       _tube.reportPlaybackFailure(track.videoId);
     }
-    if (_playbackAttempt == 0) {
+    if (streamKey.startsWith('addon:') && _playbackAttempt == 0) {
+      // Addon streams fail transiently (slow mint, segment blip) and
+      // a manual replay usually plays lossless — so retry the SAME
+      // tier once (fresh mint, settled session) before YouTube.
+      // Terminates: the retry runs at attempt 1, which falls through.
+      _crumb('retry same-tier key=${track.queueKey}');
       await _resolveAndOpen(state.currentIndex,
-          forceYoutube: true, forceRefresh: true, attempt: 1);
+          forceRefresh: true, attempt: 1);
+      return;
+    }
+    if (_playbackAttempt <= 1) {
+      _crumb('retry youtube key=${track.queueKey}');
+      await _resolveAndOpen(state.currentIndex,
+          forceYoutube: true, forceRefresh: true, attempt: 2);
       return;
     }
     _unavailable.add(track.queueKey);

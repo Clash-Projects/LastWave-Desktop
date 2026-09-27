@@ -154,6 +154,7 @@ class _Session {
   bool done = false;
   bool failed = false;
   final Completer<void> _completion = Completer<void>();
+  bool _firstByteLogged = false;
 
   /// Live readers holding the partial open. The publish rename waits
   /// for zero — blind retries starve when a reader cycles ticks.
@@ -198,10 +199,11 @@ class _Session {
       final sink = part.openWrite(mode: FileMode.write);
       try {
         final init =
-            await DashAssembler.fetchBytes(_dio, plan.initUrl);
+            await DashAssembler.fetchInit(_dio, plan.initUrl);
         if (init == null) throw StateError('init fetch failed');
         sink.add(init);
         await sink.flush();
+        _slog('init $name ${init.length}b');
         final slots =
             List<List<int>?>.filled(plan.segmentCount, null);
         final ok = await DashAssembler.fetchSegments(
@@ -354,6 +356,10 @@ class _Session {
               res.add(chunk);
               await res.flush();
               progressed = true;
+              if (!_firstByteLogged) {
+                _firstByteLogged = true;
+                _slog('first-byte $name');
+              }
             }
           } finally {
             _openReaders--;

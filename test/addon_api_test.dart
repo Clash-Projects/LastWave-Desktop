@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lastwave_desktop/core/env/app_env.dart';
 import 'package:lastwave_desktop/features/addons/addon_api.dart';
 
 String _hex(String c) => List.filled(64, c).join();
@@ -317,4 +320,103 @@ void main() {
       expect(AddonApi(const []).isConfigured, isFalse);
     });
   });
+
+  group('resolveStream transient retry', () {
+    test('one mint blip recovers without falling through', () async {
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+      }
+      final token = _hex('f');
+      final dio = Dio();
+      dio.httpClientAdapter = _FlakyAdapter(
+        streamFailures: 1,
+        searchPayload: {
+          'tracks': [
+            {'id': 't1', 'title': 'Song', 'artist': 'Singer'},
+          ],
+        },
+        streamPayload: {
+          'url': 'https://cdn.test/song.flac',
+          'bitDepth': 16,
+          'sampleRate': 44100,
+        },
+      );
+      final api = AddonApi(['https://x.test/a/$token/'], dio);
+      final stream =
+          await api.resolveStream(title: 'Song', artist: 'Singer');
+      expect(stream, isNotNull);
+      expect(stream!.url, 'https://cdn.test/song.flac');
+    });
+
+    test('quota 429 throws immediately (no pointless retry)', () async {
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+      }
+      final token = _hex('f');
+      final dio = Dio();
+      dio.httpClientAdapter = _FlakyAdapter(
+        streamFailures: 999,
+        quota: true,
+        searchPayload: {
+          'tracks': [
+            {'id': 't1', 'title': 'Song', 'artist': 'Singer'},
+          ],
+        },
+        streamPayload: const {},
+      );
+      final api = AddonApi(['https://x.test/a/$token/'], dio);
+      await expectLater(
+        api.resolveStream(title: 'Song', artist: 'Singer'),
+        throwsA(isA<AddonQuotaException>()),
+      );
+    });
+  });
+}
+
+/// Stub Dio adapter: search always answers, stream fails
+/// [streamFailures] times (500, or 429 when [quota]) then succeeds.
+class _FlakyAdapter implements HttpClientAdapter {
+  _FlakyAdapter({
+    required this.streamFailures,
+    required this.searchPayload,
+    required this.streamPayload,
+    this.quota = false,
+  });
+
+  int streamFailures;
+  final Map<String, dynamic> searchPayload;
+  final Map<String, dynamic> streamPayload;
+  final bool quota;
+
+  ResponseBody _json(Map<String, dynamic> payload) =>
+      ResponseBody.fromString(
+        jsonEncode(payload),
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options,
+      Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+    final path = options.uri.path;
+    if (path.contains('/search')) return _json(searchPayload);
+    if (path.contains('/stream/')) {
+      if (streamFailures > 0) {
+        streamFailures--;
+        if (quota) {
+          return ResponseBody.fromString('{}', 429, headers: {
+            Headers.contentTypeHeader: [Headers.jsonContentType],
+          });
+        }
+        return ResponseBody.fromString('blip', 500);
+      }
+      return _json(streamPayload);
+    }
+    return ResponseBody.fromString('nope', 404);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

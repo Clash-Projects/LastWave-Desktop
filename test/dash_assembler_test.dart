@@ -108,8 +108,7 @@ media="https://cdn.test/hi/\$Number\$.mp4">
     });
   });
 
-  group('segmentUrlFor', () {
-    test('plain \$Number\$', () {
+  group('segmentUrlFor', () {    test('plain \$Number\$', () {
       expect(
           DashAssembler.segmentUrlFor(
               'https://cdn.test/t/\$Number\$.mp4?sig=abc', 7),
@@ -166,4 +165,48 @@ media="https://cdn.test/hi/\$Number\$.mp4">
       expect(ok, isFalse);
     });
   });
+
+  group('fetchInit', () {
+    test('stalled attempts retry with quick timeouts', () async {
+      var calls = 0;
+      final dio = Dio();
+      dio.httpClientAdapter = _CountingAdapter((url) {
+        calls++;
+        // First two attempts fail fast (500s); third succeeds.
+        if (calls < 3) return null;
+        return [1, 2, 3];
+      });
+      final bytes = await DashAssembler.fetchInit(
+          dio, 'https://cdn.test/init.mp4');
+      expect(bytes, [1, 2, 3]);
+      expect(calls, 3);
+    });
+
+    test('all attempts failing returns null', () async {
+      final dio = Dio();
+      dio.httpClientAdapter = _CountingAdapter((url) => null);
+      expect(await DashAssembler.fetchInit(dio, 'https://cdn.test/x'),
+          isNull);
+    });
+  });
+}
+
+/// Adapter with scripted per-URL bodies (null = instant 500).
+class _CountingAdapter implements HttpClientAdapter {
+  _CountingAdapter(this.script);
+
+  final List<int>? Function(String url) script;
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options,
+      Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+    final bytes = script(options.uri.toString());
+    if (bytes == null) {
+      return ResponseBody.fromString('blip', 500);
+    }
+    return ResponseBody.fromBytes(bytes, 200);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

@@ -34,6 +34,25 @@ class AnimatedArtworkSession extends ChangeNotifier {
   bool isReadyFor(String url) =>
       url.isNotEmpty && url == _url && _ready && _visible;
 
+  bool _notifyPending = false;
+  bool _disposed = false;
+
+  /// Riverpod forbids modifying a provider inside widget lifecycles,
+  /// but attach()/open() run from initState/didUpdateWidget — and
+  /// open() notifies synchronously before its first await. So every
+  /// notification is deferred to the event queue and coalesced.
+  /// Future, not microtask: microtasks can still land inside the
+  /// build scope; the event queue cannot.
+  void _notify() {
+    if (_notifyPending || _disposed) return;
+    _notifyPending = true;
+    Future(() {
+      _notifyPending = false;
+      if (_disposed) return;
+      notifyListeners();
+    });
+  }
+
   void attach(String url) {
     _pauseTimer?.cancel();
     _disposeTimer?.cancel();
@@ -45,7 +64,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
   void showSurface() {
     if (_visible) return;
     _visible = true;
-    if (_ready) notifyListeners();
+    if (_ready) _notify();
   }
 
   /// Now Playing left; keep the player but cover with the still again.
@@ -57,13 +76,13 @@ class AnimatedArtworkSession extends ChangeNotifier {
     if (url.isEmpty) return;
     if (url == _url && _player != null) {
       await _player!.play();
-      if (_ready) notifyListeners();
+      if (_ready) _notify();
       return;
     }
     final gen = ++_generation;
     _url = url;
     _ready = false;
-    notifyListeners();
+    _notify();
     try {
       await _ensurePlayer();
       if (gen != _generation) return;
@@ -106,7 +125,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
     _player = null;
     _controller = null;
     _ready = false;
-    notifyListeners();
+    _notify();
     if (player != null) {
       unawaited(player.stop().whenComplete(player.dispose));
     }
@@ -123,7 +142,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
     void mark() {
       if (gen != _generation || _ready) return;
       _ready = true;
-      if (_visible) notifyListeners();
+      if (_visible) _notify();
     }
 
     void onRect() {
@@ -169,7 +188,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
         height: 720,
       ),
     );
-    notifyListeners();
+    _notify();
     try {
       await _controller!.platform.future.timeout(const Duration(seconds: 6));
     } catch (_) {}
@@ -201,6 +220,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _pauseTimer?.cancel();
     _disposeTimer?.cancel();
     _readyTimer?.cancel();

@@ -302,32 +302,49 @@ class AddonApi implements LosslessSource {
     required String artist,
   }) async {
     final path = '${Uri.parse(root).path}stream/$trackId';
-    late final Map<String, dynamic> data;
-    try {
-      final res = await _dio.get<Map<String, dynamic>>(
-        '${root}stream/$trackId',
-        queryParameters: {
-          'quality': serverQuality,
-          'atmos': 'none',
-        },
-        options: Options(headers: _signHeaders('GET', root, path)),
-      ).timeout(const Duration(seconds: 15));
-      _recordQuota(root, res.headers);
-      data = res.data ?? const {};
-    } on DioException catch (e) {
-      _recordQuota(root, e.response?.headers);
-      if (e.response?.statusCode == 429) {
-        throw AddonQuotaException.fromResponse(e.response);
+    Map<String, dynamic>? data;
+    // One retry on transient mint failures (network blip, slow
+    // server): cold first plays otherwise fall back to Opus for no
+    // reason and only succeed on manual replay. 429/quota is
+    // definitive and never retries.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final res = await _dio.get<Map<String, dynamic>>(
+          '${root}stream/$trackId',
+          queryParameters: {
+            'quality': serverQuality,
+            'atmos': 'none',
+          },
+          options: Options(headers: _signHeaders('GET', root, path)),
+        ).timeout(const Duration(seconds: 15));
+        _recordQuota(root, res.headers);
+        data = res.data ?? const {};
+        break;
+      } on DioException catch (e) {
+        _recordQuota(root, e.response?.headers);
+        if (e.response?.statusCode == 429) {
+          throw AddonQuotaException.fromResponse(e.response);
+        }
+        if (attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 600));
+          continue;
+        }
+        return null;
+      } catch (_) {
+        if (attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 600));
+          continue;
+        }
+        return null;
       }
-      return null;
-    } catch (_) {
-      return null;
     }
+    final resolved = data;
+    if (resolved == null) return null;
     return _toResolvedStream(
       root,
       trackId,
       serverQuality,
-      data,
+      resolved,
       title: title,
       artist: artist,
     );

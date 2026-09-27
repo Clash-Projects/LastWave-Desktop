@@ -106,18 +106,34 @@ class DashAssembler {
   }
 
   /// Single fetch (init segment, remote manifest). Null on miss.
-  static Future<List<int>?> fetchBytes(Dio dio, String url) async {
+  static Future<List<int>?> fetchBytes(
+    Dio dio,
+    String url, {
+    int timeoutSeconds = 20,
+  }) async {
     try {
       final res = await dio
           .get<List<int>>(url,
               options: Options(responseType: ResponseType.bytes))
-          .timeout(const Duration(seconds: 20));
+          .timeout(Duration(seconds: timeoutSeconds));
       final bytes = res.data;
       if (bytes == null || bytes.isEmpty) return null;
       return bytes;
     } catch (_) {
       return null;
     }
+  }
+
+  /// Init fetch with quick retries. The init is ~1KB but gates every
+  /// first byte, and mpv aborts the open after seconds of silence —
+  /// so a stalled first attempt must not consume the whole budget.
+  static Future<List<int>?> fetchInit(Dio dio, String url) async {
+    for (final secs in [3, 3, 20]) {
+      final bytes =
+          await fetchBytes(dio, url, timeoutSeconds: secs);
+      if (bytes != null) return bytes;
+    }
+    return null;
   }
 
   /// Parallel-batched segment fetch. [onSegment] fires per arrival
