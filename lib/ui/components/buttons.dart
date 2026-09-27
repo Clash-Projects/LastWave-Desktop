@@ -335,7 +335,15 @@ class WaveChip extends StatelessWidget {
 /// Canonical tooltip wrapper: 400ms hover wait per [WaveState.tooltipDelay].
 ///
 /// Use for every icon-only control instead of raw [Tooltip].
-class LWTooltip extends StatelessWidget {
+///
+/// The tooltip machinery (`Tooltip > RawTooltip > MouseRegion > Semantics
+/// > Focus` + global pointer listeners + timers) mounts one frame late:
+/// on first build only the bare child is emitted, then a post-frame
+/// callback arms the real tooltip. ~20 of these mount on pages like Now
+/// Playing, and eager mounting showed up in open-frame traces. Deferral
+/// is invisible by construction — no tooltip can display before the
+/// 400ms hover dwell, while arming lands ~16ms after mount.
+class LWTooltip extends StatefulWidget {
   final String message;
   final Widget child;
   const LWTooltip({
@@ -345,13 +353,29 @@ class LWTooltip extends StatelessWidget {
   });
 
   @override
+  State<LWTooltip> createState() => _LWTooltipState();
+}
+
+class _LWTooltipState extends State<LWTooltip> {
+  bool _armed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _armed = true);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (!_armed) return widget.child;
     return Tooltip(
-      message: message,
+      message: widget.message,
       style: const TooltipThemeData(
         waitDuration: WaveState.tooltipDelay,
       ),
-      child: child,
+      child: widget.child,
     );
   }
 }

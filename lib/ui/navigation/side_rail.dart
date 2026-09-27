@@ -13,7 +13,7 @@ import 'destinations.dart';
 /// - small 36px rows, no giant rounded rectangles
 /// - selected = subtle wash + 3px accent bar, nothing loud
 /// - bottom: Friends / Settings pinned, history hidden
-class WaveSideRail extends StatelessWidget {
+class WaveSideRail extends StatefulWidget {
   final bool expanded;
   final String active;
   final void Function(String) onGo;
@@ -23,6 +23,44 @@ class WaveSideRail extends StatelessWidget {
     required this.active,
     required this.onGo,
   });
+  @override
+  State<WaveSideRail> createState() => _WaveSideRailState();
+}
+
+class _WaveSideRailState extends State<WaveSideRail> {
+  bool get expanded => widget.expanded;
+  String get active => widget.active;
+  void Function(String) get onGo => widget.onGo;
+
+  /// Row cache: per navigation only the two rows whose selection flips
+  /// miss (old + new active); the other ~10 rows — entrance wrapper,
+  /// tooltips, semantics, hover regions included — are reused verbatim
+  /// instead of reconstructed. Cleared on expand/collapse (every row
+  /// changes shape); bounded at 4 instances per destination max.
+  final Map<String, Widget> _rowCache = {};
+
+  @override
+  void didUpdateWidget(covariant WaveSideRail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.expanded != widget.expanded) _rowCache.clear();
+  }
+
+  Widget _row(WaveDestination destination, int index, {double rise = 6}) {
+    final selected = active == destination.path;
+    return _rowCache.putIfAbsent(
+      '${destination.path}|$expanded|$selected',
+      () => WaveEntrance(
+        index: index,
+        rise: rise,
+        child: _RailItem(
+          destination: destination,
+          expanded: expanded,
+          selected: selected,
+          onTap: () => onGo(destination.path),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,34 +93,16 @@ class WaveSideRail extends StatelessWidget {
                 // One-shot startup cascade — standalone entrances run once
                 // on mount; in-place rebuilds (selection/hover) never replay.
                 for (var i = 0; i < waveListenDestinations.length; i++)
-                  WaveEntrance(
-                    index: i,
-                    rise: 6,
-                    child: _RailItem(
-                      destination: waveListenDestinations[i],
-                      expanded: expanded,
-                      selected: active == waveListenDestinations[i].path,
-                      onTap: () =>
-                          onGo(waveListenDestinations[i].path),
-                    ),
-                  ),
+                  _row(waveListenDestinations[i], i),
                 WaveEntrance(
                   index: waveListenDestinations.length,
                   rise: 4,
                   child: _RailSeparator(expanded: expanded),
                 ),
                 for (var i = 0; i < waveCollectionDestinations.length; i++)
-                  WaveEntrance(
-                    index: waveListenDestinations.length + i,
-                    rise: 6,
-                    child: _RailItem(
-                      destination: waveCollectionDestinations[i],
-                      expanded: expanded,
-                      selected:
-                          active == waveCollectionDestinations[i].path,
-                      onTap: () =>
-                          onGo(waveCollectionDestinations[i].path),
-                    ),
+                  _row(
+                    waveCollectionDestinations[i],
+                    waveListenDestinations.length + i,
                   ),
                 WaveEntrance(
                   index: waveListenDestinations.length +
@@ -91,18 +111,11 @@ class WaveSideRail extends StatelessWidget {
                   child: _RailSeparator(expanded: expanded),
                 ),
                 for (var i = 0; i < waveOfflineDestinations.length; i++)
-                  WaveEntrance(
-                    index: waveListenDestinations.length +
+                  _row(
+                    waveOfflineDestinations[i],
+                    waveListenDestinations.length +
                         waveCollectionDestinations.length +
                         i,
-                    rise: 6,
-                    child: _RailItem(
-                      destination: waveOfflineDestinations[i],
-                      expanded: expanded,
-                      selected: active == waveOfflineDestinations[i].path,
-                      onTap: () =>
-                          onGo(waveOfflineDestinations[i].path),
-                    ),
                   ),
               ],
             ),
@@ -115,18 +128,12 @@ class WaveSideRail extends StatelessWidget {
           for (var i = 0; i < waveSystemDestinations.length; i++)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: WaveEntrance(
-                index: waveListenDestinations.length +
+              child: _row(
+                waveSystemDestinations[i],
+                waveListenDestinations.length +
                     waveCollectionDestinations.length +
                     waveOfflineDestinations.length +
                     i,
-                rise: 6,
-                child: _RailItem(
-                  destination: waveSystemDestinations[i],
-                  expanded: expanded,
-                  selected: active == waveSystemDestinations[i].path,
-                  onTap: () => onGo(waveSystemDestinations[i].path),
-                ),
               ),
             ),
           const SizedBox(height: 8),

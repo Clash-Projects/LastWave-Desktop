@@ -11,6 +11,7 @@ import '../../features/lastfm/auth_repository.dart' show lastFmApiProvider;
 import '../../features/player/playback_service.dart';
 import '../../features/search/shared_providers.dart' show prefsApiKeyProvider;
 import '../components/artwork.dart';
+import '../components/buttons.dart' show LWTooltip;
 import '../components/menus.dart';
 import '../components/states.dart';
 import '../theme/motion.dart';
@@ -299,7 +300,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Tooltip(
+                              LWTooltip(
                                 message: 'Play ${a.title}',
                                 child: GestureDetector(
                                   onTap: _quickPlay,

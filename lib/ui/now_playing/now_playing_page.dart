@@ -45,6 +45,15 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   bool _controlsIdle = false;
   Timer? _idleTimer;
   String _preloadedKey = '';
+  // Memoized in-page queue drawer: without this every page build
+  // reconstructs the full row list (menus, tooltips, flyout targets).
+  // Same instance across builds => element update short-circuits.
+  // No changing params (reads providers internally, stable onClose).
+  Widget? _queueDrawerCache;
+
+  void _closeQueueDrawer() {
+    if (_queueVisible) setState(() => _queueVisible = false);
+  }
 
   @override
   void initState() {
@@ -234,7 +243,9 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
               ),
             ),
 
-            // Contextual Queue drawer smoothly sliding from right
+            // Contextual Queue drawer smoothly sliding from right.
+            // Offstage when shut: skips paint/raster of the 8 image rows
+            // while closed (scroll offset preserved, no remount).
             AnimatedPositioned(
               duration: WaveMotion.normal,
               curve: Curves.easeOutCubic,
@@ -246,8 +257,11 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                 excluding: !_queueVisible,
                 child: IgnorePointer(
                   ignoring: !_queueVisible,
-                  child: WaveQueuePanel(
-                    onClose: () => setState(() => _queueVisible = false),
+                  child: Offstage(
+                    offstage: !_queueVisible,
+                    child: _queueDrawerCache ??= WaveQueuePanel(
+                      onClose: _closeQueueDrawer,
+                    ),
                   ),
                 ),
               ),

@@ -69,9 +69,91 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
   Widget? _queuePanelCache;
   Widget? _lyricsPanelCache;
   bool _lyricsCacheVisible = false;
+  // Memoized title bar (owns the search box + its TextField machinery):
+  // the shell rebuilds on every navigation, which would otherwise
+  // reconstruct the whole title bar each time. All inputs except the
+  // back/forward ability are stable across navigations, so the cache
+  // invalidates only when those flip (first nav, back/forward jumps).
+  Widget? _titleBarCache;
+  bool _titleCanBack = false;
+  bool _titleCanForward = false;
+  // Memoized dock (glyphs + cover art): same instance across
+  // navigations so the element skips it. The toggle closures capture
+  // route state (lyrics toggle branches on isLyrics), so the cache
+  // key covers everything behaviorally relevant.
+  Widget? _dockCache;
+  bool _dockLyricsActive = false;
+  bool _dockQueueActive = false;
+  bool _dockIsLyrics = false;
 
   void _closeQueue() => setState(() => _queueOpen = false);
   void _closeLyrics() => setState(() => _lyricsOpen = false);
+
+  /// Cached dock: same instance across navigations (glyphs + cover art
+  /// skip reconstruction). Rebuilt only when a behaviorally relevant
+  /// input flips.
+  Widget _dockFor({
+    required bool lyricsActive,
+    required bool queueActive,
+    required bool isLyrics,
+  }) {
+    if (_dockCache == null ||
+        _dockLyricsActive != lyricsActive ||
+        _dockQueueActive != queueActive ||
+        _dockIsLyrics != isLyrics) {
+      _dockLyricsActive = lyricsActive;
+      _dockQueueActive = queueActive;
+      _dockIsLyrics = isLyrics;
+      // The dock is structural: reserves 80px on every view, including
+      // Now Playing — its in-page transport was removed so this dock is
+      // the single control surface.
+      _dockCache = WavePlayerDock(
+        onExpand: () => _go('/now'),
+        lyricsActive: lyricsActive,
+        queueActive: queueActive,
+        onToggleMini: () => setState(() => _miniOpen = !_miniOpen),
+        onToggleLyrics: () {
+          if (isLyrics) {
+            _go('/now');
+          } else {
+            setState(() {
+              _lyricsOpen = !_lyricsOpen;
+              if (_lyricsOpen) _queueOpen = false;
+            });
+          }
+        },
+        onToggleQueue: () => setState(() {
+          _queueOpen = !_queueOpen;
+          if (_queueOpen) _lyricsOpen = false;
+        }),
+      );
+    }
+    return _dockCache!;
+  }
+
+  /// Cached title bar: same instance across navigations so the element
+  /// skips it (no search-box reconstruction). Rebuilt only when the
+  /// back/forward ability flips.
+  Widget _titleBarFor(bool canGoBack, bool canGoForward) {
+    if (_titleBarCache == null ||
+        _titleCanBack != canGoBack ||
+        _titleCanForward != canGoForward) {
+      _titleCanBack = canGoBack;
+      _titleCanForward = canGoForward;
+      _titleBarCache = WaveTitleBar(
+        searchController: _searchController,
+        searchFocus: _searchFocus,
+        onSearchSubmit: _submitSearch,
+        onPalette: _openPalette,
+        onToggleRail: () => setState(() => _railExpanded = !_railExpanded),
+        canGoBack: canGoBack,
+        canGoForward: canGoForward,
+        onBack: _goBack,
+        onForward: _goForward,
+      );
+    }
+    return _titleBarCache!;
+  }
 
   /// Cached lyrics panel: recreated only when visibility flips so the
   /// LayoutBuilder ticks during rail animation reuse the same instance
@@ -433,17 +515,9 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
               dark ? WaveColors.background : WaveColors.lightBackground,
           child: Column(
             children: [
-              WaveTitleBar(
-                searchController: _searchController,
-                searchFocus: _searchFocus,
-                onSearchSubmit: _submitSearch,
-                onPalette: _openPalette,
-                onToggleRail: () =>
-                    setState(() => _railExpanded = !_railExpanded),
-                canGoBack: _backStack.isNotEmpty,
-                canGoForward: _forwardStack.isNotEmpty,
-                onBack: _goBack,
-                onForward: _goForward,
+              _titleBarFor(
+                _backStack.isNotEmpty,
+                _forwardStack.isNotEmpty,
               ),
               const WaveInfoBarHost(),
               // Overlay rail: the content below keeps full width and the
@@ -653,29 +727,10 @@ class _WaveShellState extends ConsumerState<WaveShell> with TrayListener {
                               ),
                             ),
                           ),
-                          // Dock is structural: reserves 80px on every view,
-                          // including Now Playing — its in-page transport was
-                          // removed so this dock is the single control surface.
-                          WavePlayerDock(
-                            onExpand: () => _go('/now'),
+                          _dockFor(
                             lyricsActive: _lyricsOpen || isLyrics,
                             queueActive: _queueOpen,
-                            onToggleMini: () =>
-                                setState(() => _miniOpen = !_miniOpen),
-                            onToggleLyrics: () {
-                              if (isLyrics) {
-                                _go('/now');
-                              } else {
-                                setState(() {
-                                  _lyricsOpen = !_lyricsOpen;
-                                  if (_lyricsOpen) _queueOpen = false;
-                                });
-                              }
-                            },
-                            onToggleQueue: () => setState(() {
-                              _queueOpen = !_queueOpen;
-                              if (_queueOpen) _lyricsOpen = false;
-                            }),
+                            isLyrics: isLyrics,
                           ),
                         ],
                       ),
