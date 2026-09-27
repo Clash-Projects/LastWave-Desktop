@@ -39,7 +39,8 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     // Prefs are fully loaded before runApp, and AuthRepository restores
     // the same state synchronously — the first frame routes correctly.
     _gate = AuthGate(
-      initialSignedIn: ref.read(prefsProvider).isAuthenticated,
+      initialInside: ref.read(prefsProvider).isAuthenticated ||
+          ref.read(prefsProvider).isGuest,
     );
     _router = buildRouter(gate: _gate);
     // Warm start (non-blocking, best-effort): create the single
@@ -67,11 +68,13 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     ref.listen(
         themeControllerProvider.select((t) => t.isLight),
         (_, light) => applyWindowMaterial(isLight: light));
-    // Live auth state drives the gate (login, logout, session expiry).
+    // Live auth state drives the gate (login, logout, guest entry,
+    // session expiry). Guests count as inside.
     ref.listen(
-        authRepositoryProvider
-            .select((a) => a.status == AuthStatus.signedIn),
-        (_, signedIn) => _gate.update(signedIn));
+        authRepositoryProvider.select((a) =>
+            a.status == AuthStatus.signedIn ||
+            a.status == AuthStatus.guest),
+        (_, inside) => _gate.update(inside));
     final theme = ref.watch(themeControllerProvider);
 
     final darkTheme = buildWaveFluentTheme(

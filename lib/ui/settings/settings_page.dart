@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -19,6 +18,7 @@ import '../../features/innertube/yt_library_providers.dart';
 import '../../features/innertube/yt_web_login.dart';
 import '../components/artwork.dart';
 import 'yt_profile_chooser.dart';
+import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/audio_output/output_controller.dart';
@@ -46,14 +46,28 @@ const _waveSettingsSections = [
 /// (ToggleSwitch, Slider, ComboBox, ContentDialog) — no old ledger
 /// switches or boxed groups.
 class WaveSettingsPage extends ConsumerStatefulWidget {
-  const WaveSettingsPage({super.key});
+  /// Deep-link into a section rail entry (e.g. 'lastfm' from the
+  /// profile empty state). Falls back to 'general' when unknown.
+  final String? initialSection;
+  const WaveSettingsPage({super.key, this.initialSection});
 
   @override
   ConsumerState<WaveSettingsPage> createState() => _WaveSettingsPageState();
 }
 
 class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
-  String _section = 'general';
+  late String _section;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialSection;
+    _section =
+        initial != null &&
+                _waveSettingsSections.any((s) => s.$1 == initial)
+            ? initial
+            : 'general';
+  }
 
   Future<void> _update(Future<void> Function(Prefs) fn) async {
     await fn(ref.read(prefsProvider));
@@ -303,41 +317,182 @@ class _Account extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authRepositoryProvider);
+    final prefs = ref.watch(prefsProvider);
+    final signedIn = auth.username.isNotEmpty;
+    final guest = auth.status == AuthStatus.guest || prefs.isGuest;
     return _Group(
       title: 'Last.fm connection',
       subtitle: 'Scrobbling and discovery need a session',
-      child: Row(
+      child: Column(
         children: [
-          const Icon(FluentIcons.contact, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  auth.username.isEmpty ? 'Not connected' : auth.username,
-                  style: WaveType.trackTitle,
+          Row(
+            children: [
+              const Icon(FluentIcons.contact, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      signedIn
+                          ? auth.username
+                          : (guest ? 'Guest mode' : 'Not connected'),
+                      style: WaveType.trackTitle,
+                    ),
+                    Text(
+                      signedIn
+                          ? 'Last.fm connected'
+                          : (guest
+                              ? 'Last.fm disabled — save keys below, then connect'
+                              : 'Connect to scrobble and personalize'),
+                      style: WaveType.meta,
+                    ),
+                  ],
                 ),
-                Text(
-                  auth.username.isEmpty
-                      ? 'Connect to scrobble and personalize'
-                      : 'Last.fm connected',
-                  style: WaveType.meta,
-                ),
-              ],
-            ),
+              ),
+              signedIn
+                  ? Button(
+                      onPressed: () => signOutEverywhere(ref),
+                      child: const Text('Sign out'),
+                    )
+                  : const SizedBox.shrink(),
+            ],
           ),
-          auth.username.isEmpty
-              ? FilledButton(
-                  onPressed: () => context.go('/welcome'),
-                  child: const Text('Connect'),
-                )
-              : Button(
-                  onPressed: () => signOutEverywhere(ref),
-                  child: const Text('Sign out'),
-                ),
+          if (!signedIn) ...[
+            const SizedBox(height: 10),
+            const _InShellConnect(),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// Web-auth connect that runs inside Settings (no /welcome round-trip),
+/// so guests can attach Last.fm after saving keys. Mirrors the welcome
+/// approval flow: open the browser, approve, finish here.
+class _InShellConnect extends ConsumerStatefulWidget {
+  const _InShellConnect();
+  @override
+  ConsumerState<_InShellConnect> createState() => _InShellConnectState();
+}
+
+class _InShellConnectState extends ConsumerState<_InShellConnect> {
+  WebAuthHandshake? _handshake;
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _begin() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final handshake = await ref
+          .read(authRepositoryProvider.notifier)
+          .beginWebAuth();
+      if (!mounted) return;
+      setState(() => _handshake = handshake);
+      final uri = Uri.parse(handshake.url);
+      try {
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error =
+          'Could not reach Last.fm. Check your connection and retry.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _finish() async {
+    final handshake = _handshake;
+    if (handshake == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(authRepositoryProvider.notifier)
+          .completeWebAuth(handshake.token);
+      ref.invalidate(feedProvider);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error =
+          'Not approved yet — approve LastWave in the browser, then retry.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final configured = ref.watch(prefsProvider).isLastFmConfigured;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_error != null) ...[
+          Text(
+            _error!,
+            style: WaveType.meta.copyWith(color: Colors.red),
+          ),
+          const SizedBox(height: 8),
+        ],
+        FilledButton(
+          onPressed: _busy || !configured ? null : _begin,
+          child: _busy && _handshake == null
+              ? const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: ProgressRing(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Text('Contacting Last.fm…'),
+                  ],
+                )
+              : Text(_handshake == null
+                  ? 'Connect with Last.fm'
+                  : 'Restart approval'),
+        ),
+        if (!configured) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Save your API keys below first.',
+            style: WaveType.meta.copyWith(
+              color: waveTextTertiary(context),
+            ),
+          ),
+        ],
+        if (_handshake != null) ...[
+          const SizedBox(height: 8),
+          Button(
+            onPressed: _busy ? null : _finish,
+            child: _busy
+                ? const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: ProgressRing(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Confirming…'),
+                    ],
+                  )
+                : const Text("I've approved — finish sign-in"),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -1625,8 +1780,166 @@ class _LastFm extends ConsumerWidget {
       children: [
         _Account(onUpdate: onUpdate),
         const SizedBox(height: 8),
+        const _ApiKeys(),
+        const SizedBox(height: 8),
         _Scrobbler(onUpdate: onUpdate),
       ],
+    );
+  }
+}
+
+/// Last.fm BYOK editor: the user's own API key + shared secret.
+///
+/// Validated with a signed `auth.getToken` call before persisting;
+/// saving *different* keys signs the session out (sessions belong to
+/// their API key). Key values are never logged — only presence.
+class _ApiKeys extends ConsumerStatefulWidget {
+  const _ApiKeys();
+  @override
+  ConsumerState<_ApiKeys> createState() => _ApiKeysState();
+}
+
+class _ApiKeysState extends ConsumerState<_ApiKeys> {
+  TextEditingController? _key;
+  TextEditingController? _secret;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _key?.dispose();
+    _secret?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(authRepositoryProvider.notifier).saveCustomKeys(
+            _key?.text ?? '',
+            _secret?.text ?? '',
+          );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = _shortError(e));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _clear() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(authRepositoryProvider.notifier).clearCustomKeys();
+      _key?.clear();
+      _secret?.clear();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = _shortError(e));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  static String _shortError(Object e) =>
+      e.toString().replaceFirst('LastFmException(null): ', '');
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = ref.watch(prefsProvider);
+    _key ??= TextEditingController(text: prefs.lastFmApiKey);
+    _secret ??= TextEditingController(text: prefs.lastFmApiSecret);
+    final configured = prefs.isLastFmConfigured;
+    return _Group(
+      title: 'API keys',
+      subtitle: 'Your own keys from last.fm/api/account/create',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                configured
+                    ? FluentIcons.check_mark
+                    : FluentIcons.warning,
+                size: 14,
+                color: configured ? Colors.green : Colors.orange,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  configured
+                      ? 'Keys saved — values never shown here'
+                      : 'Not configured — Last.fm is disabled',
+                  style: WaveType.meta,
+                ),
+              ),
+              if (configured)
+                Button(
+                  onPressed: _busy ? null : _clear,
+                  child: const Text('Clear'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text('API key', style: WaveType.label),
+          const SizedBox(height: 4),
+          TextBox(
+            controller: _key,
+            placeholder: '32-character hex key',
+          ),
+          const SizedBox(height: 8),
+          const Text('Shared secret', style: WaveType.label),
+          const SizedBox(height: 4),
+          TextBox(
+            controller: _secret,
+            placeholder: 'Shared secret',
+            obscureText: true,
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              style: WaveType.meta.copyWith(color: Colors.red),
+            ),
+          ],
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: _busy ? null : _save,
+            child: _busy
+                ? const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: ProgressRing(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Validating…'),
+                    ],
+                  )
+                : const Text('Save & validate'),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Saving different keys signs you out — sessions belong '
+            'to their API key. Reconnect afterwards.',
+            style: WaveType.meta.copyWith(
+              color: waveTextTertiary(context),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

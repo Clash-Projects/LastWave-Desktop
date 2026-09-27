@@ -1370,6 +1370,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   void _beginScrobbleWindow(PlayableTrack track) {
+    // On-device play log for the keyless-guest taste algorithm.
+    // Runs for every listener (not just Last.fm users); the DB call
+    // is a single indexed insert, never on the audio path.
+    try {
+      _sessions.recordLocalPlay(track.title, track.artist);
+    } catch (_) {}
     _flushScrobble(completed: false);
     _scrobbleTrack = track;
     _scrobbleDurationSec = state.duration.inSeconds;
@@ -1570,6 +1576,8 @@ class SessionStore {
   void save(Map<String, dynamic> payload) =>
       _db.savePlaybackSession(payload);
   void clear() => _db.clearPlaybackSession();
+  void recordLocalPlay(String title, String artist) =>
+      _db.recordLocalPlay(title: title, artist: artist);
 }
 
 final playbackServiceProvider =

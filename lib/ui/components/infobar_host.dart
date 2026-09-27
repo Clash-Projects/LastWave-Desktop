@@ -61,7 +61,10 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
         onClose: () => setState(() => _dismissedOffline = true),
       ));
     }
-    if (auth.status != AuthStatus.signedIn && !_dismissedAuth) {
+    // Guests chose keyless entry — never nag them about Last.fm.
+    if (auth.status != AuthStatus.signedIn &&
+        auth.status != AuthStatus.guest &&
+        !_dismissedAuth) {
       bars.add(InfoBar(
         title: const Text('Last.fm disconnected'),
         content: const Text('Connect to keep scrobbling and picks.'),

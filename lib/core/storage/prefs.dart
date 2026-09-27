@@ -14,10 +14,44 @@ class Prefs {
   static Future<Prefs> load() async =>
       Prefs(await SharedPreferences.getInstance());
 
-  // -- Last.fm session (OAuth only; API keys come from .env) --------------
+  // -- Last.fm BYOK (bring your own keys) ---------------------------------
+  // No bundled API keys ship with the app: the user enters their own
+  // Last.fm API key + shared secret (from last.fm/api/account/create),
+  // stored here in SharedPreferences. All Last.fm features stay
+  // disabled until both are set.
+  String get lastFmApiKey => _sp.getString('lw_lastfm_api_key') ?? '';
+  String get lastFmApiSecret => _sp.getString('lw_lastfm_api_secret') ?? '';
+  bool get isLastFmConfigured =>
+      lastFmApiKey.isNotEmpty && lastFmApiSecret.isNotEmpty;
+
+  Future<void> saveLastFmKeys({
+    required String apiKey,
+    required String apiSecret,
+  }) async {
+    await _sp.setString('lw_lastfm_api_key', apiKey);
+    await _sp.setString('lw_lastfm_api_secret', apiSecret);
+  }
+
+  Future<void> clearLastFmKeys() async {
+    await _sp.remove('lw_lastfm_api_key');
+    await _sp.remove('lw_lastfm_api_secret');
+  }
+
+  // -- Guest mode (keyless entry) -------------------------------------------
+  // Set by the welcome Skip button: the user enters the shell without
+  // Last.fm keys or session. Everything except Last.fm features works;
+  // reconnect happens in Settings only. Sticky across restarts; cleared
+  // by full sign-out and by saving a real session.
+  bool get isGuest => _sp.getBool('lw_guest_mode') ?? false;
+  Future<void> setGuestMode(bool v) =>
+      _sp.setBool('lw_guest_mode', v);
+
+  // -- Last.fm session (web auth under the user's own API key) ------------
   // Authentication is compulsory: there is no guest or anonymous mode.
   // A session is valid only when both the username and the session key
-  // are stored.
+  // are stored. Session keys are bound to the API key that minted them,
+  // so saving different API keys signs the session out (see
+  // AuthRepository.saveCustomKeys).
   String get sessionKey => _sp.getString('lw_sessionkey') ?? '';
   String get username => _sp.getString('lw_username') ?? '';
   bool get isAuthenticated => username.isNotEmpty && sessionKey.isNotEmpty;

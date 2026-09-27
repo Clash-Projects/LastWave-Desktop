@@ -8,27 +8,28 @@ import '../features/player/playback_service.dart';
 
 /// Startup authentication gate.
 ///
-/// Last.fm authentication is compulsory: the main shell is never built
-/// for an unauthenticated user. The gate holds the current signed-in
-/// state and drives go_router's `refreshListenable` + `redirect`, so:
+/// Last.fm authentication is optional (guest mode): the main shell is
+/// built for signed-in users AND keyless guests, and never for anyone
+/// else. The gate holds the current "inside" state and drives
+/// go_router's `refreshListenable` + `redirect`, so:
 ///
-/// - unauthenticated + anywhere except /welcome → /welcome
-/// - authenticated + on /welcome → /home
+/// - outsider + anywhere except /welcome → /welcome
+/// - insider (signed in or guest) + on /welcome → /home
 ///
 /// The initial value comes from synchronously-loaded [Prefs] (awaited
 /// in main() before runApp), and [AuthRepository] restores the same
 /// state synchronously in its constructor — so the very first frame
 /// already routes correctly and Home never flashes before auth.
 class AuthGate extends ChangeNotifier {
-  bool _signedIn;
-  AuthGate({required bool initialSignedIn})
-      : _signedIn = initialSignedIn;
+  bool _inside;
+  AuthGate({required bool initialInside}) : _inside = initialInside;
 
-  bool get signedIn => _signedIn;
+  /// Signed in OR guest — allowed inside the shell.
+  bool get signedIn => _inside;
 
   void update(bool value) {
-    if (value == _signedIn) return;
-    _signedIn = value;
+    if (value == _inside) return;
+    _inside = value;
     notifyListeners();
   }
 }

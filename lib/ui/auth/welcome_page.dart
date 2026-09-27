@@ -4,11 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../core/storage/prefs.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
+
+const _lastFmApiAccountUrl = 'https://www.last.fm/api/account/create';
 
 const _githubUrl =
     'https://github.com/Clash-Projects/LastWave-Desktop';
@@ -84,6 +87,22 @@ class _WaveWelcomePageState
     }
   }
 
+  Future<void> _enterGuest() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(authRepositoryProvider.notifier).enterGuestMode();
+      // No manual navigation: the auth gate redirect enters /home.
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Could not continue as guest. Retry.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _openGitHub() async {
     final uri = Uri.parse(_githubUrl);
     try {
@@ -127,6 +146,7 @@ class _WaveWelcomePageState
                           error: _error,
                           onConnect: _beginWebAuth,
                           onFinish: _completeWebAuth,
+                          onSkip: _enterGuest,
                           onGitHub: _openGitHub,
                         ),
                       ),
@@ -145,6 +165,7 @@ class _WaveWelcomePageState
                           error: _error,
                           onConnect: _beginWebAuth,
                           onFinish: _completeWebAuth,
+                          onSkip: _enterGuest,
                           onGitHub: _openGitHub,
                         ),
                       ],
@@ -513,12 +534,13 @@ class _EqualizerRow extends StatelessWidget {
 /// Right / auth area: product name, why Last.fm, primary connect,
 ///
 /// supporting text, and the optional GitHub star action.
-class _AuthPanel extends StatelessWidget {
+class _AuthPanel extends ConsumerWidget {
   final WebAuthHandshake? handshake;
   final bool busy;
   final String? error;
   final VoidCallback onConnect;
   final VoidCallback onFinish;
+  final VoidCallback onSkip;
   final VoidCallback onGitHub;
   const _AuthPanel({
     required this.handshake,
@@ -526,13 +548,15 @@ class _AuthPanel extends StatelessWidget {
     required this.error,
     required this.onConnect,
     required this.onFinish,
+    required this.onSkip,
     required this.onGitHub,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
+    final configured = ref.watch(prefsProvider).isLastFmConfigured;
     return Padding(
       padding: const EdgeInsets.fromLTRB(36, 40, 36, 32),
       child: Column(
@@ -573,8 +597,12 @@ class _AuthPanel extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
+          if (!configured) ...[
+            const _ApiKeyForm(),
+            const SizedBox(height: 16),
+          ],
           FilledButton(
-            onPressed: busy ? null : onConnect,
+            onPressed: busy || !configured ? null : onConnect,
             style: ButtonStyle(
               padding: const WidgetStatePropertyAll(
                 EdgeInsets.symmetric(vertical: 13),
@@ -654,9 +682,40 @@ class _AuthPanel extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 10),
+          if (!configured)
+            Text(
+              'Enter your API keys above to enable connecting.',
+              style: WaveType.meta.copyWith(
+                color: dark
+                    ? WaveColors.textTertiary
+                    : WaveColors.lightTextTertiary,
+              ),
+              textAlign: TextAlign.center,
+            ),
           Text(
             'Authentication opens through Last.fm — LastWave never asks '
             'for your Last.fm password.',
+            style: WaveType.meta.copyWith(
+              color: dark
+                  ? WaveColors.textTertiary
+                  : WaveColors.lightTextTertiary,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+          Button(
+            onPressed: busy ? null : onSkip,
+            style: const ButtonStyle(
+              padding: WidgetStatePropertyAll(
+                EdgeInsets.symmetric(vertical: 11),
+              ),
+            ),
+            child: const Text('Continue without Last.fm'),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Browse, stream and download as a guest — scrobbling, stats '
+            'and taste stay off until you connect in Settings.',
             style: WaveType.meta.copyWith(
               color: dark
                   ? WaveColors.textTertiary
@@ -681,6 +740,136 @@ class _AuthPanel extends StatelessWidget {
                 Text('Star LastWave on GitHub'),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// BYOK form: the user's own Last.fm API key + shared secret.
+///
+/// Shown on the welcome screen until keys are saved (Settings holds
+/// the same editor for later changes). Validated with a signed
+/// `auth.getToken` call before persisting; the parent rebuilds into
+/// the connect flow on success.
+class _ApiKeyForm extends ConsumerStatefulWidget {
+  const _ApiKeyForm();
+  @override
+  ConsumerState<_ApiKeyForm> createState() => _ApiKeyFormState();
+}
+
+class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
+  TextEditingController? _key;
+  TextEditingController? _secret;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _key?.dispose();
+    _secret?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(authRepositoryProvider.notifier).saveCustomKeys(
+            _key?.text ?? '',
+            _secret?.text ?? '',
+          );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error =
+            e.toString().replaceFirst('LastFmException(null): ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openApiAccount() async {
+    final uri = Uri.parse(_lastFmApiAccountUrl);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    _key ??= TextEditingController(
+        text: ref.read(prefsProvider).lastFmApiKey);
+    _secret ??= TextEditingController(
+        text: ref.read(prefsProvider).lastFmApiSecret);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: waveDivider(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Last.fm API keys', style: WaveType.label),
+          const SizedBox(height: 2),
+          HyperlinkButton(
+            onPressed: _openApiAccount,
+            child: const Text('Get free keys at last.fm/api →'),
+          ),
+          const SizedBox(height: 8),
+          TextBox(
+            controller: _key,
+            placeholder: 'API key',
+          ),
+          const SizedBox(height: 8),
+          TextBox(
+            controller: _secret,
+            placeholder: 'Shared secret',
+            obscureText: true,
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              style: WaveType.meta.copyWith(color: Colors.red),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Button(
+            onPressed: _busy ? null : _save,
+            child: _busy
+                ? const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: ProgressRing(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Validating…'),
+                    ],
+                  )
+                : const Text('Save keys'),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'LastWave ships with no keys of its own — these stay on '
+            'this device.',
+            style: WaveType.meta.copyWith(
+              color: dark
+                  ? WaveColors.textTertiary
+                  : WaveColors.lightTextTertiary,
+            ),
+            textAlign: TextAlign.center,
           ),
         ],
       ),

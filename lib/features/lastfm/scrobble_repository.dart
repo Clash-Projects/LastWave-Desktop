@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/env/app_env.dart';
 import '../../core/network/lastfm_api.dart';
 import '../../core/network/lastfm_crypto.dart';
 import '../../core/storage/prefs.dart';
@@ -27,11 +26,12 @@ class ScrobbleRepository {
 
   ScrobbleRepository(this._api, this._prefs);
 
-  String get _apiKey => AppEnv.lastfmApiKey;
-  String get _apiSecret => AppEnv.lastfmApiSecret;
+  String get _apiKey => _prefs.lastFmApiKey;
+  String get _apiSecret => _prefs.lastFmApiSecret;
   String get _sessionKey => _prefs.sessionKey;
 
-  bool get _canWrite => _sessionKey.isNotEmpty;
+  bool get _canWrite =>
+      _prefs.isLastFmConfigured && _sessionKey.isNotEmpty;
 
   Future<Map<String, String>> _signed(
     String method,

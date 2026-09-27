@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/env/app_env.dart';
 import '../../core/network/lastfm_api.dart';
 import '../../core/storage/prefs.dart';
 import 'auth_repository.dart';
@@ -71,7 +70,7 @@ class HomeRepository {
 
   HomeRepository(this._api, this._prefs);
 
-  String get _apiKey => AppEnv.lastfmApiKey;
+  String get _apiKey => _prefs.lastFmApiKey;
 
   String? _effectiveUser(String? viewingAs) =>
       viewingAs ?? (_prefs.username.isEmpty ? null : _prefs.username);

@@ -23,8 +23,6 @@ const _keys = [
   'ADDON_CLIENT_SECRET',
 
   'LYRICS_API_KEY',
-  'LASTFM_API_KEY',
-  'LASTFM_API_SECRET',
 ];
 
 String _constName(String key) {

@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/env/app_env.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/network/lastfm_api.dart';
 import '../../core/network/lastfm_crypto.dart';
@@ -9,7 +8,9 @@ import '../../core/storage/prefs.dart';
 import '../../core/storage/secure_store.dart';
 
 /// Last.fm authentication state. Mirrors Android `AuthState`.
-enum AuthStatus { unknown, signedOut, signingIn, signedIn, error }
+/// `guest` = keyless entry via the welcome Skip button: inside the
+/// shell with no keys and no session; Last.fm features stay off.
+enum AuthStatus { unknown, signedOut, signingIn, signedIn, guest, error }
 
 class AuthState {
   final AuthStatus status;
@@ -63,18 +64,98 @@ class AuthRepository extends StateNotifier<AuthState> {
         status: AuthStatus.signedIn,
         username: _prefs.username,
       );
+    } else if (_prefs.isGuest) {
+      state = const AuthState(status: AuthStatus.guest);
     } else {
       state = const AuthState(status: AuthStatus.signedOut);
     }
   }
 
-  /// Last.fm API credentials — always the app keys from .env
-  /// (same as LastWave-native). Users only OAuth; no custom keys.
-  String get _apiKey => AppEnv.lastfmApiKey;
-  String get _apiSecret => AppEnv.lastfmApiSecret;
+  /// Keyless entry: enter the shell without Last.fm keys or session.
+  /// Sticky via Prefs; cleared by full sign-out and by real sessions.
+  Future<void> enterGuestMode() async {
+    await _prefs.setGuestMode(true);
+    state = const AuthState(status: AuthStatus.guest);
+  }
+
+  /// Last.fm API credentials — the user's own keys (BYOK), stored in
+  /// Prefs. Empty until the user enters them (Settings / welcome).
+  String get _apiKey => _prefs.lastFmApiKey;
+  String get _apiSecret => _prefs.lastFmApiSecret;
+
+  /// True when custom API keys are present. Web auth and all signed
+  /// calls require this; repositories no-op otherwise.
+  bool get isConfigured => _prefs.isLastFmConfigured;
+
+  /// Save user-supplied API keys (Settings / welcome share this path).
+  ///
+  /// Session keys are bound to the API key that minted them, so saving
+  /// *different* keys signs the current session out first. The
+  /// candidate keys are validated with a signed `auth.getToken` call
+  /// (wrong secret fails the signature check) and persisted only on
+  /// success.
+  Future<void> saveCustomKeys(String apiKey, String apiSecret) async {
+    final key = apiKey.trim();
+    final secret = apiSecret.trim();
+    if (key.isEmpty || secret.isEmpty) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        message: 'Enter both the API key and the shared secret.',
+      );
+      throw LastFmException('Incomplete Last.fm API keys');
+    }
+    if (key != _prefs.lastFmApiKey || secret != _prefs.lastFmApiSecret) {
+      // Sessions belong to their API key — clear any session. Guests
+      // stay guests (no welcome bounce mid-save); signed-in users
+      // drop to signedOut and reconnect via welcome.
+      final wasGuest = _prefs.isGuest;
+      await _prefs.signOut();
+      await _secure.writeSessionKey(null);
+      state = AuthState(
+        status: wasGuest ? AuthStatus.guest : AuthStatus.signedOut,
+      );
+      if (wasGuest) await _prefs.setGuestMode(true);
+    }
+    state = state.copyWith(status: AuthStatus.signingIn);
+    try {
+      final params = {'method': 'auth.getToken', 'api_key': key};
+      final signed = {
+        ...params,
+        'api_sig': LastFmSigner.sign(params, secret),
+        'format': 'json',
+      };
+      final json = await _api.get(signed);
+      LastFmException.throwIfError(json);
+      if ((json['token']?.toString() ?? '').isEmpty) {
+        throw LastFmException('Last.fm rejected these API keys');
+      }
+      await _prefs.saveLastFmKeys(apiKey: key, apiSecret: secret);
+      state = const AuthState(status: AuthStatus.signedOut);
+    } catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        message: e.toString(),
+      );
+      rethrow;
+    }
+  }
+
+  /// Clear the custom API keys (Settings). Also signs out: sessions
+  /// cannot survive without keys.
+  Future<void> clearCustomKeys() async {
+    await signOut();
+    await _prefs.clearLastFmKeys();
+  }
 
   /// Step 1 of web auth: fetch a token and build the approval URL.
   Future<WebAuthHandshake> beginWebAuth() async {
+    if (!isConfigured) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        message: 'Enter your Last.fm API keys first.',
+      );
+      throw LastFmException('Last.fm API keys not set');
+    }
     state = state.copyWith(status: AuthStatus.signingIn);
     final params = {'method': 'auth.getToken', 'api_key': _apiKey};
     final signed = {
@@ -138,6 +219,7 @@ class AuthRepository extends StateNotifier<AuthState> {
 
   Future<void> signOut() async {
     await _prefs.signOut();
+    await _prefs.setGuestMode(false);
     await _secure.writeSessionKey(null);
     state = const AuthState(status: AuthStatus.signedOut);
   }

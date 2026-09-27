@@ -73,9 +73,9 @@ class _WaveProfilePageState
       return WaveEmpty(
         icon: FluentIcons.contact,
         title: 'No profile selected',
-        subtitle: 'Connect Last.fm to see your profile.',
-        actionLabel: 'Connect',
-        onAction: () => context.go('/welcome'),
+        subtitle: 'Connect Last.fm in Settings to see your profile.',
+        actionLabel: 'Open Settings',
+        onAction: () => context.go('/settings?section=lastfm'),
       );
     }
     return ListView(

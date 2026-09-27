@@ -51,9 +51,10 @@ Page<void> _page(Widget child) {
 
 /// Rebuilt navigation — music first, no dashboard.
 ///
-/// Last.fm authentication is compulsory: [AuthGate] drives a redirect so
-/// unauthenticated users only ever see /welcome (rendered WITHOUT the
-/// main shell), and authenticated users can never sit on /welcome.
+/// Last.fm authentication is optional (guest mode): [AuthGate] drives a
+/// redirect so outsiders only ever see /welcome (rendered WITHOUT the
+/// main shell), and insiders (signed in or guest) can never sit on
+/// /welcome.
 /// The initial gate value comes from synchronously-loaded prefs, so the
 /// first frame already routes correctly — Home never flashes.
 ///
@@ -203,8 +204,9 @@ GoRouter buildRouter({required AuthGate gate}) {
           ),
           GoRoute(
             path: '/settings',
-            pageBuilder: (c, s) =>
-                _page(const WaveSettingsPage()),
+            pageBuilder: (c, s) => _page(WaveSettingsPage(
+              initialSection: s.uri.queryParameters['section'],
+            )),
           ),
         ],
       ),

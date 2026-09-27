@@ -11,11 +11,13 @@ import 'package:sqlite3/sqlite3.dart';
 /// - `kv_store` (DataStore/ prefs equivalent for misc state)
 /// - `playback_session` (single-row persisted queue snapshot)
 /// - `search_history` (replaces SharedPreferences query list)
+/// - `local_plays` (v5: on-device play log driving the keyless-guest
+///   taste algorithm — no Last.fm account needed)
 ///
 /// Migrations are additive and never drop user data (no destructive
 /// fallback, unlike the temporary Android `fallbackToDestructiveMigration`).
 class AppDatabase {
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 5;
 
   final Database _db;
 
@@ -59,6 +61,10 @@ class AppDatabase {
     if (version < 4) {
       _createV4();
       _db.execute('PRAGMA user_version=4;');
+    }
+    if (version < 5) {
+      _createV5();
+      _db.execute('PRAGMA user_version=5;');
     }
   }
 
@@ -307,6 +313,83 @@ class AppDatabase {
     try {
       _db.execute('DELETE FROM match_cache;');
     } catch (_) {}
+  }
+
+  void _createV5() {
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS local_plays (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL DEFAULT '',
+        artist TEXT NOT NULL DEFAULT '',
+        played_at_millis INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+    _db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_local_plays_recent
+      ON local_plays(played_at_millis DESC);
+    ''');
+  }
+
+  // -- local play log (keyless-guest taste) --------------------------------
+  //
+  // Every resolved track opening records one row (see PlaybackService),
+  // capped at 500 newest. Same track replayed within 10 minutes is not
+  // re-logged (repeat-one would spam). Powers affinities, discovery
+  // seeds, jump-back-in and personal-mix seeds without any account.
+
+  /// Max rows kept; oldest pruned on insert.
+  static const int localPlaysCap = 500;
+
+  void recordLocalPlay({required String title, required String artist}) {
+    final t = title.trim();
+    final a = artist.trim();
+    if (t.isEmpty || a.isEmpty) return;
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final last = _db.select(
+        'SELECT title, artist, played_at_millis FROM local_plays '
+        'ORDER BY id DESC LIMIT 1;',
+      );
+      if (last.isNotEmpty) {
+        final lt = (last.first['title'] as String?) ?? '';
+        final la = (last.first['artist'] as String?) ?? '';
+        final lat = (last.first['played_at_millis'] as int?) ?? 0;
+        if (lt == t && la == a && now - lat < 10 * 60 * 1000) return;
+      }
+      _db.execute(
+        'INSERT INTO local_plays (title, artist, played_at_millis) '
+        'VALUES (?, ?, ?);',
+        [t, a, now],
+      );
+      _db.execute(
+        'DELETE FROM local_plays WHERE id NOT IN ('
+        'SELECT id FROM local_plays ORDER BY id DESC LIMIT ?);',
+        [localPlaysCap],
+      );
+    } catch (_) {}
+  }
+
+  List<({String title, String artist, int atMillis})> loadRecentPlays({
+    int limit = 100,
+  }) {
+    try {
+      return _db
+          .select(
+            'SELECT title, artist, played_at_millis FROM local_plays '
+            'ORDER BY id DESC LIMIT ?;',
+            [limit],
+          )
+          .map((r) => (
+                title: (r['title'] as String?) ?? '',
+                artist: (r['artist'] as String?) ?? '',
+                atMillis:
+                    (r['played_at_millis'] as int?) ?? 0,
+              ))
+          .where((p) => p.title.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
   }
 
   List<Map<String, Object?>> loadStreamEntries({int limit = 256}) {

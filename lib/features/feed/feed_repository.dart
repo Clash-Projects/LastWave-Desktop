@@ -6,11 +6,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/network/lastfm_api.dart';
 import '../../core/storage/app_database.dart';
+import '../downloads/download_manager.dart';
 import '../innertube/innertube_api.dart';
 import '../innertube/yt_library_providers.dart';
 import '../lastfm/auth_repository.dart';
 import '../lastfm/home_repository.dart';
+import '../library/playlists.dart';
 import '../search/shared_providers.dart';
+import 'local_taste.dart';
 
 /// A generated/recommended track (Last.fm metadata + YTM resolution).
 class GeneratedTrack {
@@ -202,10 +205,15 @@ class FeedRepository {
   final Future<List<YouTubeMusicTrack>> Function()? fetchYtLiked;
   final Future<List<YouTubeMusicTrack>> Function()? fetchYtHistory;
 
+  /// On-device taste (play log, liked songs, downloads). Null in unit
+  /// tests without it — the feed then runs purely on account signals.
+  final Future<LocalTaste?> Function()? fetchLocalTaste;
+
   FeedRepository(this._api, this._tube, this._home, this._apiKey,
       {this._db,
       this.fetchYtLiked,
-      this.fetchYtHistory});
+      this.fetchYtHistory,
+      this.fetchLocalTaste});
 
   List<Map<String, dynamic>> _asList(Object? v) {
     if (v is List) return v.whereType<Map<String, dynamic>>().toList();
@@ -260,6 +268,9 @@ class FeedRepository {
     List<HomeTrack> longTerm = const [],
     List<YouTubeMusicTrack> ytLiked = const [],
     List<YouTubeMusicTrack> ytHistory = const [],
+    List<HomeTrack> localLiked = const [],
+    List<HomeTrack> localPlays = const [],
+    List<HomeTrack> localDownloads = const [],
   }) async {
     final affinities = <String, double>{};
     for (var i = 0; i < top.length; i++) {
@@ -284,6 +295,22 @@ class FeedRepository {
     for (var i = 0; i < ytHistory.length; i++) {
       _addAffinity(
           affinities, ytHistory[i].artist, 0.6 / (1 + i / 15));
+    }
+    // On-device signals: explicit local likes sit just under Last.fm
+    // top (your collection outranks rented taste), downloads mark
+    // ownership, the play log mirrors recent scrobbles. For keyless
+    // guests these three ARE the algorithm.
+    for (var i = 0; i < localLiked.length; i++) {
+      _addAffinity(
+          affinities, localLiked[i].artist, 1.3 / (1 + i / 12));
+    }
+    for (var i = 0; i < localDownloads.length; i++) {
+      _addAffinity(
+          affinities, localDownloads[i].artist, 0.9 / (1 + i / 15));
+    }
+    for (var i = 0; i < localPlays.length; i++) {
+      _addAffinity(
+          affinities, localPlays[i].artist, 0.5 / (1 + i / 12));
     }
     return affinities;
   }
@@ -503,6 +530,18 @@ class FeedRepository {
         }
       }
 
+      LocalTaste? localTaste;
+      try {
+        final fetch = fetchLocalTaste;
+        if (fetch != null) {
+          localTaste = await fetch()
+              .timeout(const Duration(seconds: 5));
+        }
+      } catch (_) {
+        localTaste = null;
+      }
+      final local = localTaste ?? const LocalTaste();
+
       final results = await Future.wait([
         _home.fetchRecentTracks(limit: 30),
         _home.fetchTopTracks(period: '7day', limit: 30),
@@ -525,6 +564,9 @@ class FeedRepository {
         longTerm: longTerm,
         ytLiked: ytLiked,
         ytHistory: ytHistory,
+        localLiked: local.likedTracks,
+        localPlays: local.recentPlays,
+        localDownloads: local.downloadedTracks,
       );
       // Banned tracks never surface, in any section.
       final excluded = _db?.loadExclusionKeys() ?? const <String>{};
@@ -577,7 +619,14 @@ class FeedRepository {
       // charts can't also own every grid below.
       final pageCounts = <String, int>{};
       final heavy = _diversify(
-        score(clean(top.take(25).map(fromHome).toList()), 3.0),
+        [
+          ...score(clean(top.take(25).map(fromHome).toList()), 3.0),
+          // Keyless guests have no Last.fm top — their liked songs
+          // anchor Heavy Rotation instead.
+          ...score(
+              clean(local.likedTracks.take(10).map(fromHome).toList()),
+              2.8),
+        ],
         limit: 15,
         maxPerArtist: 2,
         sharedCounts: pageCounts,
@@ -600,7 +649,13 @@ class FeedRepository {
           excluded.contains(AppDatabase.exclusionKey(t.name, t.artist));
       final seeds = <HomeTrack>[];
       final seenArtists = <String>{};
-      for (final t in [...top, ...recent]) {
+      // Local pool seeds discovery for keyless guests (and enriches
+      // it for everyone): recents, then liked, then downloads.
+      for (final t in [
+        ...top,
+        ...recent,
+        ...local.seedPool(limit: 8),
+      ]) {
         if (banned(t)) continue;
         final k = normalizeArtistKey(t.artist);
         if (k.isEmpty || !seenArtists.add(k)) continue;
@@ -625,13 +680,24 @@ class FeedRepository {
       );
 
       final jumpBack = _diversify(
-        score(
-            recent
-                .where((t) => !banned(t))
-                .take(20)
-                .map(fromHome)
-                .toList(),
-            2.0),
+        [
+          ...score(
+              recent
+                  .where((t) => !banned(t))
+                  .take(20)
+                  .map(fromHome)
+                  .toList(),
+              2.0),
+          // On-device play log: guests jump back into what they
+          // actually played, no account required.
+          ...score(
+              local.recentPlays
+                  .where((t) => !banned(t))
+                  .take(20)
+                  .map(fromHome)
+                  .toList(),
+              1.8),
+        ],
         limit: 12,
       );
 
@@ -760,11 +826,12 @@ class FeedRepository {
     }
   }
 
-  /// Personal mix from YouTube Music taste: seed from YT history
-  /// (current taste first) then YT liked, picked with the daily
-  /// rotation salt, expanded via YTM radio. Returns the seed plus the
-  /// radio list, or null when signed out / empty / stalled — callers
-  /// fall back to the Last.fm hero. All network legs are capped.
+  /// Personal mix from taste: seed from YT history (current taste
+  /// first) then YT liked, then the on-device pool (play log, liked,
+  /// downloads) — keyless guests mix purely local. Picked with the
+  /// daily rotation salt, expanded via YTM radio. Returns the seed
+  /// plus the radio list, or null when the pool is empty / stalled —
+  /// callers fall back to the feed hero. All network legs are capped.
   Future<({GeneratedTrack seed, List<GeneratedTrack> tracks})?>
       fetchPersonalMix({int limit = 20}) async {
     try {
@@ -784,24 +851,49 @@ class FeedRepository {
 
       final liked = await cappedYt(fetchYtLiked, 40);
       final history = await cappedYt(fetchYtHistory, 40);
-      final pool = <YouTubeMusicTrack>[];
+      LocalTaste? mixLocal;
+      try {
+        final fetch = fetchLocalTaste;
+        if (fetch != null) {
+          mixLocal = await fetch()
+              .timeout(const Duration(seconds: 5));
+        }
+      } catch (_) {
+        mixLocal = null;
+      }
+      final pool =
+          <({String title, String artist, String videoId, String art})>[];
       final seen = <String>{};
-      for (final t in [...history, ...liked]) {
+      void addSeed(
+          String title, String artist, String videoId, String art) {
         final key =
-            '${t.title.toLowerCase()}|${t.artist.toLowerCase()}';
-        if (t.title.isEmpty || !seen.add(key)) continue;
-        pool.add(t);
+            '${title.toLowerCase()}|${artist.toLowerCase()}';
+        if (title.isEmpty || !seen.add(key)) return;
+        pool.add(
+            (title: title, artist: artist, videoId: videoId, art: art));
+      }
+
+      for (final t in [...history, ...liked]) {
+        addSeed(t.title, t.artist, t.videoId, t.artworkUrl);
+      }
+      // On-device seeds: keyless guests mix from their play log and
+      // liked songs (videoIds resolve via the match fallback below).
+      for (final t in (mixLocal ?? const LocalTaste())
+          .seedPool(limit: 12)) {
+        addSeed(t.name, t.artist, '', t.artworkUrl);
       }
       if (pool.isEmpty) return null;
       final rotation = Random(feedDaySeed(DateTime.now()));
       final seed = pool[rotation.nextInt(pool.length)];
       var seedId = seed.videoId;
+      var seedArt = seed.art;
       if (seedId.isEmpty) {
         final match = await _tube
             .findBestMatchOrNull(seed.title, seed.artist)
             .timeout(const Duration(seconds: 8),
                 onTimeout: () => null);
         seedId = match?.videoId ?? '';
+        if (seedArt.isEmpty) seedArt = match?.artworkUrl ?? '';
       }
       if (seedId.isEmpty) return null;
       final radio = await _tube
@@ -828,7 +920,7 @@ class FeedRepository {
         seed: GeneratedTrack(
           name: seed.title,
           artist: seed.artist,
-          artworkUrl: seed.artworkUrl,
+          artworkUrl: seedArt,
           videoId: seedId,
         ),
         tracks: tracks,
@@ -850,9 +942,23 @@ class FeedRepository {
     final excluded = _db?.loadExclusionKeys() ?? const <String>{};
     bool banned(HomeTrack t) =>
         excluded.contains(AppDatabase.exclusionKey(t.name, t.artist));
+    LocalTaste? mixLocalTaste;
+    try {
+      final fetch = fetchLocalTaste;
+      if (fetch != null) {
+        mixLocalTaste = await fetch()
+            .timeout(const Duration(seconds: 5));
+      }
+    } catch (_) {
+      mixLocalTaste = null;
+    }
     final poolSeeds = [
       ...recent.where((t) => !banned(t)).take(3),
       ...top.where((t) => !banned(t)).take(3),
+      // On-device seeds keep Mix Lab personal without any account.
+      ...(mixLocalTaste ?? const LocalTaste())
+          .seedPool(limit: 6)
+          .where((t) => !banned(t)),
     ];
     final pooledBatches = await Future.wait(
       poolSeeds.map(
@@ -880,8 +986,12 @@ class FeedRepository {
     final longTerm = await _home
         .fetchTopTracks(period: '12month', limit: 20)
         .catchError((_) => <HomeTrack>[]);
+    final mixLocal = mixLocalTaste ?? const LocalTaste();
     final affinities = await _artistAffinities(top, recent,
-        longTerm: longTerm);
+        longTerm: longTerm,
+        localLiked: mixLocal.likedTracks,
+        localPlays: mixLocal.recentPlays,
+        localDownloads: mixLocal.downloadedTracks);
     final scored = pooled
         .map((t) => (
               track: t,
@@ -896,6 +1006,9 @@ class FeedRepository {
 }
 
 final feedRepositoryProvider = Provider<FeedRepository>((ref) {
+  // NOTE: closures below use ref.read, not ref.watch — they run when
+  // the feed loads (long after this provider builds), where watch
+  // throws. Read-at-call is also fresher (plays logged minutes ago).
   return FeedRepository(
     ref.watch(lastFmApiProvider),
     ref.watch(innerTubeProvider),
@@ -903,12 +1016,54 @@ final feedRepositoryProvider = Provider<FeedRepository>((ref) {
     () => ref.watch(prefsApiKeyProvider),
     db: ref.watch(databaseProvider),
     fetchYtLiked: () =>
-        ref.watch(ytLikedSongsProvider.future).catchError(
+        ref.read(ytLikedSongsProvider.future).catchError(
               (_) => const <YouTubeMusicTrack>[],
             ),
     fetchYtHistory: () =>
-        ref.watch(ytHistoryProvider.future).catchError(
+        ref.read(ytHistoryProvider.future).catchError(
               (_) => const <YouTubeMusicTrack>[],
             ),
+    fetchLocalTaste: () async {
+      try {
+        final db = ref.read(databaseProvider);
+        final plays = db
+            .loadRecentPlays(limit: 100)
+            .map((p) => HomeTrack(
+                  name: p.title,
+                  artist: p.artist,
+                  timestampMillis: p.atMillis,
+                ))
+            .toList();
+        final playlists = ref.read(playlistRepositoryProvider);
+        final liked = <HomeTrack>[];
+        for (final p in playlists) {
+          if (!p.isLikedSongs) continue;
+          for (final t in p.tracks) {
+            if (t.name.isEmpty) continue;
+            liked.add(HomeTrack(
+              name: t.name,
+              artist: t.artist,
+              artworkUrl: t.artworkUrl,
+            ));
+          }
+        }
+        final downloads = ref
+            .read(downloadManagerProvider)
+            .where((d) => d.status == DownloadStatus.done)
+            .map((d) => HomeTrack(
+                  name: d.title,
+                  artist: d.artist,
+                ))
+            .where((t) => t.name.isNotEmpty)
+            .toList();
+        return LocalTaste(
+          recentPlays: plays,
+          likedTracks: liked,
+          downloadedTracks: downloads,
+        );
+      } catch (_) {
+        return null;
+      }
+    },
   );
 });
