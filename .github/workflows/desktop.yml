@@ -43,6 +43,15 @@ jobs:
           channel: stable
           cache: true
 
+      # Release builds need the addon backend key: CI has no .env
+      # (gitignored), so the repo secret ADDON_CLIENT_SECRET is written
+      # to .env here. GitHub masks the value in logs; when unset the
+      # key stays empty and addon calls fail closed server-side.
+      # (Last.fm is BYOK and LYRICS_API_KEY is unused — nothing else
+      # needs injecting.)
+      - name: Write .env from secrets
+        run: echo "ADDON_CLIENT_SECRET=${{ secrets.ADDON_CLIENT_SECRET }}" > .env
+
       - name: Generate Obfuscated Secrets
         run: dart tool/obfuscate_secrets.dart
 
@@ -80,6 +89,9 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Write .env from secrets
+        run: echo "ADDON_CLIENT_SECRET=${{ secrets.ADDON_CLIENT_SECRET }}" > .env
+
       - name: Generate Obfuscated Secrets
         run: dart tool/obfuscate_secrets.dart
 
@@ -112,6 +124,9 @@ jobs:
         with:
           channel: stable
           cache: true
+
+      - name: Write .env from secrets
+        run: echo "ADDON_CLIENT_SECRET=${{ secrets.ADDON_CLIENT_SECRET }}" > .env
 
       - name: Generate Obfuscated Secrets
         run: dart tool/obfuscate_secrets.dart
