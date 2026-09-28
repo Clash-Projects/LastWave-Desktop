@@ -32,7 +32,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            clang cmake ninja-build pkg-config \
+            clang cmake ninja-build pkg-config patchelf binutils \
             libgtk-3-dev liblzma-dev libstdc++-12-dev \
             libayatana-appindicator3-dev libasound2-dev libmpv-dev mpv \
             libkeybinder-3.0-dev libwebkit2gtk-4.1-dev
@@ -65,6 +65,30 @@ jobs:
 
       - name: Build Linux app
         run: flutter build linux --release
+
+      # Ubuntu 22.04 ships mpv 0.34 whose SONAME is libmpv.so.1, so the
+      # source-built media_kit plugins record NEEDED libmpv.so.1 — which
+      # exists on NO modern distro (24.04+, Fedora, Arch ship only
+      # .so.2) and the loader dies before main(). Retarget the two
+      # shims to .so.2: ABI-safe, they use only stable render/event
+      # APIs present in .so.2 (verified against mpv 0.41), and Dart's
+      # own loader already prefers .so.2. Fails the job if .so.1
+      # survives. (22.04 itself has no .so.2 — see release notes.)
+      - name: Normalize libmpv linkage
+        run: |
+          BUNDLE="build/linux/x64/release/bundle/lib"
+          for f in "$BUNDLE"/libmedia_kit_video_plugin.so "$BUNDLE"/libmedia_kit_native_event_loop.so; do
+            if objdump -p "$f" | grep -q "NEEDED.*libmpv.so.1"; then
+              echo "Retargeting $f: libmpv.so.1 -> libmpv.so.2"
+              patchelf --replace-needed libmpv.so.1 libmpv.so.2 "$f"
+            fi
+          done
+          echo "--- NEEDED libmpv after normalize:"
+          objdump -p "$BUNDLE"/libmedia_kit_video_plugin.so "$BUNDLE"/libmedia_kit_native_event_loop.so | grep "NEEDED.*libmpv"
+          if objdump -p "$BUNDLE"/libmedia_kit_video_plugin.so "$BUNDLE"/libmedia_kit_native_event_loop.so | grep -q "NEEDED.*libmpv.so.1"; then
+            echo "::error::libmpv.so.1 linkage survived normalization"
+            exit 1
+          fi
 
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
