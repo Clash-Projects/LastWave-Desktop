@@ -80,7 +80,7 @@ clip-.mp4
         album: 'plastic beach',
         title: 'Rhinestone Eyes',
       );
-      expect(a.startsWith('anim5|'), isTrue);
+      expect(a.startsWith('anim6|'), isTrue);
       expect(a, b);
       expect(
         animatedArtworkCacheKey(
@@ -113,21 +113,21 @@ clip-.mp4
       final db = AppDatabase.inMemory();
       addTearDown(db.close);
       db.saveArtworkEntry(
-        cacheKey: 'anim5|demo|album',
+        cacheKey: 'anim6|demo|album',
         url: 'https://cdn.example/a.m3u8',
         provider: 'anim',
       );
-      final hit = db.loadArtworkRecord('anim5|demo|album');
+      final hit = db.loadArtworkRecord('anim6|demo|album');
       expect(hit?['url'], contains('.m3u8'));
       expect(hit?['provider'], 'anim');
       expect(hit?['timestamp_millis'], greaterThan(0));
 
       db.saveArtworkEntry(
-        cacheKey: 'anim5|demo|album-none',
+        cacheKey: 'anim6|demo|album-none',
         url: '',
         provider: 'anim-miss',
       );
-      final miss = db.loadArtworkRecord('anim5|demo|album-none');
+      final miss = db.loadArtworkRecord('anim6|demo|album-none');
       expect(miss?['url'], isEmpty);
       expect(miss?['provider'], 'anim-miss');
     });

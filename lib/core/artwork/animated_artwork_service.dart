@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../network/dio_factory.dart';
 import '../storage/app_database.dart';
+import '../../features/innertube/innertube_api.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/shared_providers.dart';
 import 'official_artwork_service.dart';
@@ -50,7 +51,9 @@ class AnimatedArtworkQuery {
 const _animHit = 'anim';
 const _animMiss = 'anim-miss';
 const _hitTtl = Duration(days: 30);
-const _missTtl = Duration(days: 7);
+// Short miss memory: a transient failure (offline first play,
+// backend 404) must not brick an album for a week. Hits stay 30d.
+const _missTtl = Duration(hours: 12);
 
 String animatedArtworkCacheKey({
   required String artist,
@@ -60,9 +63,9 @@ String animatedArtworkCacheKey({
   final a = OfficialArtworkService.normalizeForSearch(artist);
   final b = OfficialArtworkService.normalizeForSearch(album);
   if (b.isNotEmpty) {
-    return 'anim5|$a|$b';
+    return 'anim6|$a|$b';
   }
-  return 'anim5|$a||${OfficialArtworkService.normalizeForSearch(title)}';
+  return 'anim6|$a||${OfficialArtworkService.normalizeForSearch(title)}';
 }
 
 const appleArtworkHeaders = {
@@ -143,12 +146,18 @@ class AnimatedArtworkService {
 
   final Dio _dio;
   final AppDatabase? _db;
+
+  /// YouTube Music album backfill for tracks whose metadata lacks an
+  /// album (store catalogs can't derive "Currents" from title+artist
+  /// when covers pollute term search). Closure-injected so tests stay
+  /// offline. Returns '' when unknown.
+  final Future<String> Function(String title, String artist)? albumLookup;
   final Map<String, AnimatedArtwork?> _memory = {};
   final Map<String, Future<AnimatedArtwork?>> _inflight = {};
   int _active = 0;
   final List<void Function()> _queue = [];
 
-  AnimatedArtworkService({Dio? dio, this._db})
+  AnimatedArtworkService({Dio? dio, this._db, this.albumLookup})
       : _dio = dio ?? DioFactory.create();
 
   AnimatedArtwork? peek(AnimatedArtworkQuery query) => _memory[query.cacheKey];
@@ -174,7 +183,7 @@ class AnimatedArtworkService {
     if (url.isEmpty || !url.contains('music.apple.com')) {
       return Future.value(null);
     }
-    final key = 'anim5|url|${url.toLowerCase()}';
+    final key = 'anim6|url|${url.toLowerCase()}';
     return _lookupKey(key, () => _fetchUrl(url, key));
   }
 
@@ -241,6 +250,18 @@ class AnimatedArtworkService {
       final title = query.title.trim();
       if (album.isEmpty) {
         album = await _albumFromOfficial(artist: artist, title: title);
+      }
+      // YouTube Music knows the album the stores can't derive: its
+      // search rows carry the MPRE album badge, immune to cover-song
+      // pollution ("The Less I Know The Better" → Currents).
+      if (album.isEmpty && albumLookup != null) {
+        try {
+          final viaYtm = await albumLookup!(title, artist)
+              .timeout(const Duration(seconds: 8));
+          if (viaYtm.trim().isNotEmpty) {
+            album = viaYtm.trim();
+          }
+        } catch (_) {}
       }
 
       AnimatedArtwork? found;
@@ -416,7 +437,22 @@ class AnimatedArtworkService {
 }
 
 final animatedArtworkServiceProvider = Provider<AnimatedArtworkService>((ref) {
-  return AnimatedArtworkService(db: ref.watch(databaseProvider));
+  // NOTE: read (not watch) — the closure runs at lookup time, long
+  // after this provider builds, where watch throws.
+  return AnimatedArtworkService(
+    db: ref.watch(databaseProvider),
+    albumLookup: (title, artist) async {
+      try {
+        final match = await ref
+            .read(innerTubeProvider)
+            .findBestMatchOrNull(title, artist)
+            .timeout(const Duration(seconds: 8));
+        return match?.album.trim() ?? '';
+      } catch (_) {
+        return '';
+      }
+    },
+  );
 });
 
 final animatedArtworkProvider =

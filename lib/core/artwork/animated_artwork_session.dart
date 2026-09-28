@@ -186,6 +186,11 @@ class AnimatedArtworkSession extends ChangeNotifier {
       configuration: const VideoControllerConfiguration(
         width: 720,
         height: 720,
+        // Software decode only: media_kit defaults hwdec=auto, which on
+        // Linux+Mesa tries VA-API dmabuf interop with vo=libmpv and
+        // yields zero frames (still never fades; Windows D3D11-copy is
+        // unaffected). These clips are ~768px H.264 — trivial for CPU.
+        hwdec: 'no',
       ),
     );
     _notify();

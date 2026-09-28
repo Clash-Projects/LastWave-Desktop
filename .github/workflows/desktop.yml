@@ -66,15 +66,11 @@ jobs:
       - name: Build Linux app
         run: flutter build linux --release
 
-      - name: Compress Linux Bundle
-        run: |
-          tar -czf LastWave-Desktop-linux-x64.tar.gz -C build/linux/x64/release/bundle .
-
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Desktop-Linux
-          path: LastWave-Desktop-linux-x64.tar.gz
+          path: build/linux/x64/release/bundle/
 
   build-windows:
     name: Build Windows Bundle
@@ -101,16 +97,11 @@ jobs:
       - name: Build Windows app
         run: flutter build windows --release
 
-      - name: Compress Windows Bundle
-        shell: pwsh
-        run: |
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "LastWave-Desktop-windows-x64.zip"
-
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Desktop-Windows
-          path: LastWave-Desktop-windows-x64.zip
+          path: build\windows\x64\runner\Release\
 
   build-macos:
     name: Build macOS Bundle
