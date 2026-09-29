@@ -132,7 +132,9 @@ class _WaveWelcomePageState
                     children: [
                       const Expanded(
                         flex: 11,
-                        child: _BrandVisual(),
+                        child: _CenterScroll(
+                          child: _BrandVisual(),
+                        ),
                       ),
                       Container(
                         width: 1,
@@ -140,14 +142,16 @@ class _WaveWelcomePageState
                       ),
                       SizedBox(
                         width: 420,
-                        child: _AuthPanel(
-                          handshake: _handshake,
-                          busy: _busy,
-                          error: _error,
-                          onConnect: _beginWebAuth,
-                          onFinish: _completeWebAuth,
-                          onSkip: _enterGuest,
-                          onGitHub: _openGitHub,
+                        child: _CenterScroll(
+                          child: _AuthPanel(
+                            handshake: _handshake,
+                            busy: _busy,
+                            error: _error,
+                            onConnect: _beginWebAuth,
+                            onFinish: _completeWebAuth,
+                            onSkip: _enterGuest,
+                            onGitHub: _openGitHub,
+                          ),
                         ),
                       ),
                     ],
@@ -173,6 +177,30 @@ class _WaveWelcomePageState
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Scroll container that keeps centered content centered: on tall
+/// windows the child fills the viewport (so `MainAxisAlignment.center`
+/// works); on short windows it scrolls instead of overflowing. Used by
+/// both halves of the wide welcome layout — the auth panel grows with
+/// the API-keys form, error bar, and handshake rows, and the brand
+/// column is itself ~590px tall.
+class _CenterScroll extends StatelessWidget {
+  final Widget child;
+  const _CenterScroll({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints:
+              BoxConstraints(minHeight: constraints.maxHeight),
+          child: child,
+        ),
       ),
     );
   }
