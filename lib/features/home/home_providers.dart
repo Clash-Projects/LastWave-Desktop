@@ -16,7 +16,7 @@ final newAlbumsProvider =
     FutureProvider<List<YouTubeMusicEntity>>((ref) {
   return ref
       .watch(feedRepositoryProvider)
-      .fetchNewReleaseAlbums();
+      .fetchNewReleaseAlbums(limit: 60);
 });
 
 /// YouTube Music personal mix (seed + radio list), or null when

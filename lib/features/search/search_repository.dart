@@ -321,6 +321,88 @@ class SearchRepository {
   void removeHistory(String q) => _db.removeSearchHistory(q);
 }
 
+/// Canonical artist key for taste math (mirrors feed's
+/// `normalizeArtistKey` without pulling the feed import chain):
+/// lowercase, collapsed space, feat-credit suffixes stripped.
+String _searchArtistKey(String artist) {
+  var k = artist.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (k.isEmpty ||
+      k == 'unknown artist' ||
+      k == 'various artists' ||
+      k == 'unknown') {
+    return '';
+  }
+  k = k
+      .replaceAll(
+          RegExp(r'\s*[\(\[]\s*(feat\.?|ft\.?|featuring)\b[^\)\]]*[\)\]]'),
+          '')
+      .trim();
+  k = k
+      .replaceAll(
+          RegExp(r'\s+(feat\.?|ft\.?|featuring|with)\s+.+$'), '')
+      .trim();
+  return k;
+}
+
+/// Rank album search hits by taste: known artists (normalized
+/// affinity) first, everything else in original shelf order (explicit
+/// index tiebreak — Dart sort is unstable). Pure. Never drops.
+List<SearchResultItem> rankSearchAlbumsByTaste(
+  List<SearchResultItem> albums,
+  Map<String, double> affinities,
+) {
+  if (albums.isEmpty || affinities.isEmpty) return albums;
+  String artistOf(SearchResultItem a) =>
+      a.artist.isNotEmpty ? a.artist : a.subtitle;
+  final indexed = albums.asMap().entries.toList();
+  indexed.sort((x, y) {
+    final fa = affinities[_searchArtistKey(artistOf(x.value))] ?? -1.0;
+    final fb = affinities[_searchArtistKey(artistOf(y.value))] ?? -1.0;
+    final c = fb.compareTo(fa);
+    if (c != 0) return c;
+    return x.key.compareTo(y.key);
+  });
+  return indexed.map((e) => e.value).toList();
+}
+
+/// Rank playlist search hits by taste: author affinity (×2) plus
+/// title-token overlap with taste artists (×0.5 per hit). Playlists
+/// rarely carry a clean artist field (`author` is often the curator),
+/// so title overlap is the main signal. Pure. Never drops.
+List<SearchResultItem> rankSearchPlaylistsByTaste(
+  List<SearchResultItem> playlists,
+  Map<String, double> affinities,
+) {
+  if (playlists.isEmpty || affinities.isEmpty) return playlists;
+  double scoreOf(SearchResultItem p) {
+    var score = (affinities[_searchArtistKey(p.artist)] ?? 0.0) * 2.0;
+    final title = p.name.toLowerCase();
+    if (title.isNotEmpty) {
+      for (final entry in affinities.entries) {
+        final key = entry.key;
+        if (key.length < 3) continue;
+        if (title.contains(key)) score += entry.value * 0.5;
+      }
+    }
+    return score;
+  }
+
+  final scored = playlists.asMap().entries.map((e) {
+    final hasSignal = scoreOf(e.value) > 0;
+    return (item: e.value, index: e.key, score: scoreOf(e.value),
+        known: hasSignal);
+  }).toList();
+  scored.sort((a, b) {
+    // Items with any taste signal always outrank items with none;
+    // within each group, higher score first, shelf order tiebreak.
+    if (a.known != b.known) return a.known ? -1 : 1;
+    final c = b.score.compareTo(a.score);
+    if (c != 0) return c;
+    return a.index.compareTo(b.index);
+  });
+  return scored.map((e) => e.item).toList();
+}
+
 final searchRepositoryProvider = Provider<SearchRepository>((ref) {
   return SearchRepository(
     ref.watch(lastFmApiProvider),

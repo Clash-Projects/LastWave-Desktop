@@ -979,8 +979,14 @@ class _PopularShelves extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final artists = _topArtists();
+    // Taste-ranked overflow: same pool as New Releases, ordered by
+    // affinity so this shelf continues your taste instead of raw
+    // shelf order. Falls back to shelf order when affinities are
+    // empty (signed out / feed still loading).
+    final affinities = feed?.tasteAffinities ?? const {};
+    final ranked = rankNewReleases(albums, affinities);
     final extraAlbums =
-        albums.length > 10 ? albums.skip(10).take(6).toList() : const <YouTubeMusicEntity>[];
+        ranked.length > 10 ? ranked.skip(10).take(6).toList() : const <YouTubeMusicEntity>[];
     final rotation = feed?.heavyRotation.take(6).toList() ?? const [];
     if (artists.isEmpty && extraAlbums.isEmpty && rotation.isEmpty) {
       return const SizedBox.shrink();
@@ -999,7 +1005,7 @@ class _PopularShelves extends ConsumerWidget {
             child: const _DiscoverHead(
             kicker: 'Catalogue',
             title: 'Popular Albums',
-            subtitle: 'More from the new-releases feed.',
+            subtitle: 'New releases matched to your taste.',
           ),
           ),
           const SizedBox(height: 10),

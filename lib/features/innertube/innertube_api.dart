@@ -2859,6 +2859,11 @@ class InnerTubeMusicApi {
       clientName: 'WEB_REMIX',
       clientVersion: _clientVersion,
       userAgent: webUserAgent,
+      // Account surface when connected: the new-releases shelf (and
+      // Explore-style shelves) personalize server-side like ytmusic.com.
+      // Anonymous otherwise — `_post` only attaches cookies when
+      // connected, so this is fail-open.
+      authenticated: true,
     );
     final out = <YouTubeMusicEntity>[];
     final queue = <Object?>[root];

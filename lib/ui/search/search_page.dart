@@ -893,6 +893,17 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
       );
     }
 
+    // Taste ranking: the YTM lists arrive in anonymous global
+    // relevance order, so re-sort albums/playlists by affinity when
+    // the feed has loaded. Empty affinities (signed out / loading)
+    // fall back to shelf order — never blank, never wait.
+    final affinities =
+        ref.watch(feedProvider).valueOrNull?.tasteAffinities ??
+            const <String, double>{};
+    final rankedAlbums = rankSearchAlbumsByTaste(_albums, affinities);
+    final rankedPlaylists =
+        rankSearchPlaylistsByTaste(_playlists, affinities);
+
     // Stagger slots for the results cascade (one per section).
     var e = 0;
     int slot() => e++;
@@ -923,7 +934,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               artist:
                   _artists.isNotEmpty ? _artists.first : null,
               album:
-                  _albums.isNotEmpty ? _albums.first : null,
+                  rankedAlbums.isNotEmpty ? rankedAlbums.first : null,
               onPrimary: _primary,
               onPlay: (h) => _playSingle(ref, context, h),
             ),
@@ -964,11 +975,11 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               height: 178,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: _albums.take(8).length,
+                itemCount: rankedAlbums.take(8).length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(width: 12),
                 itemBuilder: (context, i) {
-                  final a = _albums[i];
+                  final a = rankedAlbums[i];
                   return WaveEntrance(
                     index: i,
                     rise: 10,
@@ -1064,11 +1075,11 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               height: 178,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: _playlists.take(8).length,
+                itemCount: rankedPlaylists.take(8).length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(width: 12),
                 itemBuilder: (context, i) {
-                  final p = _playlists[i];
+                  final p = rankedPlaylists[i];
                   return WaveEntrance(
                     index: i,
                     rise: 10,

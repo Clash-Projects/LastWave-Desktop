@@ -470,8 +470,12 @@ class FeedRepository {
   }
 
   /// New-release records (real albums/singles, no video items).
+  /// Large pool (60): the shelf is global server-side, so taste
+  /// ranking needs depth to find your artists inside it. Anonymous
+  /// callers get the global shelf; connected callers get the
+  /// server-personalized shelf via the authenticated browse.
   Future<List<YouTubeMusicEntity>> fetchNewReleaseAlbums(
-      {int limit = 15}) async {
+      {int limit = 60}) async {
     try {
       return await _tube.browseAlbums(
         'FEmusic_new_releases',
