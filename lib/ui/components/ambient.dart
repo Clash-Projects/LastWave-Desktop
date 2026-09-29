@@ -574,10 +574,41 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
     );
 
     final content = widget.cinematic && widget.artworkUrl.isNotEmpty
-        ? _AppleArtworkAura(
-            artworkUrl: widget.artworkUrl,
-            spin: _motionController,
-            counterSpin: _driftController,
+        ? Stack(
+            children: [
+              _AppleArtworkAura(
+                artworkUrl: widget.artworkUrl,
+                spin: _motionController,
+                counterSpin: _driftController,
+              ),
+              // Contrast guarantee: the aura paints the cover's real
+              // colors at high opacity, so a light cover yields a light
+              // stage and theme text (white in dark mode) vanishes —
+              // and vice versa on pearl. This directional scrim tints
+              // the glass the title, lyrics, and top bar sit on toward
+              // the theme background — same role as the scrim baked
+              // into the non-cinematic mesh painter.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          (isDark ? Colors.black : Colors.white)
+                              .withValues(alpha: isDark ? 0.35 : 0.40),
+                          (isDark
+                                  ? WaveColors.background
+                                  : WaveColors.lightBackground)
+                              .withValues(alpha: isDark ? 0.60 : 0.65),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           )
         : mesh;
 
@@ -686,13 +717,13 @@ class _AuraPainter extends CustomPainter {
       angle: spin,
       scale: coverScale,
       shift: Offset(size.width * 0.08, -size.height * 0.06),
-      opacity: 0.88,
+      opacity: 0.70,
     );
     layer(
       angle: counterSpin + math.pi,
       scale: coverScale * 1.18,
       shift: Offset(-size.width * 0.10, size.height * 0.08),
-      opacity: 0.55,
+      opacity: 0.45,
     );
   }
 
