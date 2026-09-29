@@ -4282,11 +4282,11 @@ class InnerTubeMusicApi {
         }
       }
     }
-    const skip = {'â€¢', 'Â·', 'Artist', 'Album', 'EP', 'Single'};
+    const skip = {'â€¢', '•', 'Artist', 'Album', 'EP', 'Single'};
     final subtitle = details
         .map((e) => e['text']?.toString().trim() ?? '')
         .where((t) => t.isNotEmpty && !skip.contains(t))
-        .join(' Â· ')
+        .join(' • ')
         .trim();
     return YouTubeMusicEntity(
       kind: kind,
