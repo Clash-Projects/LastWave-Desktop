@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=LastWave
+Comment=Desktop music player — YouTube Music, lossless audio, Last.fm scrobbling
+Exec=/opt/lastwave/lastwave_desktop
+Icon=lastwave
+Terminal=false
+Type=Application
+Categories=Audio;Music;AudioVideo;
+StartupWMClass=lastwave_desktop

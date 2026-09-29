@@ -8,13 +8,13 @@ on:
       - "v*"
     paths-ignore:
       - '**.md'
-      - '**.yml'  
+      - '**.yml'
   pull_request:
     branches:
       - main
     paths-ignore:
       - '**.md'
-      - '**.yml'  
+      - '**.yml'
   workflow_dispatch:
 
 permissions:
@@ -96,6 +96,33 @@ jobs:
           name: LastWave-Desktop-Linux
           path: build/linux/x64/release/bundle/
 
+      # System packages are release-only (v* tags): PR/push builds
+      # stop at the raw bundle above.
+      - name: Setup Go (nFPM)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build deb/rpm packages
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          export VERSION="${GITHUB_REF_NAME#v}"
+          echo "Packaging version $VERSION"
+          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager deb --target ./lastwave-desktop_${VERSION}_amd64.deb
+          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager rpm --target ./lastwave-desktop_${VERSION}_x86_64.rpm
+          ls -la lastwave-desktop_${VERSION}_amd64.deb lastwave-desktop_${VERSION}_x86_64.rpm
+
+      - name: Upload Linux Packages
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-Linux-Packages
+          path: |
+            lastwave-desktop_*_amd64.deb
+            lastwave-desktop_*_x86_64.rpm
+
   build-windows:
     name: Build Windows Bundle
     runs-on: windows-latest
@@ -127,6 +154,46 @@ jobs:
           name: LastWave-Desktop-Windows
           path: build\windows\x64\runner\Release\
 
+      # The single-file installer is release-only (v* tags): PR/push
+      # builds stop at the raw Release folder above.
+      - name: Build installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $ver = '${{ github.ref_name }}'.TrimStart('v')
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$ver" windows\installer.iss
+          Get-ChildItem build\windows\installer\
+
+      - name: Upload Windows Installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-Windows-Installer
+          path: build\windows\installer\*.exe
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: LastWave-Windows-Installer,LastWave-Linux-Packages,LastWave-Desktop-macOS
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true
+
+  # macOS ships as a plain zip archive: no installer (unsigned macOS
+  # zips Gatekeeper-block on other Macs — see release notes — but the
+  # archive rides along on the Release for anyone who wants it.
   build-macos:
     name: Build macOS Bundle
     runs-on: macos-latest

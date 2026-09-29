@@ -1,0 +1,47 @@
+# LastWave — Linux system packages (deb + rpm) via nFPM.
+# Built ONLY for releases (v* tags); see .github/workflows/desktop.yml.
+# VERSION comes from the tag (v1.0.0 -> 1.0.0); nFPM expands env vars.
+name: lastwave-desktop
+arch: amd64
+platform: linux
+version: ${VERSION}
+section: sound
+priority: optional
+maintainer: Clash-Projects <https://github.com/Clash-Projects/LastWave-Desktop>
+description: |-
+  LastWave — desktop music player: YouTube Music, lossless audio,
+  word-synced lyrics and Last.fm scrobbling.
+vendor: Clash-Projects
+homepage: https://github.com/Clash-Projects/LastWave-Desktop
+license: Proprietary — all rights reserved (no LICENSE file yet)
+
+contents:
+  # Release bundle straight into /opt.
+  - src: build/linux/x64/release/bundle
+    dst: /opt/lastwave
+    type: tree
+  # CLI entry point.
+  - src: /opt/lastwave/lastwave_desktop
+    dst: /usr/bin/lastwave
+    type: symlink
+  # Desktop integration.
+  - src: linux/packaging/lastwave.desktop
+    dst: /usr/share/applications/lastwave.desktop
+  - src: lastwave-logo.png
+    dst: /usr/share/icons/hicolor/512x512/apps/lastwave.png
+
+overrides:
+  deb:
+    depends:
+      - libgtk-3-0
+      - libwebkit2gtk-4.1-0
+      - libayatana-appindicator3-1 | libappindicator3-1
+      - libasound2
+      - libmpv2
+  rpm:
+    depends:
+      - gtk3
+      - webkit2gtk4.1
+      - libappindicator-gtk3
+      - alsa-lib
+      - mpv-libs

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.lastwave" "\0"
-            VALUE "FileDescription", "lastwave_desktop" "\0"
+            VALUE "CompanyName", "Clash-Projects" "\0"
+            VALUE "FileDescription", "LastWave" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "lastwave_desktop" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.lastwave. All rights reserved." "\0"
+            VALUE "InternalName", "LastWave" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Clash-Projects." "\0"
             VALUE "OriginalFilename", "lastwave_desktop.exe" "\0"
-            VALUE "ProductName", "lastwave_desktop" "\0"
+            VALUE "ProductName", "LastWave" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
