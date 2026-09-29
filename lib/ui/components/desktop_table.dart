@@ -106,6 +106,14 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
   final ScrollController? scrollController;
   final Widget? empty;
 
+  /// Sliver-embed mode for big-list detail pages (playlist / liked /
+  /// YT playlist): returns slivers for the parent [CustomScrollView]
+  /// instead of any box — rows virtualize in the ONE outer scroll, so
+  /// there is no 620px capped inner box and no dead space below it.
+  /// Place directly in `slivers:` (wrap in [SliverPadding] for
+  /// gutters). Mutually exclusive with [shrinkWrap].
+  final bool sliver;
+
   const WaveDesktopTable({
     super.key,
     required this.items,
@@ -145,7 +153,9 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
     this.shrinkWrap = false,
     this.scrollController,
     this.empty,
-  });
+    this.sliver = false,
+  }) : assert(!(sliver && shrinkWrap),
+            'sliver and shrinkWrap are mutually exclusive');
 
   @override
   ConsumerState<WaveDesktopTable<T>> createState() =>
@@ -228,7 +238,11 @@ class _WaveDesktopTableState<T extends Object>
     pos = (pos + delta).clamp(0, order.length - 1);
     final next = order[pos];
     setState(() => _focusIndex = next);
-    final sc = widget.scrollController;
+    // Sliver-embed pages own the scroll: drive the primary controller.
+    final sc = widget.scrollController ??
+        (widget.sliver
+            ? PrimaryScrollController.maybeOf(context)
+            : null);
     if (!widget.shrinkWrap && sc != null) {
       _listController.animateToItem(
         index: widget.showHeader ? next + 1 : next,
@@ -317,6 +331,35 @@ class _WaveDesktopTableState<T extends Object>
     if (widget.items.isEmpty) {
       return widget.empty ?? const SizedBox.shrink();
     }
+    // Sliver-embed: slivers for the parent CustomScrollView. Column
+    // visibility reads the viewport width (no LayoutBuilder — boxes
+    // are illegal in `slivers:`).
+    if (widget.sliver) {
+      final w = MediaQuery.sizeOf(context).width;
+      final showAlbum = w >= 1000;
+      final showQuality = widget.qualityOf != null && w >= 800;
+      final showAdded = widget.dateAddedOf != null && w >= 1100;
+      final showArtist = widget.showArtistColumn && w >= 640;
+      return SliverMainAxisGroup(
+        slivers: [
+          // Zero-size focus host: keeps row-tap focus + Up/Down/Enter
+          // keyboard nav working with no visual impact.
+          SliverToBoxAdapter(
+            child: Focus(
+              focusNode: _focus,
+              onKeyEvent: (_, e) => _onKey(e),
+              child: const SizedBox.shrink(),
+            ),
+          ),
+          ..._tableSlivers(
+            showAlbum: showAlbum,
+            showQuality: showQuality,
+            showAdded: showAdded,
+            showArtist: showArtist,
+          ),
+        ],
+      );
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
@@ -332,7 +375,9 @@ class _WaveDesktopTableState<T extends Object>
         if (widget.shrinkWrap) {
           // Large shrink-wrapped lists (Liked Songs + YT 200) built
           // 200 rows at once → 40MB spike (all CachedNetworkImages
-          // decode). Constrain height and virtualize inside.
+          // decode). Constrain height and virtualize inside. Big-list
+          // detail pages must use sliver mode instead (no cap, one
+          // outer scroll) — this branch is for small embeds only.
           if (_order.length > 60) {
             final estHeight = _order.length * WaveDensity.trackRow +
                 (widget.showHeader ? 36 : 0);
@@ -368,40 +413,12 @@ class _WaveDesktopTableState<T extends Object>
         } else {
           list = CustomScrollView(
             controller: widget.scrollController,
-            slivers: [
-              if (widget.showHeader)
-                SliverToBoxAdapter(
-                  child: _HeaderRow(
-                    sortCol: _sortCol,
-                    sortDir: _sortDir,
-                    onSort: _cycleSort,
-                    sortableTitle: widget.titleSortOf != null,
-                    sortableArtist: widget.artistSortOf != null,
-                    sortableAlbum:
-                        widget.albumSortOf != null && showAlbum,
-                    sortableDuration:
-                        widget.durationSortOf != null,
-                    sortableAdded:
-                        widget.dateAddedSortOf != null && showAdded,
-                    showAlbum: showAlbum,
-                    showQuality: showQuality,
-                    showAdded: showAdded,
-                    showArtist: showArtist,
-                  ),
-                ),
-              SuperSliverList.builder(
-                listController: _listController,
-                itemCount: _order.length,
-                itemBuilder: (context, i) =>
-                    _buildRow(
-                      _order[i],
-                      showAlbum: showAlbum,
-                      showQuality: showQuality,
-                      showAdded: showAdded,
-                      showArtist: showArtist,
-                    ),
-              ),
-            ],
+            slivers: _tableSlivers(
+              showAlbum: showAlbum,
+              showQuality: showQuality,
+              showAdded: showAdded,
+              showArtist: showArtist,
+            ),
           );
         }
 
@@ -413,6 +430,47 @@ class _WaveDesktopTableState<T extends Object>
         );
       },
     );
+  }
+
+  /// Header + virtualized rows as bare slivers, shared by the
+  /// standalone [CustomScrollView] path and sliver-embed mode.
+  List<Widget> _tableSlivers({
+    required bool showAlbum,
+    required bool showQuality,
+    required bool showAdded,
+    required bool showArtist,
+  }) {
+    return [
+      if (widget.showHeader)
+        SliverToBoxAdapter(
+          child: _HeaderRow(
+            sortCol: _sortCol,
+            sortDir: _sortDir,
+            onSort: _cycleSort,
+            sortableTitle: widget.titleSortOf != null,
+            sortableArtist: widget.artistSortOf != null,
+            sortableAlbum: widget.albumSortOf != null && showAlbum,
+            sortableDuration: widget.durationSortOf != null,
+            sortableAdded:
+                widget.dateAddedSortOf != null && showAdded,
+            showAlbum: showAlbum,
+            showQuality: showQuality,
+            showAdded: showAdded,
+            showArtist: showArtist,
+          ),
+        ),
+      SuperSliverList.builder(
+        listController: _listController,
+        itemCount: _order.length,
+        itemBuilder: (context, i) => _buildRow(
+          _order[i],
+          showAlbum: showAlbum,
+          showQuality: showQuality,
+          showAdded: showAdded,
+          showArtist: showArtist,
+        ),
+      ),
+    ];
   }
 
   Widget _buildSliverChild(

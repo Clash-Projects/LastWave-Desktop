@@ -265,42 +265,40 @@ class _WaveLikedPageState
             ),
           )
         else
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: WaveDesktopTable<GeneratedTrack>(
-                items: asGenerated(),
-                keyOf: (t) => t.key,
-                titleOf: (t) => t.name,
-                subtitleOf: (t) => t.artist,
-                albumOf: (_) => '',
-                artworkOf: (t) => t.artworkUrl,
-                playableOf: playableFromGenerated,
-                durationOf: (t) => t.durationSeconds > 0
-                    ? formatDuration(
-                        Duration(seconds: t.durationSeconds))
-                    : '',
-                durationSortOf: (t) => t.durationSeconds,
-                titleSortOf: (t) => t.name.toLowerCase(),
-                artistSortOf: (t) => t.artist.toLowerCase(),
-                isCurrent: (t) => playingKey == t.key,
-                isPlaying: (t) {
-                  final playing = ref.watch(
-                    playbackServiceProvider.select((p) => p.isPlaying),
-                  );
-                  return playingKey == t.key && playing;
-                },
-                showArtistColumn: true,
-                shrinkWrap: true,
-                selectable: true,
-                onPlay: (i) => playGenerated(
-                  ref,
-                  context,
-                  asGenerated()[i],
-                  sourceLabel: 'Liked Songs',
-                  queueAll: asGenerated(),
-                  startIndex: i,
-                ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            sliver: WaveDesktopTable<GeneratedTrack>(
+              items: asGenerated(),
+              keyOf: (t) => t.key,
+              titleOf: (t) => t.name,
+              subtitleOf: (t) => t.artist,
+              albumOf: (_) => '',
+              artworkOf: (t) => t.artworkUrl,
+              playableOf: playableFromGenerated,
+              durationOf: (t) => t.durationSeconds > 0
+                  ? formatDuration(
+                      Duration(seconds: t.durationSeconds))
+                  : '',
+              durationSortOf: (t) => t.durationSeconds,
+              titleSortOf: (t) => t.name.toLowerCase(),
+              artistSortOf: (t) => t.artist.toLowerCase(),
+              isCurrent: (t) => playingKey == t.key,
+              isPlaying: (t) {
+                final playing = ref.watch(
+                  playbackServiceProvider.select((p) => p.isPlaying),
+                );
+                return playingKey == t.key && playing;
+              },
+              showArtistColumn: true,
+              sliver: true,
+              selectable: true,
+              onPlay: (i) => playGenerated(
+                ref,
+                context,
+                asGenerated()[i],
+                sourceLabel: 'Liked Songs',
+                queueAll: asGenerated(),
+                startIndex: i,
               ),
             ),
           ),

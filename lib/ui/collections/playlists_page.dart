@@ -79,7 +79,6 @@ class _WavePlaylistsPageState
                 title: 'Playlists',
                 meta: '${all.length} playlists',
                 fallbackIcon: FluentIcons.list_mirrored,
-                artworkSize: 120,
                 primaryActions: [
                   WavePrimaryButton(
                     label: 'New',
