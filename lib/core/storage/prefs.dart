@@ -227,6 +227,14 @@ class Prefs {
     }
   }
 
+  // -- YouTube Music --------------------------------------------------------
+  /// Push played tracks into the account's YT Music watch history.
+  /// Default off: writing to the Google account is opt-in.
+  bool get syncYtHistory => _sp.getBool('lw_sync_yt_history') ?? false;
+
+  Future<void> setSyncYtHistory(bool v) =>
+      _sp.setBool('lw_sync_yt_history', v);
+
   // -- Desktop-app Parity (Karaoke Lyrics & Visualizer & CD Mode) ------------
   int getLyricsOffset(String trackKey) =>
       _sp.getInt('lw_lyrics_offset_$trackKey') ?? 0;

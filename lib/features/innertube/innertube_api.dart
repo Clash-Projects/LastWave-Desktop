@@ -743,6 +743,8 @@ class InnerTubeMusicApi {
                 'youtube:$videoId:$clientProfile:$itag:$authScope:$expiresAtMs',
             requestHeaders: headers,
             expiresAt: expiresAt,
+            watchtimeUrl:
+                r['watchtime_url']?.toString() ?? '',
           );
           final adaptive = !(stream.mimeType
                   .toLowerCase()
@@ -1066,6 +1068,250 @@ class InnerTubeMusicApi {
       }
       return const [];
     }
+  }
+
+  /// Record a play in the account's YouTube Music watch history.
+  ///
+  /// Mirrors the live web client's ping: GET
+  /// `music.youtube.com/api/stats/watchtime` with cookie auth
+  /// (captured 2026-09 from real YTM playback — the `youtubei`
+  /// `stats/watchtime` POST form 404s on both hosts).
+  ///
+  /// When [watchUrl] carries the player-minted
+  /// `videostatsPlaybackUrl` base for this video, the ping is exactly
+  /// what Android sends (YtMusicHistorySyncManager parity): the
+  /// minted query untouched plus `ver=2`, `c=WEB_REMIX`, and the
+  /// window cpn — one ping per window, since repeats would file
+  /// duplicate history entries. Without a minted base the fully
+  /// fully forged shape is sent as a fallback.
+  ///
+  /// Fail-soft and no-throw: history sync must never disturb
+  /// playback. Returns true when the ping was accepted (2xx).
+  /// Session-stable client id for watchtime pings (`cl`): the live
+  /// client holds one value across a whole playback, so this is
+  /// minted once per process, not per ping.
+  static int? _watchClValue;
+
+  static int _watchCl() => _watchClValue ??=
+      100000000 + Random().nextInt(900000000);
+
+  Future<bool> recordWatchHistory({
+    required String videoId,
+    required int watchedSeconds,
+    int durationSeconds = 0,
+    String? cpn,
+    String watchUrl = '',
+  }) async {
+    if (!_connection.connected) {
+      if (kDebugMode) debugPrint('YtHistory: skip (signed out)');
+      return false;
+    }
+    if (videoId.isEmpty || watchedSeconds < 30) {
+      if (kDebugMode) {
+        debugPrint(
+            'YtHistory: skip (id empty or watched<30s) et=$watchedSeconds');
+      }
+      return false;
+    }
+    final cookie = _cookieHeaderValue();
+    if (cookie == null || cookie.isEmpty) {
+      if (kDebugMode) debugPrint('YtHistory: skip (no cookies)');
+      return false;
+    }
+    final len =
+        durationSeconds > 0 ? durationSeconds : watchedSeconds;
+    final cpnValue = cpn ?? _watchCpn();
+    // Watch page: the live client sets both the Referer header and
+    // the referrer param to the playing video's watch URL.
+    final watchPage = '$musicOrigin/watch?v=$videoId';
+    // Timing block for the forged fallback only. The presigned
+    // (playback-URL) ping carries no timing at all — Android parity.
+    final timing = <String, String>{
+      'cpn': cpnValue,
+      'st': '0',
+      'et': '$watchedSeconds',
+      'cmt': '$watchedSeconds',
+      'rt': '$watchedSeconds',
+      'rti': '$watchedSeconds',
+      'rtn': '${watchedSeconds + 40}',
+      'lact': '${max(0, watchedSeconds * 1000 - 1245)}',
+      'vis': '10',
+      'state': 'playing',
+      'len': '$len',
+      'docid': videoId,
+    };
+    Uri uri;
+    String via;
+    // Direct-URL clients (VISIONOS…) mint the base on www.youtube.com,
+    // the web client on music.youtube.com — accept any YouTube stats
+    // host with the right path.
+    final parsedBase = watchUrl.isNotEmpty ? Uri.tryParse(watchUrl) : null;
+    final validBase = parsedBase != null &&
+            parsedBase.host.contains('youtube.com') &&
+            parsedBase.path.startsWith('/api/stats/')
+        ? parsedBase
+        : null;
+    if (validBase != null) {
+      // Exactly the Android shape: minted query untouched plus
+      // ver=2, c=WEB_REMIX and the window cpn. One ping per window —
+      // repeats would file duplicate history entries.
+      final merged = Map<String, String>.from(validBase.queryParameters)
+        ..['ver'] = '2'
+        ..['c'] = 'WEB_REMIX'
+        ..['cpn'] = cpnValue
+        ..putIfAbsent('referrer', () => watchPage);
+      uri = validBase.replace(queryParameters: merged);
+      via = 'presigned';
+    } else {
+      uri = Uri.https('music.youtube.com', '/api/stats/watchtime', {
+        'ns': 'yt',
+        'el': 'detailpage',
+        ...timing,
+        'fmt': '0',
+        'fs': '0',
+        'euri': '',
+        'cl': '${_watchCl()}',
+        'volume': '100',
+        'cbr': 'Chrome',
+        'cbrver': '152.0.0.0',
+        'c': 'WEB_REMIX',
+        'cver': _clientVersion,
+        'cplayer': 'UNIPLAYER',
+        'cos': 'Windows',
+        'cosver': '10.0',
+        'cplatform': 'DESKTOP',
+        'hl': 'en_US',
+        'cr': 'US',
+        'afmt': '251',
+        'idpj': '-3',
+        'ldpj': '-12',
+        'muted': '0',
+        'referrer': watchPage,
+      });
+      via = 'forged';
+    }
+    if (kDebugMode) {
+      debugPrint(
+          'YtHistory: pushing $videoId et=${watchedSeconds}s via=$via');
+    }
+    try {
+      // Brand-channel routing, mirroring _post: without X-Goog-PageId
+      // the ping lands on the main channel's history (or nowhere)
+      // when a brand channel is active. Header set mirrors the live
+      // web client (client name/version, visitor id, request times,
+      // device block) minus unmintable telemetry (identity token,
+      // datasync id, sec-* fetch metadata).
+      final pageId = _connection.activePageId;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final visitor = _visitorData ?? '';
+      final res = await _dio
+          .getUri<String>(
+            uri,
+            options: Options(
+              headers: {
+                'User-Agent': webUserAgent,
+                'Origin': musicOrigin,
+                'Referer': watchPage,
+                'Cookie': cookie,
+                'X-YouTube-Client-Name':
+                    clientIds['WEB_REMIX'] ?? 'WEB_REMIX',
+                'X-YouTube-Client-Version': _clientVersion,
+                if (visitor.isNotEmpty)
+                  'X-Goog-Visitor-Id': visitor,
+                'X-Goog-Event-Time': '$nowMs',
+                'X-Goog-Request-Time': '$nowMs',
+                'X-YouTube-Device':
+                    'cbr=Chrome&cbrver=152.0.0.0&ceng=WebKit&'
+                    'cengver=537.36&cos=Windows&cosver=10.0&'
+                    'cplatform=DESKTOP',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                if (pageId.isNotEmpty) ...{
+                  'X-Goog-PageId': pageId,
+                  'X-Goog-AuthUser': '0',
+                },
+              },
+              responseType: ResponseType.plain,
+            ),
+          )
+          .timeout(const Duration(seconds: 10));
+      final ok = (res.statusCode ?? 0) ~/ 100 == 2;
+      if (kDebugMode) {
+        debugPrint(
+            'YtHistory: ping ${ok ? 'accepted' : 'rejected ${res.statusCode}'} '
+            '$videoId et=${watchedSeconds}s via=$via');
+      }
+      return ok;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('YtHistory: ping FAILED $e ${_authDebug()}');
+      }
+      return false;
+    }
+  }
+
+  /// Authenticated WEB_REMIX player fetch for the history playback
+  /// base (Android parity: `fetchHistoryTrackingUrl` — the base must
+  /// be minted under the account; anonymous direct-client bases are
+  /// accepted but filed nowhere).
+  ///
+  /// Bare call first: metadata-only player responses often succeed
+  /// without a poToken (enforcement targets stream URLs), and no
+  /// mint means no BotGuard window. Only on a miss is the poToken'd
+  /// call attempted — its first mint per app run can briefly flash
+  /// the hidden window; session tokens cache after that.
+  Future<String> fetchAuthenticatedPlaybackUrl(String videoId) async {
+    if (!_connection.connected || videoId.isEmpty) return '';
+    final bare = await _fetchPlaybackBase(videoId, null);
+    if (bare.isNotEmpty) return bare;
+    String? playerPoToken;
+    try {
+      final po = await _mintPoToken(videoId)
+          .timeout(const Duration(seconds: 12));
+      playerPoToken = po?.playerToken;
+    } catch (_) {}
+    return _fetchPlaybackBase(videoId, playerPoToken);
+  }
+
+  Future<String> _fetchPlaybackBase(
+      String videoId, String? playerPoToken) async {
+    try {
+      final root = await _post(
+        '$musicApi/player?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _context(
+            'WEB_REMIX',
+            _clientVersion,
+            visitorData: _visitorData,
+            poToken: playerPoToken,
+          ),
+          'videoId': videoId,
+          'contentCheckOk': true,
+          'racyCheckOk': true,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+        authenticated: true,
+        maxAttempts: 1,
+      );
+      return _watchtimeUrlOf(root);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// 16-char client playback nonce for watchtime pings. One cpn covers
+  /// a whole playback; the ticker shares it across pings.
+  static String newWatchCpn() => _watchCpn();
+
+  static String _watchCpn() {
+    const chars =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    final r = Random();
+    return List.generate(
+        16, (_) => chars[r.nextInt(chars.length)]).join();
   }
 
   /// Account playlists shelf (liked + created), authenticated.
@@ -1504,6 +1750,42 @@ class InnerTubeMusicApi {
 
   Map<String, dynamic> _webContext(String version, String? visitor) =>
       _context('WEB_REMIX', version, visitorData: visitor);
+
+  /// Pre-signed playback base minted per player response
+  /// (`playbackTracking.videostatsPlaybackUrl`). THIS is the URL that
+  /// registers watch history (Android parity:
+  /// YtMusicHistorySyncManager + ytmusicapi `add_history_item`) —
+  /// the sibling `videostatsWatchtimeUrl` only feeds QoE stats and
+  /// its pings are accepted but filed nowhere. Either shape is
+  /// accepted: `{'baseUrl': url}` (direct clients) or plain string.
+  static String _watchtimeUrlOf(Map? root) {
+    try {
+      final tracking = root?['playbackTracking'] as Map?;
+      final raw = tracking?['videostatsPlaybackUrl'];
+      final url = raw is Map
+          ? raw['baseUrl']?.toString() ?? ''
+          : raw?.toString() ?? '';
+      if (url.isEmpty) return '';
+      final uri = Uri.tryParse(url);
+      if (uri == null ||
+          !uri.host.contains('youtube.com') ||
+          !uri.path.startsWith('/api/stats/')) {
+        // Rejection is diagnostic gold (host? unparseable? wrong
+        // type?) — log the shape, never the token-bearing value.
+        if (kDebugMode) {
+          final keys =
+              raw is Map ? raw.keys.map((k) => k.toString()).toList() : null;
+          debugPrint('YtHistory: playback reject host=${uri?.host} '
+              'path=${uri?.path} len=${url.length} '
+              'type=${raw.runtimeType} keys=$keys');
+        }
+        return '';
+      }
+      return url;
+    } catch (_) {
+      return '';
+    }
+  }
 
   Future<Map<String, dynamic>> _post(
     String url, {
@@ -3267,6 +3549,7 @@ class InnerTubeMusicApi {
               'youtube:$videoId:${client.key}:${format['itag']}:$authScope:${expiresAt.millisecondsSinceEpoch}',
           requestHeaders: headers,
           expiresAt: expiresAt,
+          watchtimeUrl: _watchtimeUrlOf(root),
         ),
         adaptive: entry.adaptive,
         bitrate: bitrate,
@@ -3375,6 +3658,7 @@ class InnerTubeMusicApi {
                         _urlExpiryMs(url)!)
                     : DateTime.now()
                         .add(Duration(milliseconds: _unknownExpiryTtlMs)),
+                watchtimeUrl: _watchtimeUrlOf(root),
               ),
               adaptive: true,
               bitrate: bitrate,
@@ -3480,6 +3764,7 @@ class InnerTubeMusicApi {
             candidate.stream.expiresAt?.millisecondsSinceEpoch ?? 0,
         cachedAtMs: now.millisecondsSinceEpoch,
         authScope: authScope,
+        watchtimeUrl: candidate.stream.watchtimeUrl,
       );
     } catch (_) {}
   }

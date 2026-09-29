@@ -199,7 +199,7 @@ class _SectionBody extends ConsumerWidget {
       case 'lastfm':
         return _LastFm(onUpdate: onUpdate);
       case 'integrations':
-        return const _Ytm();
+        return _Ytm(onUpdate: onUpdate);
       case 'sources':
         return _Sources(onUpdate: onUpdate);
       case 'experimental':
@@ -789,7 +789,8 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
 }
 
 class _Ytm extends ConsumerWidget {
-  const _Ytm();
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _Ytm({required this.onUpdate});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -797,11 +798,27 @@ class _Ytm extends ConsumerWidget {
     // watching innerTubeProvider alone would never rebuild this row.
     final connection = ref.watch(ytConnectionProvider);
     final account = ref.watch(ytAccountProvider).valueOrNull;
+    final prefs = ref.watch(prefsProvider);
     return _Group(
       title: 'YouTube Music',
       subtitle: 'Personal library, history and uploads',
       child: connection.connected
-          ? _connectedRow(context, ref, connection, account)
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _connectedRow(context, ref, connection, account),
+                const SizedBox(height: 8),
+                _SwitchRow(
+                  value: prefs.syncYtHistory,
+                  onChanged: (v) =>
+                      onUpdate((p) => p.setSyncYtHistory(v)),
+                  title: 'Sync listening history',
+                  subtitle:
+                      'Record plays to your YouTube Music history',
+                ),
+              ],
+            )
           : Row(
               children: [
                 const Icon(FluentIcons.video, size: 18),

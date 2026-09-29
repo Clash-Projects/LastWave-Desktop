@@ -17,7 +17,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// Migrations are additive and never drop user data (no destructive
 /// fallback, unlike the temporary Android `fallbackToDestructiveMigration`).
 class AppDatabase {
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 6;
 
   final Database _db;
 
@@ -65,6 +65,10 @@ class AppDatabase {
     if (version < 5) {
       _createV5();
       _db.execute('PRAGMA user_version=5;');
+    }
+    if (version < 6) {
+      _createV6();
+      _db.execute('PRAGMA user_version=6;');
     }
   }
 
@@ -280,6 +284,7 @@ class AppDatabase {
         expires_at_ms INTEGER NOT NULL DEFAULT 0,
         cached_at_ms INTEGER NOT NULL DEFAULT 0,
         auth_scope TEXT NOT NULL DEFAULT 'anonymous',
+        watchtime_url TEXT NOT NULL DEFAULT '',
         PRIMARY KEY (video_id, client_profile, itag, auth_scope)
       );
     ''');
@@ -328,6 +333,18 @@ class AppDatabase {
       CREATE INDEX IF NOT EXISTS idx_local_plays_recent
       ON local_plays(played_at_millis DESC);
     ''');
+  }
+
+  /// v6: pre-signed YT watchtime base on cached streams, so repeat
+  /// plays (served from disk without a fresh player response) can
+  /// still sync watch history with session-bound tokens.
+  void _createV6() {
+    try {
+      _db.execute(
+        'ALTER TABLE stream_cache ADD COLUMN watchtime_url '
+        'TEXT NOT NULL DEFAULT \'\';',
+      );
+    } catch (_) {}
   }
 
   // -- local play log (keyless-guest taste) --------------------------------
@@ -394,16 +411,31 @@ class AppDatabase {
 
   List<Map<String, Object?>> loadStreamEntries({int limit = 256}) {
     try {
-      return _db
-          .select(
-            'SELECT video_id, client_profile, itag, url, headers_json, '
-            'mime, bitrate_kbps, codec, expires_at_ms, cached_at_ms, '
-            'auth_scope FROM stream_cache '
-            'ORDER BY cached_at_ms DESC LIMIT ?;',
-            [limit],
-          )
-          .map((r) => Map<String, Object?>.from(r))
-          .toList();
+      // watchtime_url may be absent on pre-v6 rows if the migration
+      // was skipped: fall back to the v5 column list.
+      try {
+        return _db
+            .select(
+              'SELECT video_id, client_profile, itag, url, headers_json, '
+              'mime, bitrate_kbps, codec, expires_at_ms, cached_at_ms, '
+              'auth_scope, watchtime_url FROM stream_cache '
+              'ORDER BY cached_at_ms DESC LIMIT ?;',
+              [limit],
+            )
+            .map((r) => Map<String, Object?>.from(r))
+            .toList();
+      } catch (_) {
+        return _db
+            .select(
+              'SELECT video_id, client_profile, itag, url, headers_json, '
+              'mime, bitrate_kbps, codec, expires_at_ms, cached_at_ms, '
+              'auth_scope FROM stream_cache '
+              'ORDER BY cached_at_ms DESC LIMIT ?;',
+              [limit],
+            )
+            .map((r) => Map<String, Object?>.from(r))
+            .toList();
+      }
     } catch (_) {
       return const [];
     }
@@ -421,32 +453,64 @@ class AppDatabase {
     required int expiresAtMs,
     required int cachedAtMs,
     required String authScope,
+    String watchtimeUrl = '',
   }) {
     try {
-      _db.execute(
-        'INSERT INTO stream_cache(video_id, client_profile, itag, url, '
-        'headers_json, mime, bitrate_kbps, codec, expires_at_ms, '
-        'cached_at_ms, auth_scope) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
-        'ON CONFLICT(video_id, client_profile, itag, auth_scope) '
-        'DO UPDATE SET url = excluded.url, '
-        'headers_json = excluded.headers_json, mime = excluded.mime, '
-        'bitrate_kbps = excluded.bitrate_kbps, codec = excluded.codec, '
-        'expires_at_ms = excluded.expires_at_ms, '
-        'cached_at_ms = excluded.cached_at_ms;',
-        [
-          videoId,
-          clientProfile,
-          itag,
-          url,
-          headersJson,
-          mime,
-          bitrateKbps,
-          codec,
-          expiresAtMs,
-          cachedAtMs,
-          authScope,
-        ],
-      );
+      // v6 column when migrated; plain v5 insert otherwise.
+      try {
+        _db.execute(
+          'INSERT INTO stream_cache(video_id, client_profile, itag, url, '
+          'headers_json, mime, bitrate_kbps, codec, expires_at_ms, '
+          'cached_at_ms, auth_scope, watchtime_url) '
+          'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+          'ON CONFLICT(video_id, client_profile, itag, auth_scope) '
+          'DO UPDATE SET url = excluded.url, '
+          'headers_json = excluded.headers_json, mime = excluded.mime, '
+          'bitrate_kbps = excluded.bitrate_kbps, codec = excluded.codec, '
+          'expires_at_ms = excluded.expires_at_ms, '
+          'cached_at_ms = excluded.cached_at_ms, '
+          'watchtime_url = excluded.watchtime_url;',
+          [
+            videoId,
+            clientProfile,
+            itag,
+            url,
+            headersJson,
+            mime,
+            bitrateKbps,
+            codec,
+            expiresAtMs,
+            cachedAtMs,
+            authScope,
+            watchtimeUrl,
+          ],
+        );
+      } catch (_) {
+        _db.execute(
+          'INSERT INTO stream_cache(video_id, client_profile, itag, url, '
+          'headers_json, mime, bitrate_kbps, codec, expires_at_ms, '
+          'cached_at_ms, auth_scope) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+          'ON CONFLICT(video_id, client_profile, itag, auth_scope) '
+          'DO UPDATE SET url = excluded.url, '
+          'headers_json = excluded.headers_json, mime = excluded.mime, '
+          'bitrate_kbps = excluded.bitrate_kbps, codec = excluded.codec, '
+          'expires_at_ms = excluded.expires_at_ms, '
+          'cached_at_ms = excluded.cached_at_ms;',
+          [
+            videoId,
+            clientProfile,
+            itag,
+            url,
+            headersJson,
+            mime,
+            bitrateKbps,
+            codec,
+            expiresAtMs,
+            cachedAtMs,
+            authScope,
+          ],
+        );
+      }
       _db.execute(
         'DELETE FROM stream_cache WHERE rowid NOT IN ('
         'SELECT rowid FROM stream_cache '

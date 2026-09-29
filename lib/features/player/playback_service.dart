@@ -56,6 +56,31 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   PlayableTrack? _scrobbleTrack;
   int _scrobbleDurationSec = 0;
   bool _scrobbledThisWindow = false;
+  // YT Music history push shares the scrobble window: a single ping
+  // per window, fired alongside the scrobble, gated by the settings
+  // flag. Android parity: repeats would file duplicate entries.
+  bool _ytHistoryPushedThisWindow = false;
+  // One client playback nonce per scrobble window.
+  String _ytHistoryCpn = '';
+  // Pre-signed watchtime bases by videoId (from the player response
+  // that resolved the stream). Memory-only, capped: tokens are bound
+  // to the live session.
+  final Map<String, String> _watchtimeUrls = {};
+
+  void _stashWatchtimeUrl(String videoId, String url) {
+    try {
+      if (videoId.isEmpty || url.isEmpty) return;
+      _watchtimeUrls.remove(videoId);
+      _watchtimeUrls[videoId] = url;
+      while (_watchtimeUrls.length > 24) {
+        _watchtimeUrls.remove(_watchtimeUrls.keys.first);
+      }
+    } catch (_) {}
+  }
+
+  void _rememberWatchtime(String videoId, ResolvedStream stream) {
+    _stashWatchtimeUrl(videoId, stream.watchtimeUrl);
+  }
 
   bool _endlessRadio = false;
   final Set<String> _radioSeeds = {};
@@ -949,7 +974,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       try {
         final stream = await _tube.resolveAudioStream(track.videoId,
             forceRefresh: forceRefresh);
-        if (stream != null) return stream;
+        if (stream != null) {
+          _rememberWatchtime(track.videoId, stream);
+          return stream;
+        }
       } catch (_) {}
       // Real failure (e.g. 403): drop the cached URL and try one
       // limited re-match below instead of fanning out.
@@ -974,7 +1002,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         _adoptVideoId(track, videoId, match!);
         final stream = await _tube.resolveAudioStream(videoId,
             forceRefresh: forceRefresh && attempt == 0);
-        if (stream != null) return stream;
+        if (stream != null) {
+          _rememberWatchtime(videoId, stream);
+          return stream;
+        }
         _tube.reportPlaybackFailure(videoId);
         excluded = {...excluded, videoId};
       } catch (_) {}
@@ -1542,6 +1573,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         DateTime.now().millisecondsSinceEpoch ~/ 1000;
     _accumulatedSeconds = 0;
     _scrobbledThisWindow = false;
+    _ytHistoryPushedThisWindow = false;
+    _ytHistoryCpn = '';
     _nowPlayingSent = false;
     _lastTick = DateTime.now();
     _sendNowPlaying(track);
@@ -1554,6 +1587,100 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       track: track.title,
       album: track.album,
     ));
+  }
+
+  /// Push the window's track into the YT Music watch history: a single
+  /// ping per window, fired alongside the scrobble so only real
+  /// listens sync. Android parity: repeats would file duplicates.
+  /// Failures reset the flag so the flush site retries once.
+  /// No-throw throughout.
+  void _maybePushYtHistory(
+      PlayableTrack track, int watchedSeconds,
+      {int durationSeconds = 0}) {
+    if (_ytHistoryPushedThisWindow) return;
+    if (!_prefs.syncYtHistory) return;
+    // Claim the window before the async resolve so concurrent sites
+    // (threshold + flush) don't double-search. Failures below reset
+    // the flag for a retry at the next site.
+    _ytHistoryPushedThisWindow = true;
+    unawaited(
+        _pushYtHistoryAsync(track, watchedSeconds, durationSeconds));
+  }
+
+  Future<void> _pushYtHistoryAsync(
+      PlayableTrack track, int watchedSeconds, int durationSeconds) async {
+    var videoId = _windowVideoId(track);
+    if (videoId.isEmpty) {
+      // Lossless-first plays may never have matched a YouTube video.
+      // Resolve on demand (disk-cached after the first match, so one
+      // search per track ever) and adopt it — future plays then take
+      // the instant path everywhere, not just history.
+      try {
+        final match = await _tube
+            .findBestMatchOrNull(track.title, track.artist)
+            .timeout(const Duration(seconds: 10));
+        videoId = match?.videoId ?? '';
+        if (videoId.isNotEmpty) _adoptVideoId(track, videoId, match!);
+      } catch (_) {
+        videoId = '';
+      }
+    }
+    if (videoId.isEmpty) {
+      _ytHistoryPushedThisWindow = false;
+      return;
+    }
+    // No usable base yet: fetch one minted under the account
+    // (Android parity — anonymous direct-client bases are accepted
+    // but filed nowhere). One authenticated player call per window.
+    var watchUrl = _watchtimeUrls[videoId] ?? '';
+    if (watchUrl.isEmpty) {
+      try {
+        watchUrl = await _tube
+            .fetchAuthenticatedPlaybackUrl(videoId)
+            .timeout(const Duration(seconds: 30));
+        if (watchUrl.isNotEmpty) {
+          _stashWatchtimeUrl(videoId, watchUrl);
+        } else if (kDebugMode) {
+          debugPrint('YtHistory: authed fetch yielded no base $videoId');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+              'YtHistory: authed fetch threw ${e.runtimeType} $videoId');
+        }
+        watchUrl = '';
+      }
+    }
+    final ok = await _tube.recordWatchHistory(
+        videoId: videoId,
+        watchedSeconds: watchedSeconds,
+        durationSeconds: durationSeconds,
+        cpn: _historyCpn(),
+        watchUrl: watchUrl);
+    if (!ok) _ytHistoryPushedThisWindow = false;
+  }
+
+  /// One client playback nonce per scrobble window.
+  String _historyCpn() {
+    if (_ytHistoryCpn.isEmpty) {
+      _ytHistoryCpn = InnerTubeMusicApi.newWatchCpn();
+    }
+    return _ytHistoryCpn;
+  }
+
+  /// videoId for the window's track. The `_scrobbleTrack` snapshot may
+  /// predate match adoption (immutable copy), so prefer the live queue
+  /// entry, which `_adoptVideoId` keeps current.
+  String _windowVideoId(PlayableTrack track) {
+    if (track.videoId.isNotEmpty) return track.videoId;
+    try {
+      for (final q in state.queue) {
+        if (q.queueKey == track.queueKey && q.videoId.isNotEmpty) {
+          return q.videoId;
+        }
+      }
+    } catch (_) {}
+    return '';
   }
 
   void _tickScrobble(Duration position) {
@@ -1586,6 +1713,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
             album: t.album,
             timestampSec: _scrobbleStartEpoch,
           ));
+          _maybePushYtHistory(t, threshold, durationSeconds: durationSec);
         }
       } else if (_accumulatedSeconds >= 30) {
         // Duration still unknown — fall back to Last.fm’s 30s floor
@@ -1598,6 +1726,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           album: t.album,
           timestampSec: _scrobbleStartEpoch,
         ));
+        _maybePushYtHistory(t, 30);
       }
     }
   }
@@ -1607,6 +1736,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (track == null || _scrobbleStartEpoch == 0) return;
     if (_scrobbledThisWindow) {
       // Already scrobbled eagerly at threshold — just tear down window.
+      // Still attempt the YT push: the eager push may have failed and
+      // reset its flag (success is a no-op here).
+      _maybePushYtHistory(track, _accumulatedSeconds.round(),
+          durationSeconds: _scrobbleDurationSec);
       _scrobbleStartEpoch = 0;
       _accumulatedSeconds = 0;
       _scrobbleTrack = null;
@@ -1633,6 +1766,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         album: track.album,
         timestampSec: _scrobbleStartEpoch,
       ));
+      _maybePushYtHistory(track, _accumulatedSeconds.round(),
+          durationSeconds: durationSec);
     }
     _scrobbleStartEpoch = 0;
     _accumulatedSeconds = 0;
@@ -1720,6 +1855,7 @@ class PrefsHandle {
   int get losslessQuality => _prefs.losslessQuality;
   int get scrobblePercent => _prefs.scrobblePercent;
   bool get scrobblerEnabled => _prefs.scrobblerEnabled;
+  bool get syncYtHistory => _prefs.syncYtHistory;
 }
 
 class SessionStore {

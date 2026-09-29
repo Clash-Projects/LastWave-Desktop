@@ -128,6 +128,12 @@ class ResolvedStream {
   final String albumTitle;
   final DateTime? expiresAt;
 
+  /// Pre-signed watchtime ping base (`playbackTracking.
+  /// videostatsWatchtimeUrl`) minted per player response. Carries the
+  /// session tokens history recording is bound to; empty for
+  /// lossless/cached streams that never saw a player response.
+  final String watchtimeUrl;
+
   const ResolvedStream({
     required this.url,
     this.mimeType = 'audio/webm',
@@ -141,6 +147,7 @@ class ResolvedStream {
     this.artworkUrl = '',
     this.albumTitle = '',
     this.expiresAt,
+    this.watchtimeUrl = '',
   });
 
   bool get isExpired {
