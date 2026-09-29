@@ -13,7 +13,6 @@ import '../../app/track_actions.dart'
 import '../../core/audio/stream_models.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/home/home_providers.dart';
-import '../../features/innertube/innertube_api.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
@@ -810,38 +809,16 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
 
   void _openPlaylist(SearchResultItem item) {
     // Local playlists live at /playlists/:id (int). YouTube Music
-    // playlist ids (VLPL…) can't route there, so they play in place.
+    // playlists open the read-only YT detail page — never auto-play
+    // on tap; playback starts from inside the detail page.
     final id = int.tryParse(item.entityId);
     if (id != null) {
       context.go('/playlists/$id');
       return;
     }
-    _openCollection(item);
-  }
-
-  Future<void> _openCollection(SearchResultItem item) async {
-    final tube = ref.read(innerTubeProvider);
-    List<YouTubeMusicTrack> tracks = const [];
-    try {
-      if (item.tab == SearchTab.playlists) {
-        final pl = await tube.fetchPlaylist(item.entityId);
-        tracks = pl?.tracks ?? const [];
-      } else {
-        tracks = await tube.browseSongs(item.entityId, limit: 50);
-      }
-    } catch (_) {
-      return;
-    }
-    if (tracks.isEmpty || !mounted) return;
-    final generated = tracks
-        .map((t) => GeneratedTrack(
-            name: t.title,
-            artist: t.artist,
-            artworkUrl: t.artworkUrl,
-            videoId: t.videoId))
-        .toList();
-    await playGenerated(ref, context, generated.first,
-        sourceLabel: item.name, queueAll: generated);
+    context.go('/ytplaylist/${item.entityId}'
+        '?title=${Uri.encodeComponent(item.name)}'
+        '&art=${Uri.encodeComponent(item.artworkUrl)}');
   }
 
   @override
