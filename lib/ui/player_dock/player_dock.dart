@@ -560,7 +560,7 @@ class _StreamPathGlyph extends ConsumerWidget {
         WaveMenuAction(
           leading: const Icon(WaveIcons.settings, size: 15),
           label: 'Output settings',
-          onPressed: () => context.go('/settings'),
+          onPressed: () => context.go('/settings?section=audio'),
         ),
       ],
     );

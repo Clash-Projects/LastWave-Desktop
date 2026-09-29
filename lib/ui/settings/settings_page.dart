@@ -29,7 +29,6 @@ const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
   ('playback', 'Playback', FluentIcons.play),
   ('audio', 'Audio', FluentIcons.speakers),
-  ('quality', 'Quality', FluentIcons.music_note),
   ('downloads', 'Downloads', FluentIcons.download),
   ('lyrics', 'Lyrics', FluentIcons.microphone),
   ('appearance', 'Appearance', FluentIcons.brush),
@@ -188,8 +187,6 @@ class _SectionBody extends ConsumerWidget {
         return _Playback(onUpdate: onUpdate);
       case 'audio':
         return _Audio(onUpdate: onUpdate);
-      case 'quality':
-        return _Quality(onUpdate: onUpdate);
       case 'downloads':
         return _Downloads(onUpdate: onUpdate);
       case 'appearance':
@@ -503,6 +500,7 @@ class _Audio extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(prefsProvider);
     return Column(
       children: [
         const SizedBox(height: 8),
@@ -513,6 +511,33 @@ class _Audio extends ConsumerWidget {
               : 'System audio output',
           child: _WasapiOutputSettings(onUpdate: onUpdate),
         ),
+        const SizedBox(height: 8),
+        _Group(
+          title: 'Streaming and Download quality',
+          subtitle: 'Lossless-first with YouTube fallback',
+          child: Column(
+            children: [
+              _QualityRow(
+                title: 'Streaming quality',
+                value: prefs.losslessQuality,
+                onChanged: (q) => onUpdate((p) => p.setLosslessQuality(q)),
+              ),
+              const SizedBox(height: 8),
+              _QualityRow(
+                title: 'Download quality',
+                value: prefs.downloadQuality,
+                onChanged: (q) => onUpdate((p) => p.setDownloadQuality(q)),
+              ),
+              const SizedBox(height: 8),
+              _SwitchRow(
+                value: prefs.preferLossless,
+                onChanged: (v) => onUpdate((p) => p.setPreferLossless(v)),
+                title: 'Prefer lossless',
+                subtitle: 'Try lossless first, fall back to Opus',
+              ),
+            ],
+          ),
+        )
       ],
     );
   }
@@ -1724,41 +1749,6 @@ class _Playback extends ConsumerWidget {
             },
             title: 'Crossfade',
             subtitle: '${prefs.crossfadeSeconds}s · gapless otherwise',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Quality extends ConsumerWidget {
-  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _Quality({required this.onUpdate});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final prefs = ref.watch(prefsProvider);
-    return _Group(
-      title: 'Streaming and Download quality',
-      subtitle: 'Lossless-first with YouTube fallback',
-      child: Column(
-        children: [
-          _QualityRow(
-            title: 'Streaming quality',
-            value: prefs.losslessQuality,
-            onChanged: (q) => onUpdate((p) => p.setLosslessQuality(q)),
-          ),
-          const SizedBox(height: 8),
-          _QualityRow(
-            title: 'Download quality',
-            value: prefs.downloadQuality,
-            onChanged: (q) => onUpdate((p) => p.setDownloadQuality(q)),
-          ),
-          const SizedBox(height: 8),
-          _SwitchRow(
-            value: prefs.preferLossless,
-            onChanged: (v) => onUpdate((p) => p.setPreferLossless(v)),
-            title: 'Prefer lossless',
-            subtitle: 'Try lossless first, fall back to Opus',
           ),
         ],
       ),
