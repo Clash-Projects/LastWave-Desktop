@@ -169,7 +169,8 @@ class YtWebLogin {
     final w = await _ensureWindow();
     if (w == null) return null;
     try {
-      w.launch(_logoutUrl);
+      // Same Windows gate bypass as _run (see comment there).
+      w.launch(_logoutUrl, triggerOnUrlRequestEvent: false);
       // Let the logout round-trip land before the login page loads.
       await Future<void>.delayed(const Duration(seconds: 4));
     } catch (_) {}
@@ -197,7 +198,12 @@ class YtWebLogin {
     final w = await _ensureWindow();
     if (w == null) return null;
     try {
-      w.launch(_loginUrl);
+      // Windows: load directly without the navigation-approval round-trip.
+      // With triggerOnUrlRequestEvent=true (the default) native WebView2
+      // cancels the navigation and only re-issues it after a Dart
+      // round-trip; if that silently fails the window sits on about:blank
+      // forever.
+      w.launch(_loginUrl, triggerOnUrlRequestEvent: false);
       if (kDebugMode) {
         debugPrint('YtWebLogin: window launched');
       }
@@ -248,6 +254,35 @@ class YtWebLogin {
     return null;
   }
 
+  /// Normalizes a cookie name from the system WebView jar.
+  ///
+  /// Windows WebView2 appends a trailing NUL (U+0000) to most cookie
+  /// names (probed 2026-09: SAPISID arrives as [83,65,80,73,83,73,68,0]),
+  /// which silently breaks exact-match login detection and header keys.
+  /// trim() skips NUL (not whitespace), so strip it explicitly, then
+  /// whitespace and trailing '=' (never legal in a cookie name).
+  static String _normName(Object? raw) {
+    var s = raw is String ? raw : raw.toString();
+    while (s.endsWith('\x00')) {
+      s = s.substring(0, s.length - 1);
+    }
+    s = s.trim();
+    while (s.endsWith('=')) {
+      s = s.substring(0, s.length - 1);
+    }
+    return s;
+  }
+
+  /// Normalizes a cookie value: strip only trailing NULs. Base64 '='
+  /// padding and every other character is significant and preserved.
+  static String _normValue(Object? raw) {
+    var s = raw is String ? raw : raw.toString();
+    while (s.endsWith('\x00')) {
+      s = s.substring(0, s.length - 1);
+    }
+    return s;
+  }
+
   /// Returns a Cookie header once login markers are present, else null.
   ///
   /// (Untyped locals: `WebviewCookie` lives in the package's
@@ -264,7 +299,13 @@ class YtWebLogin {
     }
     String? pick(String name) {
       for (final c in cookies) {
-        if (c.name == name && c.value.isNotEmpty) return c.value;
+        // Compare normalized names; a value of only a stray NUL counts
+        // as empty. Values are otherwise untouched (base64 padding is
+        // significant).
+        final v = _normValue(c.value);
+        if (_normName(c.name) == name && v.isNotEmpty) {
+          return v;
+        }
       }
       return null;
     }
@@ -283,8 +324,10 @@ class YtWebLogin {
           !domain.contains('google.com')) {
         continue;
       }
-      if (c.name.isEmpty || c.value.isEmpty) continue;
-      pairs[c.name] = c.value;
+      final normName = _normName(c.name);
+      final normValue = _normValue(c.value);
+      if (normName.isEmpty || normValue.isEmpty) continue;
+      pairs[normName] = normValue;
     }
     if (pairs.isEmpty) return null;
     final names = pairs.keys.toList()..sort();

@@ -1178,7 +1178,8 @@ class _CardActions extends ConsumerWidget {
     }
     if (!context.mounted) return;
     try {
-      w.launch('https://music.youtube.com/');
+      w.launch('https://music.youtube.com/',
+          triggerOnUrlRequestEvent: false);
     } catch (_) {}
     var cancelled = false;
     var done = false;
