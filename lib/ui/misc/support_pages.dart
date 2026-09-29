@@ -16,8 +16,11 @@ import '../theme/tokens.dart';
 
 final _waveFriendsProvider =
     FutureProvider<List<FriendEntry>>((ref) {
-  final viewing = ref.watch(viewingProfileProvider);
-  return ref.watch(homeRepositoryProvider).fetchFriends(viewingAs: viewing);
+  // The Friends tab always shows your own friends. It must not follow
+  // viewingProfileProvider: after viewing a friend's profile, `viewing`
+  // stays set, and the tab would otherwise list the friend's friends
+  // (including your own name on mutual friendships).
+  return ref.watch(homeRepositoryProvider).fetchFriends();
 });
 
 final _waveMixProvider = FutureProvider.autoDispose
@@ -274,6 +277,11 @@ class _TopTracksSection extends ConsumerWidget {
                   },
                   albumOf: (_) => '',
                   artworkOf: (t) => t.artworkUrl,
+                  // subtitleOf carries decorations ('· N plays · on
+                  // YouTube') that would poison the official-artwork
+                  // lookup — pass clean metadata explicitly.
+                  artworkTitleOf: (t) => t.name,
+                  artworkArtistOf: (t) => t.artist,
                   playableOf: (t) => playableFromGenerated(
                       GeneratedTrack(
                     name: t.name,
