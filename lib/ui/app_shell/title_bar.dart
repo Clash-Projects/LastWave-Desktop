@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../features/lastfm/auth_repository.dart';
+import '../../features/lastfm/home_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/menus.dart'
@@ -118,11 +119,17 @@ class WaveTitleBar extends ConsumerWidget {
                 ),
                 // Profile / account — tiny, no giant buttons.
                 GestureDetector(
-                  onTap: () => context.go(
-                    auth.status == AuthStatus.signedIn
-                        ? '/profile'
-                        : '/welcome',
-                  ),
+                  onTap: () {
+                    // Your avatar always means your profile: drop any
+                    // stale friend view, otherwise /profile would show
+                    // whoever you last checked out.
+                    ref.read(viewingProfileProvider.notifier).clear();
+                    context.go(
+                      auth.status == AuthStatus.signedIn
+                          ? '/profile'
+                          : '/welcome',
+                    );
+                  },
                   child: LWTooltip(
                     message: auth.status == AuthStatus.signedIn
                         ? auth.username
