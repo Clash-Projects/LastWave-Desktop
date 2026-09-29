@@ -59,6 +59,8 @@ class _WavePlaylistsPageState
               p.title.toLowerCase().contains(_q.toLowerCase()),
         )
         .toList();
+    // Full-width, left-aligned like the Liked/table pages — the grid
+    // below fills the viewport instead of bunching in a centered cap.
     return WaveEntranceGroup(
       child: ListView(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
@@ -116,19 +118,27 @@ class _WavePlaylistsPageState
                 )
               else ...[
                 if (shown.isNotEmpty)
+                  // Full-width grid: cells stretch to fill the row, so
+                  // the art size is derived from the cell width — fixed
+                  // art in a stretched cell was the gutter bug.
                   LayoutBuilder(builder: (context, c) {
-                    final cols = (c.maxWidth / 170)
+                    final cols = (c.maxWidth / 190)
                         .floor()
-                        .clamp(2, 6);
+                        .clamp(2, 8);
+                    const spacing = 16.0;
+                    final cell = (c.maxWidth -
+                            spacing * (cols - 1)) /
+                        cols;
                     return GridView.builder(
                       shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
+                      physics:
+                          const NeverScrollableScrollPhysics(),
                       gridDelegate:
                           SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: cols,
                         mainAxisSpacing: 16,
-                        crossAxisSpacing: 12,
-                        mainAxisExtent: 214,
+                        crossAxisSpacing: spacing,
+                        mainAxisExtent: cell + 64,
                       ),
                       itemCount: shown.length,
                       itemBuilder: (context, i) =>
@@ -136,7 +146,9 @@ class _WavePlaylistsPageState
                         index: i,
                         rise: 10,
                         child: _PlaylistCard(
-                            playlist: shown[i]),
+                          playlist: shown[i],
+                          artSize: cell - 8,
+                        ),
                       ),
                     );
                   }),
@@ -181,9 +193,14 @@ class _YtSection extends StatelessWidget {
             style: WaveType.meta
                 .copyWith(color: waveTextTertiary(context))),
         const SizedBox(height: 6),
+        // Same full-width grid as the local section above: art fills
+        // the cell so there is no dead air on wide screens.
         LayoutBuilder(builder: (context, c) {
           final cols =
-              (c.maxWidth / 170).floor().clamp(2, 6);
+              (c.maxWidth / 190).floor().clamp(2, 8);
+          const spacing = 16.0;
+          final cell =
+              (c.maxWidth - spacing * (cols - 1)) / cols;
           return GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -191,47 +208,16 @@ class _YtSection extends StatelessWidget {
                 SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: cols,
               mainAxisSpacing: 16,
-              crossAxisSpacing: 12,
-              mainAxisExtent: 214,
+              crossAxisSpacing: spacing,
+              mainAxisExtent: cell + 64,
             ),
             itemCount: lists.length,
-            itemBuilder: (context, i) {
-              final p = lists[i];
-              return WaveEntrance(
-                index: i,
-                rise: 10,
-                child: GestureDetector(
-                  onTap: () => context.go('/ytplaylist/${p.id}'
-                      '?title=${Uri.encodeComponent(p.title)}'
-                      '&art=${Uri.encodeComponent(p.artworkUrl)}'),
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                    children: [
-                      WaveArtwork(
-                          url: p.artworkUrl,
-                          size: 150,
-                          radius: 6,
-                          label: p.title),
-                      const SizedBox(height: 6),
-                      Text(p.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.trackTitle
-                              .copyWith(fontSize: 12.5)),
-                      Text(
-                          p.trackCountText.isNotEmpty
-                              ? p.trackCountText
-                              : 'YouTube playlist',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.meta
-                              .copyWith(fontSize: 11.5)),
-                    ],
-                  ),
-                ),
-              );
-            },
+            itemBuilder: (context, i) => WaveEntrance(
+              index: i,
+              rise: 10,
+              child: _YtCard(
+                  index: i, lists: lists, artSize: cell),
+            ),
           );
         }),
       ],
@@ -239,9 +225,55 @@ class _YtSection extends StatelessWidget {
   }
 }
 
+/// Single YouTube Music playlist card (art fills the grid cell).
+class _YtCard extends StatelessWidget {
+  final int index;
+  final List<YouTubePlaylistSummary> lists;
+  final double artSize;
+  const _YtCard(
+      {required this.index,
+      required this.lists,
+      required this.artSize});
+  @override
+  Widget build(BuildContext context) {
+    final p = lists[index];
+    return GestureDetector(
+      onTap: () => context.go('/ytplaylist/${p.id}'
+          '?title=${Uri.encodeComponent(p.title)}'
+          '&art=${Uri.encodeComponent(p.artworkUrl)}'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          WaveArtwork(
+              url: p.artworkUrl,
+              size: artSize,
+              radius: 6,
+              label: p.title),
+          const SizedBox(height: 6),
+          Text(p.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: WaveType.trackTitle
+                  .copyWith(fontSize: 12.5)),
+          Text(
+              p.trackCountText.isNotEmpty
+                  ? p.trackCountText
+                  : 'YouTube playlist',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style:
+                  WaveType.meta.copyWith(fontSize: 11.5)),
+        ],
+      ),
+    );
+  }
+}
+
 class _PlaylistCard extends ConsumerStatefulWidget {
   final SavedPlaylist playlist;
-  const _PlaylistCard({required this.playlist});
+  final double artSize;
+  const _PlaylistCard(
+      {required this.playlist, this.artSize = 150});
   @override
   ConsumerState<_PlaylistCard> createState() =>
       _PlaylistCardState();
@@ -318,7 +350,7 @@ class _PlaylistCardState
                   children: [
                     WaveArtwork(
                         url: cover ?? '',
-                        size: 150,
+                        size: widget.artSize,
                         radius: 6,
                         label: p.title),
                     if (p.isPinned)
