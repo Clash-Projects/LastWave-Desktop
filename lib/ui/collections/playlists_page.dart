@@ -117,40 +117,30 @@ class _WavePlaylistsPageState
                 )
               else ...[
                 if (shown.isNotEmpty)
-                  // Full-width grid: cells stretch to fill the row, so
-                  // the art size is derived from the cell width — fixed
-                  // art in a stretched cell was the gutter bug.
-                  LayoutBuilder(builder: (context, c) {
-                    final cols = (c.maxWidth / 190)
-                        .floor()
-                        .clamp(2, 8);
-                    const spacing = 16.0;
-                    final cell = (c.maxWidth -
-                            spacing * (cols - 1)) /
-                        cols;
-                    return GridView.builder(
-                      shrinkWrap: true,
-                      physics:
-                          const NeverScrollableScrollPhysics(),
-                      gridDelegate:
-                          SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: cols,
-                        mainAxisSpacing: 16,
-                        crossAxisSpacing: spacing,
-                        mainAxisExtent: cell + 64,
+                  // Same density as the Albums page: max 180px cells,
+                  // fixed 160 art, 218 rows — grids match across pages.
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics:
+                        const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 180,
+                      mainAxisSpacing: 16,
+                      crossAxisSpacing: 12,
+                      mainAxisExtent: 218,
+                    ),
+                    itemCount: shown.length,
+                    itemBuilder: (context, i) =>
+                        WaveEntrance(
+                      index: i,
+                      rise: 10,
+                      child: _PlaylistCard(
+                        playlist: shown[i],
+                        artSize: 160,
                       ),
-                      itemCount: shown.length,
-                      itemBuilder: (context, i) =>
-                          WaveEntrance(
-                        index: i,
-                        rise: 10,
-                        child: _PlaylistCard(
-                          playlist: shown[i],
-                          artSize: cell - 8,
-                        ),
-                      ),
-                    );
-                  }),
+                    ),
+                  ),
                 if (ytLists.isNotEmpty) ...[
                   if (shown.isNotEmpty)
                     const SizedBox(height: 18),
@@ -192,33 +182,25 @@ class _YtSection extends StatelessWidget {
             style: WaveType.meta
                 .copyWith(color: waveTextTertiary(context))),
         const SizedBox(height: 6),
-        // Same full-width grid as the local section above: art fills
-        // the cell so there is no dead air on wide screens.
-        LayoutBuilder(builder: (context, c) {
-          final cols =
-              (c.maxWidth / 190).floor().clamp(2, 8);
-          const spacing = 16.0;
-          final cell =
-              (c.maxWidth - spacing * (cols - 1)) / cols;
-          return GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate:
-                SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: cols,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: spacing,
-              mainAxisExtent: cell + 64,
-            ),
-            itemCount: lists.length,
-            itemBuilder: (context, i) => WaveEntrance(
-              index: i,
-              rise: 10,
-              child: _YtCard(
-                  index: i, lists: lists, artSize: cell),
-            ),
-          );
-        }),
+        // Same density as the Albums page (see above).
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate:
+              const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 180,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 12,
+            mainAxisExtent: 218,
+          ),
+          itemCount: lists.length,
+          itemBuilder: (context, i) => WaveEntrance(
+            index: i,
+            rise: 10,
+            child:
+                _YtCard(index: i, lists: lists, artSize: 160),
+          ),
+        ),
       ],
     );
   }
