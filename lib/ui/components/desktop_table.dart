@@ -62,6 +62,11 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
   final String Function(T item)? artworkTitleOf;
   final String Function(T item)? artworkArtistOf;
 
+  /// YT fallback for rows without primary art: the videoId seeds an
+  /// `hqdefault` thumbnail at the END of the resolver chain (official /
+  /// store art always wins). Defaults to none.
+  final String Function(T item)? videoIdOf;
+
   /// Display strings. Quality/date columns render only when provided.
   final String Function(T item)? durationOf;
   final String Function(T item)? qualityOf;
@@ -114,6 +119,7 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
     this.artworkKind,
     this.artworkTitleOf,
     this.artworkArtistOf,
+    this.videoIdOf,
     this.durationOf,
     this.qualityOf,
     this.dateAddedOf,
@@ -481,6 +487,7 @@ class _WaveDesktopTableState<T extends Object>
           widget.titleOf(item),
       artworkArtist: widget.artworkArtistOf?.call(item) ??
           widget.subtitleOf(item),
+      videoId: widget.videoIdOf?.call(item) ?? '',
       showLike: widget.showLike,
       liked: widget.isLiked?.call(item) ?? false,
       onHover: (v) => setState(
@@ -669,6 +676,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
   final ArtworkKind? artworkKind;
   final String artworkTitle;
   final String artworkArtist;
+  final String videoId;
   final bool showLike;
   final bool liked;
   final void Function(bool) onHover;
@@ -699,6 +707,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
     this.artworkKind,
     this.artworkTitle = '',
     this.artworkArtist = '',
+    this.videoId = '',
     required this.showLike,
     required this.liked,
     required this.onHover,
@@ -783,6 +792,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                   title: artworkTitle.isNotEmpty ? artworkTitle : title,
                   artist: artworkArtist.isNotEmpty ? artworkArtist : artist,
                   kind: artworkKind,
+                  videoId: videoId,
                   hovered: hovered,
                   playing: playing,
                   onPlay: onPlayOverlay,
@@ -938,6 +948,7 @@ class _ArtPlay extends StatelessWidget {
   final String title;
   final String artist;
   final ArtworkKind? kind;
+  final String videoId;
   final bool hovered;
   final bool playing;
   final VoidCallback onPlay;
@@ -946,6 +957,7 @@ class _ArtPlay extends StatelessWidget {
     this.title = '',
     this.artist = '',
     this.kind,
+    this.videoId = '',
     required this.hovered,
     required this.playing,
     required this.onPlay,
@@ -964,6 +976,7 @@ class _ArtPlay extends StatelessWidget {
             artist: artist,
             label: title,
             kind: kind,
+            videoId: videoId,
           ),
           if (hovered || playing)
             Positioned.fill(

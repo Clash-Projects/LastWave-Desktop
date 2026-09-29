@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/track_actions.dart'
     show playGenerated, playableFromGenerated;
 import '../../features/feed/feed_repository.dart';
+import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
@@ -47,6 +50,42 @@ final _waveTopTracksProvider =
 });
 
 const _topPeriods = ['7day', '1month', '12month', 'overall'];
+
+/// YT thumbnail fallback for chart rows without art: Last.fm top-track
+/// payloads carry no images and store catalogs miss obscure tracks, so
+/// resolve matches for the art-less rows and seed `hqdefault` as the
+/// LAST chain entry via `videoIdOf` (official covers always win).
+/// Matches are disk-cached, so repeat views resolve instantly.
+/// Bounded parallel (4 at a time), fail-soft per track.
+final _waveTopTrackVideoIdsProvider =
+    FutureProvider.autoDispose.family<Map<String, String>, _TopQuery>(
+        (ref, q) async {
+  final tracks = await ref.watch(_waveTopTracksProvider(q).future);
+  final need =
+      tracks.take(30).where((t) => t.artworkUrl.isEmpty).toList();
+  if (need.isEmpty) return const {};
+  final tube = ref.watch(innerTubeProvider);
+  final out = <String, String>{};
+  for (var i = 0; i < need.length; i += 4) {
+    final batch =
+        need.sublist(i, (i + 4).clamp(0, need.length));
+    final hits = await Future.wait(batch.map((t) async {
+      try {
+        final m = await tube
+            .findBestMatchOrNull(t.name, t.artist)
+            .timeout(const Duration(seconds: 15));
+        final id = m?.videoId ?? '';
+        return MapEntry(t.key, id);
+      } catch (_) {
+        return MapEntry(t.key, '');
+      }
+    }));
+    for (final h in hits) {
+      if (h.value.isNotEmpty) out[h.key] = h.value;
+    }
+  }
+  return out;
+});
 
 String _topPeriodLabel(String period) => switch (period) {
       '7day' => '7 days',
@@ -151,6 +190,13 @@ class _TopTracksSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final topAsync = ref
         .watch(_waveTopTracksProvider((viewing: viewing, period: period)));
+    // YT fallback ids for rows without art (resolves in background,
+    // empty until ready — rows show the tonal fallback meanwhile).
+    final ytIds = ref
+            .watch(_waveTopTrackVideoIdsProvider(
+                (viewing: viewing, period: period)))
+            .valueOrNull ??
+        const <String, String>{};
     // Own YouTube library for overlap badges (self view only).
     final ytKeys = viewing == null
         ? {
@@ -282,6 +328,7 @@ class _TopTracksSection extends ConsumerWidget {
                   // lookup — pass clean metadata explicitly.
                   artworkTitleOf: (t) => t.name,
                   artworkArtistOf: (t) => t.artist,
+                  videoIdOf: (t) => ytIds[t.key] ?? '',
                   playableOf: (t) => playableFromGenerated(
                       GeneratedTrack(
                     name: t.name,
