@@ -584,6 +584,10 @@ class _AuthPanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
+    // Subscribe to auth transitions (signingIn → signedOut on a
+    // successful key save) so `configured` re-evaluates: Prefs itself
+    // never notifies, and without this the panel stays stale forever.
+    ref.watch(authRepositoryProvider.select((s) => s.status));
     final configured = ref.watch(prefsProvider).isLastFmConfigured;
     return Padding(
       padding: const EdgeInsets.fromLTRB(36, 40, 36, 32),
@@ -832,10 +836,35 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    // Same subscription as the parent panel: a successful save flips
+    // auth state, which rebuilds us so the success state below shows.
+    ref.watch(authRepositoryProvider.select((s) => s.status));
+    final saved = ref.watch(prefsProvider).isLastFmConfigured;
     _key ??= TextEditingController(
         text: ref.read(prefsProvider).lastFmApiKey);
     _secret ??= TextEditingController(
         text: ref.read(prefsProvider).lastFmApiSecret);
+    if (saved && !_busy) {
+      return Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: waveDivider(context)),
+        ),
+        child: Row(
+          children: [
+            const Icon(FluentIcons.check_mark, size: 14),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Keys validated — connect with Last.fm below.',
+                style: WaveType.meta.copyWith(color: Colors.green),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(

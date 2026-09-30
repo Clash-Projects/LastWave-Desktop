@@ -1887,6 +1887,10 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
 
   @override
   Widget build(BuildContext context) {
+    // Subscribe to auth transitions so the status line below flips
+    // right after save/clear: Prefs itself never notifies (see
+    // welcome _AuthPanel — same pattern).
+    ref.watch(authRepositoryProvider.select((s) => s.status));
     final prefs = ref.watch(prefsProvider);
     _key ??= TextEditingController(text: prefs.lastFmApiKey);
     _secret ??= TextEditingController(text: prefs.lastFmApiSecret);
