@@ -138,6 +138,15 @@ class Prefs {
   Future<void> setDownloadLyrics(bool v) =>
       _sp.setBool('lw_download_lyrics', v);
 
+  /// Custom download folder. Empty = default (`Music/LastWave`, else
+  /// app documents). Set via Settings → Downloads or the Downloads
+  /// page; changeable at any time, applies to new downloads.
+  String get downloadDir => _sp.getString('lw_download_dir') ?? '';
+  Future<void> setDownloadDir(String v) =>
+      _sp.setString('lw_download_dir', v.trim());
+  Future<void> resetDownloadDir() =>
+      _sp.remove('lw_download_dir');
+
   // -- Lyrics --------------------------------------------------------------
   bool get wordByWord => _sp.getBool('lw_word_by_word') ?? true;
   Future<void> setWordByWord(bool v) => _sp.setBool('lw_word_by_word', v);

@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -71,6 +72,8 @@ class WaveDownloadsPage extends ConsumerWidget {
                   ),
                   ),
                   const SizedBox(height: 12),
+                  const _LocationRow(),
+                  const SizedBox(height: 12),
                   // Local InfoBar for failures — never breaks the list.
                   if (failed.isNotEmpty)
                     Padding(
@@ -135,6 +138,67 @@ class WaveDownloadsPage extends ConsumerWidget {
         ),
         ],
       ),
+    );
+  }
+}
+
+/// Download folder row: current location + change / reset.
+/// Stateful so the path refreshes right after picking (prefs is not
+/// a listenable provider).
+class _LocationRow extends ConsumerStatefulWidget {
+  const _LocationRow();
+  @override
+  ConsumerState<_LocationRow> createState() => _LocationRowState();
+}
+
+class _LocationRowState extends ConsumerState<_LocationRow> {
+  Future<void> _pick() async {
+    try {
+      final path = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Choose download folder',
+      );
+      if (path == null || path.trim().isEmpty) return;
+      await ref.read(prefsProvider).setDownloadDir(path);
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _reset() async {
+    try {
+      await ref.read(prefsProvider).resetDownloadDir();
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final custom = ref.read(prefsProvider).downloadDir;
+    return Row(
+      children: [
+        const Icon(FluentIcons.open_folder_horizontal, size: 15),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            custom.isEmpty ? 'Saving to default location' : custom,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: WaveType.meta.copyWith(
+              color: waveTextSecondary(context),
+            ),
+          ),
+        ),
+        Button(
+          onPressed: _pick,
+          child: const Text('Change folder'),
+        ),
+        if (custom.isNotEmpty) ...[
+          const SizedBox(width: 8),
+          Button(
+            onPressed: _reset,
+            child: const Text('Reset'),
+          ),
+        ],
+      ],
     );
   }
 }
