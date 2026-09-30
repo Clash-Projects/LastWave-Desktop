@@ -1,18 +1,221 @@
-name: Build macOS App
+name: Build and Release Desktop Apps
 
-# TEMP fast loop for fix/macos-no-internet: macOS-only, every push to
-# this branch builds the .app and drops it in workflow artifacts.
-# Restore desktop.yml from main before merging.
 on:
   push:
     branches:
-      - fix/macos-no-internet
+      - main
+    tags:
+      - "v*"
+    paths-ignore:
+      - '**.md'
+      - '**.yml'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - '**.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  build-linux:
+    name: Build Linux Bundle
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config patchelf binutils \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libayatana-appindicator3-dev libasound2-dev libmpv-dev mpv \
+            libkeybinder-3.0-dev libwebkit2gtk-4.1-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Release builds need the addon backend key: CI has no .env
+      # (gitignored), so the repo secret ADDON_CLIENT_SECRET is written
+      # to .env here. GitHub masks the value in logs; when unset the
+      # key stays empty and addon calls fail closed server-side.
+      # (Last.fm is BYOK and LYRICS_API_KEY is unused — nothing else
+      # needs injecting.)
+      - name: Write .env from secrets
+        run: echo "ADDON_CLIENT_SECRET=${{ secrets.ADDON_CLIENT_SECRET }}" > .env
+
+      - name: Generate Obfuscated Secrets
+        run: dart tool/obfuscate_secrets.dart
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # - name: Run analyzer & tests
+      #   run: |
+      #     flutter analyze --no-fatal-infos
+      #     flutter test
+
+      - name: Build Linux app
+        run: flutter build linux --release
+
+      # Ubuntu 22.04 ships mpv 0.34 whose SONAME is libmpv.so.1, so the
+      # source-built media_kit plugins record NEEDED libmpv.so.1 — which
+      # exists on NO modern distro (24.04+, Fedora, Arch ship only
+      # .so.2) and the loader dies before main(). Retarget the two
+      # shims to .so.2: ABI-safe, they use only stable render/event
+      # APIs present in .so.2 (verified against mpv 0.41), and Dart's
+      # own loader already prefers .so.2. Fails the job if .so.1
+      # survives. (22.04 itself has no .so.2 — see release notes.)
+      - name: Normalize libmpv linkage
+        run: |
+          BUNDLE="build/linux/x64/release/bundle/lib"
+          for f in "$BUNDLE"/libmedia_kit_video_plugin.so "$BUNDLE"/libmedia_kit_native_event_loop.so; do
+            if objdump -p "$f" | grep -q "NEEDED.*libmpv.so.1"; then
+              echo "Retargeting $f: libmpv.so.1 -> libmpv.so.2"
+              patchelf --replace-needed libmpv.so.1 libmpv.so.2 "$f"
+            fi
+          done
+          echo "--- NEEDED libmpv after normalize:"
+          objdump -p "$BUNDLE"/libmedia_kit_video_plugin.so "$BUNDLE"/libmedia_kit_native_event_loop.so | grep "NEEDED.*libmpv"
+          if objdump -p "$BUNDLE"/libmedia_kit_video_plugin.so "$BUNDLE"/libmedia_kit_native_event_loop.so | grep -q "NEEDED.*libmpv.so.1"; then
+            echo "::error::libmpv.so.1 linkage survived normalization"
+            exit 1
+          fi
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-Desktop-Linux
+          path: build/linux/x64/release/bundle/
+
+      # System packages are release-only (v* tags): PR/push builds
+      # stop at the raw bundle above.
+      - name: Setup Go (nFPM)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build deb/rpm packages
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          export VERSION="${GITHUB_REF_NAME#v}"
+          echo "Packaging version $VERSION"
+          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager deb --target ./lastwave-desktop_${VERSION}_amd64.deb
+          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager rpm --target ./lastwave-desktop_${VERSION}_x86_64.rpm
+          ls -la lastwave-desktop_${VERSION}_amd64.deb lastwave-desktop_${VERSION}_x86_64.rpm
+
+      - name: Upload Linux Packages
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-Linux-Packages
+          path: |
+            lastwave-desktop_*_amd64.deb
+            lastwave-desktop_*_x86_64.rpm
+
+  build-windows:
+    name: Build Windows Bundle
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Write .env from secrets
+        run: echo "ADDON_CLIENT_SECRET=${{ secrets.ADDON_CLIENT_SECRET }}" > .env
+
+      - name: Generate Obfuscated Secrets
+        run: dart tool/obfuscate_secrets.dart
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows app
+        run: flutter build windows --release
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-Desktop-Windows
+          path: build\windows\x64\runner\Release\
+
+      # The single-file installer is release-only (v* tags): PR/push
+      # builds stop at the raw Release folder above.
+      - name: Build installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $ver = '${{ github.ref_name }}'.TrimStart('v')
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$ver" windows\installer.iss
+          Get-ChildItem build\windows\installer\
+
+      - name: Upload Windows Installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-Windows-Installer
+          path: build\windows\installer\*.exe
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      # NOTE: download-artifact `pattern` splits on newlines, NOT
+      # commas — a comma-separated pattern matches nothing, dist stays
+      # empty, and the release publishes with zero binaries. So each
+      # tag artifact is downloaded by exact name (a missing artifact
+      # fails its step loudly instead of publishing an empty release).
+      # Assets ride the release as raw files: .exe, .deb, .rpm
+      # (macOS stays a zip — a bare .app bundle isn't shippable).
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: LastWave-Windows-Installer
+          path: dist
+
+      - name: Download Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: LastWave-Linux-Packages
+          path: dist
+
+      - name: Download macOS archive
+        uses: actions/download-artifact@v4
+        with:
+          name: LastWave-Desktop-macOS
+          path: dist
+
+      - name: List release files
+        run: find dist -type f
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  # macOS ships as a plain zip archive: no installer (unsigned macOS
+  # zips Gatekeeper-block on other Macs — see release notes — but the
+  # archive rides along on the Release for anyone who wants it.
   build-macos:
     name: Build macOS Bundle
     runs-on: macos-latest
@@ -38,10 +241,6 @@ jobs:
       - name: Build macOS app
         run: flutter build macos --release
 
-      # ditto preserves the .app bundle layout + framework symlinks
-      # (upload-artifact alone flattens/breaks them → dyld "Ass.framework
-      # not valid / library load disallowed" on launch). --keepParent
-      # keeps the top-level lastwave_desktop.app wrapper.
       - name: Compress macOS Bundle
         run: |
           ditto -c -k --keepParent "build/macos/Build/Products/Release/lastwave_desktop.app" "LastWave-Desktop-macos.zip"
