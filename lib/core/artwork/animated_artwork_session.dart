@@ -12,12 +12,21 @@ import 'animated_artwork_service.dart';
 /// The Now Playing page mounts and unmounts often. JSON lookup is already
 /// cached; this keeps the decoded clip itself so returning to Now Playing or
 /// skipping tracks on the same album does not reopen the file.
+///
+/// Crash hardening (Windows fail-fast in flutter_windows.dll, always seconds
+/// after a canvas clip's first frames): the native video output
+/// (VideoOutputManager.Create/SetSize/Dispose + texture register/unregister)
+/// must never be thrashed. So this session keeps ONE player + ONE texture
+/// for the whole app run — a track change is just a loadfile into the
+/// existing texture — serializes every native op so two are never in flight,
+/// and debounces rapid skips into a single open. There is deliberately no
+/// mid-session teardown: destroying the texture while frames are in flight
+/// is what aborted the engine.
 class AnimatedArtworkSession extends ChangeNotifier {
   Player? _player;
   VideoController? _controller;
   StreamSubscription<int?>? _widthSub;
   Timer? _pauseTimer;
-  Timer? _disposeTimer;
   Timer? _readyTimer;
   VoidCallback? _rectListener;
   int _generation = 0;
@@ -26,6 +35,8 @@ class AnimatedArtworkSession extends ChangeNotifier {
   bool _ready = false;
   bool _visible = false;
   bool _silenced = false;
+  // Serializes native ops (open/stop/dispose): each waits for the previous.
+  Future<void> _tail = Future.value();
 
   VideoController? get controller => _controller;
   String get url => _url;
@@ -55,7 +66,6 @@ class AnimatedArtworkSession extends ChangeNotifier {
 
   void attach(String url) {
     _pauseTimer?.cancel();
-    _disposeTimer?.cancel();
     _refs++;
     unawaited(open(url));
   }
@@ -73,9 +83,14 @@ class AnimatedArtworkSession extends ChangeNotifier {
   }
 
   Future<void> open(String url) async {
-    if (url.isEmpty) return;
+    if (url.isEmpty || _disposed) return;
     if (url == _url && _player != null) {
-      await _player!.play();
+      // Same clip: no native churn, just (re)play through the queue.
+      await _serialized(() async {
+        try {
+          await _player?.play();
+        } catch (_) {}
+      });
       if (_ready) _notify();
       return;
     }
@@ -83,18 +98,41 @@ class AnimatedArtworkSession extends ChangeNotifier {
     _url = url;
     _ready = false;
     _notify();
+    // Coalesce skip bursts: only the latest url reaches native code.
+    await Future.delayed(const Duration(milliseconds: 250));
+    if (gen != _generation || _disposed) return;
+    await _serialized(() => _openLocked(url, gen));
+  }
+
+  /// Runs with no other native op in flight. Never throws.
+  Future<void> _openLocked(String url, int gen) async {
+    if (gen != _generation || _disposed) return;
     try {
       await _ensurePlayer();
-      if (gen != _generation) return;
-      await _player!.setVolume(0);
-      await _player!.setPlaylistMode(PlaylistMode.loop);
-      await _player!.open(
+      if (gen != _generation || _disposed) return;
+      final player = _player;
+      if (player == null) return;
+      await player.setVolume(0);
+      await player.setPlaylistMode(PlaylistMode.loop);
+      await player.open(
         Media(url, httpHeaders: appleArtworkHeaders),
         play: true,
       );
-      if (gen != _generation) return;
+      if (gen != _generation || _disposed) return;
       _watchReady(gen);
     } catch (_) {}
+  }
+
+  /// Appends [fn] to the native-op queue. Errors are swallowed per-op so
+  /// the queue itself never breaks.
+  Future<void> _serialized(Future<void> Function() fn) {
+    final run = _tail.then((_) async {
+      try {
+        await fn();
+      } catch (_) {}
+    });
+    _tail = run;
+    return run;
   }
 
   void detach() {
@@ -102,33 +140,16 @@ class AnimatedArtworkSession extends ChangeNotifier {
     if (_refs > 0) return;
     _pauseTimer?.cancel();
     _pauseTimer = Timer(const Duration(milliseconds: 400), () {
-      if (_refs == 0) unawaited(_player?.pause());
+      if (_refs == 0) unawaited(_serialized(() async {
+        try {
+          await _player?.pause();
+        } catch (_) {}
+      }));
     });
-    // Full teardown after 30s unreferenced: drops the second libmpv
-    // instance (8MiB buffer + video decode pipeline), which otherwise
-    // lived forever — the provider is app-scoped so dispose() never
-    // runs. Re-attach recreates on demand (stills cover the gap).
-    _disposeTimer?.cancel();
-    _disposeTimer = Timer(const Duration(seconds: 30), () {
-      if (_refs != 0) return;
-      _teardownPlayer();
-    });
-  }
-
-  void _teardownPlayer() {
-    // Invalidate in-flight open()/watchers.
-    _generation++;
-    _readyTimer?.cancel();
-    _widthSub?.cancel();
-    _unlistenRect();
-    final player = _player;
-    _player = null;
-    _controller = null;
-    _ready = false;
-    _notify();
-    if (player != null) {
-      unawaited(player.stop().whenComplete(player.dispose));
-    }
+    // NOTE: no teardown timer on purpose. The player + texture live for the
+    // whole app run (one idle 8MiB instance, decode paused above). Tearing
+    // down mid-session destroyed the native texture while frames were in
+    // flight and fail-fasted the engine.
   }
 
   void _watchReady(int gen) {
@@ -184,8 +205,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
     _controller = VideoController(
       player,
       configuration: const VideoControllerConfiguration(
-        width: 720,
-        height: 720,
+        // Match the clips (~768px H.264) so the first frames don't force
+        // a texture realloc via SetSize mid-decode.
+        width: 768,
+        height: 768,
         // Software decode only: media_kit defaults hwdec=auto, which on
         // Linux+Mesa tries VA-API dmabuf interop with vo=libmpv and
         // yields zero frames (still never fades; Windows D3D11-copy is
@@ -226,16 +249,29 @@ class AnimatedArtworkSession extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _generation++;
     _pauseTimer?.cancel();
-    _disposeTimer?.cancel();
     _readyTimer?.cancel();
     _widthSub?.cancel();
     _unlistenRect();
+    // App-scoped provider: this only runs at engine shutdown. Still
+    // ordered and serialized — pause, then stop, then dispose — so a
+    // lingering open can never race the native teardown.
     final player = _player;
     _player = null;
     _controller = null;
     if (player != null) {
-      unawaited(player.stop().whenComplete(player.dispose));
+      unawaited(_serialized(() async {
+        try {
+          await player.pause();
+        } catch (_) {}
+        try {
+          await player.stop();
+        } catch (_) {}
+        try {
+          await player.dispose();
+        } catch (_) {}
+      }));
     }
     super.dispose();
   }
