@@ -97,6 +97,53 @@ class ArtworkPalette {
       );
 }
 
+/// How much extra scrim a palette needs (0..1): the mean luminance
+/// of the light end (cream/lightVibrant — where lyrics sit). Below
+/// 0.45 the base alphas suffice; at 0.8+ the stage is near-white and
+/// the scrim deepens toward its maxima. Pure Dart, no image pass.
+double _scrimBoost(ArtworkPalette palette) {
+  final light = (palette.cream.computeLuminance() +
+          palette.lightVibrant.computeLuminance()) /
+      2;
+  return ((light - 0.45) / 0.35).clamp(0.0, 1.0);
+}
+
+/// Directional contrast scrim shared by every ambient stage
+/// (cinematic aura, solid-mode static gradient): tints the glass the
+/// title, lyrics, and top bar sit on toward the theme background.
+/// Alphas deepen with [boost] so light covers stay readable without
+/// dulling dark ones. Must wrap both paths — solid mode skips the
+/// mesh painter (and its baked-in scrim) entirely, which is why text
+/// used to vanish there while automatic looked fine.
+class _StageScrim extends StatelessWidget {
+  final bool isDark;
+  final double boost;
+  const _StageScrim({required this.isDark, this.boost = 0});
+
+  @override
+  Widget build(BuildContext context) {
+    final b = boost.clamp(0.0, 1.0);
+    final topAlpha = (isDark ? 0.35 : 0.40) + b * 0.25;
+    final bottomAlpha = (isDark ? 0.60 : 0.65) + b * 0.28;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            (isDark ? Colors.black : Colors.white)
+                .withValues(alpha: topAlpha),
+            (isDark
+                    ? WaveColors.background
+                    : WaveColors.lightBackground)
+                .withValues(alpha: bottomAlpha),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 double _colorDistance(Color a, Color b) {
   final ah = HSLColor.fromColor(a);
   final bh = HSLColor.fromColor(b);
@@ -517,25 +564,40 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
     }
 
     if (reduceTransparency || !blurEnabled) {
+      // Solid / high-contrast path: the static palette gradient gets
+      // the same contrast scrim as the cinematic aura. Without it a
+      // light cover parks cream/lightVibrant under white theme text
+      // (Now Playing lyrics) with nothing to read against — the reason
+      // solid mode looked "broken" next to automatic.
       return AnimatedOpacity(
         duration: WaveMotion.normal,
         opacity: visualizerEnabled ? 1.0 : 0.0,
         child: IgnorePointer(
-          child: Container(
-            height: widget.isFullBleed ? null : widget.height,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  _targetPalette.shadow,
-                  _targetPalette.darkMuted,
-                  _targetPalette.cream,
-                  _targetPalette.lightVibrant,
-                ],
-                stops: const [0.0, 0.28, 0.68, 1.0],
+          child: Stack(
+            children: [
+              Container(
+                height: widget.isFullBleed ? null : widget.height,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      _targetPalette.shadow,
+                      _targetPalette.darkMuted,
+                      _targetPalette.cream,
+                      _targetPalette.lightVibrant,
+                    ],
+                    stops: const [0.0, 0.28, 0.68, 1.0],
+                  ),
+                ),
               ),
-            ),
+              Positioned.fill(
+                child: _StageScrim(
+                  isDark: isDark,
+                  boost: _scrimBoost(_targetPalette),
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -581,30 +643,16 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
                 spin: _motionController,
                 counterSpin: _driftController,
               ),
-              // Contrast guarantee: the aura paints the cover's real
-              // colors at high opacity, so a light cover yields a light
-              // stage and theme text (white in dark mode) vanishes —
-              // and vice versa on pearl. This directional scrim tints
-              // the glass the title, lyrics, and top bar sit on toward
-              // the theme background — same role as the scrim baked
-              // into the non-cinematic mesh painter.
+              // Contrast guarantee (shared _StageScrim): the aura
+              // paints the cover's real colors at high opacity, so a
+              // light cover yields a light stage and theme text
+              // vanishes — same role as the scrim baked into the
+              // non-cinematic mesh painter.
               Positioned.fill(
                 child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          (isDark ? Colors.black : Colors.white)
-                              .withValues(alpha: isDark ? 0.35 : 0.40),
-                          (isDark
-                                  ? WaveColors.background
-                                  : WaveColors.lightBackground)
-                              .withValues(alpha: isDark ? 0.60 : 0.65),
-                        ],
-                      ),
-                    ),
+                  child: _StageScrim(
+                    isDark: isDark,
+                    boost: _scrimBoost(_targetPalette),
                   ),
                 ),
               ),
