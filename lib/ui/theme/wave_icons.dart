@@ -77,4 +77,8 @@ class WaveIcons {
   static const IconData miniPlayer = FluentIcons.mini_expand;
   static const IconData device = FluentIcons.speakers;
   static const IconData streamPath = FluentIcons.equalizer;
+
+  // Community (Telegram paper-plane, Discord chat-bubble metaphors).
+  static const IconData telegram = FluentIcons.send;
+  static const IconData discord = FluentIcons.chat;
 }

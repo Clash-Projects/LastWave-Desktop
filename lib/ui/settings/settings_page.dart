@@ -1692,6 +1692,31 @@ class _About extends StatelessWidget {
                   ],
                 ),
               ),
+              Button(
+                onPressed: () =>
+                    _open('https://t.me/clashprojects'),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.send, size: 14),
+                    SizedBox(width: 6),
+                    Text('Telegram community'),
+                  ],
+                ),
+              ),
+              Button(
+                onPressed: () => _open(
+                  'https://discord.com/invite/TMCEPSUNk2',
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.chat, size: 14),
+                    SizedBox(width: 6),
+                    Text('Discord server'),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
@@ -1862,6 +1887,10 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
 
   @override
   Widget build(BuildContext context) {
+    // Subscribe to auth transitions so the status line below flips
+    // right after save/clear: Prefs itself never notifies (see
+    // welcome _AuthPanel — same pattern).
+    ref.watch(authRepositoryProvider.select((s) => s.status));
     final prefs = ref.watch(prefsProvider);
     _key ??= TextEditingController(text: prefs.lastFmApiKey);
     _secret ??= TextEditingController(text: prefs.lastFmApiSecret);

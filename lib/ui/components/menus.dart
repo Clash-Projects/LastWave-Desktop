@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/track_actions.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/home/home_providers.dart';
@@ -192,8 +193,12 @@ List<WaveMenuEntry> waveTrackMenuItems({
     WaveMenuAction(
       leading: const Icon(FluentIcons.album, size: 15),
       label: 'Go to album',
-      onPressed: () => ref.context.go(
-          '/search?q=${Uri.encodeComponent(track.album.isNotEmpty ? track.album : title)}'),
+      onPressed: () => goToAlbumOfTrack(
+        ref,
+        title: title,
+        artist: artist,
+        album: track.album,
+      ),
     ),
   );
   items.add(

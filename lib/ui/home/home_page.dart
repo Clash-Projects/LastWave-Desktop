@@ -1133,58 +1133,66 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: widget.source),
-        child: SizedBox(
-          width: 140,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Stack(
-                children: [
-                  WaveArtwork(
-                    url: widget.track.artworkUrl,
-                    videoId: widget.track.videoId,
-                    size: 140,
-                    radius: 6,
-                    title: widget.track.name,
-                    artist: widget.track.artist,
-                    label: widget.track.name,
-                  ),
-                  if (_hover)
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.45),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Icon(WaveIcons.play,
-                            size: 26, color: Colors.white),
-                      ),
+    return WaveContextMenu(
+      items: () => waveTrackMenuItems(
+        ref: ref,
+        title: widget.track.name,
+        artist: widget.track.artist,
+        artworkUrl: widget.track.artworkUrl,
+        videoId: widget.track.videoId,
+      ),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: () => playGenerated(ref, context, widget.track,
+              sourceLabel: widget.source),
+          child: SizedBox(
+            width: 140,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    WaveArtwork(
+                      url: widget.track.artworkUrl,
+                      size: 140,
+                      radius: 6,
+                      title: widget.track.name,
+                      artist: widget.track.artist,
+                      label: widget.track.name,
                     ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(widget.track.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WaveType.trackTitle.copyWith(fontSize: 12)),
-              Text(widget.track.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WaveType.meta.copyWith(fontSize: 11)),
-              Text('Recently played',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WaveType.meta.copyWith(
-                    fontSize: 10.5,
-                    color: waveTextTertiary(context),
-                  )),
-            ],
+                    if (_hover)
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.45),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Icon(WaveIcons.play,
+                              size: 26, color: Colors.white),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(widget.track.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.trackTitle.copyWith(fontSize: 12)),
+                Text(widget.track.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.meta.copyWith(fontSize: 11)),
+                Text('Recently played',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.meta.copyWith(
+                      fontSize: 10.5,
+                      color: waveTextTertiary(context),
+                    )),
+              ],
+            ),
           ),
         ),
       ),
@@ -1253,14 +1261,22 @@ class _MixCardState extends ConsumerState<_MixCard> {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: widget.title),
-        child: SizedBox(
-          width: 220,
+    return WaveContextMenu(
+      items: () => waveTrackMenuItems(
+        ref: ref,
+        title: widget.track.name,
+        artist: widget.track.artist,
+        artworkUrl: widget.track.artworkUrl,
+        videoId: widget.track.videoId,
+      ),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: () => playGenerated(ref, context, widget.track,
+              sourceLabel: widget.title),
+          child: SizedBox(
+            width: 220,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1352,6 +1368,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
