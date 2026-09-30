@@ -89,7 +89,7 @@ class YouTubeMusicTrack {
   });
 }
 
-enum YouTubeEntityKind { artist, album }
+enum YouTubeEntityKind { artist, album, playlist, mix }
 
 class YouTubeMusicEntity {
   final YouTubeEntityKind kind;
@@ -109,6 +109,39 @@ class YouTubeMusicEntity {
     this.playlistId = '',
     this.artworkUrl = '',
   });
+}
+
+/// One titled shelf from the YouTube Music home browse.
+///
+/// YTM home mixes two shapes under a single flat section list:
+/// `musicShelfRenderer` holds song rows, `musicCarouselShelfRenderer`
+/// holds two-row cards (albums, playlists, mixes). They are kept in
+/// separate lists rather than one `items` list so the UI can render
+/// rows vs cards without re-sniffing the payload, and so a shelf that
+/// yields neither is dropped instead of rendering an empty header.
+class YtHomeShelf {
+  final String title;
+
+  /// Secondary line when the header carries one (carousel shelves
+  /// often do not).
+  final String subtitle;
+
+  /// Song rows - populated for `musicShelfRenderer`.
+  final List<YouTubeMusicTrack> tracks;
+
+  /// Two-row cards - populated for `musicCarouselShelfRenderer`.
+  final List<YouTubeMusicEntity> entities;
+
+  const YtHomeShelf({
+    required this.title,
+    this.subtitle = '',
+    this.tracks = const [],
+    this.entities = const [],
+  });
+
+  bool get isTrackShelf => tracks.isNotEmpty;
+  bool get isCardShelf => entities.isNotEmpty;
+  bool get isRenderable => isTrackShelf || isCardShelf;
 }
 
 class YouTubePlaylistResult {
@@ -2037,6 +2070,180 @@ class InnerTubeMusicApi {
 
   // -- browse ------------------------------------------------------------------------
 
+  /// Titled shelves from the YouTube Music home browse.
+  ///
+  /// Returns an empty list when signed out and the server declines, or
+  /// on any failure - callers render their normal state rather than an
+  /// error, matching the other account surfaces.
+  ///
+  /// [authenticated] is opt-out rather than opt-in because the whole
+  /// point of the home browse is personalization: YTM only returns
+  /// "For you" style shelves when the account jar rides along. Signed
+  /// out, `_post` drops the cookies and YouTube serves its anonymous
+  /// shelves, which is a useful fallback rather than an error.
+  Future<List<YtHomeShelf>> fetchHomeShelves({
+    int maxShelves = 8,
+    int maxItemsPerShelf = 12,
+    bool authenticated = true,
+  }) async {
+    try {
+      await _ensureConfig();
+      final root = await _post(
+        '$musicApi/browse?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'browseId': homeBrowseId,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+        authenticated: authenticated,
+      );
+      return parseHomeShelves(
+        root,
+        maxShelves: maxShelves,
+        maxItemsPerShelf: maxItemsPerShelf,
+      );
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Browse-id prefix → entity kind.
+  ///
+  /// YouTube Music encodes the entity type in the browse id: `UC` is an
+  /// artist channel and `MPRE` an album, but playlists and radios are
+  /// usually wrapped in a `VL` prefix around the bare form - verified
+  /// against a live home browse, where the same carousel carried both
+  /// `VLPL...` (playlist) and `VLRDCLAK...` (radio). Matching the bare
+  /// form is what keeps a mix from being mislabelled a playlist.
+  ///
+  /// `browseAlbums` only ever sees `MPRE` and hardcodes the kind; the
+  /// home browse returns all of them, so it derives it here.
+  static YouTubeEntityKind kindForBrowseId(String browseId) {
+    if (browseId.startsWith('UC')) return YouTubeEntityKind.artist;
+    final bare =
+        browseId.startsWith('VL') ? browseId.substring(2) : browseId;
+    if (bare.startsWith('PL')) return YouTubeEntityKind.playlist;
+    if (bare.startsWith('RD')) return YouTubeEntityKind.mix;
+    return YouTubeEntityKind.album;
+  }
+
+  /// Parse a home-browse response into titled shelves. Pure - no
+  /// network - so it is unit tested over a captured fixture.
+  ///
+  /// Anonymous responses wrap sections in
+  /// `singleColumnBrowseResultsRenderer`; the tabbed account variant
+  /// uses `twoColumnBrowseResultsRenderer`, so the section list is
+  /// located by key rather than by walking a fixed path.
+  List<YtHomeShelf> parseHomeShelves(
+    Map<String, dynamic> root, {
+    int maxShelves = 8,
+    int maxItemsPerShelf = 12,
+  }) {
+    if (maxShelves <= 0) return const [];
+    final shelves = <YtHomeShelf>[];
+    final sectionLists = <Map<String, dynamic>>[];
+    _collectObjects(root, 'sectionListRenderer', sectionLists);
+    for (final list in sectionLists) {
+      final contents = list['contents'];
+      if (contents is! List) continue;
+      for (final section in contents) {
+        if (section is! Map<String, dynamic>) continue;
+        final shelf = _parseHomeSection(
+          section,
+          maxItemsPerShelf: maxItemsPerShelf,
+        );
+        // A shelf that yielded no rows or cards would render as a bare
+        // header - drop it instead.
+        if (shelf == null || !shelf.isRenderable) continue;
+        shelves.add(shelf);
+        if (shelves.length >= maxShelves) return shelves;
+      }
+    }
+    return shelves;
+  }
+
+  YtHomeShelf? _parseHomeSection(
+    Map<String, dynamic> section, {
+    required int maxItemsPerShelf,
+  }) {
+    final songShelf = section['musicShelfRenderer'];
+    if (songShelf is Map<String, dynamic>) {
+      final tracks = _parseSongRenderers(songShelf)
+          .take(maxItemsPerShelf)
+          .toList();
+      if (tracks.isEmpty) return null;
+      return YtHomeShelf(
+        title: _homeShelfTitle(songShelf['title']) ?? 'Songs',
+        tracks: tracks,
+      );
+    }
+
+    final carousel = section['musicCarouselShelfRenderer'];
+    if (carousel is Map<String, dynamic>) {
+      final header = carousel['header'];
+      String? title;
+      String subtitle = '';
+      if (header is Map<String, dynamic>) {
+        for (final key in const [
+          'musicCarouselShelfBasicHeaderRenderer',
+          'musicDetailHeaderRenderer',
+        ]) {
+          final h = header[key];
+          if (h is! Map<String, dynamic>) continue;
+          title ??= _homeShelfTitle(h['title']);
+          if (subtitle.isEmpty) {
+            subtitle = _homeShelfTitle(h['straplineTextOne']) ??
+                _homeShelfTitle(h['straplineTextTwo']) ??
+                '';
+          }
+        }
+      }
+      final contents = carousel['contents'];
+      final entities = <YouTubeMusicEntity>[];
+      if (contents is List) {
+        for (final item in contents) {
+          if (item is! Map<String, dynamic>) continue;
+          final twoRow = item['musicTwoRowItemRenderer'];
+          if (twoRow is! Map<String, dynamic>) continue;
+          final entity = _parseTwoRowEntity(
+            twoRow,
+            kind: kindForBrowseId(
+              (((twoRow['navigationEndpoint'] as Map?)?['browseEndpoint']
+                          as Map?)?['browseId'])
+                      ?.toString() ??
+                  '',
+            ),
+          );
+          if (entity != null) entities.add(entity);
+          if (entities.length >= maxItemsPerShelf) break;
+        }
+      }
+      if (entities.isEmpty) return null;
+      return YtHomeShelf(
+        title: title ?? '',
+        subtitle: subtitle,
+        entities: entities,
+      );
+    }
+
+    // `musicTastebuilderShelfRenderer` (the "Made for you" picker) and
+    // ad slots are not shelves we can render - skipped, not guessed at.
+    return null;
+  }
+
+  /// Shelf/header title, accepting both `{text}` and `{runs:[{text}]}`.
+  String? _homeShelfTitle(Object? node) {
+    if (node is! Map<String, dynamic>) return null;
+    final text = node['text']?.toString().trim() ?? '';
+    if (text.isNotEmpty) return text;
+    final runs = _runsText(node['runs']);
+    if (runs == null) return null;
+    final trimmed = runs.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
   Future<List<YouTubeMusicTrack>> browseSongs(
     String browseId, {
     String? params,
@@ -2057,6 +2264,11 @@ class InnerTubeMusicApi {
       clientName: 'WEB_REMIX',
       clientVersion: _clientVersion,
       userAgent: webUserAgent,
+      // Account surface when connected, exactly as `browseAlbums`
+      // already does: charts, home and album-track browse all
+      // personalize server-side when the jar is present, and `_post`
+      // drops the cookies when disconnected so this is fail-open.
+      authenticated: true,
     );
     final result = await _collectBrowseSongPages(root, limit);
     return result.tracks;
@@ -2083,6 +2295,8 @@ class InnerTubeMusicApi {
         clientName: 'WEB_REMIX',
         clientVersion: _clientVersion,
         userAgent: webUserAgent,
+        // Same account surface as `browseSongs` / `browseAlbums`.
+        authenticated: true,
       );
     } catch (_) {
       return null;
@@ -2893,8 +3107,17 @@ class InnerTubeMusicApi {
     return out.take(limit).toList();
   }
 
+  /// Parse one `musicTwoRowItemRenderer`.
+  ///
+  /// [kind] defaults to [YouTubeEntityKind.album] because every caller
+  /// outside the home browse comes from a browse id that is already
+  /// known to be an album grid. The home shelves pass the kind derived
+  /// from the browse id instead, since they mix albums, playlists and
+  /// mixes in one carousel.
   YouTubeMusicEntity? _parseTwoRowEntity(
-      Map<String, dynamic> r) {
+    Map<String, dynamic> r, {
+    YouTubeEntityKind kind = YouTubeEntityKind.album,
+  }) {
     final titleObj = r['title'];
     String name = '';
     if (titleObj is Map) {
@@ -2926,7 +3149,7 @@ class InnerTubeMusicApi {
     if (name.isEmpty) return null;
     if (browseId.isEmpty && playlistId.isEmpty) return null;
     return YouTubeMusicEntity(
-      kind: YouTubeEntityKind.album,
+      kind: kind,
       name: name,
       subtitle: subtitle,
       browseId: browseId,

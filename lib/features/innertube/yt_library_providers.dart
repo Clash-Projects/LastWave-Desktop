@@ -44,6 +44,20 @@ final ytAccountProvider = FutureProvider<YtAccount?>((ref) async {
       .fetchAccountInfo(pageId: conn.activePageId);
 });
 
+/// Titled shelves from the YouTube Music home browse.
+///
+/// Only fetched when connected: the whole point of the home browse is
+/// the personalized "For you" surface, and an anonymous call returns
+/// generic trending shelves that would just duplicate Discover. Empty
+/// on any failure, so the Home page simply omits the section.
+final ytHomeShelvesProvider =
+    FutureProvider<List<YtHomeShelf>>((ref) async {
+  if (!ref.watch(ytConnectionProvider).connected) {
+    return const [];
+  }
+  return ref.watch(innerTubeProvider).fetchHomeShelves();
+});
+
 
 
 /// Full track list for one YouTube Music playlist (own, liked, or

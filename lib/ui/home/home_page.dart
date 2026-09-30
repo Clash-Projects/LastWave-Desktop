@@ -12,10 +12,13 @@ import '../../core/artwork/official_artwork_service.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/home/home_providers.dart';
+import '../../features/innertube/innertube_api.dart';
+import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
 import '../components/menus.dart';
+import '../components/shelf.dart';
 import '../components/states.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -252,6 +255,63 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ),
       ));
+    }
+
+    // YouTube Music's own home shelves, straight from the account. The
+    // feed above is scored from Last.fm history, so a YouTube-only
+    // listener has nothing in it at all - these are the shelves
+    // music.youtube.com itself would show. Empty (section omitted)
+    // when signed out or on any failure.
+    final ytShelves = ref.watch(ytHomeShelvesProvider).valueOrNull ?? const [];
+    for (final shelf in ytShelves) {
+      if (!shelf.isRenderable || shelf.title.isEmpty) continue;
+      gap(26);
+      slivers.add(SliverPadding(
+        padding: EdgeInsets.only(left: side, right: side),
+        sliver: SliverToBoxAdapter(
+          child: WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              kicker: 'YouTube Music',
+              title: shelf.title,
+              count: shelf.isTrackShelf
+                  ? shelf.tracks.length
+                  : shelf.entities.length,
+            ),
+          ),
+        ),
+      ));
+      if (shelf.isTrackShelf) {
+        final rows = shelf.tracks
+            .map((t) => GeneratedTrack(
+                  name: t.title,
+                  artist: t.artist,
+                  album: t.album,
+                  artworkUrl: t.artworkUrl,
+                  videoId: t.videoId,
+                  durationSeconds: t.durationSeconds,
+                ))
+            .toList();
+        slivers.add(SliverPadding(
+          padding: EdgeInsets.only(left: side, right: side, top: 6),
+          sliver: SuperSliverList.builder(
+            itemCount: rows.length,
+            itemBuilder: (context, i) => WaveEntrance(
+              index: i,
+              rise: 10,
+              child: _FreshRow(track: rows[i]),
+            ),
+          ),
+        ));
+      } else {
+        slivers.add(SliverPadding(
+          padding: EdgeInsets.only(left: side, right: side, top: 10),
+          sliver: SliverToBoxAdapter(
+            child: _YtShelfRow(entities: shelf.entities),
+          ),
+        ));
+      }
     }
 
     if (data.quickPicks.isNotEmpty) {
@@ -602,6 +662,58 @@ class _Header extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Horizontal card rail for a YouTube Music home carousel.
+///
+/// Cards navigate rather than play: the entity is a container (album,
+/// playlist, radio) whose tracks are only known after another browse,
+/// so tapping opens its detail page - the same route the equivalent
+/// shelf on music.youtube.com takes.
+class _YtShelfRow extends StatelessWidget {
+  final List<YouTubeMusicEntity> entities;
+
+  const _YtShelfRow({required this.entities});
+
+  static void _open(BuildContext context, YouTubeMusicEntity e) {
+    final id = e.browseId.isNotEmpty ? e.browseId : e.playlistId;
+    if (id.isEmpty) return;
+    switch (e.kind) {
+      case YouTubeEntityKind.artist:
+        context.go('/artist/${Uri.encodeComponent(e.name)}');
+      case YouTubeEntityKind.album:
+        context.go('/album/${Uri.encodeComponent(id)}');
+      case YouTubeEntityKind.playlist:
+      case YouTubeEntityKind.mix:
+        context.go('/ytplaylist/${Uri.encodeComponent(id)}');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 216,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.zero,
+        itemCount: entities.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final e = entities[i];
+          return SizedBox(
+            width: 160,
+            child: WaveMediaCard(
+              title: e.name,
+              subtitle: e.subtitle,
+              titleFallback: e.name,
+              artworkUrl: e.artworkUrl,
+              onTap: () => _open(context, e),
+            ),
+          );
+        },
+      ),
     );
   }
 }
