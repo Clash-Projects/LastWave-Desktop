@@ -178,18 +178,40 @@ jobs:
     needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
-      - name: Download release artifacts
+      # NOTE: download-artifact `pattern` splits on newlines, NOT
+      # commas — a comma-separated pattern matches nothing, dist stays
+      # empty, and the release publishes with zero binaries. So each
+      # tag artifact is downloaded by exact name (a missing artifact
+      # fails its step loudly instead of publishing an empty release).
+      # Assets ride the release as raw files: .exe, .deb, .rpm
+      # (macOS stays a zip — a bare .app bundle isn't shippable).
+      - name: Download Windows installer
         uses: actions/download-artifact@v4
         with:
-          pattern: LastWave-Windows-Installer,LastWave-Linux-Packages,LastWave-Desktop-macOS
+          name: LastWave-Windows-Installer
           path: dist
-          merge-multiple: true
+
+      - name: Download Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: LastWave-Linux-Packages
+          path: dist
+
+      - name: Download macOS archive
+        uses: actions/download-artifact@v4
+        with:
+          name: LastWave-Desktop-macOS
+          path: dist
+
+      - name: List release files
+        run: find dist -type f
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/**/*
           generate_release_notes: true
+          fail_on_unmatched_files: true
 
   # macOS ships as a plain zip archive: no installer (unsigned macOS
   # zips Gatekeeper-block on other Macs — see release notes — but the
