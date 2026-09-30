@@ -77,9 +77,11 @@ dependencies:
   meta: ^1.19.0
   flutter_lyric: ^3.0.7
   adaptive_aura: 0.0.4
-  # Discord Rich Presence over local IPC (desktop only). Note: GPL-3.0 —
-  # see lib/features/presence/discord_presence_service.dart.
-  dart_discord_presence: ^1.2.0
+  # Discord Rich Presence transport (hand-rolled named-pipe IPC in
+  # lib/features/presence/discord_ipc.dart). win32/ffi are direct deps
+  # because the transport imports them; versions match the resolved tree.
+  win32: ^6.3.0
+  ffi: ^2.1.0
 
 dev_dependencies:
   flutter_test:

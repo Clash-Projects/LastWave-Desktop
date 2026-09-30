@@ -1,12 +1,12 @@
 import 'dart:async';
 
-import 'package:dart_discord_presence/dart_discord_presence.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../player/playback_service.dart';
 import '../player/player_state.dart';
+import 'discord_ipc.dart';
 
 /// Discord Rich Presence ("Listening to LastWave") over local IPC.
 ///
@@ -16,14 +16,14 @@ import '../player/player_state.dart';
 /// icons; until then the track's own artwork URL is used as the large
 /// image and missing keys are simply omitted by Discord.
 ///
+/// Transport is a hand-rolled named-pipe client ([DiscordIpc], win32/ffi
+/// only) — no third-party presence package, so no version conflicts and
+/// no license surprises.
+///
 /// Behaviour: pushes on track/play-state change (throttled), silent when
 /// Discord is closed, pipe missing, or rate-limited. Progress-bar
 /// refreshes are throttled (track/play-state change or 15s elapsed) so
 /// position ticks don't spam the IPC socket.
-///
-/// NOTE on licensing: `dart_discord_presence` is GPL-3.0. If LastWave ever
-/// ships closed-source, replace this transport with a hand-rolled named-
-/// pipe client; the mapping logic below stays the same.
 class DiscordPresenceService {
   /// Application ID from the Discord Developer Portal (General Information).
   /// Public by design — safe to ship in source (it is not a secret; only
@@ -35,9 +35,7 @@ class DiscordPresenceService {
   static const _retryInterval = Duration(seconds: 60);
 
   final Ref _ref;
-  DiscordRPC? _rpc;
-  StreamSubscription? _discSub;
-  StreamSubscription? _errSub;
+  DiscordIpc? _ipc;
   bool _disposed = false;
   bool _connecting = false;
   DateTime? _lastAttempt;
@@ -69,7 +67,9 @@ class DiscordPresenceService {
     } catch (_) {
       return;
     }
-    await onSnapshot(snap);
+    final current = snap;
+    if (current == null) return;
+    await onSnapshot(current);
   }
 
   Future<void> onSnapshot(PlayerSnapshot snap) async {
@@ -81,7 +81,7 @@ class DiscordPresenceService {
     if (_disposed) return;
     final snap = _lastSnap;
     // Disabled, unconfigured, or unsupported: clear anything visible.
-    if (!_enabled || !_configured || !DiscordRPC.isAvailable) {
+    if (!_enabled || !_configured || !DiscordIpc.isSupported) {
       await _clearQuiet();
       return;
     }
@@ -98,8 +98,18 @@ class DiscordPresenceService {
       return; // Position ticks must not spam IPC.
     }
     if (!await _ensureConnected()) return;
+    final ipc = _ipc;
+    if (ipc == null) return;
     try {
-      await _rpc?.setPresence(_build(track, snap, now));
+      if (!ipc.setActivity(_build(track, snap, now))) {
+        // Pipe died mid-write: drop it so the next snapshot reconnects.
+        try {
+          ipc.close();
+        } catch (_) {}
+        _ipc = null;
+        _lastAttempt = DateTime.now();
+        return;
+      }
       _lastKey = key;
       _lastPush = now;
     } catch (_) {
@@ -108,17 +118,23 @@ class DiscordPresenceService {
     }
   }
 
-  DiscordPresence _build(PlayableTrack track, PlayerSnapshot snap, DateTime now) {
+  /// Activity payload for SET_ACTIVITY (type 2 = listening).
+  Map<String, Object?> _build(
+      PlayableTrack track, PlayerSnapshot snap, DateTime now) {
     final title = _clip(track.title);
     final artist = track.artist.trim().isEmpty
         ? (track.album.trim().isEmpty ? 'LastWave' : _clip(track.album))
         : _clip(track.artist);
-    DiscordTimestamps? ts;
+    Map<String, Object?>? ts;
     if (snap.isPlaying && snap.duration > Duration.zero) {
       final pos =
           snap.position > snap.duration ? snap.duration : snap.position;
       final end = now.add(snap.duration - pos);
-      ts = DiscordTimestamps.range(end.subtract(snap.duration), end);
+      final start = end.subtract(snap.duration);
+      ts = {
+        'start': start.millisecondsSinceEpoch ~/ 1000,
+        'end': end.millisecondsSinceEpoch ~/ 1000,
+      };
     }
     final quality = _qualityLine(snap);
     final rawState = quality.isEmpty ? artist : '$artist\n$quality';
@@ -134,31 +150,31 @@ class DiscordPresenceService {
     // always opens the repo.
     const repoUrl = 'https://github.com/Clash-Projects/LastWave-Desktop';
     final vid = track.videoId.trim();
-    return DiscordPresence(
-      type: DiscordActivityType.listening,
-      details: title,
-      state: state,
-      timestamps: ts,
-      largeAsset: artIsUrl
-          ? DiscordAsset(
-              url: art,
-              text: track.album.trim().isEmpty ? title : _clip(track.album),
-            )
-          : DiscordAsset(key: 'logo', text: 'LastWave'),
-      smallAsset: snap.isPlaying
-          ? DiscordAsset(key: 'play', text: 'Playing')
-          : DiscordAsset(key: 'pause', text: 'Paused'),
-      buttons: [
-        DiscordButton(
-          label: 'Listen On LastWave',
-          url: vid.isNotEmpty
+    return {
+      'type': 2,
+      'name': 'LastWave',
+      'details': title,
+      'state': state,
+      if (ts != null) 'timestamps': ts,
+      'assets': {
+        if (artIsUrl) 'large_image': art,
+        if (!artIsUrl) 'large_image': 'logo',
+        'large_text':
+            track.album.trim().isEmpty ? title : _clip(track.album),
+        'small_image': snap.isPlaying ? 'play' : 'pause',
+        'small_text': snap.isPlaying ? 'Playing' : 'Paused',
+      },
+      'buttons': [
+        {
+          'label': 'Listen On LastWave',
+          'url': vid.isNotEmpty
               ? 'https://www.youtube.com/watch?v=$vid'
               : '$repoUrl/releases',
-        ),
-        const DiscordButton(label: 'Get LastWave', url: repoUrl),
+        },
+        {'label': 'Get LastWave', 'url': repoUrl},
       ],
-      instance: true,
-    );
+      'instance': true,
+    };
   }
 
   /// "Hi-Res Lossless · FLAC · 4608 kbps · 24-bit · 96 kHz · Stereo".
@@ -205,31 +221,26 @@ class DiscordPresenceService {
 
   /// Connect if needed. Returns true when ready to send. Never throws.
   Future<bool> _ensureConnected() async {
+    final ipc = _ipc;
+    if (ipc != null && ipc.isOpen) return true;
+    if (_connecting) return false;
+    final last = _lastAttempt;
+    if (last != null &&
+        DateTime.now().difference(last) < _retryInterval &&
+        _ipc != null) {
+      return false; // Discord closed recently; back off quietly.
+    }
+    _connecting = true;
+    _lastAttempt = DateTime.now();
     try {
-      final rpc = _rpc;
-      if (rpc != null && rpc.isConnected) return true;
-      if (_connecting) return false;
-      final last = _lastAttempt;
-      if (last != null &&
-          DateTime.now().difference(last) < _retryInterval &&
-          _rpc != null) {
-        return false; // Discord closed recently; back off quietly.
-      }
-      _connecting = true;
-      _lastAttempt = DateTime.now();
       try {
-        await _rpc?.dispose();
+        _ipc?.close();
       } catch (_) {}
-      await _discSub?.cancel();
-      await _errSub?.cancel();
-      final fresh = DiscordRPC();
-      _discSub = fresh.onDisconnected.listen((_) {
-        _lastKey = ''; // Force a full repush on next snapshot.
-      });
-      _errSub = fresh.onError.listen((_) {});
-      await fresh.initialize(discordApplicationId);
-      _rpc = fresh;
-      return fresh.isConnected;
+      _ipc = null;
+      final fresh = DiscordIpc.connect(discordApplicationId);
+      if (fresh == null) return false;
+      _ipc = fresh;
+      return true;
     } catch (_) {
       return false;
     } finally {
@@ -239,10 +250,10 @@ class DiscordPresenceService {
 
   Future<void> _clearQuiet() async {
     _lastKey = '';
-    final rpc = _rpc;
-    if (rpc == null) return;
+    final ipc = _ipc;
+    if (ipc == null) return;
     try {
-      if (rpc.isConnected) await rpc.clearPresence();
+      ipc.clearActivity();
     } catch (_) {}
   }
 
@@ -254,15 +265,9 @@ class DiscordPresenceService {
       await _clearQuiet();
     } catch (_) {}
     try {
-      await _discSub?.cancel();
+      _ipc?.close();
     } catch (_) {}
-    try {
-      await _errSub?.cancel();
-    } catch (_) {}
-    try {
-      await _rpc?.dispose();
-    } catch (_) {}
-    _rpc = null;
+    _ipc = null;
   }
 
   void dispose() {

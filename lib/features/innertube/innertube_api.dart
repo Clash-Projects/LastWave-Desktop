@@ -15,6 +15,7 @@ import '../../core/network/lastfm_crypto.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/secure_store.dart';
 import '../search/shared_providers.dart';
+import '../player/play_diag.dart';
 import 'potoken_engine.dart';
 import 'signature_decipher.dart';
 
