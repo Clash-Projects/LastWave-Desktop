@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/wave_icons.dart';
 
+import '../../app/track_actions.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/player/playback_service.dart';
@@ -374,10 +375,12 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
       WaveMenuAction(
         leading: const Icon(WaveIcons.albums, size: 15),
         label: 'Go to album',
-        onPressed: t.album.isEmpty
-            ? null
-            : () => context.go(
-                '/search?q=${Uri.encodeComponent(t.album)}'),
+        onPressed: () => goToAlbumOfTrack(
+          ref,
+          title: t.title,
+          artist: t.artist,
+          album: t.album,
+        ),
       ),
       WaveMenuAction(
         leading: const Icon(WaveIcons.artists, size: 15),

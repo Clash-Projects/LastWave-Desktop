@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../core/audio/stream_models.dart';
 import '../core/storage/prefs.dart';
 import '../features/feed/feed_repository.dart';
+import '../features/innertube/album_match.dart';
 import '../features/innertube/innertube_api.dart';
 import '../features/player/playback_service.dart';
 
@@ -77,6 +79,64 @@ List<GeneratedTrack> mergeYtTracks(
         'mergeYtTracks: local=${local.length} yt=${yt.length} added=$added');
   }
   return out;
+}
+
+/// Open the specific album behind a track (`/album/:browseId`).
+///
+/// Resolution: track album text, else a YTM match backfill (search rows
+/// carry the MPRE album badge), then album search +
+/// [pickBestAlbumMatch] (rejects the commentary/karaoke/tribute
+/// entities YTM ranks by popularity). Any miss/empty/timeout falls
+/// back to the album/title search page — today's behavior — so the tap
+/// always lands somewhere sensible, never dead.
+Future<void> goToAlbumOfTrack(
+  WidgetRef ref, {
+  required String title,
+  required String artist,
+  String album = '',
+}) async {
+  final context = ref.context;
+  void fallback() {
+    if (!context.mounted) return;
+    final q = album.isNotEmpty ? album : title;
+    context.go('/search?q=${Uri.encodeComponent(q)}');
+  }
+
+  try {
+    var albumName = album.trim();
+    if (albumName.isEmpty) {
+      try {
+        final match = await ref
+            .read(innerTubeProvider)
+            .findBestMatchOrNull(title, artist)
+            .timeout(const Duration(seconds: 8));
+        albumName = match?.album.trim() ?? '';
+      } catch (_) {}
+    }
+    if (albumName.isEmpty) {
+      fallback();
+      return;
+    }
+    final results = await ref
+        .read(innerTubeProvider)
+        .searchAlbums('$artist $albumName', limit: 15)
+        .timeout(const Duration(seconds: 8));
+    final browseId = pickBestAlbumMatch(
+      results,
+      title: albumName,
+      artist: artist,
+    )?.browseId ?? '';
+    if (browseId.isEmpty) {
+      fallback();
+      return;
+    }
+    if (!context.mounted) return;
+    context.go('/album/${Uri.encodeComponent(browseId)}');
+  } catch (_) {
+    try {
+      fallback();
+    } catch (_) {}
+  }
 }
 
 PlayableTrack playableFromGenerated(GeneratedTrack t) =>
