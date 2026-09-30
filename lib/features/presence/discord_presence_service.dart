@@ -16,9 +16,9 @@ import 'discord_ipc.dart';
 /// icons; until then the track's own artwork URL is used as the large
 /// image and missing keys are simply omitted by Discord.
 ///
-/// Transport is a hand-rolled named-pipe client ([DiscordIpc], win32/ffi
-/// only) — no third-party presence package, so no version conflicts and
-/// no license surprises.
+/// Transport is a hand-rolled IPC client ([DiscordIpc]): Windows named
+/// pipes (win32/ffi) or Unix domain sockets (dart:io) — no third-party
+/// presence package, so no version conflicts and no license surprises.
 ///
 /// Behaviour: pushes on track/play-state change (throttled), silent when
 /// Discord is closed, pipe missing, or rate-limited. Progress-bar
@@ -151,7 +151,7 @@ class DiscordPresenceService {
       };
     }
     final quality = _qualityLine(snap);
-    final rawState = quality.isEmpty ? artist : '$artist\n$quality';
+    final rawState = quality.isEmpty ? artist : '$artist\n · $quality';
     final state =
         rawState.length > 125 ? '${rawState.substring(0, 124)}...' : rawState;
     final art = track.artworkUrl.trim();
@@ -207,9 +207,6 @@ class DiscordPresenceService {
       parts.add(
           (rateKhz > 48 || depth > 16) ? 'Hi-Res Lossless' : 'Lossless');
     }
-    final codec = (stream?.audioCodec ?? '').trim();
-    if (codec.isNotEmpty) parts.add(codec.toUpperCase());
-    if (snap.bitrateKbps > 0) parts.add('${snap.bitrateKbps} kbps');
     if (depth > 0) parts.add('$depth-bit');
     if (rateKhz > 0) parts.add(_rateLabel(rateKhz));
     final ch = out?.channels ?? 0;
@@ -251,7 +248,7 @@ class DiscordPresenceService {
         _ipc?.close();
       } catch (_) {}
       _ipc = null;
-      final fresh = DiscordIpc.connect(discordApplicationId);
+      final fresh = await DiscordIpc.connect(discordApplicationId);
       if (fresh == null) return false;
       _ipc = fresh;
       return true;
