@@ -187,7 +187,7 @@ Path _parseSvgPath(String d) {
         path.close();
         cx = sx;
         cy = sy;
-        prevCmd = cmd!;
+        prevCmd = cmd;
         cmd = null;
         continue;
       }
@@ -312,7 +312,7 @@ Path _parseSvgPath(String d) {
             final ax2 = isRel ? cx + x2! : x2!;
             final ay2 = isRel ? cy + y2! : y2!;
             final ax = isRel ? cx + x! : x!;
-            final ay = isRel ? cy + y! : y!;
+            final ay = isRel ? cy + y : y;
             path.cubicTo(ax1, ay1, ax2, ay2, ax, ay);
             prevCx2 = ax2;
             prevCy2 = ay2;
@@ -357,7 +357,7 @@ Path _parseSvgPath(String d) {
             final ax2 = isRel ? cx + x2! : x2!;
             final ay2 = isRel ? cy + y2! : y2!;
             final ax = isRel ? cx + x! : x!;
-            final ay = isRel ? cy + y! : y!;
+            final ay = isRel ? cy + y : y;
             path.cubicTo(ax1, ay1, ax2, ay2, ax, ay);
             prevCx2 = ax2;
             prevCy2 = ay2;
@@ -391,7 +391,7 @@ Path _parseSvgPath(String d) {
             final ax1 = isRel ? cx + x1! : x1!;
             final ay1 = isRel ? cy + y1! : y1!;
             final ax = isRel ? cx + x! : x!;
-            final ay = isRel ? cy + y! : y!;
+            final ay = isRel ? cy + y : y;
             path.quadraticBezierTo(ax1, ay1, ax, ay);
             prevQx = ax1;
             prevQy = ay1;
@@ -432,7 +432,7 @@ Path _parseSvgPath(String d) {
               ay1 = cy;
             }
             final ax = isRel ? cx + x! : x!;
-            final ay = isRel ? cy + y! : y!;
+            final ay = isRel ? cy + y : y;
             path.quadraticBezierTo(ax1, ay1, ax, ay);
             prevQx = ax1;
             prevQy = ay1;
@@ -487,7 +487,7 @@ Path _parseSvgPath(String d) {
               break;
             }
             final ax = isRel ? cx + x! : x!;
-            final ay = isRel ? cy + y! : y!;
+            final ay = isRel ? cy + y : y;
             _arcTo(path, cx, cy, rx0.abs(), ry0.abs(), phi, large == 1,
                 sweep == 1, ax, ay);
             cx = ax;

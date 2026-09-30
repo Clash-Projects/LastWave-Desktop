@@ -140,11 +140,15 @@ class AnimatedArtworkSession extends ChangeNotifier {
     if (_refs > 0) return;
     _pauseTimer?.cancel();
     _pauseTimer = Timer(const Duration(milliseconds: 400), () {
-      if (_refs == 0) unawaited(_serialized(() async {
-        try {
-          await _player?.pause();
-        } catch (_) {}
-      }));
+      if (_refs == 0) {
+        unawaited(
+          _serialized(() async {
+            try {
+              await _player?.pause();
+            } catch (_) {}
+          }),
+        );
+      }
     });
     // NOTE: no teardown timer on purpose. The player + texture live for the
     // whole app run (one idle 8MiB instance, decode paused above). Tearing
@@ -261,17 +265,19 @@ class AnimatedArtworkSession extends ChangeNotifier {
     _player = null;
     _controller = null;
     if (player != null) {
-      unawaited(_serialized(() async {
-        try {
-          await player.pause();
-        } catch (_) {}
-        try {
-          await player.stop();
-        } catch (_) {}
-        try {
-          await player.dispose();
-        } catch (_) {}
-      }));
+      unawaited(
+        _serialized(() async {
+          try {
+            await player.pause();
+          } catch (_) {}
+          try {
+            await player.stop();
+          } catch (_) {}
+          try {
+            await player.dispose();
+          } catch (_) {}
+        }),
+      );
     }
     super.dispose();
   }
@@ -279,5 +285,5 @@ class AnimatedArtworkSession extends ChangeNotifier {
 
 final animatedArtworkSessionProvider =
     ChangeNotifierProvider<AnimatedArtworkSession>((ref) {
-  return AnimatedArtworkSession();
-});
+      return AnimatedArtworkSession();
+    });
