@@ -833,7 +833,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         return;
       }
       if (stream == null) {
-        if (attempt == 0 && !forceYoutube) {
+        // Retry YouTube-only only when the first pass could have taken
+        // the lossless path — otherwise it repeats the identical
+        // best-effort search (up to ~15s of spinner for nothing) on
+        // tracks that simply have no match yet.
+        if (attempt == 0 &&
+            !forceYoutube &&
+            _wouldTryLossless(track, false)) {
           await _resolveAndOpen(index,
               forceYoutube: true, attempt: 1);
           return;
@@ -925,18 +931,25 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
   }
 
-  Future<ResolvedStream?> _resolveRemoteUncached(
-    PlayableTrack track, {
-    bool forceYoutube = false,
-    bool forceRefresh = false,
-  }) async {
-    final allowLossless = !forceYoutube &&
+  /// True when a resolve pass for [track] would attempt the lossless
+  /// backend before YouTube. Shared by the resolver and the retry
+  /// gate below so they never disagree.
+  bool _wouldTryLossless(PlayableTrack track, bool forceYoutube) {
+    return !forceYoutube &&
         !_losslessBypass.contains(track.queueKey) &&
         _prefs.preferLossless &&
         _prefs.losslessQuality != AudioQualityTiers.youtubeOnly &&
         _lossless.isConfigured &&
         track.artist.isNotEmpty &&
         track.artist.toLowerCase() != 'unknown artist';
+  }
+
+  Future<ResolvedStream?> _resolveRemoteUncached(
+    PlayableTrack track, {
+    bool forceYoutube = false,
+    bool forceRefresh = false,
+  }) async {
+    final allowLossless = _wouldTryLossless(track, forceYoutube);
     if (!allowLossless) {
       return _resolveYoutube(track, const {},
           forceRefresh: forceRefresh);
@@ -988,13 +1001,18 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
+        // Best-effort: strict → primary-artist (collab billing like
+        // "A; B; C") → title-only. Home feed tracks carry Last.fm
+        // billing that fails the strict artist gate on songs that
+        // plainly exist on YouTube. Budgets live inside (5s/tier);
+        // the outer cap is a safety net only.
         final match = await _tube
-            .findBestMatchOrNull(
+            .findBestEffortMatchOrNull(
               track.title,
               track.artist,
               excludedVideoIds: excluded,
             )
-            .timeout(const Duration(seconds: 8));
+            .timeout(const Duration(seconds: 20), onTimeout: () => null);
         final videoId = match?.videoId;
         if (videoId == null || videoId.isEmpty) return null;
         if (excluded.contains(videoId)) continue;
