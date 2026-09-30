@@ -270,8 +270,7 @@ class Prefs {
   Future<void> setCdMode(bool v) => _sp.setBool('lw_cd_mode', v);
 
   // -- Discord Rich Presence --------------------------------------------------
-  /// Show the current track in Discord status. Default on (Spotify parity);
-  /// inert until a real Application ID is set in DiscordPresenceService.
+  /// Show the current track in Discord status. Default on (Spotify parity).
   bool get discordRichPresence =>
       _sp.getBool('lw_discord_rich_presence') ?? true;
 

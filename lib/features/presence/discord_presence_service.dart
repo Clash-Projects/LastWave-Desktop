@@ -16,10 +16,10 @@ import '../player/player_state.dart';
 /// icons; until then the track's own artwork URL is used as the large
 /// image and missing keys are simply omitted by Discord.
 ///
-/// Behaviour: inert until a real Application ID is set. Never throws —
-/// Discord closed, pipe missing, or rate-limited all degrade to silence.
-/// Progress-bar refreshes are throttled (track/play-state change or
-/// 15s elapsed) so position ticks don't spam the IPC socket.
+/// Behaviour: pushes on track/play-state change (throttled), silent when
+/// Discord is closed, pipe missing, or rate-limited. Progress-bar
+/// refreshes are throttled (track/play-state change or 15s elapsed) so
+/// position ticks don't spam the IPC socket.
 ///
 /// NOTE on licensing: `dart_discord_presence` is GPL-3.0. If LastWave ever
 /// ships closed-source, replace this transport with a hand-rolled named-
@@ -92,7 +92,7 @@ class DiscordPresenceService {
       return;
     }
     final key =
-        '${track.queueKey}|playing=${snap.isPlaying}|dur=${snap.duration.inSeconds}';
+        '${track.queueKey}|playing=${snap.isPlaying}|dur=${snap.duration.inSeconds}|br=${snap.bitrateKbps}';
     final now = DateTime.now();
     if (key == _lastKey && now.difference(_lastPush) < _pushInterval) {
       return; // Position ticks must not spam IPC.
@@ -120,13 +120,26 @@ class DiscordPresenceService {
       final end = now.add(snap.duration - pos);
       ts = DiscordTimestamps.range(end.subtract(snap.duration), end);
     }
+    final quality = _qualityLine(snap);
+    final rawState = quality.isEmpty ? artist : '$artist\n$quality';
+    final state =
+        rawState.length > 125 ? '${rawState.substring(0, 124)}...' : rawState;
     final art = track.artworkUrl.trim();
+    // External assets need http(s) — local file paths can't load in
+    // Discord, so those fall back to the uploaded `logo` key.
+    final artIsUrl =
+        art.startsWith('http://') || art.startsWith('https://');
+    // Discord buttons are plain URLs — they cannot detect the app. Listen
+    // opens the track itself so the clicker can hear it right away; Get
+    // always opens the repo.
+    const repoUrl = 'https://github.com/Clash-Projects/LastWave-Desktop';
+    final vid = track.videoId.trim();
     return DiscordPresence(
       type: DiscordActivityType.listening,
       details: title,
-      state: artist,
+      state: state,
       timestamps: ts,
-      largeAsset: art.isNotEmpty
+      largeAsset: artIsUrl
           ? DiscordAsset(
               url: art,
               text: track.album.trim().isEmpty ? title : _clip(track.album),
@@ -135,8 +148,54 @@ class DiscordPresenceService {
       smallAsset: snap.isPlaying
           ? DiscordAsset(key: 'play', text: 'Playing')
           : DiscordAsset(key: 'pause', text: 'Paused'),
+      buttons: [
+        DiscordButton(
+          label: 'Listen On LastWave',
+          url: vid.isNotEmpty
+              ? 'https://www.youtube.com/watch?v=$vid'
+              : '$repoUrl/releases',
+        ),
+        const DiscordButton(label: 'Get LastWave', url: repoUrl),
+      ],
       instance: true,
     );
+  }
+
+  /// "Hi-Res Lossless · FLAC · 4608 kbps · 24-bit · 96 kHz · Stereo".
+  /// Only known parts are included — never fabricated.
+  String _qualityLine(PlayerSnapshot snap) {
+    final parts = <String>[];
+    final stream = snap.stream;
+    final out = snap.outputFormat;
+    final depth = (out?.bitDepth ?? 0) > 0
+        ? out!.bitDepth
+        : (stream?.bitDepth ?? 0);
+    final rateKhz = (out?.sampleRateHz ?? 0) > 0
+        ? out!.sampleRateHz / 1000.0
+        : (stream?.samplingRateKhz ?? 0);
+    if (stream?.isLossless ?? false) {
+      parts.add(
+          (rateKhz > 48 || depth > 16) ? 'Hi-Res Lossless' : 'Lossless');
+    }
+    final codec = (stream?.audioCodec ?? '').trim();
+    if (codec.isNotEmpty) parts.add(codec.toUpperCase());
+    if (snap.bitrateKbps > 0) parts.add('${snap.bitrateKbps} kbps');
+    if (depth > 0) parts.add('$depth-bit');
+    if (rateKhz > 0) parts.add(_rateLabel(rateKhz));
+    final ch = out?.channels ?? 0;
+    if (ch == 1) {
+      parts.add('Mono');
+    } else if (ch == 2) {
+      parts.add('Stereo');
+    } else if (ch > 2) {
+      parts.add('$ch-ch');
+    }
+    return parts.join(' · ');
+  }
+
+  String _rateLabel(double khz) {
+    if ((khz - khz.round()).abs() < 0.05) return '${khz.round()} kHz';
+    return '${khz.toStringAsFixed(1)} kHz';
   }
 
   String _clip(String s) {
