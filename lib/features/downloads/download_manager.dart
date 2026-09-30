@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -28,6 +29,11 @@ class DownloadEntry {
   final DownloadStatus status;
   final double progress;
   final String badge;
+
+  /// Tagging outcome: `full` (all metadata incl. cover), `text`
+  /// (tags without cover), `raw:<reason>` (untagged fallback), or ''
+  /// for rows written before tracking existed.
+  final String tagNote;
   final String? filePath;
   final String? error;
 
@@ -38,6 +44,7 @@ class DownloadEntry {
     this.status = DownloadStatus.queued,
     this.progress = 0,
     this.badge = '',
+    this.tagNote = '',
     this.filePath,
     this.error,
   });
@@ -46,6 +53,7 @@ class DownloadEntry {
     DownloadStatus? status,
     double? progress,
     String? badge,
+    String? tagNote,
     String? filePath,
     String? error,
   }) =>
@@ -56,6 +64,7 @@ class DownloadEntry {
         status: status ?? this.status,
         progress: progress ?? this.progress,
         badge: badge ?? this.badge,
+        tagNote: tagNote ?? this.tagNote,
         filePath: filePath ?? this.filePath,
         error: error ?? this.error,
       );
@@ -95,10 +104,19 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       '${artist.toLowerCase().trim()}|${title.toLowerCase().trim()}';
 
   void _loadExisting() {
-    final rows = _db.raw.select(
-      'SELECT track_key, title, artist, file_path, format_badge FROM downloaded_tracks '
-      'ORDER BY downloaded_at_millis DESC;',
-    );
+    late final List rows;
+    try {
+      rows = _db.raw.select(
+        'SELECT track_key, title, artist, file_path, format_badge, tag_status FROM downloaded_tracks '
+        'ORDER BY downloaded_at_millis DESC;',
+      );
+    } catch (_) {
+      // Pre-v7 databases without the tag_status column.
+      rows = _db.raw.select(
+        'SELECT track_key, title, artist, file_path, format_badge FROM downloaded_tracks '
+        'ORDER BY downloaded_at_millis DESC;',
+      );
+    }
     state = rows
         .map((r) => DownloadEntry(
               key: r['track_key'] as String? ?? '',
@@ -107,6 +125,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
               status: DownloadStatus.done,
               progress: 1,
               badge: r['format_badge'] as String? ?? '',
+              tagNote: r['tag_status'] as String? ?? '',
               filePath: r['file_path'] as String?,
             ))
         .toList();
@@ -273,7 +292,8 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       ResolvedStream? stream;
       var badge = '';
       var isLossless = false;
-      var ext = 'opus';
+      var fromAddon = false;
+      var ytCodecHint = '';
 
       if (_prefs.preferLossless &&
           _prefs.downloadQuality !=
@@ -293,14 +313,8 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         }
         if (stream != null) {
           isLossless = stream.isLossless;
+          fromAddon = true;
           badge = stream.qualityBadge;
-          // Assembled addon files are fMP4 in an .m4a body regardless
-          // of the FLAC codec badge — name the container, not the codec.
-          ext = stream.audioCodec.contains('MP3')
-              ? 'mp3'
-              : stream.mimeType.contains('mp4')
-                  ? 'm4a'
-                  : 'flac';
         }
       }
       if (stream == null) {
@@ -314,13 +328,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         final yt = opus ?? await _tube.resolveAudioStream(match.videoId);
         if (yt == null) throw Exception('Stream unavailable');
         stream = yt;
-        final codec = yt.audioCodec.toUpperCase();
-        final mime = yt.mimeType.toLowerCase();
-        final opusLike = codec.contains('OPUS') ||
-            mime.contains('opus') ||
-            mime.contains('webm');
-        badge = codec.isNotEmpty ? codec : 'OPUS';
-        ext = opusLike ? 'opus' : (mime.contains('mp4') ? 'm4a' : 'webm');
+        ytCodecHint = yt.audioCodec.toUpperCase();
       }
 
       // Audio bytes (progress surfaced on the entry for http sources).
@@ -368,9 +376,14 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
           ? lyrics.lines.map((l) => l.text).join('\n').trim()
           : lyrics.plainLyrics.trim();
 
-      // Embed metadata. Any tagging failure keeps the raw bytes —
-      // the download itself must never be lost. Opus remux failure
-      // falls back to the raw `.webm` container.
+      // Embed metadata, routed by the ACTUAL container magic — MIME
+      // strings and extensions can disagree with the bytes (that
+      // mismatch used to nuke the remux). Any tagging failure keeps
+      // the raw bytes and records why: the download itself must never
+      // be lost, and "just a song" must never be silent again.
+      if (cover == null && kDebugMode) {
+        debugPrint('LastWaveDownload no cover ($title — $artist)');
+      }
       final tags = DownloadTags(
         title: title,
         artist: artist,
@@ -379,22 +392,52 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         coverBytes: cover?.bytes,
         coverMime: cover?.mime ?? '',
       );
-      var finalExt = ext;
+      final container = MediaTagger.detectContainer(audioBytes);
+      var finalExt = 'webm';
       var outBytes = audioBytes;
+      var tagStatus = 'raw:unknown-container';
       try {
-        if (ext == 'opus') {
+        if (container == 'webm') {
           outBytes =
               MediaTagger.remuxWebmOpusToOgg(audioBytes, tags);
-        } else if (ext == 'flac') {
-          outBytes = MediaTagger.tagFlac(audioBytes, tags);
-        } else if (ext == 'mp3') {
-          outBytes = MediaTagger.tagMp3(audioBytes, tags);
-        } else if (ext == 'm4a') {
+          finalExt = 'opus';
+        } else if (container == 'mp4') {
           outBytes = MediaTagger.tagM4a(audioBytes, tags);
+          finalExt = 'm4a';
+        } else if (container == 'flac') {
+          outBytes = MediaTagger.tagFlac(audioBytes, tags);
+          finalExt = 'flac';
+        } else if (container == 'mp3') {
+          outBytes = MediaTagger.tagMp3(audioBytes, tags);
+          finalExt = 'mp3';
+        } else {
+          throw const TaggerSkip('unknown container');
         }
-      } catch (_) {
+        tagStatus = tags.hasCover ? 'full' : 'text';
+        if (kDebugMode) {
+          debugPrint('LastWaveDownload tagged $finalExt '
+              '($tagStatus): $title — $artist');
+        }
+      } catch (e) {
         outBytes = audioBytes;
-        if (finalExt == 'opus') finalExt = 'webm';
+        finalExt = container == 'mp4'
+            ? 'm4a'
+            : container == 'flac'
+                ? 'flac'
+                : container == 'mp3'
+                    ? 'mp3'
+                    : 'webm';
+        tagStatus =
+            'raw:${e is TaggerSkip ? e.reason : 'tag-failed'}';
+        if (kDebugMode) {
+          debugPrint(
+              'LastWaveDownload tag skipped ($title — $artist): $e');
+        }
+      }
+      if (!fromAddon) {
+        badge = container == 'webm'
+            ? 'OPUS'
+            : (ytCodecHint.isNotEmpty ? ytCodecHint : 'AUDIO');
       }
 
       final dir = await _musicDir();
@@ -412,28 +455,56 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       }
 
       final stat = await file.stat();
-      _db.raw.execute(
-        'INSERT INTO downloaded_tracks(track_key, title, artist, album, artwork_url, file_path, '
-        'file_size_bytes, format_badge, is_lossless, has_lyrics, lrc_file_path, downloaded_at_millis) '
-        'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
-        'ON CONFLICT(track_key) DO UPDATE SET file_path = excluded.file_path, '
-        'file_size_bytes = excluded.file_size_bytes, format_badge = excluded.format_badge, '
-        'lrc_file_path = excluded.lrc_file_path, downloaded_at_millis = excluded.downloaded_at_millis;',
-        [
-          key,
-          title,
-          artist,
-          album,
-          artworkUrl,
-          file.path,
-          stat.size,
-          badge,
-          isLossless ? 1 : 0,
-          lrcPath.isNotEmpty ? 1 : 0,
-          lrcPath,
-          DateTime.now().millisecondsSinceEpoch,
-        ],
-      );
+      try {
+        _db.raw.execute(
+          'INSERT INTO downloaded_tracks(track_key, title, artist, album, artwork_url, file_path, '
+          'file_size_bytes, format_badge, tag_status, is_lossless, has_lyrics, lrc_file_path, downloaded_at_millis) '
+          'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+          'ON CONFLICT(track_key) DO UPDATE SET file_path = excluded.file_path, '
+          'file_size_bytes = excluded.file_size_bytes, format_badge = excluded.format_badge, '
+          'tag_status = excluded.tag_status, '
+          'lrc_file_path = excluded.lrc_file_path, downloaded_at_millis = excluded.downloaded_at_millis;',
+          [
+            key,
+            title,
+            artist,
+            album,
+            artworkUrl,
+            file.path,
+            stat.size,
+            badge,
+            tagStatus,
+            isLossless ? 1 : 0,
+            lrcPath.isNotEmpty ? 1 : 0,
+            lrcPath,
+            DateTime.now().millisecondsSinceEpoch,
+          ],
+        );
+      } catch (_) {
+        // Pre-v7 databases without the tag_status column.
+        _db.raw.execute(
+          'INSERT INTO downloaded_tracks(track_key, title, artist, album, artwork_url, file_path, '
+          'file_size_bytes, format_badge, is_lossless, has_lyrics, lrc_file_path, downloaded_at_millis) '
+          'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+          'ON CONFLICT(track_key) DO UPDATE SET file_path = excluded.file_path, '
+          'file_size_bytes = excluded.file_size_bytes, format_badge = excluded.format_badge, '
+          'lrc_file_path = excluded.lrc_file_path, downloaded_at_millis = excluded.downloaded_at_millis;',
+          [
+            key,
+            title,
+            artist,
+            album,
+            artworkUrl,
+            file.path,
+            stat.size,
+            badge,
+            isLossless ? 1 : 0,
+            lrcPath.isNotEmpty ? 1 : 0,
+            lrcPath,
+            DateTime.now().millisecondsSinceEpoch,
+          ],
+        );
+      }
       _upsert(DownloadEntry(
         key: key,
         title: title,
@@ -441,6 +512,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         status: DownloadStatus.done,
         progress: 1,
         badge: badge,
+        tagNote: tagStatus,
         filePath: file.path,
       ));
     } catch (e) {

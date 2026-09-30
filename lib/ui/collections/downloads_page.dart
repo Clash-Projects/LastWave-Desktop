@@ -354,6 +354,13 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
                   WaveChip(label: e.badge),
                   const SizedBox(width: 6),
                 ],
+                // Untagged fallback files stay visible (never silent).
+                if (!downloading &&
+                    e.status == DownloadStatus.done &&
+                    e.tagNote.startsWith('raw')) ...[
+                  const WaveChip(label: 'NO TAGS', highlight: true),
+                  const SizedBox(width: 6),
+                ],
                 // Status text: progress % / size / status — tabular.
                 if (downloading)
                   Text(
