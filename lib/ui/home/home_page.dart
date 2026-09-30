@@ -535,7 +535,7 @@ class _Header extends StatelessWidget {
         ),
         if (!signedIn)
           GestureDetector(
-            onTap: () => context.go('/welcome'),
+            onTap: () => context.go('/settings?section=lastfm'),
             child: Container(
               padding:
                   const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
