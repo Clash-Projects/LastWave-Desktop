@@ -12,6 +12,7 @@ import '../components/menus.dart'
     show fastFlyoutTransition, WaveFlyoutPanel, WaveMenuAction, WaveMenuSeparator;
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
+import '../theme/brand_icons.dart';
 import '../theme/wave_icons.dart';
 
 /// Compact 44px title / nav / search bar.
@@ -379,9 +380,13 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
 
 class _BarBtn extends StatefulWidget {
   final String tooltip;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
   final VoidCallback? onTap;
-  const _BarBtn({required this.tooltip, required this.icon, this.onTap});
+  const _BarBtn(
+      {required this.tooltip, this.icon, this.iconWidget, this.onTap})
+      : assert(icon != null || iconWidget != null,
+            'Provide icon or iconWidget');
   @override
   State<_BarBtn> createState() => _BarBtnState();
 }
@@ -420,17 +425,28 @@ class _BarBtnState extends State<_BarBtn> {
               borderRadius:
                   BorderRadius.circular(WaveRadius.controls),
             ),
-            child: Icon(
-              widget.icon,
-              size: 15,
-              color: widget.onTap == null
-                  ? (dark
-                          ? WaveColors.textTertiary
-                          : WaveColors.lightTextTertiary)
-                      .withValues(alpha: 0.4)
-                  : (dark
-                      ? WaveColors.textSecondary
-                      : WaveColors.lightTextSecondary),
+            child: Builder(
+              builder: (context) {
+                final fg = widget.onTap == null
+                    ? (dark
+                            ? WaveColors.textTertiary
+                            : WaveColors.lightTextTertiary)
+                        .withValues(alpha: 0.4)
+                    : (dark
+                        ? WaveColors.textSecondary
+                        : WaveColors.lightTextSecondary);
+                if (widget.iconWidget != null) {
+                  return IconTheme(
+                    data: IconThemeData(color: fg, size: 15),
+                    child: Center(child: widget.iconWidget!),
+                  );
+                }
+                return Icon(
+                  widget.icon,
+                  size: 15,
+                  color: fg,
+                );
+              },
             ),
           ),
         ),
@@ -508,12 +524,12 @@ class _CommunityBtns extends StatelessWidget {
       children: [
         _BarBtn(
           tooltip: 'Telegram community',
-          icon: WaveIcons.telegram,
+          iconWidget: const TelegramIcon(size: 15),
           onTap: () => _open(_telegramUrl),
         ),
         _BarBtn(
           tooltip: 'Discord server',
-          icon: WaveIcons.discord,
+          iconWidget: const DiscordIcon(size: 15),
           onTap: () => _open(_discordUrl),
         ),
       ],

@@ -25,6 +25,7 @@ import '../../features/settings/theme_controller.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../../features/audio_output/output_path_sheet.dart';
 import '../theme/tokens.dart';
+import '../theme/brand_icons.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
@@ -1699,7 +1700,7 @@ class _About extends StatelessWidget {
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(FluentIcons.send, size: 14),
+                    TelegramIcon(size: 14),
                     SizedBox(width: 6),
                     Text('Telegram community'),
                   ],
@@ -1712,7 +1713,7 @@ class _About extends StatelessWidget {
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(FluentIcons.chat, size: 14),
+                    DiscordIcon(size: 14),
                     SizedBox(width: 6),
                     Text('Discord server'),
                   ],
