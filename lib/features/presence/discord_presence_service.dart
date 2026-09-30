@@ -32,10 +32,14 @@ class DiscordPresenceService {
 
   static const _maxField = 120;
   static const _pushInterval = Duration(seconds: 15);
-  static const _retryInterval = Duration(seconds: 60);
+  // While music plays, a missing connection is retried at most this often:
+  // a closed Discord costs ~10 fast-failed pipe opens (sub-millisecond),
+  // so retrying eagerly is cheap and keeps worst-case invisibility tiny.
+  static const _retryInterval = Duration(seconds: 15);
 
   final Ref _ref;
   DiscordIpc? _ipc;
+  Timer? _heartbeat;
   bool _disposed = false;
   bool _connecting = false;
   DateTime? _lastAttempt;
@@ -43,7 +47,17 @@ class DiscordPresenceService {
   DateTime _lastPush = DateTime.fromMillisecondsSinceEpoch(0);
   PlayerSnapshot? _lastSnap;
 
-  DiscordPresenceService(this._ref);
+  DiscordPresenceService(this._ref) {
+    // Self-heal: re-evaluates on a slow tick so presence can never go
+    // stale unnoticed (missed snapshot, dropped pipe, Discord restarted
+    // while paused). Tick does nothing when up to date. Interval matches
+    // the push throttle, so a playing track is visible within ~15s even
+    // if every event-driven push was somehow missed.
+    _heartbeat = Timer.periodic(_pushInterval, (_) {
+      if (_disposed) return;
+      unawaited(refresh());
+    });
+  }
 
   bool get _configured =>
       discordApplicationId.isNotEmpty &&
@@ -261,6 +275,10 @@ class DiscordPresenceService {
   Future<void> shutdown() async {
     if (_disposed) return;
     _disposed = true;
+    try {
+      _heartbeat?.cancel();
+    } catch (_) {}
+    _heartbeat = null;
     try {
       await _clearQuiet();
     } catch (_) {}

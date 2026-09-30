@@ -53,9 +53,13 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     Future.microtask(() {
       try {
         ref.read(playbackServiceProvider.notifier).ensurePlayer();
+      } catch (_) {}
+      try {
         ref.read(audioOutputProvider.notifier).attach();
-        // Discord Rich Presence: inert until an Application ID is set;
-        // never throws (Discord closed degrades to silence).
+      } catch (_) {}
+      try {
+        // Discord Rich Presence: own block so an audio failure above can
+        // never skip it; never throws (Discord closed degrades to silence).
         ref.read(discordPresenceProvider).startup();
       } catch (_) {}
     });
