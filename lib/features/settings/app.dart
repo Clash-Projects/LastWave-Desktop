@@ -12,6 +12,7 @@ import '../../ui/theme/fluent_theme.dart';
 import '../../ui/theme/haze.dart';
 import '../player/playback_service.dart';
 import '../audio_output/output_controller.dart';
+import '../presence/discord_presence_service.dart';
 import 'theme_controller.dart';
 
 /// LastWave desktop application root.
@@ -53,6 +54,9 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
       try {
         ref.read(playbackServiceProvider.notifier).ensurePlayer();
         ref.read(audioOutputProvider.notifier).attach();
+        // Discord Rich Presence: inert until an Application ID is set;
+        // never throws (Discord closed degrades to silence).
+        ref.read(discordPresenceProvider).startup();
       } catch (_) {}
     });
   }

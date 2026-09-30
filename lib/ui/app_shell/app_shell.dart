@@ -14,6 +14,7 @@ import '../../app/window.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/presence/discord_presence_service.dart';
 import '../../features/search/search_repository.dart';
 import '../mini_player/mini_player.dart';
 import '../components/infobar_host.dart';
@@ -199,6 +200,10 @@ class _WaveShellState extends ConsumerState<WaveShell>
       await Future(() {
         try {
           ref.read(playbackServiceProvider.notifier).disposePlayer();
+        } catch (_) {}
+        try {
+          // Best-effort: clear Discord status before the pipe dies.
+          ref.read(discordPresenceProvider).shutdown();
         } catch (_) {}
       }).timeout(const Duration(seconds: 3), onTimeout: () {});
     } catch (_) {}
