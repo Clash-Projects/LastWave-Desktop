@@ -77,6 +77,9 @@ dependencies:
   meta: ^1.19.0
   flutter_lyric: ^3.0.7
   adaptive_aura: 0.0.4
+  # Discord Rich Presence over local IPC (desktop only). Note: GPL-3.0 —
+  # see lib/features/presence/discord_presence_service.dart.
+  dart_discord_presence: ^1.2.0
 
 dev_dependencies:
   flutter_test:

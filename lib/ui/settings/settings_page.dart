@@ -26,6 +26,7 @@ import '../../features/audio_output/output_controller.dart';
 import '../../features/audio_output/output_path_sheet.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
+import '../../features/presence/discord_presence_service.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
@@ -1738,11 +1739,29 @@ class _General extends ConsumerWidget {
         _Group(
           title: 'Behaviour',
           subtitle: 'Startup and window defaults',
-          child: _SwitchRow(
-            value: prefs.closeToTray,
-            onChanged: (v) => onUpdate((p) => p.setCloseToTray(v)),
-            title: 'Close button minimize to tray.',
-            subtitle: 'Keep the player running in the background when closed.',
+          child: Column(
+            children: [
+              _SwitchRow(
+                value: prefs.closeToTray,
+                onChanged: (v) => onUpdate((p) => p.setCloseToTray(v)),
+                title: 'Close button minimize to tray.',
+                subtitle:
+                    'Keep the player running in the background when closed.',
+              ),
+              const SizedBox(height: 8),
+              _SwitchRow(
+                value: prefs.discordRichPresence,
+                onChanged: (v) async {
+                  await onUpdate((p) => p.setDiscordRichPresence(v));
+                  try {
+                    ref.read(discordPresenceProvider).refresh();
+                  } catch (_) {}
+                },
+                title: 'Discord Rich Presence',
+                subtitle:
+                    'Show the current track in your Discord status.',
+              ),
+            ],
           ),
         ),
       ],

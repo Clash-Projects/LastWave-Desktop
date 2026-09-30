@@ -269,6 +269,15 @@ class Prefs {
 
   Future<void> setCdMode(bool v) => _sp.setBool('lw_cd_mode', v);
 
+  // -- Discord Rich Presence --------------------------------------------------
+  /// Show the current track in Discord status. Default on (Spotify parity);
+  /// inert until a real Application ID is set in DiscordPresenceService.
+  bool get discordRichPresence =>
+      _sp.getBool('lw_discord_rich_presence') ?? true;
+
+  Future<void> setDiscordRichPresence(bool v) =>
+      _sp.setBool('lw_discord_rich_presence', v);
+
   // -- Addon sources (personal addon URLs) ----------------------------------
   /// User-pasted addon roots (`{base}/a/<token>/`), JSON-encoded.
   List<String> get addonUrls {
