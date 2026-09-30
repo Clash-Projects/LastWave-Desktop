@@ -681,6 +681,7 @@ class _FeaturedHero extends ConsumerWidget {
           ),
           child: WaveArtwork(
             url: track.artworkUrl,
+            videoId: track.videoId,
             size: artSize,
             radius: 8,
             title: track.name,
@@ -880,6 +881,7 @@ class _HeroCompanionState extends ConsumerState<_HeroCompanion> {
                 children: [
                   WaveArtwork(
                     url: widget.track.artworkUrl,
+                    videoId: widget.track.videoId,
                     size: 44,
                     radius: 6,
                     title: widget.track.name,
@@ -1021,6 +1023,7 @@ class _QuickTileState extends ConsumerState<_QuickTile> {
                 children: [
                   WaveArtwork(
                     url: widget.track.artworkUrl,
+                    videoId: widget.track.videoId,
                     size: 48,
                     radius: 6,
                     title: widget.track.name,
@@ -1145,6 +1148,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                 children: [
                   WaveArtwork(
                     url: widget.track.artworkUrl,
+                    videoId: widget.track.videoId,
                     size: 140,
                     radius: 6,
                     title: widget.track.name,
@@ -1264,6 +1268,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                 children: [
                   WaveArtwork(
                     url: widget.track.artworkUrl,
+                    videoId: widget.track.videoId,
                     size: 220,
                     radius: 8,
                     title: widget.track.name,
@@ -1415,6 +1420,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                 children: [
                   WaveArtwork(
                     url: widget.track.artworkUrl,
+                    videoId: widget.track.videoId,
                     size: 152,
                     radius: 6,
                     title: widget.track.name,
@@ -1526,6 +1532,7 @@ class _ChartRow extends ConsumerWidget {
               ),
               WaveArtwork(
                 url: track.artworkUrl,
+                videoId: track.videoId,
                 size: 42,
                 radius: 6,
                 title: track.name,
@@ -1592,6 +1599,7 @@ class _FreshRow extends ConsumerWidget {
             children: [
               WaveArtwork(
                 url: track.artworkUrl,
+                videoId: track.videoId,
                 size: 40,
                 radius: 6,
                 title: track.name,

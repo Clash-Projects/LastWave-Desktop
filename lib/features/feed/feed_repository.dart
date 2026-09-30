@@ -749,30 +749,100 @@ class FeedRepository {
       final dedupedFresh = _dedupeHeads(fresh, headlined);
       final dedupedBecause = _dedupeHeads(because, headlined);
 
-      // Parallel per-track hydration: the sequential loop paid up to
-      // 1.5s per missing cover (8 × 1.5s worst case inside a 3s cap,
-      // so slow items starved the rest). OfficialArtworkService
-      // throttles internally (concurrency 3), so fan-out is safe and
-      // order is preserved by Future.wait.
+      // Bulletproof per-track hydration: Apple studio -> strict YTM ->
+      // loose YTM (artwork-only). A tile must NEVER stay empty when any
+      // provider has the sleeve (regional / Devanagari tracks often miss
+      // the iTunes US catalog). Order preserved by Future.wait;
+      // OfficialArtworkService throttles internally (concurrency 3).
       Future<GeneratedTrack> hydrateOne(
           int i, GeneratedTrack t, int limit) async {
-        if (i < limit && t.artworkUrl.isEmpty && t.name.isNotEmpty) {
-          try {
-            final art = await OfficialArtworkService.instance
-                .resolveOfficialArtwork(title: t.name, artist: t.artist)
-                .timeout(const Duration(milliseconds: 1500));
-            if (art != null && art.artworkUrl.isNotEmpty) {
-              return GeneratedTrack(
-                name: t.name,
-                artist: t.artist,
-                artworkUrl: art.artworkUrl,
-                videoId: t.videoId,
-                listeners: t.listeners,
-                match: t.match,
-              );
-            }
-          } catch (_) {}
+        if (i >= limit || t.artworkUrl.isNotEmpty || t.name.isEmpty) {
+          return t;
         }
+        // 1. Official studio cover (Apple/iTunes 1400x1400).
+        try {
+          final art = await OfficialArtworkService.instance
+              .resolveOfficialArtwork(title: t.name, artist: t.artist)
+              .timeout(const Duration(milliseconds: 1500));
+          if (art != null && art.artworkUrl.isNotEmpty) {
+            return GeneratedTrack(
+              name: t.name,
+              artist: t.artist,
+              album: t.album,
+              artworkUrl: art.artworkUrl,
+              videoId: t.videoId,
+              listeners: t.listeners,
+              match: t.match,
+              durationSeconds: t.durationSeconds,
+            );
+          }
+        } catch (_) {}
+        // 2. Strict YTM match — artwork + videoId/album/duration fill
+        // when the feed track lacks them (never overwrite real data).
+        // Strict thresholds (72 title / 50 artist) keep playback safe.
+        try {
+          final match = await _tube
+              .findBestMatchOrNull(t.name, t.artist)
+              .timeout(const Duration(seconds: 2), onTimeout: () => null);
+          if (match != null && match.artworkUrl.isNotEmpty) {
+            return GeneratedTrack(
+              name: t.name,
+              artist: t.artist,
+              album:
+                  t.album.isNotEmpty ? t.album : match.album,
+              artworkUrl: match.artworkUrl,
+              videoId: t.videoId.isNotEmpty
+                  ? t.videoId
+                  : match.videoId,
+              listeners: t.listeners,
+              match: t.match,
+              durationSeconds: t.durationSeconds > 0
+                  ? t.durationSeconds
+                  : match.durationSeconds,
+            );
+          }
+        } catch (_) {}
+        // 3. Loose YTM artwork-only last resort — display-only, never
+        // cached as a playback match and never copies videoId (a close
+        // sleeve beats initials, but must not misroute playback).
+        // Bar is deliberately low (>=60 title sim, no artist gate) so
+        // transliterated / featured-credit variants still match.
+        try {
+          final songs = await _tube
+              .searchSongs('${t.name} ${t.artist}', limit: 8)
+              .timeout(const Duration(seconds: 2),
+                  onTimeout: () => <YouTubeMusicTrack>[]);
+          YouTubeMusicTrack? loose;
+          var looseScore = -1;
+          for (final s in songs) {
+            if (s.artworkUrl.isEmpty) continue;
+            final sim = InnerTubeMusicApi.similarity(
+              InnerTubeMusicApi.baseTitle(s.title),
+              InnerTubeMusicApi.baseTitle(t.name),
+            );
+            if (sim < 60) continue;
+            if (sim > looseScore) {
+              looseScore = sim;
+              loose = s;
+            }
+          }
+          loose ??= songs.cast<YouTubeMusicTrack?>().firstWhere(
+                (s) => s != null && s.artworkUrl.isNotEmpty,
+                orElse: () => null,
+              );
+          if (loose != null && loose.artworkUrl.isNotEmpty) {
+            return GeneratedTrack(
+              name: t.name,
+              artist: t.artist,
+              album: t.album,
+              artworkUrl: loose.artworkUrl,
+              videoId: t.videoId,
+              listeners: t.listeners,
+              match: t.match,
+              durationSeconds: t.durationSeconds,
+            );
+          }
+        } catch (_) {}
         return t;
       }
 
@@ -784,25 +854,49 @@ class FeedRepository {
         ]);
       }
 
+      // Per-list guard (no all-or-nothing): one slow shelf falls back to
+      // its unhydrated list while the other shelves still apply.
+      Future<List<GeneratedTrack>> guardHydrate(
+        Future<List<GeneratedTrack>> work,
+        List<GeneratedTrack> fallback,
+      ) async {
+        try {
+          return await work.timeout(const Duration(seconds: 6));
+        } catch (_) {
+          return fallback;
+        }
+      }
+
       var finalQuick = dedupedQuick;
+      var finalHeavy = dedupedHeavy;
+      var finalFresh = dedupedFresh;
+      var finalBecause = dedupedBecause;
       var finalJump = jumpBack;
       if (!chartsOnly) {
-        try {
-          final hydrated = await Future.wait([
-            hydrateArtwork(dedupedQuick, limit: 8),
-            hydrateArtwork(jumpBack, limit: 4),
-          ]).timeout(const Duration(seconds: 3));
-          finalQuick = hydrated[0];
-          finalJump = hydrated[1];
-        } catch (_) {}
+        final hydrated = await Future.wait([
+          guardHydrate(
+              hydrateArtwork(dedupedQuick, limit: 8), dedupedQuick),
+          guardHydrate(
+              hydrateArtwork(dedupedHeavy, limit: 6), dedupedHeavy),
+          guardHydrate(hydrateArtwork(jumpBack, limit: 6), jumpBack),
+          guardHydrate(
+              hydrateArtwork(dedupedFresh, limit: 6), dedupedFresh),
+          guardHydrate(
+              hydrateArtwork(dedupedBecause, limit: 6), dedupedBecause),
+        ]);
+        finalQuick = hydrated[0];
+        finalHeavy = hydrated[1];
+        finalJump = hydrated[2];
+        finalFresh = hydrated[3];
+        finalBecause = hydrated[4];
       }
 
       return FeedData(
         quickPicks: chartsOnly ? const [] : finalQuick,
-        heavyRotation: chartsOnly ? const [] : dedupedHeavy,
-        freshFinds: chartsOnly ? const [] : dedupedFresh,
+        heavyRotation: chartsOnly ? const [] : finalHeavy,
+        freshFinds: chartsOnly ? const [] : finalFresh,
         jumpBackIn: chartsOnly ? const [] : finalJump,
-        becauseYouListened: chartsOnly ? const [] : dedupedBecause,
+        becauseYouListened: chartsOnly ? const [] : finalBecause,
         becauseSeed: becauseSeed,
         charts: applyExclusions(
             charts.take(15).map(fromYt).toList(), excluded),
