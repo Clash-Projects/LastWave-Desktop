@@ -287,7 +287,8 @@ class MediaTagger {
     for (final k in kids) {
       if (k.type == 'udta') udta = k;
     }
-    final ilstPayload = _mp4BoxRaw('ilst', _mp4IlstItems(tags));
+    final ilstPayload =
+        _mp4BoxRaw('ilst', _concat(_mp4IlstItems(tags)));
     Uint8List newUdtaPayload;
     if (udta == null) {
       final hdlr = _mp4MetaHdlr();
@@ -297,6 +298,7 @@ class MediaTagger {
       kids.add(_Mp4Box(
           type: 'udta',
           headerLen: 8,
+          boxStart: -1,
           contentStart: -1,
           contentEnd: -1,
           freshPayload: newUdtaPayload));
@@ -1012,7 +1014,7 @@ class MediaTagger {
       c.pos = eEnd;
     }
     if (codec.isNotEmpty && codec != 'A_OPUS') {
-      throw const TaggerSkip('codec $codec');
+      throw TaggerSkip('codec $codec');
     }
     return (trackNo, priv);
   }

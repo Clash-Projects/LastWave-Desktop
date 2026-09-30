@@ -1763,7 +1763,7 @@ class _Downloads extends ConsumerWidget {
 
   Future<void> _pickDir(WidgetRef ref) async {
     try {
-      final path = await FilePicker.platform.getDirectoryPath(
+      final path = await FilePicker.getDirectoryPath(
         dialogTitle: 'Choose download folder',
       );
       if (path == null || path.trim().isEmpty) return;

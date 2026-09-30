@@ -154,7 +154,7 @@ class _LocationRow extends ConsumerStatefulWidget {
 class _LocationRowState extends ConsumerState<_LocationRow> {
   Future<void> _pick() async {
     try {
-      final path = await FilePicker.platform.getDirectoryPath(
+      final path = await FilePicker.getDirectoryPath(
         dialogTitle: 'Choose download folder',
       );
       if (path == null || path.trim().isEmpty) return;
