@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../features/lastfm/auth_repository.dart';
@@ -117,6 +118,9 @@ class WaveTitleBar extends ConsumerWidget {
                     ),
                   ),
                 ),
+                // Community shortcuts — tiny, before the profile.
+                const _CommunityBtns(),
+                const SizedBox(width: 2),
                 // Profile / account — tiny, no giant buttons.
                 GestureDetector(
                   onTap: () {
@@ -476,6 +480,43 @@ class _AppMenu extends StatelessWidget {
         icon: WaveIcons.more,
         onTap: onOpen,
       ),
+    );
+  }
+}
+
+/// Telegram + Discord shortcuts in the title bar (external links,
+/// silent fail — never disturb the shell on error).
+class _CommunityBtns extends StatelessWidget {
+  const _CommunityBtns();
+
+  static const _telegramUrl = 'https://t.me/clashprojects';
+  static const _discordUrl = 'https://discord.com/invite/TMCEPSUNk2';
+
+  Future<void> _open(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _BarBtn(
+          tooltip: 'Telegram community',
+          icon: WaveIcons.telegram,
+          onTap: () => _open(_telegramUrl),
+        ),
+        _BarBtn(
+          tooltip: 'Discord server',
+          icon: WaveIcons.discord,
+          onTap: () => _open(_discordUrl),
+        ),
+      ],
     );
   }
 }

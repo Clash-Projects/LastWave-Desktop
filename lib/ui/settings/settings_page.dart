@@ -1692,6 +1692,31 @@ class _About extends StatelessWidget {
                   ],
                 ),
               ),
+              Button(
+                onPressed: () =>
+                    _open('https://t.me/clashprojects'),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.send, size: 14),
+                    SizedBox(width: 6),
+                    Text('Telegram community'),
+                  ],
+                ),
+              ),
+              Button(
+                onPressed: () => _open(
+                  'https://discord.com/invite/TMCEPSUNk2',
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.chat, size: 14),
+                    SizedBox(width: 6),
+                    Text('Discord server'),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
