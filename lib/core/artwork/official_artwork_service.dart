@@ -262,14 +262,18 @@ class OfficialArtworkService {
             r'\s*-\s*(?:official|video|audio|remaster|remastered|lyrics?).*$',
             caseSensitive: false),
         '');
+    // Explicit/clean tags are version noise like remasters: Last.fm
+    // bills "CHUSAMBA [Explicit]" while the store lists "CHUSAMBA" —
+    // without stripping, the title score never clears the bar and the
+    // tile falls back to initials.
     s = s.replaceAll(
         RegExp(
-            r'\s*\([^)]*(?:feat|ft\.?|featuring|official|video|audio|remaster|visualizer|lyrics?)[^)]*\)',
+            r'\s*\([^)]*(?:feat|ft\.?|featuring|official|video|audio|remaster|visualizer|lyrics?|explicit|clean)[^)]*\)',
             caseSensitive: false),
         '');
     s = s.replaceAll(
         RegExp(
-            r'\s*\[[^\]]*(?:feat|ft\.?|featuring|official|video|audio|remaster|visualizer|lyrics?)[^\]]*\]',
+            r'\s*\[[^\]]*(?:feat|ft\.?|featuring|official|video|audio|remaster|visualizer|lyrics?|explicit|clean)[^\]]*\]',
             caseSensitive: false),
         '');
     s = s.replaceAll(RegExp(r'^\s*[\w&.\- ]+\s*-\s+'), '');

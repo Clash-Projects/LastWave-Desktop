@@ -600,8 +600,15 @@ class InnerTubeMusicApi {
   static final RegExp _featuringClause = RegExp(
       r'[(\\[]\s*(feat(?:uring)?|ft)\.?\s+.*?[)\]]',
       caseSensitive: false);
+  // Version noise stripped for matching: explicit/clean tags and the
+  // slowed/sped/nightcore family behave like remasters — Last.fm bills
+  // "CHUSAMBA [Explicit]" while YouTube lists "CHUSAMBA", and without
+  // stripping the title similarity (66) never clears the 72 gate, so
+  // playback dies on songs that plainly exist. Bare "sped" is
+  // deliberately absent (it would also eat "speed"); "sped up" covers
+  // the real billing.
   static final RegExp _versionClause = RegExp(
-      r'[(\\[][^)\]]*(live|remix|acoustic|demo|edit|remaster(?:ed)?|mono|stereo)[^)\]]*[)\]]',
+      r'[(\\[][^)\]]*(live|remix|acoustic|demo|edit|remaster(?:ed)?|mono|stereo|explicit|clean|slowed|sped up|nightcore)[^)\]]*[)\]]',
       caseSensitive: false);
   static final RegExp _codecPattern =
       RegExp('codecs?=["\']([^"\']+)["\']', caseSensitive: false);
@@ -3202,13 +3209,20 @@ class InnerTubeMusicApi {
     String artist, {
     Set<String> excludedVideoIds = const {},
   }) async {
-    if (title.trim().isEmpty) return null;
+    if (title.trim().isEmpty) {
+      PlayDiag.log('match MISS all-tiers (empty title) artist="$artist"');
+      return null;
+    }
     try {
       final strict = await findBestMatch(title, artist,
               excludedVideoIds: excludedVideoIds)
           .timeout(const Duration(seconds: 5));
+      PlayDiag.log('match HIT strict "$title" — "${strict.title}" '
+          '[${strict.videoId}] by "${strict.artist}"');
       return strict;
-    } catch (_) {}
+    } catch (e) {
+      PlayDiag.log('match miss strict "$title" — "$artist" ($e)');
+    }
     final primary = primaryArtistForMatch(artist);
     if (primary.isNotEmpty &&
         normalize(primary) != normalize(artist)) {
@@ -3216,15 +3230,24 @@ class InnerTubeMusicApi {
         final m = await findBestMatch(title, primary,
                 excludedVideoIds: excludedVideoIds)
             .timeout(const Duration(seconds: 5));
+        PlayDiag.log('match HIT primary "$title" — "${m.title}" '
+            '[${m.videoId}] (as "$primary")');
         return m;
-      } catch (_) {}
+      } catch (e) {
+        PlayDiag.log(
+            'match miss primary "$title" — "$primary" ($e)');
+      }
     }
     try {
       final m = await findBestMatch(title, '',
               excludedVideoIds: excludedVideoIds)
           .timeout(const Duration(seconds: 5));
+      PlayDiag.log('match HIT title-only "$title" — "${m.title}" '
+          '[${m.videoId}] by "${m.artist}"');
       return m;
-    } catch (_) {}
+    } catch (e) {
+      PlayDiag.log('match MISS title-only "$title" ($e)');
+    }
     return null;
   }
 
