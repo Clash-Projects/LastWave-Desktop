@@ -1014,9 +1014,26 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
   }
 
   void _onToggle() {
-    _anim
-        .forward(from: 0.8)
-        .then((_) => _anim.animateTo(1.0, curve: Curves.easeOutBack));
+    final liked = ref
+        .read(playlistRepositoryProvider.notifier)
+        .likedKeys()
+        .contains(widget.track.queueKey);
+    // Pop only on like: 1.0 → 1.25 eased out, then settle to 1.0 with a
+    // slight overshoot bounce. (Previously `forward(from: 0.8)` ran the
+    // grow phase linear to the 1.25 bound — a visible jump — and the pop
+    // fired on unlike too.) Settle is mounted-guarded so a track change
+    // mid-pop can't drive a disposed controller.
+    if (!liked) {
+      _anim
+          .animateTo(1.25,
+              duration: const Duration(milliseconds: 110),
+              curve: Curves.easeOut)
+          .then((_) => mounted
+              ? _anim.animateTo(1.0,
+                  duration: const Duration(milliseconds: 130),
+                  curve: Curves.easeOutBack)
+              : null);
+    }
     ref.read(playlistRepositoryProvider.notifier).toggleLiked(
           StoredTrack(
             name: widget.track.title,
@@ -1029,9 +1046,13 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
 
   @override
   Widget build(BuildContext context) {
+    // Watch the playlist STATE (not the notifier — its identity never
+    // changes, so watching it never rebuilds and the glyph sticks).
     final liked = ref
-        .watch(playlistRepositoryProvider.notifier)
-        .likedKeys()
+        .watch(playlistRepositoryProvider)
+        .where((p) => p.isLikedSongs)
+        .expand((p) => p.tracks)
+        .map((t) => '${t.name.toLowerCase()}|${t.artist.toLowerCase()}')
         .contains(widget.track.queueKey);
     return ScaleTransition(
       scale: _anim,

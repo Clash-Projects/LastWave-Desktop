@@ -101,9 +101,13 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
+    // Watch the playlist STATE (not the notifier — its identity never
+    // changes, so watching it never rebuilds and the heart sticks).
     final liked = ref
-        .watch(playlistRepositoryProvider.notifier)
-        .likedKeys()
+        .watch(playlistRepositoryProvider)
+        .where((p) => p.isLikedSongs)
+        .expand((p) => p.tracks)
+        .map((t) => '${t.name.toLowerCase()}|${t.artist.toLowerCase()}')
         .contains(
           (widget.playable?.queueKey) ??
               '${widget.title.toLowerCase()}|${widget.artist.toLowerCase()}',

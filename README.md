@@ -72,3 +72,7 @@ Enjoy ad-free streaming and smart playlist generation! -->
 > **No Affiliation & Content Policy**
 > - LastWave is an independent project and is **not affiliated with, endorsed, or sponsored by Google LLC, YouTube, YouTube Music, Spotify, Apple Inc., Last.fm, or any music service**.
 > - LastWave **does not host, stream from private servers, or distribute any copyrighted media**. All content and metadata are accessed directly from public endpoints in accordance with their respective terms. All trademarks belong to their respective owners.
+
+<div align="center">
+  <p>Built with ❤️ by <a href="https://github.com/mrinmoyhaloi">Mrinmoy</a> & <a href="https://github.com/ajisth69">Ajisth</a>.</p>
+</div>
