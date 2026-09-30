@@ -81,8 +81,10 @@ class WaveIcons {
   // Community — DO NOT use these generic fallbacks for UI.
   // Use TelegramIcon / DiscordIcon from brand_icons.dart (official marks).
   // Kept only for legacy compat.
+  // ignore: provide_deprecation_message
   @deprecated
   static const IconData telegram = FluentIcons.send;
+  // ignore: provide_deprecation_message
   @deprecated
   static const IconData discord = FluentIcons.chat;
 }

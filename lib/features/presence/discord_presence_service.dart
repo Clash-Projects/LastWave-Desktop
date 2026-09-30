@@ -169,7 +169,7 @@ class DiscordPresenceService {
       'name': 'LastWave',
       'details': title,
       'state': state,
-      if (ts != null) 'timestamps': ts,
+      'timestamps': ?ts,
       'assets': {
         if (artIsUrl) 'large_image': art,
         if (!artIsUrl) 'large_image': 'logo',
