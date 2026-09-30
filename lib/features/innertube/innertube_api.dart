@@ -3695,6 +3695,141 @@ class InnerTubeMusicApi {
     return resolveAudioStream(videoId);
   }
 
+  /// Download-optimized Opus resolution (Opus/WebM preferred).
+  ///
+  /// Mirrors [resolveDownloadStream] but picks the richest Opus/WebM
+  /// adaptive stream — YouTube's best lossy codec — instead of M4A/AAC,
+  /// so offline files keep full quality. Falls back to
+  /// [resolveAudioStream] when nothing usable is found or probed.
+  Future<ResolvedStream?> resolveOpusDownloadStream(
+      String videoId) async {
+    if (videoId.isEmpty) return null;
+    PlayerScript? script;
+    int? sts;
+    try {
+      script = await _decipher
+          .scriptFor(videoId)
+          .timeout(const Duration(seconds: 30));
+      sts = script?.sts;
+    } catch (_) {}
+    await _ensureConfig();
+    final collected = <_Candidate>[];
+    for (final client in playerClients) {
+      try {
+        final root = await _post(
+          '${client.name == 'WEB_REMIX' ? musicApi : youtubeApi}/player?key=${client.apiKey}&prettyPrint=false',
+          body: {
+            'context': _context(
+              client.name,
+              client.version,
+              visitorData: _visitorData,
+              osName: client.osName,
+              osVersion: client.osVersion,
+              deviceMake: client.deviceMake,
+              deviceModel: client.deviceModel,
+              androidSdkVersion: client.androidSdkVersion,
+            ),
+            'videoId': videoId,
+            'contentCheckOk': true,
+            'racyCheckOk': true,
+            if (sts != null)
+              'playbackContext': {
+                'contentPlaybackContext': {
+                  'signatureTimestamp': sts,
+                },
+              },
+          },
+          clientName: client.name,
+          clientVersion: client.version,
+          userAgent: client.userAgent,
+          maxAttempts: 1,
+        );
+        final status =
+            (root['playabilityStatus'] as Map?)?['status']
+                ?.toString();
+        if (status != 'OK') continue;
+        final streaming = root['streamingData'] as Map?;
+        final lists = [
+          streaming?['formats'],
+          streaming?['adaptiveFormats']
+        ];
+        for (final list in lists) {
+          if (list is! List) continue;
+          for (final f in list.whereType<Map<String, dynamic>>()) {
+            String? url = f['url']?.toString();
+            url ??= () {
+              final cipher =
+                  f['signatureCipher']?.toString() ??
+                      f['cipher']?.toString();
+              if (cipher == null || script == null) {
+                return null;
+              }
+              return _decipher.decipherUrl(cipher, script);
+            }();
+            if (url == null) continue;
+            final mime = f['mimeType']?.toString() ?? '';
+            if (!mime.toLowerCase().startsWith('audio/')) {
+              continue;
+            }
+            final codec = _extractCodec(mime);
+            final bitrate =
+                (f['bitrate'] as num?)?.toInt() ?? 0;
+            collected.add(_Candidate(
+              stream: ResolvedStream(
+                url: url,
+                mimeType: mime.split(';').first,
+                bitrateKbps: (bitrate / 1000).round(),
+                audioCodec: (codec?.isNotEmpty ?? false)
+                    ? codec!.toUpperCase()
+                    : 'AUDIO',
+                cacheKey: 'yt-opus-dl:$videoId:${f['itag']}',
+                requestHeaders: client.streamRequestHeaders,
+                expiresAt: _urlExpiryMs(url) != null
+                    ? DateTime.fromMillisecondsSinceEpoch(
+                        _urlExpiryMs(url)!)
+                    : DateTime.now()
+                        .add(Duration(milliseconds: _unknownExpiryTtlMs)),
+                watchtimeUrl: _watchtimeUrlOf(root),
+              ),
+              adaptive: true,
+              bitrate: bitrate,
+              itag: (f['itag'] as num?)?.toInt() ?? -1,
+            ));
+          }
+        }
+      } catch (_) {}
+      if (collected.length >= 12) break;
+    }
+    bool isOpus(_Candidate c) =>
+        c.stream.audioCodec.toUpperCase().contains('OPUS') ||
+        c.stream.mimeType.toLowerCase().contains('opus');
+    bool isWebm(_Candidate c) =>
+        c.stream.mimeType.toLowerCase().contains('webm');
+    _Candidate? best;
+    final opus = collected.where(isOpus);
+    if (opus.isNotEmpty) {
+      best = opus.reduce(
+          (a, b) => a.bitrate >= b.bitrate ? a : b);
+    } else {
+      final webm = collected.where(isWebm);
+      if (webm.isNotEmpty) {
+        best = webm.reduce(
+            (a, b) => a.bitrate >= b.bitrate ? a : b);
+      } else if (collected.isNotEmpty) {
+        best = collected.reduce(
+            (a, b) => a.bitrate >= b.bitrate ? a : b);
+      }
+    }
+    if (best == null) {
+      return resolveAudioStream(videoId);
+    }
+    if (await _probeStream(best.stream, 'opus-download-probe',
+        adaptive: true)) {
+      return best.stream;
+    }
+    return resolveAudioStream(videoId);
+  }
+
   bool _isCooling(String videoId, String clientKey) {
     final prefix = '$videoId|$clientKey|';
     final now = DateTime.now();

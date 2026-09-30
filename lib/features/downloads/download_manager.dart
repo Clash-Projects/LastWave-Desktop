@@ -1,10 +1,12 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/artwork/official_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/storage/app_database.dart';
@@ -12,8 +14,10 @@ import '../../core/storage/prefs.dart';
 import '../innertube/innertube_api.dart';
 import '../addons/addon_api.dart';
 import '../lossless/lossless_source.dart';
+import '../lyrics/lyrics_models.dart';
 import '../lyrics/lyrics_repository.dart';
 import '../search/shared_providers.dart';
+import 'media_tagger.dart';
 
 enum DownloadStatus { queued, downloading, done, error }
 
@@ -60,9 +64,12 @@ class DownloadEntry {
 /// Offline download manager.
 ///
 /// Ports the behaviour of Android `TrackDownloadManager` for desktop:
-/// lossless-first resolution (configurable quality), YouTube fallback,
-/// `.lrc` sidecar lyrics, SQLite registry, files under
-/// `Music/LastWave` (or app documents when Music is unavailable).
+/// lossless-first resolution (configurable quality), YouTube Opus
+/// fallback, embedded metadata (title/artist/album/lyrics/cover —
+/// `.opus` via WebM remux, FLAC/MP3/M4A tagged in place), `.lrc`
+/// sidecar lyrics, SQLite registry, files under the custom download
+/// folder when set, else `Music/LastWave` (or app documents when
+/// Music is unavailable).
 class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   final Dio _dio;
   final AppDatabase _db;
@@ -126,6 +133,15 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   }
 
   Future<Directory> _musicDir() async {
+    // Custom folder wins (Settings → Downloads, Downloads page).
+    final custom = _prefs.downloadDir.trim();
+    if (custom.isNotEmpty) {
+      try {
+        final dir = Directory(custom);
+        await dir.create(recursive: true);
+        return dir;
+      } catch (_) {}
+    }
     try {
       final music = await getDownloadsDirectory();
       // Prefer ~/Music/LastWave when available.
@@ -157,6 +173,87 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     state = [entry, ...others];
   }
 
+  /// Audio payload for a resolved stream: local addon files are read,
+  /// http sources stream into memory with progress on the entry.
+  Future<Uint8List> _fetchAudioBytes(
+    ResolvedStream stream,
+    String key,
+    String title,
+    String artist,
+    String badge,
+  ) async {
+    if (!stream.url.startsWith('http')) {
+      return Uint8List.fromList(
+          await File(stream.url).readAsBytes());
+    }
+    final res = await _dio.get<List<int>>(
+      stream.url,
+      options: Options(
+        responseType: ResponseType.bytes,
+        headers: stream.requestHeaders,
+      ),
+      onReceiveProgress: (received, total) {
+        if (total > 0) {
+          _upsert(DownloadEntry(
+            key: key,
+            title: title,
+            artist: artist,
+            status: DownloadStatus.downloading,
+            progress: received / total,
+            badge: badge,
+          ));
+        }
+      },
+    );
+    return Uint8List.fromList(res.data ?? const <int>[]);
+  }
+
+  /// Cover bytes for the container tag: the caller's artwork URL when
+  /// present, else the official studio cover, else the YTM match art.
+  /// Null when nothing usable is found — tagging proceeds text-only.
+  Future<({Uint8List bytes, String mime})?> _fetchCoverBytes(
+    String title,
+    String artist,
+    String artworkUrl,
+  ) async {
+    var url = artworkUrl.trim();
+    if (url.isEmpty) {
+      try {
+        final art = await OfficialArtworkService.instance
+            .resolveOfficialArtwork(title: title, artist: artist)
+            .timeout(const Duration(seconds: 8));
+        url = art?.artworkUrl ?? '';
+      } catch (_) {}
+    }
+    if (url.isEmpty) {
+      try {
+        final match = await _tube
+            .findBestMatchOrNull(title, artist)
+            .timeout(const Duration(seconds: 8),
+                onTimeout: () => null);
+        url = match?.artworkUrl ?? '';
+      } catch (_) {}
+    }
+    if (url.isEmpty) return null;
+    try {
+      final res = await _dio
+          .get<List<int>>(
+            url,
+            options: Options(responseType: ResponseType.bytes),
+          )
+          .timeout(const Duration(seconds: 15));
+      final bytes = Uint8List.fromList(res.data ?? const <int>[]);
+      if (bytes.length < 512 || bytes.length > 12 * 1024 * 1024) {
+        return null;
+      }
+      final mime = MediaTagger.sniffImageMime(bytes);
+      if (mime == null) return null;
+      return (bytes: bytes, mime: mime);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> downloadTrack({
     required String title,
     required String artist,
@@ -176,7 +273,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       ResolvedStream? stream;
       var badge = '';
       var isLossless = false;
-      var ext = 'm4a';
+      var ext = 'opus';
 
       if (_prefs.preferLossless &&
           _prefs.downloadQuality !=
@@ -211,65 +308,106 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         if (match == null) {
           throw Exception('No playable source found');
         }
-        final yt = await _tube.resolveAudioStream(match.videoId);
+        // Opus-first: YouTube's best lossy codec, probed before use.
+        final opus =
+            await _tube.resolveOpusDownloadStream(match.videoId);
+        final yt = opus ?? await _tube.resolveAudioStream(match.videoId);
         if (yt == null) throw Exception('Stream unavailable');
         stream = yt;
-        badge = 'OPUS';
-        ext = yt.mimeType.contains('mp4') ? 'm4a' : 'webm';
+        final codec = yt.audioCodec.toUpperCase();
+        final mime = yt.mimeType.toLowerCase();
+        final opusLike = codec.contains('OPUS') ||
+            mime.contains('opus') ||
+            mime.contains('webm');
+        badge = codec.isNotEmpty ? codec : 'OPUS';
+        ext = opusLike ? 'opus' : (mime.contains('mp4') ? 'm4a' : 'webm');
+      }
+
+      // Audio bytes (progress surfaced on the entry for http sources).
+      final audioBytes =
+          await _fetchAudioBytes(stream, key, title, artist, badge);
+      if (audioBytes.isEmpty) throw Exception('Empty audio payload');
+
+      // Lyrics + cover in parallel: sidecar text, embeddable plain
+      // text, and cover bytes for the container tag.
+      final fetched = await Future.wait([
+        _lyrics
+            .getLyrics(
+              title: title,
+              artist: artist,
+              album: album,
+              wordByWord: false,
+            )
+            .timeout(const Duration(seconds: 20),
+                onTimeout: () => const LyricsResult.empty()),
+        _fetchCoverBytes(title, artist, artworkUrl),
+      ]);
+      final lyrics = fetched[0] as LyricsResult;
+      final cover =
+          fetched[1] as ({Uint8List bytes, String mime})?;
+
+      // Lyrics sidecar content (synced lines only, as before).
+      String? lrcContent;
+      if (_prefs.downloadLyrics &&
+          lyrics.isSynced &&
+          lyrics.lines.isNotEmpty) {
+        final buf = StringBuffer();
+        for (final line in lyrics.lines) {
+          final m = (line.timeMs ~/ 60000).toString().padLeft(2, '0');
+          final s = ((line.timeMs % 60000) ~/ 1000)
+              .toString()
+              .padLeft(2, '0');
+          final ms = ((line.timeMs % 1000) ~/ 10)
+              .toString()
+              .padLeft(2, '0');
+          buf.writeln('[$m:$s.$ms]${line.text}');
+        }
+        lrcContent = buf.toString();
+      }
+      final lyricsText = lyrics.lines.isNotEmpty
+          ? lyrics.lines.map((l) => l.text).join('\n').trim()
+          : lyrics.plainLyrics.trim();
+
+      // Embed metadata. Any tagging failure keeps the raw bytes —
+      // the download itself must never be lost. Opus remux failure
+      // falls back to the raw `.webm` container.
+      final tags = DownloadTags(
+        title: title,
+        artist: artist,
+        album: album,
+        lyrics: lyricsText,
+        coverBytes: cover?.bytes,
+        coverMime: cover?.mime ?? '',
+      );
+      var finalExt = ext;
+      var outBytes = audioBytes;
+      try {
+        if (ext == 'opus') {
+          outBytes =
+              MediaTagger.remuxWebmOpusToOgg(audioBytes, tags);
+        } else if (ext == 'flac') {
+          outBytes = MediaTagger.tagFlac(audioBytes, tags);
+        } else if (ext == 'mp3') {
+          outBytes = MediaTagger.tagMp3(audioBytes, tags);
+        } else if (ext == 'm4a') {
+          outBytes = MediaTagger.tagM4a(audioBytes, tags);
+        }
+      } catch (_) {
+        outBytes = audioBytes;
+        if (finalExt == 'opus') finalExt = 'webm';
       }
 
       final dir = await _musicDir();
-      final file = File(
-          p.join(dir.path, '${_sanitize('$artist - $title')}.$ext'));
-      if (!stream.url.startsWith('http')) {
-        // Locally assembled addon file: copy it, don't (re-)download.
-        await File(stream.url).copy(file.path);
-      } else {
-        await _dio.download(
-          stream.url,
-          file.path,
-          options: Options(headers: stream.requestHeaders),
-          onReceiveProgress: (received, total) {
-            if (total > 0) {
-              _upsert(DownloadEntry(
-                key: key,
-                title: title,
-                artist: artist,
-                status: DownloadStatus.downloading,
-                progress: received / total,
-                badge: badge,
-              ));
-            }
-          },
-        );
-      }
+      final file = File(p.join(
+          dir.path, '${_sanitize('$artist - $title')}.$finalExt'));
+      await file.writeAsBytes(outBytes, flush: true);
 
-      // Lyrics sidecar.
       var lrcPath = '';
-      if (_prefs.downloadLyrics) {
+      if (lrcContent != null) {
         try {
-          final lyrics = await _lyrics.getLyrics(
-            title: title,
-            artist: artist,
-            album: album,
-            wordByWord: false,
-          );
-          if (lyrics.isSynced && lyrics.lines.isNotEmpty) {
-            final buf = StringBuffer();
-            for (final line in lyrics.lines) {
-              final m = (line.timeMs ~/ 60000).toString().padLeft(2, '0');
-              final s = ((line.timeMs % 60000) ~/ 1000)
-                  .toString()
-                  .padLeft(2, '0');
-              final ms = ((line.timeMs % 1000) ~/ 10)
-                  .toString()
-                  .padLeft(2, '0');
-              buf.writeln('[$m:$s.$ms]${line.text}');
-            }
-            final lrc = File('${file.path}.lrc');
-            await lrc.writeAsString(buf.toString());
-            lrcPath = lrc.path;
-          }
+          final lrc = File('${file.path}.lrc');
+          await lrc.writeAsString(lrcContent);
+          lrcPath = lrc.path;
         } catch (_) {}
       }
 

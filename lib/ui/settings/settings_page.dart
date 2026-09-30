@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1784,9 +1785,21 @@ class _Playback extends ConsumerWidget {
 class _Downloads extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Downloads({required this.onUpdate});
+
+  Future<void> _pickDir(WidgetRef ref) async {
+    try {
+      final path = await FilePicker.getDirectoryPath(
+        dialogTitle: 'Choose download folder',
+      );
+      if (path == null || path.trim().isEmpty) return;
+      await onUpdate((p) => p.setDownloadDir(path));
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
+    final custom = prefs.downloadDir;
     return _Group(
       title: 'Offline',
       subtitle: 'Download behaviour and lyrics sidecars',
@@ -1797,6 +1810,43 @@ class _Downloads extends ConsumerWidget {
             onChanged: (v) => onUpdate((p) => p.setDownloadLyrics(v)),
             title: 'Download lyrics',
             subtitle: 'Save synced .lrc sidecars with downloads',
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(
+                  FluentIcons.open_folder_horizontal, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Save location',
+                        style: WaveType.trackTitle),
+                    Text(
+                      custom.isEmpty
+                          ? 'Default location'
+                          : custom,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.meta,
+                    ),
+                  ],
+                ),
+              ),
+              Button(
+                onPressed: () => _pickDir(ref),
+                child: const Text('Change'),
+              ),
+              if (custom.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Button(
+                  onPressed: () =>
+                      onUpdate((p) => p.resetDownloadDir()),
+                  child: const Text('Reset'),
+                ),
+              ],
+            ],
           ),
         ],
       ),
