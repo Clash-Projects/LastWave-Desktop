@@ -26,8 +26,8 @@
 <br/>
 
 <div align="center">
-<img src="screenshots/homepage.png" alt="LastWave Homepage Screenshot" width="50%" style="border-radius: 14px; margin: 4px;"/>
-<img src="screenshots/player.png" alt="LastWave Lyrics Screenshot" width="50%" style="border-radius: 14px; margin: 4px;" />
+<img src="screenshots/homepage.png" alt="LastWave Homepage Screenshot" width="80%" style="border-radius: 14px; margin: 4px;"/>
+<img src="screenshots/player.png" alt="LastWave Lyrics Screenshot" width="80%" style="border-radius: 14px; margin: 4px;" />
 </div>
 
 <div>
