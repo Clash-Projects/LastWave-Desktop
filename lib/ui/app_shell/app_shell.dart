@@ -7,14 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
-import 'package:tray_manager/tray_manager.dart';
-import 'package:window_manager/window_manager.dart';
 
 import '../../app/window.dart';
 import '../../core/audio/stream_models.dart';
-import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
-import '../../features/presence/discord_presence_service.dart';
 import '../../features/search/search_repository.dart';
 import '../mini_player/mini_player.dart';
 import '../components/infobar_host.dart';
@@ -49,9 +45,7 @@ class WaveShell extends ConsumerStatefulWidget {
   ConsumerState<WaveShell> createState() => _WaveShellState();
 }
 
-class _WaveShellState extends ConsumerState<WaveShell>
-    with TrayListener, WindowListener {
-  bool _quitting = false;
+class _WaveShellState extends ConsumerState<WaveShell> {
   // Boot collapsed: the overlay rail covers content when open, so it
   // starts shut (toggle via hamburger, auto-collapses on outside tap).
   bool _railExpanded = false;
@@ -182,55 +176,6 @@ class _WaveShellState extends ConsumerState<WaveShell>
     // with Riverpod-aware handlers (HotKeyManager stores per-identifier
     // handlers, so re-register overwrites the no-op placeholders).
     _wireHotkeys();
-    try {
-      trayManager.addListener(this);
-    } catch (_) {}
-    try {
-      windowManager.addListener(this);
-    } catch (_) {}
-  }
-
-  /// Ordered shutdown: dispose libmpv while Dart is alive (an mpv
-  /// background thread outliving the isolate aborts the VM on Alt+F4),
-  /// then destroy. Never traps: timeouts/errors still destroy.
-  Future<void> _quitApp() async {
-    if (_quitting) return;
-    _quitting = true;
-    try {
-      await Future(() {
-        try {
-          ref.read(playbackServiceProvider.notifier).disposePlayer();
-        } catch (_) {}
-        try {
-          // Best-effort: clear Discord status before the pipe dies.
-          ref.read(discordPresenceProvider).shutdown();
-        } catch (_) {}
-      }).timeout(const Duration(seconds: 3), onTimeout: () {});
-    } catch (_) {}
-    try {
-      await windowManager.destroy();
-    } catch (_) {}
-  }
-
-  @override
-  void onWindowClose() {
-    // Close button / Alt+F4: hide to tray when preferred, otherwise
-    // quit through the ordered path (raw destroy crashes — see above).
-    final toTray = () {
-      try {
-        return ref.read(prefsProvider).closeToTray;
-      } catch (_) {
-        return true;
-      }
-    }();
-    if (toTray && !_quitting) {
-      windowManager.hide().catchError((_) {});
-      try {
-        ref.read(trayHintProvider.notifier).state = true;
-      } catch (_) {}
-      return;
-    }
-    unawaited(_quitApp());
   }
 
   Future<void> _wireHotkeys() async {
@@ -282,44 +227,9 @@ class _WaveShellState extends ConsumerState<WaveShell>
 
   @override
   void dispose() {
-    try {
-      trayManager.removeListener(this);
-    } catch (_) {}
-    try {
-      windowManager.removeListener(this);
-    } catch (_) {}
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
-  }
-
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) {
-    switch (menuItem.key) {
-      case 'show':
-        windowManager.show().then((_) => windowManager.focus()).catchError((_) {});
-      case 'toggle':
-        ref.read(playbackServiceProvider.notifier).toggle();
-      case 'next':
-        ref.read(playbackServiceProvider.notifier).next();
-      case 'prev':
-        ref.read(playbackServiceProvider.notifier).previous();
-      case 'quit':
-        unawaited(_quitApp());
-    }
-  }
-
-  @override
-  void onTrayIconMouseDown() {
-    windowManager.show().then((_) => windowManager.focus()).catchError((_) {});
-  }
-
-  @override
-  void onTrayIconRightMouseDown() {
-    // bringAppToFront is the SetForegroundWindow call TrackPopupMenu needs
-    // so outside clicks dismiss the menu (upstream default leaves it stuck).
-    // ignore: deprecated_member_use
-    trayManager.popUpContextMenu(bringAppToFront: true).catchError((_) {});
   }
 
   @override
