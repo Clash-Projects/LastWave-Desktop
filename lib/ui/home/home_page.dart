@@ -126,7 +126,7 @@ class WaveHomePage extends ConsumerWidget {
                     actionLabel: username.isEmpty ? 'Connect' : 'Retry',
                     onAction: () {
                       if (username.isEmpty) {
-                        context.go('/welcome');
+                        context.go('/settings?section=lastfm');
                       } else {
                         ref.invalidate(feedProvider);
                       }
