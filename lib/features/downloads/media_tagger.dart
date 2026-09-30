@@ -55,6 +55,46 @@ class TaggerSkip implements Exception {
 class MediaTagger {
   MediaTagger._();
 
+  /// Container of an audio buffer from magic bytes: `webm` (EBML),
+  /// `mp4` (`ftyp`), `flac`, `mp3` (ID3 or frame sync), else `unknown`.
+  /// Tagging must route on this — never on MIME strings or file
+  /// extensions, which can disagree with the actual bytes.
+  static String detectContainer(Uint8List bytes) {
+    if (bytes.length >= 4 &&
+        bytes[0] == 0x1A &&
+        bytes[1] == 0x45 &&
+        bytes[2] == 0xDF &&
+        bytes[3] == 0xA3) {
+      return 'webm';
+    }
+    if (bytes.length >= 8 &&
+        bytes[4] == 0x66 &&
+        bytes[5] == 0x74 &&
+        bytes[6] == 0x79 &&
+        bytes[7] == 0x70) {
+      return 'mp4';
+    }
+    if (bytes.length >= 4 &&
+        bytes[0] == 0x66 &&
+        bytes[1] == 0x4C &&
+        bytes[2] == 0x61 &&
+        bytes[3] == 0x43) {
+      return 'flac';
+    }
+    if (bytes.length >= 3 &&
+        bytes[0] == 0x49 &&
+        bytes[1] == 0x44 &&
+        bytes[2] == 0x33) {
+      return 'mp3';
+    }
+    if (bytes.length >= 2 &&
+        bytes[0] == 0xFF &&
+        (bytes[1] & 0xE0) == 0xE0) {
+      return 'mp3';
+    }
+    return 'unknown';
+  }
+
   /// Image MIME from magic bytes. Null when unrecognized.
   static String? sniffImageMime(Uint8List bytes) {
     if (bytes.length >= 3 &&

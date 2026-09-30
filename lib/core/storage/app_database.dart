@@ -70,6 +70,10 @@ class AppDatabase {
       _createV6();
       _db.execute('PRAGMA user_version=6;');
     }
+    if (version < 7) {
+      _createV7();
+      _db.execute('PRAGMA user_version=7;');
+    }
   }
 
   void _createV1() {
@@ -342,6 +346,17 @@ class AppDatabase {
     try {
       _db.execute(
         'ALTER TABLE stream_cache ADD COLUMN watchtime_url '
+        'TEXT NOT NULL DEFAULT \'\';',
+      );
+    } catch (_) {}
+  }
+
+  /// v7: tagging outcome per download (`full` / `text` / `raw:<reason>`)
+  /// so untagged files are visible instead of silently bare.
+  void _createV7() {
+    try {
+      _db.execute(
+        'ALTER TABLE downloaded_tracks ADD COLUMN tag_status '
         'TEXT NOT NULL DEFAULT \'\';',
       );
     } catch (_) {}
