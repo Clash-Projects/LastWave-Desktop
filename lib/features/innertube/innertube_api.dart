@@ -3157,6 +3157,77 @@ class InnerTubeMusicApi {
     }
   }
 
+  /// First billed artist for match fallback: Last.fm bills collabs as
+  /// "A; B; C" while YouTube lists the primary ("A"), so the strict
+  /// artist gate (≥50) rejects every candidate and playback dies on
+  /// songs that plainly exist. Returns '' for junk billing.
+  static String primaryArtistForMatch(String artist) {
+    var s = artist.split(';').first.trim();
+    if (s.isEmpty) return '';
+    s = s
+        .split(RegExp(
+          r'\s+[(\[]?(?:feat\.?|ft\.?|featuring)\b',
+          caseSensitive: false,
+        ))
+        .first
+        .trim();
+    if (s.isEmpty) return '';
+    // "Tyler, The Creator" stays intact (comma + the/and, no ampersand).
+    if (RegExp(r',\s*(the|and)\b', caseSensitive: false).hasMatch(s) &&
+        !s.contains(' & ')) {
+      return s;
+    }
+    final lower = s.toLowerCase();
+    if (lower == 'unknown artist' ||
+        lower == 'various artists' ||
+        lower == 'unknown') {
+      return '';
+    }
+    return s.split(RegExp(r'\s*[,&]\s*')).first.trim();
+  }
+
+  /// Best-effort YTM match for PLAYBACK (a close song beats silence).
+  ///
+  /// Tier 0 is the strict match (cached, instant on repeats). Tier 1
+  /// retries with the primary artist for collab/featured billing
+  /// ("IKKA; Dino James; Badshah" → "IKKA"). Tier 2 drops the artist
+  /// entirely — title-strong (≥72) wins via the exact-title bonus and
+  /// variant penalties already inside [findBestMatch].
+  ///
+  /// Deliberately does NOT poison the match cache: tier 1/2 hits stay
+  /// session-local (queue adoption + stream cache), so cover-art and
+  /// download paths never inherit a loose match as a strict one.
+  Future<YouTubeMusicTrack?> findBestEffortMatchOrNull(
+    String title,
+    String artist, {
+    Set<String> excludedVideoIds = const {},
+  }) async {
+    if (title.trim().isEmpty) return null;
+    try {
+      final strict = await findBestMatch(title, artist,
+              excludedVideoIds: excludedVideoIds)
+          .timeout(const Duration(seconds: 5));
+      return strict;
+    } catch (_) {}
+    final primary = primaryArtistForMatch(artist);
+    if (primary.isNotEmpty &&
+        normalize(primary) != normalize(artist)) {
+      try {
+        final m = await findBestMatch(title, primary,
+                excludedVideoIds: excludedVideoIds)
+            .timeout(const Duration(seconds: 5));
+        return m;
+      } catch (_) {}
+    }
+    try {
+      final m = await findBestMatch(title, '',
+              excludedVideoIds: excludedVideoIds)
+          .timeout(const Duration(seconds: 5));
+      return m;
+    } catch (_) {}
+    return null;
+  }
+
   void rememberMatch(YouTubeMusicTrack track,
       {String? title, String? artist}) {
     if (track.videoId.isEmpty) return;
