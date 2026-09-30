@@ -56,7 +56,7 @@ Enjoy ad-free streaming and smart playlist generation! -->
   <h2>Installation</h2>
   <p>To install LastWave on your desktop, follow these steps:</p>
   <ol>
-    <li>Download the latest version of LastWave from the <a href="https://github.com/Clash-Projects/LastWave-native/releases">Releases</a> tab.</li>
+    <li>Download the latest version of LastWave from the <a href="https://github.com/Clash-Projects/LastWave-Desktop/releases">Releases</a> tab.</li>
     <li>Run the installer and follow the on-screen instructions.</li>
   </ol>
 </div>
