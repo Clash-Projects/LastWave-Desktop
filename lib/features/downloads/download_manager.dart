@@ -86,6 +86,11 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   final InnerTubeMusicApi _tube;
   final LyricsRepository _lyrics;
   final Set<String> _active = {};
+  // Keys that must never raise a "Download complete" InfoBar: everything
+  // restored from the registry at boot (otherwise the last download
+  // re-announces on every launch — dismissal is widget-local and resets
+  // on relaunch) plus anything the user already dismissed this session.
+  final Set<String> _muted = {};
 
   DownloadManager(
     this._db,
@@ -128,7 +133,15 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
               filePath: r['file_path'] as String?,
             ))
         .toList();
+    // Restored rows are history, not news — never announce them.
+    _muted.addAll(state.map((e) => e.key));
   }
+
+  /// Whether [key] may raise a completion InfoBar this session.
+  bool shouldAnnounce(String key) => !_muted.contains(key);
+
+  /// Silence future completion InfoBars for [key] this session.
+  void muteAnnouncement(String key) => _muted.add(key);
 
   bool isDownloaded(String title, String artist) {
     final key = keyOf(title, artist);
@@ -281,6 +294,9 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     final key = keyOf(title, artist);
     if (_active.contains(key) || isDownloaded(title, artist)) return;
     _active.add(key);
+    // A fresh download is news again, even if an old entry for this
+    // track was muted (restored at boot or dismissed earlier).
+    _muted.remove(key);
     _upsert(DownloadEntry(
       key: key,
       title: title,

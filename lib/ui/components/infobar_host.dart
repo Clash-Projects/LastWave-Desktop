@@ -97,7 +97,12 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
         latest = d;
       }
     }
-    if (latest != null && _dismissedDownloadKey != latest.key) {
+    // Restored-at-boot rows are history (see DownloadManager._muted) —
+    // only entries that finished this session may announce.
+    final announcer = ref.read(downloadManagerProvider.notifier);
+    if (latest != null &&
+        _dismissedDownloadKey != latest.key &&
+        announcer.shouldAnnounce(latest.key)) {
       final entry = latest;
       bars.add(InfoBar(
         title: Text(entry.status == DownloadStatus.done
@@ -112,8 +117,10 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
           onPressed: () => context.go('/downloads'),
           child: const Text('Open'),
         ),
-        onClose: () =>
-            setState(() => _dismissedDownloadKey = entry.key),
+        onClose: () {
+          announcer.muteAnnouncement(entry.key);
+          setState(() => _dismissedDownloadKey = entry.key);
+        },
       ));
     }
     if (bars.isEmpty) return const SizedBox.shrink();
