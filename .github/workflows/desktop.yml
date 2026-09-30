@@ -38,8 +38,16 @@ jobs:
       - name: Build macOS app
         run: flutter build macos --release
 
+      # ditto preserves the .app bundle layout + framework symlinks
+      # (upload-artifact alone flattens/breaks them → dyld "Ass.framework
+      # not valid / library load disallowed" on launch). --keepParent
+      # keeps the top-level lastwave_desktop.app wrapper.
+      - name: Compress macOS Bundle
+        run: |
+          ditto -c -k --keepParent "build/macos/Build/Products/Release/lastwave_desktop.app" "LastWave-Desktop-macos.zip"
+
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Desktop-macOS
-          path: build/macos/Build/Products/Release/lastwave_desktop.app
+          path: LastWave-Desktop-macos.zip
