@@ -1095,7 +1095,7 @@ class _VolumeSection extends ConsumerWidget {
     final output = ref.read(audioOutputProvider.notifier);
     return _VolumeGlyph(
       volume: volume,
-      onMute: () => output.setVolume(volume == 0 ? 1 : 0),
+      onMute: output.toggleMute,
       onVolume: output.setVolume,
     );
   }
@@ -1111,7 +1111,7 @@ class _VolumeFlyoutSection extends ConsumerWidget {
     final output = ref.read(audioOutputProvider.notifier);
     return _VolumeFlyoutGlyph(
       volume: volume,
-      onMute: () => output.setVolume(volume == 0 ? 1 : 0),
+      onMute: output.toggleMute,
       onVolume: output.setVolume,
     );
   }
@@ -1135,7 +1135,7 @@ class _VolumeGlyph extends StatelessWidget {
       children: [
         _Glyph(
           tooltip: volume == 0
-              ? 'Unmute (${(volume * 100).round()}%)'
+              ? 'Unmute'
               : 'Mute (${(volume * 100).round()}%)',
           icon: volume == 0
               ? WaveIcons.volumeMute

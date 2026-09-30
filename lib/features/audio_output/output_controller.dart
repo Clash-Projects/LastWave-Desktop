@@ -74,6 +74,10 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
   StreamSubscription<Map<String, dynamic>>? _hotplug;
   bool _attached = false;
   String? _lastLogged;
+  // Last non-zero volume, so unmute restores the pre-mute level
+  // instead of full blast. Updated on every audible setVolume and
+  // on every mute press (covers slider-dragged-to-zero too).
+  double _preMuteVolume = 1.0;
 
   AudioOutputController(this._ref, {WasapiEngine? engine})
       : _engine = engine ?? const WasapiEngine(),
@@ -180,6 +184,7 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
   }
 
   Future<void> setVolume(double volume) async {
+    if (volume > 0) _preMuteVolume = volume.clamp(0.0, 1.0);
     final playback = _ref.read(playbackServiceProvider.notifier);
     final device = state.selected;
     final hw = state.exclusiveRequested && (device?.hardwareVolume ?? false);
@@ -195,6 +200,19 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
     }
     await playback.setVolume(volume, software: true);
     _rebuildPath();
+  }
+
+  /// Mute toggle: mute remembers the current level, unmute restores it
+  /// (never jumps to max). No history yet (e.g. slider dragged to zero
+  /// then toggled) falls back to full volume.
+  Future<void> toggleMute() async {
+    final current = _ref.read(playbackServiceProvider).volume;
+    if (current <= 0) {
+      await setVolume(_preMuteVolume > 0 ? _preMuteVolume : 1.0);
+    } else {
+      _preMuteVolume = current;
+      await setVolume(0);
+    }
   }
 
   Future<void> _onHotplug(Map<String, dynamic> event) async {
