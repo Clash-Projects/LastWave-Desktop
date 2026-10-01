@@ -40,6 +40,27 @@ class GeneratedTrack {
   String get key => '${name.toLowerCase()}|${artist.toLowerCase()}';
 }
 
+/// Why a feed came back empty. Recorded by [FeedRepository] (which
+/// knows which legs failed); the UI combines it with live connectivity
+/// + auth state, so a non-network cause never says "offline".
+enum FeedEmptyReason {
+  /// Feed has content (or emptiness not evaluated).
+  none,
+  /// All sources answered, but there is no taste to rank (fresh
+  /// profile, nothing liked/played, charts excluded away).
+  noTaste,
+  /// Last.fm legs threw despite a configured key (bad key, rate
+  /// limit, transient API error). Never set when no key exists —
+  /// skipped legs are not failures.
+  lastfmError,
+  /// YouTube charts failed and nothing else filled the page.
+  chartsError,
+  /// Last.fm AND charts both failed.
+  allFailed,
+  /// Device is offline (resolved UI-side via the network monitor).
+  offline,
+}
+
 /// Personalised feed sections for the desktop home screen.
 /// Mirrors LastWave-native `FeedRepository` section structure.
 class FeedData {
@@ -59,6 +80,15 @@ class FeedData {
   /// surfaces outside the feed (Discover new releases).
   final Map<String, double> tasteAffinities;
 
+  /// Source-level failure flags behind [emptyReason]. `lastFmFailed`
+  /// is only ever set when a key was configured (skipped legs are
+  /// not failures); `chartsFailed` covers the charts leg.
+  final bool lastFmFailed;
+  final bool chartsFailed;
+
+  /// Why the feed is empty ([FeedEmptyReason.none] when it isn't).
+  final FeedEmptyReason emptyReason;
+
   const FeedData({
     this.quickPicks = const [],
     this.heavyRotation = const [],
@@ -69,12 +99,32 @@ class FeedData {
     this.tasteTags = const [],
     this.becauseSeed = '',
     this.tasteAffinities = const {},
+    this.lastFmFailed = false,
+    this.chartsFailed = false,
+    this.emptyReason = FeedEmptyReason.none,
   });
 
   bool get isEmpty =>
       quickPicks.isEmpty &&
       heavyRotation.isEmpty &&
+      freshFinds.isEmpty &&
+      jumpBackIn.isEmpty &&
+      becauseYouListened.isEmpty &&
       charts.isEmpty;
+}
+
+/// Resolve the final empty-state reason: a non-empty feed is never an
+/// error, offline always wins (the device state beats leg outcomes),
+/// otherwise the repository's recorded reason stands. Pure — unit
+/// tested. `online` comes from the network monitor UI-side so the
+/// repository stays offline-testable.
+FeedEmptyReason resolveEmptyReason({
+  required bool online,
+  required FeedData data,
+}) {
+  if (!data.isEmpty) return FeedEmptyReason.none;
+  if (!online) return FeedEmptyReason.offline;
+  return data.emptyReason;
 }
 
 /// Day-boundary seed for the rotation RNG: same order all day
@@ -205,6 +255,19 @@ class FeedRepository {
   final Future<List<YouTubeMusicTrack>> Function()? fetchYtLiked;
   final Future<List<YouTubeMusicTrack>> Function()? fetchYtHistory;
 
+  /// Last.fm legs + charts leg, closure-injected for the same reason.
+  /// Null means "call the real repository client" (production).
+  /// Tests inject throwing/empty fakes to prove per-leg degradation.
+  final Future<List<HomeTrack>> Function(int limit)? fetchLfmRecent;
+  final Future<List<HomeTrack>> Function(String period, int limit)?
+      fetchLfmTop;
+  final Future<List<YouTubeMusicTrack>> Function(int limit)? fetchCharts;
+
+  /// Discovery expansion per seed. Null means the built-in
+  /// [_similarTracks] (YTM radio + Last.fm in parallel).
+  final Future<List<GeneratedTrack>> Function(
+      String name, String artist, int limit)? fetchSimilar;
+
   /// On-device taste (play log, liked songs, downloads). Null in unit
   /// tests without it — the feed then runs purely on account signals.
   final Future<LocalTaste?> Function()? fetchLocalTaste;
@@ -213,6 +276,10 @@ class FeedRepository {
       {this._db,
       this.fetchYtLiked,
       this.fetchYtHistory,
+      this.fetchLfmRecent,
+      this.fetchLfmTop,
+      this.fetchCharts,
+      this.fetchSimilar,
       this.fetchLocalTaste});
 
   List<Map<String, dynamic>> _asList(Object? v) {
@@ -271,6 +338,12 @@ class FeedRepository {
     List<HomeTrack> localLiked = const [],
     List<HomeTrack> localPlays = const [],
     List<HomeTrack> localDownloads = const [],
+    // False when Last.fm contributed nothing (unconfigured or failed):
+    // YT liked takes over the "top" slot and history the "recent"
+    // slot. True keeps the historical weights, so connected feeds
+    // never change flavor. `normAffinity` divides by the max, so the
+    // blend self-renormalizes either way.
+    bool lfmActive = true,
   }) async {
     final affinities = <String, double>{};
     for (var i = 0; i < top.length; i++) {
@@ -287,14 +360,15 @@ class FeedRepository {
           affinities, longTerm[i].artist, 0.8 / (1 + i / 15));
     }
     // YouTube account signals: liked outweighs recent scrobbles, watch
-    // history sits below them. Both trail Last.fm top.
+    // history sits below them. Both trail Last.fm top — unless Last.fm
+    // is absent, when liked takes the top slot and history the recent.
     for (var i = 0; i < ytLiked.length; i++) {
-      _addAffinity(
-          affinities, ytLiked[i].artist, 1.1 / (1 + i / 15));
+      _addAffinity(affinities, ytLiked[i].artist,
+          (lfmActive ? 1.1 : 1.45) / (1 + i / 15));
     }
     for (var i = 0; i < ytHistory.length; i++) {
-      _addAffinity(
-          affinities, ytHistory[i].artist, 0.6 / (1 + i / 15));
+      _addAffinity(affinities, ytHistory[i].artist,
+          (lfmActive ? 0.6 : 0.9) / (1 + i / 15));
     }
     // On-device signals: explicit local likes sit just under Last.fm
     // top (your collection outranks rented taste), downloads mark
@@ -343,6 +417,9 @@ class FeedRepository {
 
     final lfmFuture = () async {
       final lfmOut = <GeneratedTrack>[];
+      // No key, no call: without it the request can only fail, and
+      // YTM radio above already covers expansion on its own.
+      if (_apiKey().isEmpty) return lfmOut;
       try {
         final json = await _api.get({
           'method': 'track.getsimilar',
@@ -546,13 +623,63 @@ class FeedRepository {
       }
       final local = localTaste ?? const LocalTaste();
 
+      // Last.fm is optional: without a user key its legs are skipped,
+      // not attempted (no key means the call can only fail). A
+      // present-but-bad key still degrades per-leg below — and per-leg
+      // failures can never again discard YT results (every leg guards).
+      // The LFM legs also get a deadline: previously an unbounded
+      // Future.wait hung the whole Home on a stalled API call.
+      final lfmReady = _apiKey().isNotEmpty;
+      var lastFmFailed = false;
+      Future<List<HomeTrack>> guardedLfm(
+        Future<List<HomeTrack>> Function() fetch,
+      ) async {
+        if (!lfmReady) return const [];
+        try {
+          return await fetch()
+              .timeout(const Duration(seconds: 12));
+        } catch (_) {
+          lastFmFailed = true;
+          return const [];
+        }
+      }
+      var chartsFailed = false;
+      Future<List<YouTubeMusicTrack>> guardedCharts(int limit) async {
+        try {
+          final fetch = fetchCharts;
+          if (fetch != null) {
+            return await fetch(limit)
+                .timeout(const Duration(seconds: 12));
+          }
+          return await _tube
+              .browseSongs('FEmusic_charts', limit: limit)
+              .timeout(const Duration(seconds: 12));
+        } catch (_) {
+          chartsFailed = true;
+          return const [];
+        }
+      }
+
       final results = await Future.wait([
-        _home.fetchRecentTracks(limit: 30),
-        _home.fetchTopTracks(period: '7day', limit: 30),
-        _tube.browseSongs('FEmusic_charts', limit: 30).catchError((_) => <YouTubeMusicTrack>[]),
-        _home
-            .fetchTopTracks(period: '12month', limit: 30)
-            .catchError((_) => <HomeTrack>[]),
+        guardedLfm(() {
+          final fetch = fetchLfmRecent;
+          return fetch != null
+              ? fetch(30)
+              : _home.fetchRecentTracks(limit: 30);
+        }),
+        guardedLfm(() {
+          final fetch = fetchLfmTop;
+          return fetch != null
+              ? fetch('7day', 30)
+              : _home.fetchTopTracks(period: '7day', limit: 30);
+        }),
+        guardedCharts(30),
+        guardedLfm(() {
+          final fetch = fetchLfmTop;
+          return fetch != null
+              ? fetch('12month', 30)
+              : _home.fetchTopTracks(period: '12month', limit: 30);
+        }),
         cappedYt(fetchYtLiked, 60),
         cappedYt(fetchYtHistory, 60),
       ]);
@@ -562,6 +689,13 @@ class FeedRepository {
       final longTerm = results[3] as List<HomeTrack>;
       final ytLiked = results[4] as List<YouTubeMusicTrack>;
       final ytHistory = results[5] as List<YouTubeMusicTrack>;
+      // YT-only mode: Last.fm contributed nothing (unconfigured or
+      // failed), so YT + local signals carry the feed. Drives the
+      // dynamic reweight below and the YT candidate slots in heavy /
+      // quick / jump-back.
+      final lfmActive = top.isNotEmpty ||
+          recent.isNotEmpty ||
+          longTerm.isNotEmpty;
       final affinities = await _artistAffinities(
         top,
         recent,
@@ -571,6 +705,7 @@ class FeedRepository {
         localLiked: local.likedTracks,
         localPlays: local.recentPlays,
         localDownloads: local.downloadedTracks,
+        lfmActive: lfmActive,
       );
       // Banned tracks never surface, in any section.
       final excluded = _db?.loadExclusionKeys() ?? const <String>{};
@@ -630,6 +765,12 @@ class FeedRepository {
           ...score(
               clean(local.likedTracks.take(10).map(fromHome).toList()),
               2.8),
+          // YT-only: account liked songs take the top slot when
+          // Last.fm is absent. Gated so connected feeds keep their
+          // exact flavor.
+          if (!lfmActive)
+            ...score(
+                clean(ytLiked.take(15).map(fromYt).toList()), 2.7),
         ],
         limit: 15,
         maxPerArtist: 2,
@@ -641,6 +782,14 @@ class FeedRepository {
           ...score(
               clean(recent.take(15).map(fromHome).toList()), 1.6),
           ...score(clean(charts.take(15).map(fromYt).toList()), 1.2),
+          // YT-only: history fills the "recent" slot, liked the
+          // "top" slot. Same gating as heavy above.
+          if (!lfmActive)
+            ...score(
+                clean(ytLiked.take(15).map(fromYt).toList()), 2.4),
+          if (!lfmActive)
+            ...score(
+                clean(ytHistory.take(15).map(fromYt).toList()), 1.6),
         ],
         limit: 18,
         sharedCounts: pageCounts,
@@ -653,11 +802,20 @@ class FeedRepository {
           excluded.contains(AppDatabase.exclusionKey(t.name, t.artist));
       final seeds = <HomeTrack>[];
       final seenArtists = <String>{};
+      HomeTrack ytSeed(YouTubeMusicTrack t) => HomeTrack(
+            name: t.title,
+            artist: t.artist,
+            artworkUrl: t.artworkUrl,
+          );
       // Local pool seeds discovery for keyless guests (and enriches
       // it for everyone): recents, then liked, then downloads.
+      // YT liked/history join the pool so a YT-only feed still has
+      // seed artists when Last.fm is absent.
       for (final t in [
         ...top,
         ...recent,
+        ...ytLiked.take(20).map(ytSeed),
+        ...ytHistory.take(20).map(ytSeed),
         ...local.seedPool(limit: 8),
       ]) {
         if (banned(t)) continue;
@@ -666,11 +824,32 @@ class FeedRepository {
         seeds.add(t);
         if (seeds.length >= 4) break;
       }
+      // No taste anywhere (fresh profile, signed out of everything):
+      // seed discovery from the charts so Fresh Finds / Because can
+      // still populate instead of rendering an empty page.
+      if (seeds.isEmpty) {
+        for (final c in charts.take(8)) {
+          final t = ytSeed(c);
+          if (banned(t)) continue;
+          final k = normalizeArtistKey(t.artist);
+          if (k.isEmpty || !seenArtists.add(k)) continue;
+          seeds.add(t);
+          if (seeds.length >= 4) break;
+        }
+      }
       final discovery = <GeneratedTrack>[];
       final discoveryBatches = await Future.wait(
         seeds.map(
-          (seed) => _similarTracks(seed.name, seed.artist, limit: 8)
-              .timeout(const Duration(seconds: 4), onTimeout: () => []),
+          (seed) {
+            final similar = fetchSimilar;
+            final work = similar != null
+                ? similar(seed.name, seed.artist, 8)
+                : _similarTracks(seed.name, seed.artist,
+                    limit: 8);
+            return work.timeout(const Duration(seconds: 4),
+                onTimeout: () =>
+                    const <GeneratedTrack>[]);
+          },
         ),
       );
       for (final batch in discoveryBatches) {
@@ -701,6 +880,17 @@ class FeedRepository {
                   .map(fromHome)
                   .toList(),
               1.8),
+          // YT-only: watch history fills the "recent" slot.
+          if (!lfmActive)
+            ...score(
+                ytHistory
+                    .where((t) => !excluded.contains(
+                        AppDatabase.exclusionKey(
+                            t.title, t.artist)))
+                    .take(20)
+                    .map(fromYt)
+                    .toList(),
+                1.8),
         ],
         limit: 12,
       );
@@ -891,35 +1081,74 @@ class FeedRepository {
         finalBecause = hydrated[4];
       }
 
+      final feedCharts = applyExclusions(
+          charts.take(15).map(fromYt).toList(), excluded);
+      final quickOut = chartsOnly ? const <GeneratedTrack>[] : finalQuick;
+      final heavyOut = chartsOnly ? const <GeneratedTrack>[] : finalHeavy;
+      final freshOut = chartsOnly ? const <GeneratedTrack>[] : finalFresh;
+      final jumpOut = chartsOnly ? const <GeneratedTrack>[] : finalJump;
+      final becauseOut =
+          chartsOnly ? const <GeneratedTrack>[] : finalBecause;
+      // Empty-state reason from the legs that decided the outcome:
+      // skipped Last.fm legs (no key) are not failures, so a keyless
+      // feed can only report chartsError / noTaste — never lastfmError.
+      final isFeedEmpty = quickOut.isEmpty &&
+          heavyOut.isEmpty &&
+          freshOut.isEmpty &&
+          jumpOut.isEmpty &&
+          becauseOut.isEmpty &&
+          feedCharts.isEmpty;
+      final reason = !isFeedEmpty
+          ? FeedEmptyReason.none
+          : lastFmFailed && chartsFailed
+              ? FeedEmptyReason.allFailed
+              : lastFmFailed
+                  ? FeedEmptyReason.lastfmError
+                  : chartsFailed
+                      ? FeedEmptyReason.chartsError
+                      : FeedEmptyReason.noTaste;
       return FeedData(
-        quickPicks: chartsOnly ? const [] : finalQuick,
-        heavyRotation: chartsOnly ? const [] : finalHeavy,
-        freshFinds: chartsOnly ? const [] : finalFresh,
-        jumpBackIn: chartsOnly ? const [] : finalJump,
-        becauseYouListened: chartsOnly ? const [] : finalBecause,
+        quickPicks: quickOut,
+        heavyRotation: heavyOut,
+        freshFinds: freshOut,
+        jumpBackIn: jumpOut,
+        becauseYouListened: becauseOut,
         becauseSeed: becauseSeed,
-        charts: applyExclusions(
-            charts.take(15).map(fromYt).toList(), excluded),
+        charts: feedCharts,
         tasteTags: affinities.keys.take(8).toList(),
         tasteAffinities: affinities,
+        lastFmFailed: lastFmFailed,
+        chartsFailed: chartsFailed,
+        emptyReason: reason,
       );
     } catch (_) {
-      // Guest/offline fallback: charts only.
+      // Last-resort fallback (something above threw outside the
+      // guarded legs): charts only, honoring the injected seam.
       try {
-        final charts =
-            await _tube.browseSongs('FEmusic_charts', limit: 15);
+        final fetch = fetchCharts;
+        final fallbackCharts = fetch != null
+            ? await fetch(15)
+                .timeout(const Duration(seconds: 12))
+            : await _tube
+                .browseSongs('FEmusic_charts', limit: 15)
+                .timeout(const Duration(seconds: 12));
+        final mapped = fallbackCharts
+            .map((t) => GeneratedTrack(
+                  name: t.title,
+                  artist: t.artist,
+                  artworkUrl: t.artworkUrl,
+                  videoId: t.videoId,
+                ))
+            .toList();
         return FeedData(
-          charts: charts
-              .map((t) => GeneratedTrack(
-                    name: t.title,
-                    artist: t.artist,
-                    artworkUrl: t.artworkUrl,
-                    videoId: t.videoId,
-                  ))
-              .toList(),
+          charts: mapped,
+          emptyReason: mapped.isEmpty
+              ? FeedEmptyReason.chartsError
+              : FeedEmptyReason.none,
         );
       } catch (_) {
-        return const FeedData();
+        return const FeedData(
+            emptyReason: FeedEmptyReason.allFailed);
       }
     }
   }

@@ -9,6 +9,7 @@ import 'package:super_sliver_list/super_sliver_list.dart';
 import '../../app/track_actions.dart'
     show playGenerated, playableFromGenerated, relativeTime;
 import '../../core/artwork/official_artwork_service.dart';
+import '../../core/network/network_monitor.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
@@ -61,6 +62,10 @@ class WaveHomePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final feed = ref.watch(feedProvider);
     final auth = ref.watch(authRepositoryProvider);
+    // Watched at build top (never inside the `when` branches): the
+    // empty-state copy is honest about connectivity only when the
+    // device state is actually observed.
+    final online = ref.watch(networkMonitorProvider);
     final viewport = MediaQuery.sizeOf(context).width;
 
     // Responsive shell: <900 single col, 900–1300 two col, 1300+ three col,
@@ -115,20 +120,64 @@ class WaveHomePage extends ConsumerWidget {
           ),
           data: (data) {
             if (data.isEmpty) {
+              // Honest empty state: the repository recorded which legs
+              // failed; offline always wins, otherwise the recorded
+              // reason picks the copy — a non-network cause never says
+              // "offline" and never pushes Last.fm setup on users who
+              // didn't ask for it.
+              final reason = resolveEmptyReason(
+                online: online,
+                data: data,
+              );
+              final copy = switch (reason) {
+                FeedEmptyReason.offline => (
+                    title: "You're offline",
+                    subtitle:
+                        'Connect to load charts and picks.',
+                    action: 'Retry',
+                  ),
+                FeedEmptyReason.lastfmError => (
+                    title: "Couldn't load your picks",
+                    subtitle:
+                        'Last.fm returned an error. Check your API key or retry.',
+                    action: 'Check Last.fm',
+                  ),
+                FeedEmptyReason.chartsError => (
+                    title: 'Charts are unavailable right now',
+                    subtitle:
+                        'YouTube charts failed to load — retry in a bit.',
+                    action: 'Retry',
+                  ),
+                FeedEmptyReason.allFailed => (
+                    title: "Couldn't reach music services",
+                    subtitle:
+                        'Last.fm and charts both failed — check your connection and retry.',
+                    action: 'Retry',
+                  ),
+                _ => (
+                    title: 'Nothing to play yet',
+                    subtitle:
+                        'Like songs, play anything, or connect YouTube Music and Home will fill in.',
+                    action: 'Discover',
+                  ),
+              };
               return SliverPadding(
                 padding: EdgeInsets.fromLTRB(side, 18, side, 32),
                 sliver: SliverToBoxAdapter(
                   child: WaveEmpty(
                     icon: FluentIcons.music_note,
-                    title: 'Nothing to play yet',
-                    subtitle:
-                        'Charts are unavailable offline. Connect Last.fm or check your connection.',
-                    actionLabel: username.isEmpty ? 'Connect' : 'Retry',
+                    title: copy.title,
+                    subtitle: copy.subtitle,
+                    actionLabel: copy.action,
                     onAction: () {
-                      if (username.isEmpty) {
-                        context.go('/settings?section=lastfm');
-                      } else {
-                        ref.invalidate(feedProvider);
+                      switch (reason) {
+                        case FeedEmptyReason.lastfmError:
+                          context.go(
+                              '/settings?section=lastfm');
+                        case FeedEmptyReason.noTaste:
+                          context.go('/discover');
+                        default:
+                          ref.invalidate(feedProvider);
                       }
                     },
                   ),
