@@ -170,13 +170,15 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
 
   void _onTick(Duration _) {
     if (!_isPlaying) return;
-    // Cap interpolation at ~60Hz: the ticker fires at display refresh
-    // (up to 144Hz), and every tick pushes setProgress + a lyric-view
-    // update. Syllable transitions are 50-200ms, so 60Hz loses nothing
-    // visible while cutting per-frame Dart work ~2.4x. Accuracy is
-    // unaffected — elapsed is wall-clock based, not tick-counted.
+    // Cap interpolation at ~30Hz: the ticker fires at display refresh
+    // (up to 144Hz), and every admitted tick pushes setProgress + a
+    // lyric-view update. Syllable transitions are 50-200ms, so 30Hz
+    // loses nothing visible while halving per-frame Dart + raster
+    // work — the margin that keeps karaoke smooth while motion art
+    // eats the rest of the budget. Accuracy is unaffected — elapsed
+    // is wall-clock based, not tick-counted.
     final wall = DateTime.now();
-    if (wall.difference(_lastTickWall).inMicroseconds < 16000) return;
+    if (wall.difference(_lastTickWall).inMicroseconds < 33000) return;
     _lastTickWall = wall;
     final elapsed = wall.difference(_lastSyncTime).inMilliseconds;
     final currentMs =
@@ -1022,6 +1024,14 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
   int _lastIndex = -1;
   bool _pinnedOpening = false;
+  // Row output depends only on (active, following, untimed) — the
+  // per-tick position just selects the active line (plain rows don't
+  // consume posMs for content). Caching skips rebuilding ~60 rows
+  // 30×/sec; scroll side-effects below still run per tick.
+  Widget? _listCache;
+  int _listCacheActive = -2;
+  bool _listCacheFollowing = true;
+  bool _listCacheUntimed = false;
 
   int _activeIndex(int posMs) =>
       activeLyricLineIndex(widget.result.lines, posMs);
@@ -1060,6 +1070,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     if (oldWidget.result != widget.result) {
       _pinnedOpening = false;
       _lastIndex = -1;
+      _listCache = null;
     }
     if (widget.following && !oldWidget.following) {
       final untimed = lyricsAreUntimed(widget.result.lines);
@@ -1098,11 +1109,20 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           _lastIndex = active;
         }
 
-        return _buildLineList(
-          posMs: posMs,
-          active: active,
-          untimed: false,
-        );
+        if (_listCache == null ||
+            active != _listCacheActive ||
+            widget.following != _listCacheFollowing ||
+            untimed != _listCacheUntimed) {
+          _listCacheActive = active;
+          _listCacheFollowing = widget.following;
+          _listCacheUntimed = untimed;
+          _listCache = _buildLineList(
+            posMs: posMs,
+            active: active,
+            untimed: false,
+          );
+        }
+        return _listCache!;
       },
     );
   }
@@ -1114,22 +1134,27 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   }) {
     Widget lineAt(int i) {
       final line = widget.result.lines[i];
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 4),
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: () => widget.onSeekLineMs(line.timeMs),
-            child: WaveKaraokeLyricLine(
-              line: line,
-              positionMs: posMs,
-              isActive: i == active,
-              isPast: !untimed && i < active,
-              compact: widget.compact,
-              fontSize: widget.fontSize,
-              showTransliteration: widget.showTransliteration,
-              karaoke: false,
-              softenIdle: !untimed,
+      // Isolate each row: without this, the active line's per-tick
+      // repaints (highlight wipe + 16px text shadow) cascade into
+      // sibling rows, re-rasterizing the whole pane ~30×/sec.
+      return RepaintBoundary(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => widget.onSeekLineMs(line.timeMs),
+              child: WaveKaraokeLyricLine(
+                line: line,
+                positionMs: posMs,
+                isActive: i == active,
+                isPast: !untimed && i < active,
+                compact: widget.compact,
+                fontSize: widget.fontSize,
+                showTransliteration: widget.showTransliteration,
+                karaoke: false,
+                softenIdle: !untimed,
+              ),
             ),
           ),
         ),

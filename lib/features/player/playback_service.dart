@@ -47,6 +47,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   DateTime? _sleepDeadline;
   Timer? _persistThrottle;
   DateTime _lastPersist = DateTime.fromMillisecondsSinceEpoch(0);
+  // UI position emission gate: mpv fires time-pos per frame (60Hz+)
+  // and every emission rebuilds all position watchers (dock bar,
+  // karaoke, time labels, mini player). Karaoke interpolates
+  // wall-clock between updates and bars read smooth at 10Hz, so only
+  // the state snapshot is throttled — scrobble/prefetch below still
+  // see every raw event.
+  DateTime _lastPositionEmit = DateTime.fromMillisecondsSinceEpoch(0);
 
   // Scrobble bookkeeping (mirrors Android detector).
   int _scrobbleStartEpoch = 0;
@@ -229,9 +236,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       }),
       p.stream.position.listen((v) {
         if (_resolving || state.error != null) return;
-        state = state.copyWith(position: v);
         _tickScrobble(v);
         _maybePrefetchFromPosition(v);
+        if (state.position == v) return;
+        final now = DateTime.now();
+        if (now.difference(_lastPositionEmit).inMilliseconds < 100) {
+          return;
+        }
+        _lastPositionEmit = now;
+        state = state.copyWith(position: v);
       }),
       p.stream.buffer.listen((v) {
         if (_resolving || state.error != null) return;
