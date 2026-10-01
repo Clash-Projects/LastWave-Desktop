@@ -1,0 +1,811 @@
+{
+  "responseContext": {
+    "visitorData": "fixture-visitor"
+  },
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "selected": true,
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicCarouselShelfRenderer": {
+                      "header": {
+                        "musicCarouselShelfBasicHeaderRenderer": {
+                          "title": {
+                            "runs": [
+                              {
+                                "text": "Trending community playlists"
+                              }
+                            ]
+                          },
+                          "accessibilityData": {
+                            "accessibilityData": {
+                              "label": "Trending community playlists"
+                            }
+                          },
+                          "headerStyle": "MUSIC_CAROUSEL_SHELF_BASIC_HEADER_STYLE_DEFAULT"
+                        }
+                      },
+                      "contents": [
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/aqDn2dcU1B-8X7e0szStJLi8zifqJo2_XLbeP6uM4ZT62KaqevZylQMxGo5Wsflmb7FwzGKJyh_Z=s192",
+                                      "width": 192,
+                                      "height": 192
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/aqDn2dcU1B-8X7e0szStJLi8zifqJo2_XLbeP6uM4ZT62KaqevZylQMxGo5Wsflmb7FwzGKJyh_Z=s576",
+                                      "width": 576,
+                                      "height": 576
+                                    }
+                                  ]
+                                },
+                                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+                              }
+                            },
+                            "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "आईने के सौ टुकड़े करके हमने देखे है",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "VLPLlLI-kEwLBH7yeVvmGOfB46kwPWMKBVK7",
+                                      "params": "ggMEgALDCg%3D%3D",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Jitendra Kumar Maurya",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCK4Yo-wqXyioAMEaKssuK4Q",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "4.9M views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPLlLI-kEwLBH7yeVvmGOfB46kwPWMKBVK7",
+                                "params": "ggMEgALDCg%3D%3D",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            },
+                            "thumbnailOverlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "background": {
+                                  "verticalGradient": {
+                                    "gradientLayerColors": [
+                                      {
+                                        "Length": 10
+                                      },
+                                      {
+                                        "Length": 1
+                                      },
+                                      {
+                                        "Length": 1
+                                      }
+                                    ]
+                                  }
+                                },
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PLlLI-kEwLBH7yeVvmGOfB46kwPWMKBVK7",
+                                        "params": "wAEB"
+                                      }
+                                    },
+                                    "playIcon": {
+                                      "iconType": "PLAY_ARROW"
+                                    },
+                                    "pauseIcon": {
+                                      "iconType": "PAUSE"
+                                    },
+                                    "iconColor": 4294967295,
+                                    "backgroundColor": 2566914048,
+                                    "activeBackgroundColor": 4278190080,
+                                    "loadingIndicatorColor": 14745645,
+                                    "playingIcon": {
+                                      "iconType": "VOLUME_UP"
+                                    },
+                                    "iconLoadingColor": 1308622847,
+                                    "activeScaleFactor": 1.2,
+                                    "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_MEDIUM",
+                                    "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                                    "accessibilityPlayData": {
+                                      "accessibilityData": {
+                                        "label": "Play आईने के सौ टुकड़े करके हमने देखे है"
+                                      }
+                                    },
+                                    "accessibilityPauseData": {
+                                      "accessibilityData": {
+                                        "label": "Pause आईने के सौ टुकड़े करके हमने देखे है"
+                                      }
+                                    }
+                                  }
+                                },
+                                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_BOTTOM_RIGHT",
+                                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_HOVER"
+                              }
+                            },
+                            "thumbnailCornerOverlay": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.ggpht.com/amzmWGA2BhalNKyAEANTUcAAbbtQk0ouNFx4Z5ObShiLAtL6OwhTf3T_v2h5ussFezlVrrhxVyE=s48-c-k-c0x00000000-no-cc-rj-rp",
+                                      "width": 48,
+                                      "height": 48
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/amzmWGA2BhalNKyAEANTUcAAbbtQk0ouNFx4Z5ObShiLAtL6OwhTf3T_v2h5ussFezlVrrhxVyE=s96-c-k-c0x00000000-no-cc-rj-rp",
+                                      "width": 96,
+                                      "height": 96
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/amzmWGA2BhalNKyAEANTUcAAbbtQk0ouNFx4Z5ObShiLAtL6OwhTf3T_v2h5ussFezlVrrhxVyE=s48-c-k-c0x00000000-no-cc-rj-rp",
+                                      "width": 48,
+                                      "height": 48
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/amzmWGA2BhalNKyAEANTUcAAbbtQk0ouNFx4Z5ObShiLAtL6OwhTf3T_v2h5ussFezlVrrhxVyE=s96-c-k-c0x00000000-no-cc-rj-rp",
+                                      "width": 96,
+                                      "height": 96
+                                    }
+                                  ]
+                                },
+                                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_CIRCLE",
+                                "accessibilityData": {
+                                  "accessibilityData": {
+                                    "label": "Jitendra Kumar Maurya"
+                                  }
+                                },
+                                "onTap": {
+                                  "browseEndpoint": {
+                                    "browseId": "UCK4Yo-wqXyioAMEaKssuK4Q",
+                                    "params": "ggMEgALDCg%3D%3D",
+                                    "browseEndpointContextSupportedConfigs": {
+                                      "browseEndpointContextMusicConfig": {
+                                        "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/SEtsNUumPSkCtKhfo1Fkmsz78isPjfuPlKQVqcx87o60Vk6XcOFZg7D1jGlTJdsqBLG8ZrUHeZtJ=s192",
+                                      "width": 192,
+                                      "height": 192
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/SEtsNUumPSkCtKhfo1Fkmsz78isPjfuPlKQVqcx87o60Vk6XcOFZg7D1jGlTJdsqBLG8ZrUHeZtJ=s576",
+                                      "width": 576,
+                                      "height": 576
+                                    }
+                                  ]
+                                },
+                                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+                              }
+                            },
+                            "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "Retro songs",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "VLPL1J9m42dJJYoksxLsYJltn3VaED9e46nN",
+                                      "params": "ggMEgALDCg%3D%3D",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Chandru J",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UC_3xSqvf2Wugx34ZhpnBQ7A",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "3.5M views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPL1J9m42dJJYoksxLsYJltn3VaED9e46nN",
+                                "params": "ggMEgALDCg%3D%3D",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            },
+                            "thumbnailOverlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "background": {
+                                  "verticalGradient": {
+                                    "gradientLayerColors": [
+                                      {
+                                        "Length": 10
+                                      },
+                                      {
+                                        "Length": 1
+                                      },
+                                      {
+                                        "Length": 1
+                                      }
+                                    ]
+                                  }
+                                },
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PL1J9m42dJJYoksxLsYJltn3VaED9e46nN",
+                                        "params": "wAEB"
+                                      }
+                                    },
+                                    "playIcon": {
+                                      "iconType": "PLAY_ARROW"
+                                    },
+                                    "pauseIcon": {
+                                      "iconType": "PAUSE"
+                                    },
+                                    "iconColor": 4294967295,
+                                    "backgroundColor": 2566914048,
+                                    "activeBackgroundColor": 4278190080,
+                                    "loadingIndicatorColor": 14745645,
+                                    "playingIcon": {
+                                      "iconType": "VOLUME_UP"
+                                    },
+                                    "iconLoadingColor": 1308622847,
+                                    "activeScaleFactor": 1.2,
+                                    "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_MEDIUM",
+                                    "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                                    "accessibilityPlayData": {
+                                      "accessibilityData": {
+                                        "label": "Play Retro songs"
+                                      }
+                                    },
+                                    "accessibilityPauseData": {
+                                      "accessibilityData": {
+                                        "label": "Pause Retro songs"
+                                      }
+                                    }
+                                  }
+                                },
+                                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_BOTTOM_RIGHT",
+                                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_HOVER"
+                              }
+                            },
+                            "thumbnailCornerOverlay": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.ggpht.com/lUkKoIMk2pTrCXdII1hojdErwRGsEWazgxEVu_jM0g9jNClSUELNbbgn2UzHRaOtMieeDoFt=s48-c-k-c0x00000000-no-cc-rj-rp",
+                                      "width": 48,
+                                      "height": 48
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/lUkKoIMk2pTrCXdII1hojdErwRGsEWazgxEVu_jM0g9jNClSUELNbbgn2UzHRaOtMieeDoFt=s96-c-k-c0x00000000-no-cc-rj-rp",
+                                      "width": 96,
+                                      "height": 96
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/lUkKoIMk2pTrCXdII1hojdErwRGsEWazgxEVu_jM0g9jNClSUELNbbgn2UzHRaOtMieeDoFt=s48-c-k-c0x00000000-no-cc-rj-rp",
+                                      "width": 48,
+                                      "height": 48
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/lUkKoIMk2pTrCXdII1hojdErwRGsEWazgxEVu_jM0g9jNClSUELNbbgn2UzHRaOtMieeDoFt=s96-c-k-c0x00000000-no-cc-rj-rp",
+                                      "width": 96,
+                                      "height": 96
+                                    }
+                                  ]
+                                },
+                                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_CIRCLE",
+                                "accessibilityData": {
+                                  "accessibilityData": {
+                                    "label": "Chandru J"
+                                  }
+                                },
+                                "onTap": {
+                                  "browseEndpoint": {
+                                    "browseId": "UC_3xSqvf2Wugx34ZhpnBQ7A",
+                                    "params": "ggMEgALDCg%3D%3D",
+                                    "browseEndpointContextSupportedConfigs": {
+                                      "browseEndpointContextMusicConfig": {
+                                        "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "itemSize": "COLLECTION_STYLE_ITEM_SIZE_MEDIUM",
+                      "shelfId": "754e4fc5-d7ea-4f23-9374-67d448bade6d"
+                    }
+                  },
+                  {
+                    "musicCarouselShelfRenderer": {
+                      "header": {
+                        "musicCarouselShelfBasicHeaderRenderer": {
+                          "title": {
+                            "runs": [
+                              {
+                                "text": "Easy Evenings"
+                              }
+                            ]
+                          },
+                          "strapline": {
+                            "runs": [
+                              {
+                                "text": "COMFY & COZY, AS EVENINGS SHOULD BE"
+                              }
+                            ]
+                          },
+                          "accessibilityData": {
+                            "accessibilityData": {
+                              "label": "COMFY & COZY, AS EVENINGS SHOULD BE Easy Evenings"
+                            }
+                          },
+                          "headerStyle": "MUSIC_CAROUSEL_SHELF_BASIC_HEADER_STYLE_DEFAULT"
+                        }
+                      },
+                      "contents": [
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/K7iFh4GaYG2woDU1GptXJUQntvSJlJZoDfiXi6h8-QJ7Jmy9X-sAM3BWNZHliT5CfaZed0BwGpJiaTR3=w226-h226-l90-rj",
+                                      "width": 226,
+                                      "height": 226
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/K7iFh4GaYG2woDU1GptXJUQntvSJlJZoDfiXi6h8-QJ7Jmy9X-sAM3BWNZHliT5CfaZed0BwGpJiaTR3=w544-h544-l90-rj",
+                                      "width": 544,
+                                      "height": 544
+                                    }
+                                  ]
+                                },
+                                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+                              }
+                            },
+                            "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "Kannada Melodies",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "VLRDCLAK5uy_mBzss6KO6IYWRAhU1Bg3kAjezXnhepDpc",
+                                      "params": "ggMEgAKPAw%3D%3D",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Sonu Nigam"
+                                },
+                                {
+                                  "text": ", "
+                                },
+                                {
+                                  "text": "B. Ajaneesh Loknath"
+                                },
+                                {
+                                  "text": ", "
+                                },
+                                {
+                                  "text": "Sanjith Hegde"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLRDCLAK5uy_mBzss6KO6IYWRAhU1Bg3kAjezXnhepDpc",
+                                "params": "ggMEgAKPAw%3D%3D",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            },
+                            "thumbnailOverlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "background": {
+                                  "verticalGradient": {
+                                    "gradientLayerColors": [
+                                      {
+                                        "Length": 10
+                                      },
+                                      {
+                                        "Length": 1
+                                      },
+                                      {
+                                        "Length": 1
+                                      }
+                                    ]
+                                  }
+                                },
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "RDCLAK5uy_mBzss6KO6IYWRAhU1Bg3kAjezXnhepDpc",
+                                        "params": "wAEB"
+                                      }
+                                    },
+                                    "playIcon": {
+                                      "iconType": "PLAY_ARROW"
+                                    },
+                                    "pauseIcon": {
+                                      "iconType": "PAUSE"
+                                    },
+                                    "iconColor": 4294967295,
+                                    "backgroundColor": 2566914048,
+                                    "activeBackgroundColor": 4278190080,
+                                    "loadingIndicatorColor": 14745645,
+                                    "playingIcon": {
+                                      "iconType": "VOLUME_UP"
+                                    },
+                                    "iconLoadingColor": 1308622847,
+                                    "activeScaleFactor": 1.2,
+                                    "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_MEDIUM",
+                                    "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                                    "accessibilityPlayData": {
+                                      "accessibilityData": {
+                                        "label": "Play Kannada Melodies"
+                                      }
+                                    },
+                                    "accessibilityPauseData": {
+                                      "accessibilityData": {
+                                        "label": "Pause Kannada Melodies"
+                                      }
+                                    }
+                                  }
+                                },
+                                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_BOTTOM_RIGHT",
+                                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_HOVER"
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/N-wiK5w1vRVJyRZ3KczvlNrrg8xzuzqNtLg2b2k1JR97BHMsSXuQQ12pLgIPhuj2o7XIkl7bVU5qRA=w226-h226-l90-rj",
+                                      "width": 226,
+                                      "height": 226
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/N-wiK5w1vRVJyRZ3KczvlNrrg8xzuzqNtLg2b2k1JR97BHMsSXuQQ12pLgIPhuj2o7XIkl7bVU5qRA=w544-h544-l90-rj",
+                                      "width": 544,
+                                      "height": 544
+                                    }
+                                  ]
+                                },
+                                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+                              }
+                            },
+                            "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "Uncut Bollywood",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "VLRDCLAK5uy_krbBs7P2iEb30IODyVbiOXWyhZtAIX9Uk",
+                                      "params": "ggMEgAKPAw%3D%3D",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Arijit Singh"
+                                },
+                                {
+                                  "text": ", "
+                                },
+                                {
+                                  "text": "Pritam"
+                                },
+                                {
+                                  "text": ", "
+                                },
+                                {
+                                  "text": "Irshad Kamil"
+                                },
+                                {
+                                  "text": ", "
+                                },
+                                {
+                                  "text": "Amitabh Bhattacharya"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLRDCLAK5uy_krbBs7P2iEb30IODyVbiOXWyhZtAIX9Uk",
+                                "params": "ggMEgAKPAw%3D%3D",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            },
+                            "thumbnailOverlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "background": {
+                                  "verticalGradient": {
+                                    "gradientLayerColors": [
+                                      {
+                                        "Length": 10
+                                      },
+                                      {
+                                        "Length": 1
+                                      },
+                                      {
+                                        "Length": 1
+                                      }
+                                    ]
+                                  }
+                                },
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "RDCLAK5uy_krbBs7P2iEb30IODyVbiOXWyhZtAIX9Uk",
+                                        "params": "wAEB"
+                                      }
+                                    },
+                                    "playIcon": {
+                                      "iconType": "PLAY_ARROW"
+                                    },
+                                    "pauseIcon": {
+                                      "iconType": "PAUSE"
+                                    },
+                                    "iconColor": 4294967295,
+                                    "backgroundColor": 2566914048,
+                                    "activeBackgroundColor": 4278190080,
+                                    "loadingIndicatorColor": 14745645,
+                                    "playingIcon": {
+                                      "iconType": "VOLUME_UP"
+                                    },
+                                    "iconLoadingColor": 1308622847,
+                                    "activeScaleFactor": 1.2,
+                                    "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_MEDIUM",
+                                    "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                                    "accessibilityPlayData": {
+                                      "accessibilityData": {
+                                        "label": "Play Uncut Bollywood"
+                                      }
+                                    },
+                                    "accessibilityPauseData": {
+                                      "accessibilityData": {
+                                        "label": "Pause Uncut Bollywood"
+                                      }
+                                    }
+                                  }
+                                },
+                                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_BOTTOM_RIGHT",
+                                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_HOVER"
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "itemSize": "COLLECTION_STYLE_ITEM_SIZE_MEDIUM",
+                      "shelfId": "2d0a84f4-3310-476c-933e-1ccb3082bfe7"
+                    }
+                  },
+                  {
+                    "musicTastebuilderShelfRenderer": {
+                      "thumbnail": {
+                        "musicTastebuilderShelfThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://www.youtube.com/img/music/tastebuilder/shelf_thumbnail/v6/IN_248_X_76.png",
+                                "width": 248,
+                                "height": 76
+                              },
+                              {
+                                "url": "https://www.youtube.com/img/music/tastebuilder/shelf_thumbnail/v6/IN_372_X_114.png",
+                                "width": 372,
+                                "height": 114
+                              },
+                              {
+                                "url": "https://www.youtube.com/img/music/tastebuilder/shelf_thumbnail/v6/IN_496_X_152.png",
+                                "width": 496,
+                                "height": 152
+                              },
+                              {
+                                "url": "https://www.youtube.com/img/music/tastebuilder/shelf_thumbnail/v6/IN_744_X_228.png",
+                                "width": 744,
+                                "height": 228
+                              },
+                              {
+                                "url": "https://www.youtube.com/img/music/tastebuilder/shelf_thumbnail/v6/IN_992_X_304.png",
+                                "width": 992,
+                                "height": 304
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "primaryText": {
+                        "runs": [
+                          {
+                            "text": "Tell us which artists you like"
+                          }
+                        ]
+                      },
+                      "secondaryText": {
+                        "runs": [
+                          {
+                            "text": "We'll create an experience just for you"
+                          }
+                        ]
+                      },
+                      "actionButton": {
+                        "buttonRenderer": {
+                          "style": "STYLE_PRIMARY",
+                          "text": {
+                            "runs": [
+                              {
+                                "text": "Let's go"
+                              }
+                            ]
+                          },
+                          "navigationEndpoint": {
+                            "modalEndpoint": {
+                              "modal": {
+                                "modalWithTitleAndButtonRenderer": {
+                                  "title": {
+                                    "runs": [
+                                      {
+                                        "text": "Have a favorite?"
+                                      }
+                                    ]
+                                  },
+                                  "content": {
+                                    "runs": [
+                                      {
+                                        "text": "Tell us which artists you like and we'll improve your recommendations"
+                                      }
+                                    ]
+                                  },
+                                  "button": {
+                                    "buttonRenderer": {
+                                      "style": "STYLE_BLUE_TEXT",
+                                      "isDisabled": false,
+                                      "text": {
+                                        "runs": [
+                                          {
+                                            "text": "Sign in"
+                                          }
+                                        ]
+                                      },
+                                      "navigationEndpoint": {
+                                        "signInEndpoint": {
+                                          "hack": true
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "isVisible": true
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -94,4 +94,30 @@ void main() {
         limit: 10);
     expect(related, isNotEmpty);
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  // `loadPersistedConnection` in setUpAll restores the cookie jar from
+  // secure storage, so this exercises the personalized path when a jar
+  // is present and the anonymous shelves when it is not. Either way the
+  // parser has to produce titled, renderable shelves - the point of the
+  // test is the response shape, not whether a jar happens to be stored.
+  test('home browse returns titled shelves', () async {
+    final shelves = await tube.fetchHomeShelves();
+    expect(shelves, isNotEmpty);
+    for (final shelf in shelves) {
+      expect(shelf.title, isNotEmpty);
+      expect(shelf.isRenderable, isTrue);
+      if (shelf.isCardShelf) {
+        for (final e in shelf.entities) {
+          expect(e.name, isNotEmpty);
+          expect(e.browseId.isNotEmpty || e.playlistId.isNotEmpty, isTrue);
+        }
+      }
+    }
+    // Fingerprints only - no titles, urls or credentials.
+    // ignore: avoid_print
+    print('HOME shelves=${shelves.length} '
+        'cards=${shelves.where((s) => s.isCardShelf).length} '
+        'songs=${shelves.where((s) => s.isTrackShelf).length} '
+        'kinds=${shelves.expand((s) => s.entities).map((e) => e.kind).toSet()}');
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
