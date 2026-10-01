@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:synchronized/synchronized.dart';
 
 import '../../core/network/dio_factory.dart';
+import '../../core/network/net_log.dart';
 import 'challenge_parser.dart';
 
 class PoTokenResult {
@@ -183,7 +184,10 @@ class PoTokenEngine {
         _cachedSessionToken = sessionToken;
         _ready = true;
         return sessionToken;
-      } catch (_) {
+      } catch (e) {
+        // Was a bare `catch (_)`, which is why a macOS-only engine
+        // failure was indistinguishable from "BotGuard not needed".
+        NetLog.note('BOTGUARD engine unavailable (${e.runtimeType})');
         await _destroyEngineLocked();
         return null;
       }
@@ -236,7 +240,17 @@ class PoTokenEngine {
       rethrow;
     }
     _webview = webview;
-    await webview.setWebviewWindowVisibility(false);
+    // Only Windows implements setWebviewWindowVisibility on
+    // desktop_webview_window; macOS and Linux answer
+    // MethodNotImplemented. That used to throw here and abort the whole
+    // method, so `launch` below never ran and poToken was permanently
+    // null on macOS while a small window still flashed (the plugin
+    // shows the window on create and centers it, ignoring windowPosX/Y).
+    try {
+      await webview.setWebviewWindowVisibility(false);
+    } catch (e) {
+      NetLog.note('BOTGUARD hide-window unsupported (${e.runtimeType})');
+    }
     webview.launch(Uri.file(file.path).toString());
     final loaded = await _poll(
       () async {

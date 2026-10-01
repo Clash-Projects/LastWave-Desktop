@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 
+import 'net_log.dart';
 import 'rate_guard.dart';
 
 /// Shared Dio factory with LastWave networking behaviour ported from
@@ -62,6 +63,19 @@ class DioFactory {
         ),
       );
     }
+
+    // Always on, release included. The failures worth chasing are the
+    // ones the user cannot see from their machine anyway: a macOS App
+    // Sandbox denial, DNS, and TLS all surface here as an opaque
+    // connection error with no HTTP status at all.
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onError: (e, handler) {
+          NetLog.failure(e);
+          handler.next(e);
+        },
+      ),
+    );
 
     if (kDebugMode) {
       final logger = Logger();

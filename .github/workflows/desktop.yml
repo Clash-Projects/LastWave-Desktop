@@ -58,10 +58,10 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # - name: Run analyzer & tests
-      #   run: |
-      #     flutter analyze --no-fatal-infos
-      #     flutter test
+      - name: Run analyzer & tests
+        run: |
+          flutter analyze --no-fatal-infos
+          flutter test
 
       - name: Build Linux app
         run: flutter build linux --release
@@ -238,8 +238,33 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # v1.0.0 shipped an app sandboxed with no
+      # com.apple.security.network.client: the app launched normally and
+      # every outbound socket was denied, so it looked like it had lost
+      # the internet. The entitlement file is only half the contract --
+      # this asserts the wired build configs too, before anything is
+      # signed.
+      - name: Guard macOS entitlements
+        run: flutter test test/macos_entitlements_test.dart
+
       - name: Build macOS app
         run: flutter build macos --release
+
+      # Second half of the guard: read the entitlements off the signed
+      # bundle rather than the source file, so a build that silently
+      # drops them cannot be published.
+      - name: Verify signed app grants network access
+        run: |
+          set -euo pipefail
+          APP="build/macos/Build/Products/Release/lastwave_desktop.app"
+          codesign -d --entitlements :- "$APP" 2>&1 | tee /tmp/ent.plist
+          for key in com.apple.security.app-sandbox com.apple.security.network.client; do
+            if ! grep -q "$key" /tmp/ent.plist; then
+              echo "::error::signed bundle is missing $key; it will have no network access on macOS"
+              exit 1
+            fi
+          done
+          echo "signed bundle grants sandbox + network.client"
 
       - name: Compress macOS Bundle
         run: |
