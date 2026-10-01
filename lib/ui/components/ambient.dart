@@ -108,6 +108,18 @@ double _scrimBoost(ArtworkPalette palette) {
   return ((light - 0.45) / 0.35).clamp(0.0, 1.0);
 }
 
+/// Frame budget for slow ambient motion: aura/mesh periods run 22–52s,
+/// so quantizing phase to 30fps buckets skips 1 of 2 repaints at 60Hz
+/// (3 of 4 at 120Hz+) with no visible difference. The builders still
+/// run per tick (cheap — UI thread stays ~1ms); only raster work is
+/// skipped, via the painters' `shouldRepaint`.
+double _phaseBucket(double value, int bucketsPerCycle) =>
+    (value * bucketsPerCycle).floor() / bucketsPerCycle;
+
+/// Repaint buckets per motion cycle at 30fps: period seconds × 30.
+int _motionBuckets(bool cinematic) => cinematic ? 1050 : 660;
+int _driftBuckets(bool cinematic) => cinematic ? 1560 : 930;
+
 /// Directional contrast scrim shared by every ambient stage
 /// (cinematic aura, solid-mode static gradient): tints the glass the
 /// title, lyrics, and top bar sit on toward the theme background.
@@ -416,7 +428,7 @@ final artworkSeedProvider =
 });
 
 /// Pre-blurred, small aura texture. Blur is baked once so Now Playing
-/// can rotate two shader layers at 60fps without live ImageFiltered.
+/// can rotate two shader layers at 30fps without live ImageFiltered.
 final auraImageProvider =
     FutureProvider.autoDispose.family<ui.Image, String>((ref, url) async {
   if (url.isEmpty) throw StateError('empty artwork');
@@ -499,7 +511,11 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
     _driftController = AnimationController(
       vsync: this,
       duration: Duration(seconds: widget.cinematic ? 52 : 31),
-    )..repeat();
+    );
+    // Cinematic aura listens to spin only: a listenerless repeat()
+    // still forces empty vsync frames, so drift runs solely for the
+    // non-cinematic mesh that actually consumes it.
+    if (!widget.cinematic) _driftController.repeat();
 
     _crossfadeController = AnimationController(
       vsync: this,
@@ -560,7 +576,7 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
       _driftController.stop();
     } else if (visualizerEnabled && !_motionController.isAnimating) {
       _motionController.repeat();
-      _driftController.repeat();
+      if (!widget.cinematic) _driftController.repeat();
     }
 
     if (reduceTransparency || !blurEnabled) {
@@ -619,13 +635,18 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
 
         final activePalette = _currentPalette.lerp(_targetPalette, t);
         return CustomPaint(
+          isComplex: true,
+          willChange: true,
           size: widget.isFullBleed
               ? Size.infinite
               : Size(double.infinity, widget.height),
           painter: _AmbientMeshPainter(
             palette: activePalette,
-            motionValue: _motionController.value,
-            driftValue: _driftController.value,
+            motionValue: _phaseBucket(
+                _motionController.value,
+                _motionBuckets(widget.cinematic)),
+            driftValue: _phaseBucket(_driftController.value,
+                _driftBuckets(widget.cinematic)),
             isPlaying: isPlaying,
             isDark: isDark,
             opacity: widget.opacity,
@@ -641,7 +662,6 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
               _AppleArtworkAura(
                 artworkUrl: widget.artworkUrl,
                 spin: _motionController,
-                counterSpin: _driftController,
               ),
               // Contrast guarantee (shared _StageScrim): the aura
               // paints the cover's real colors at high opacity, so a
@@ -678,17 +698,15 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
 }
 
 /// Apple Music / monochrome artwork aura: a baked blur texture sampled
-/// through two mirrored shaders that slowly rotate. No live blur, no
+/// through a slowly rotating mirrored shader. No live blur, no
 /// square-image edges (those were the rotating line).
 class _AppleArtworkAura extends ConsumerWidget {
   final String artworkUrl;
   final Animation<double> spin;
-  final Animation<double> counterSpin;
 
   const _AppleArtworkAura({
     required this.artworkUrl,
     required this.spin,
-    required this.counterSpin,
   });
 
   @override
@@ -697,16 +715,109 @@ class _AppleArtworkAura extends ConsumerWidget {
     return asyncImg.when(
       loading: () => const ColoredBox(color: Color(0xFF0B0D11)),
       error: (_, _) => const ColoredBox(color: Color(0xFF0B0D11)),
-      data: (image) => AnimatedBuilder(
-        animation: Listenable.merge([spin, counterSpin]),
-        builder: (context, _) {
-          return CustomPaint(
-            painter: _AuraPainter(
-              image: image,
-              spin: spin.value * 2 * math.pi,
-              counterSpin: -counterSpin.value * 2 * math.pi,
+      data: (image) => _AuraLayers(
+        image: image,
+        spin: spin,
+      ),
+    );
+  }
+}
+
+/// Rotating aura layer with a cached shader.
+///
+/// The `ImageShader` holds only the static part (cover scale +
+/// image-origin centering) and is rebuilt solely when the image or
+/// the layout size changes — previously a fresh shader was allocated
+/// and compiled per layer per frame. Rotation/shift/scale ride on the
+/// canvas transform instead, which is pixel-identical (total matrix
+/// unchanged) and lets the GPU reuse texture state. Combined with the
+/// 30fps phase buckets, most vsync ticks skip raster entirely.
+///
+/// Single layer only: the second counter-rotating layer was dropped
+/// after profiling showed each dirty frame still exceeding the 8.3ms
+/// budget at 120Hz (raster 9.8ms avg with the throttle working — the
+/// red bars sat exactly on the 30Hz dirty cadence). One layer halves
+/// fill cost; the scrim + cover carry the lost depth.
+class _AuraLayers extends StatefulWidget {
+  final ui.Image image;
+  final Animation<double> spin;
+
+  const _AuraLayers({
+    required this.image,
+    required this.spin,
+  });
+
+  @override
+  State<_AuraLayers> createState() => _AuraLayersState();
+}
+
+class _AuraLayersState extends State<_AuraLayers> {
+  ImageShader? _shader;
+  Size? _shaderKey;
+
+  ImageShader _shaderFor(Size size) {
+    if (_shader == null || _shaderKey != size) {
+      _shader?.dispose();
+      // Zoomed-in crop (2.3× cover): the aura reads as abstract color
+      // wash, not a second copy of the sleeve. A tight crop plus low
+      // opacity keeps bright covers from blowing out the stage.
+      final coverScale = math.max(size.width, size.height) /
+          widget.image.width *
+          2.3;
+      final matrix = Matrix4.identity()
+        ..scaleByDouble(coverScale, coverScale, 1, 1)
+        ..translateByDouble(
+            -widget.image.width / 2, -widget.image.height / 2, 0, 1);
+      _shader = ImageShader(
+        widget.image,
+        TileMode.mirror,
+        TileMode.mirror,
+        matrix.storage,
+      );
+      _shaderKey = size;
+    }
+    return _shader!;
+  }
+
+  @override
+  void didUpdateWidget(covariant _AuraLayers oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.image != widget.image) {
+      _shader?.dispose();
+      _shader = null;
+      _shaderKey = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _shader?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.spin,
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, constraints) {
+          final size = constraints.biggest;
+          if (!size.isFinite || size.isEmpty) {
+            return const SizedBox.expand();
+          }
+          return RepaintBoundary(
+            child: CustomPaint(
+              isComplex: true,
+              willChange: true,
+              painter: _AuraPainter(
+                shader: _shaderFor(size),
+                canvasSize: size,
+                spin: _phaseBucket(widget.spin.value, 1050) *
+                    2 *
+                    math.pi,
+              ),
+              child: const SizedBox.expand(),
             ),
-            child: const SizedBox.expand(),
           );
         },
       ),
@@ -715,71 +826,69 @@ class _AppleArtworkAura extends ConsumerWidget {
 }
 
 class _AuraPainter extends CustomPainter {
-  final ui.Image image;
+  final ImageShader shader;
+  final Size canvasSize;
   final double spin;
-  final double counterSpin;
 
   _AuraPainter({
-    required this.image,
+    required this.shader,
+    required this.canvasSize,
     required this.spin,
-    required this.counterSpin,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-    final rect = Offset.zero & size;
-    final coverScale =
-        math.max(size.width, size.height) / image.width * 1.75;
 
-    void layer({
-      required double angle,
-      required double scale,
-      required Offset shift,
-      required double opacity,
-    }) {
-      final matrix = Matrix4.identity()
-        ..translateByDouble(
-          size.width * 0.5 + shift.dx,
-          size.height * 0.5 + shift.dy,
-          0,
-          1,
-        )
-        ..rotateZ(angle)
-        ..scaleByDouble(scale, scale, 1, 1)
-        ..translateByDouble(-image.width / 2, -image.height / 2, 0, 1);
-      final paint = Paint()
-        ..isAntiAlias = false
-        ..filterQuality = FilterQuality.low
-        ..color = Colors.white.withValues(alpha: opacity)
-        ..shader = ImageShader(
-          image,
-          TileMode.mirror,
-          TileMode.mirror,
-          matrix.storage,
-        );
-      canvas.drawRect(rect, paint);
+    // Single layer (see class docs): center/shift/rotate the cached
+    // shader via canvas transform; the bounding box covers the
+    // back-transformed screen rect (clipped by the rasterizer).
+    final center = Offset(
+      size.width * 0.58,
+      size.height * 0.44,
+    );
+    final cosA = math.cos(-spin);
+    final sinA = math.sin(-spin);
+    var minX = double.infinity;
+    var minY = double.infinity;
+    var maxX = -double.infinity;
+    var maxY = -double.infinity;
+    for (final corner in [
+      Offset.zero,
+      Offset(size.width, 0),
+      Offset(0, size.height),
+      Offset(size.width, size.height),
+    ]) {
+      final dx = corner.dx - center.dx;
+      final dy = corner.dy - center.dy;
+      final lx = dx * cosA - dy * sinA;
+      final ly = dx * sinA + dy * cosA;
+      if (lx < minX) minX = lx;
+      if (ly < minY) minY = ly;
+      if (lx > maxX) maxX = lx;
+      if (ly > maxY) maxY = ly;
     }
-
-    layer(
-      angle: spin,
-      scale: coverScale,
-      shift: Offset(size.width * 0.08, -size.height * 0.06),
-      opacity: 0.70,
-    );
-    layer(
-      angle: counterSpin + math.pi,
-      scale: coverScale * 1.18,
-      shift: Offset(-size.width * 0.10, size.height * 0.08),
-      opacity: 0.45,
-    );
+    final paint = Paint()
+      ..isAntiAlias = false
+      ..filterQuality = FilterQuality.low
+      // Wash, not wallpaper: 0.40 keeps the palette's hue on stage
+      // while the scrim + cover carry contrast. 0.70 blew bright
+      // covers out into an overexposed double image.
+      ..color = Colors.white.withValues(alpha: 0.40)
+      ..shader = shader;
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(spin);
+    canvas.drawRect(
+        Rect.fromLTRB(minX, minY, maxX, maxY), paint);
+    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _AuraPainter old) {
     return old.spin != spin ||
-        old.counterSpin != counterSpin ||
-        old.image != image;
+        old.shader != shader ||
+        old.canvasSize != canvasSize;
   }
 }
 
