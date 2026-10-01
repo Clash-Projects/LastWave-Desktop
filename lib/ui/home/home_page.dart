@@ -258,10 +258,10 @@ class WaveHomePage extends ConsumerWidget {
     }
 
     // YouTube Music's own home shelves, straight from the account. The
-    // feed above is scored from Last.fm history, so a YouTube-only
-    // listener has nothing in it at all - these are the shelves
-    // music.youtube.com itself would show. Empty (section omitted)
-    // when signed out or on any failure.
+    // feed above is taste-scored (Last.fm when configured, otherwise
+    // YT + on-device signals) - these are the editorial shelves
+    // music.youtube.com itself would show, which the scored feed does
+    // not carry. Empty (section omitted) when signed out or on failure.
     final ytShelves = ref.watch(ytHomeShelvesProvider).valueOrNull ?? const [];
     for (final shelf in ytShelves) {
       if (!shelf.isRenderable || shelf.title.isEmpty) continue;
