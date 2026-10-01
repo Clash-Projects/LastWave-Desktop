@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,6 +34,11 @@ class AnimatedArtworkSession extends ChangeNotifier {
   int _refs = 0;
   String _url = '';
   bool _ready = false;
+  // URL actually opened on the native player (vs [_url], which leads
+  // by up to 250ms during coalesce). Same-clip resume requires both
+  // to match — otherwise a remount mid-load would hijack the pending
+  // new-clip open and latch ready for the wrong clip.
+  String _openedUrl = '';
   bool _visible = false;
   bool _silenced = false;
   // Serializes native ops (open/stop/dispose): each waits for the previous.
@@ -78,20 +84,38 @@ class AnimatedArtworkSession extends ChangeNotifier {
   }
 
   /// Now Playing left; keep the player but cover with the still again.
+  /// Notifies: watchers gate the fading sleeve on `isReadyFor`, which
+  /// includes [_visible] — without this the sleeve stays transparent
+  /// after the video unmounts and the tile sits black forever.
   void hideSurface() {
+    if (!_visible) return;
     _visible = false;
+    _notify();
   }
 
   Future<void> open(String url) async {
     if (url.isEmpty || _disposed) return;
     if (url == _url && _player != null) {
-      // Same clip: no native churn, just (re)play through the queue.
+      // New clip still loading (coalesce window): the in-flight open
+      // owns it and plays on completion — don't disturb it.
+      if (url != _openedUrl) return;
+      // Same-clip resume (visualizer toggle, same-album skip):
+      // playback restarts, so the ready latch must reset — otherwise
+      // the sleeve (gated on motionReady) stays transparent through
+      // black reload frames. Re-armed short: resume renders in a few
+      // hundred ms, and staleness is impossible (no synchronous mark,
+      // no width replay — timer only).
       await _serialized(() async {
         try {
           await _player?.play();
         } catch (_) {}
       });
-      if (_ready) _notify();
+      _ready = false;
+      _notify();
+      _watchReady(++_generation,
+          timeout: const Duration(milliseconds: 500),
+          immediate: false,
+          watchWidth: false);
       return;
     }
     final gen = ++_generation;
@@ -119,6 +143,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
         play: true,
       );
       if (gen != _generation || _disposed) return;
+      _openedUrl = url;
       _watchReady(gen);
     } catch (_) {}
   }
@@ -156,7 +181,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
     // flight and fail-fasted the engine.
   }
 
-  void _watchReady(int gen) {
+  void _watchReady(int gen,
+      {Duration timeout = const Duration(milliseconds: 1200),
+      bool immediate = true,
+      bool watchWidth = true}) {
     _readyTimer?.cancel();
     _widthSub?.cancel();
     _unlistenRect();
@@ -167,6 +195,13 @@ class AnimatedArtworkSession extends ChangeNotifier {
     void mark() {
       if (gen != _generation || _ready) return;
       _ready = true;
+      if (kDebugMode) {
+        // Perf attribution for motion-art jank: resolution + height
+        // decide decode/upload cost (a 1080p+ clip explains 25ms+
+        // raster that no widget-layer fix can move).
+        debugPrint(
+            '[motion] ready ${player.state.width}x${player.state.height} $_url');
+      }
       if (_visible) _notify();
     }
 
@@ -177,12 +212,14 @@ class AnimatedArtworkSession extends ChangeNotifier {
 
     _rectListener = onRect;
     controller.rect.addListener(onRect);
-    onRect();
+    if (immediate) onRect();
 
-    _widthSub = player.stream.width.listen((w) {
-      if ((w ?? 0) > 0) mark();
-    });
-    _readyTimer = Timer(const Duration(milliseconds: 1200), () {
+    if (watchWidth) {
+      _widthSub = player.stream.width.listen((w) {
+        if ((w ?? 0) > 0) mark();
+      });
+    }
+    _readyTimer = Timer(timeout, () {
       if ((player.state.width ?? 0) > 0) mark();
     });
   }
@@ -208,15 +245,25 @@ class AnimatedArtworkSession extends ChangeNotifier {
     _player = player;
     _controller = VideoController(
       player,
-      configuration: const VideoControllerConfiguration(
-        // Match the clips (~768px H.264) so the first frames don't force
-        // a texture realloc via SetSize mid-decode.
-        width: 768,
-        height: 768,
+      configuration: VideoControllerConfiguration(
+        // Fixed output size avoids a texture realloc via SetSize on
+        // the first frames (the surface later snaps to stream-native
+        // on video params, so this is first-frame stability only).
+        width: 384,
+        height: 384,
+        // CPU presentation on Linux: media_kit's H/W path renders in
+        // an isolated EGL context shared with Flutter's ("H/W
+        // rendering with isolated EGL context" in the log), and the
+        // per-frame cross-context sync stalled raster to ~25ms on
+        // Mesa/RADV at 120Hz. The sw path uploads pixel buffers in
+        // Flutter's own context — no second context, no fence stalls.
+        // Decode stays software either way (hwdec pin below).
+        // Windows/macOS keep H/W (D3D11-copy/METAL are healthy there).
+        enableHardwareAcceleration: !Platform.isLinux,
         // Software decode only: media_kit defaults hwdec=auto, which on
         // Linux+Mesa tries VA-API dmabuf interop with vo=libmpv and
         // yields zero frames (still never fades; Windows D3D11-copy is
-        // unaffected). These clips are ~768px H.264 — trivial for CPU.
+        // unaffected). These clips are trivial for CPU.
         hwdec: 'no',
       ),
     );

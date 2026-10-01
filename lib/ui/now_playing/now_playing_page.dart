@@ -611,7 +611,21 @@ class _NarrowCenteredPane extends StatelessWidget {
 /// Motion art sits under a still sleeve that fades away once the first
 /// video frame is ready. Same-album tracks keep the looping clip; the
 /// player session survives leaving Now Playing so it does not reload.
-class _HeroArtworkCard extends ConsumerWidget {
+///
+/// Single still only: the sleeve above the video is the one and only
+/// still layer. A second still beneath the video used to look
+/// harmless (always covered), but on the software texture path the
+/// video frames can carry partial alpha — and then the hidden still
+/// bleeds through as a persistent overexposed double image. With one
+/// still, any translucency blends into the blurred aura instead.
+///
+/// The live tile is isolated in a [RepaintBoundary] so the two large
+/// blurs + clip don't re-rasterize on every video frame — without it
+/// each texture upload repainted the static shadows too.
+/// Motion art only mounts while the visualizer is enabled: the toggle
+/// promises a calm static page, and an invisible video keeps
+/// decoding + uploading textures otherwise.
+class _HeroArtworkCard extends ConsumerStatefulWidget {
   final PlayableTrack track;
   final double size;
 
@@ -621,8 +635,24 @@ class _HeroArtworkCard extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_HeroArtworkCard> createState() =>
+      _HeroArtworkCardState();
+}
+
+class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
+  /// True once the ready fade completes: the sleeve unmounts instead
+  /// of sitting at opacity 0, where it would still rasterize (and
+  /// alpha-blend) a full-res still on every video frame.
+  bool _sleeveGone = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final ref = this.ref;
+    final track = widget.track;
+    final size = widget.size;
     final dark = waveIsDark(context);
+    // Visualizer toggle owns ALL page motion: aura + motion-art clip.
+    final visualizerOn = ref.watch(visualizerEnabledProvider);
     final motion = ref.watch(animatedArtworkProvider(
       AnimatedArtworkQuery(
         artist: track.artist,
@@ -635,6 +665,11 @@ class _HeroArtworkCard extends ConsumerWidget {
     final motionReady = ref.watch(
       animatedArtworkSessionProvider.select((s) => s.isReadyFor(motionUrl)),
     );
+    // Any not-ready state re-arms the sleeve (track change, toggle
+    // off, session reset). Assigned, not setState: it only feeds this
+    // build's output, so no extra frame is scheduled.
+    if (!motionReady) _sleeveGone = false;
+    final showSleeve = !motionReady || !_sleeveGone;
     WaveArtwork stillCover() => WaveArtwork(
           url: track.artworkUrl,
           videoId: track.videoId,
@@ -663,29 +698,47 @@ class _HeroArtworkCard extends ConsumerWidget {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        clipBehavior: Clip.antiAliasWithSaveLayer,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            stillCover(),
-            if (motionUrl.isNotEmpty)
-              AnimatedArtworkVideo(
-                url: motionUrl,
-                size: size,
-              ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 480),
-                  curve: Curves.easeOutCubic,
-                  opacity: motionReady ? 0 : 1,
-                  child: stillCover(),
+      // Boundary sits INSIDE the shadows: the live video repaints
+      // per frame in its own layer while the blurs rasterize once.
+      // Plain antiAlias (not ...WithSaveLayer): the offscreen target
+      // switch every video frame cost milliseconds on weak raster.
+      child: RepaintBoundary(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // No bottom still: the fading sleeve below is the only
+              // still layer (see class docs). When there is no motion
+              // clip it stays opaque and the tile is just the cover.
+              if (visualizerOn && motionUrl.isNotEmpty)
+                AnimatedArtworkVideo(
+                  url: motionUrl,
+                  size: size,
                 ),
-              ),
-            ),
-          ],
+              if (showSleeve)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 480),
+                      curve: Curves.easeOutCubic,
+                      opacity: motionReady ? 0 : 1,
+                      onEnd: () {
+                        // Fade done while still ready: unmount so the
+                        // invisible still stops rasterizing per video
+                        // frame. The build-time reset above corrects a
+                        // stale flag (track changed mid-fade, …).
+                        if (mounted) {
+                          setState(() => _sleeveGone = true);
+                        }
+                      },
+                      child: stillCover(),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
