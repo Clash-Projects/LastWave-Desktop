@@ -104,7 +104,14 @@ Future<void> goToAlbumOfTrack(
 
   try {
     var albumName = album.trim();
+    // Backfilled album text is a guess (text search on title/artist),
+    // so it needs a strong match: exact title plus at least partial
+    // artist (150). Explicit album text keeps the historical bar (60).
+    // Weak backfill falls back to search instead of opening a wrong
+    // album page that throws Empty album.
+    var minScore = 60;
     if (albumName.isEmpty) {
+      minScore = 150;
       try {
         final match = await ref
             .read(innerTubeProvider)
@@ -125,6 +132,7 @@ Future<void> goToAlbumOfTrack(
       results,
       title: albumName,
       artist: artist,
+      minScore: minScore,
     )?.browseId ?? '';
     if (browseId.isEmpty) {
       fallback();

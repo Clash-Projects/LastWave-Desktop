@@ -492,6 +492,7 @@ class _RecentSearchCard extends ConsumerStatefulWidget {
 
 class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
   bool _hover = false;
+  bool _pressed = false;
 
   String _kindLine(SearchResultItem? hit) {
     if (hit == null) return 'Search';
@@ -516,13 +517,14 @@ class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
         ref.watch(waveSearchPreviewProvider(widget.query)).valueOrNull;
     final title = hit?.name.isNotEmpty == true ? hit!.name : widget.query;
     final isArtist = hit?.tab == SearchTab.artists;
+    void play() => widget.onOpen();
     return Focus(
       canRequestFocus: true,
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent &&
             (event.logicalKey == LogicalKeyboardKey.enter ||
                 event.logicalKey == LogicalKeyboardKey.space)) {
-          widget.onOpen();
+          play();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -530,43 +532,63 @@ class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
+        onExit: (_) => setState(() {
+          _hover = false;
+          _pressed = false;
+        }),
         child: GestureDetector(
-          onTap: widget.onOpen,
-          child: AnimatedContainer(
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTap: play,
+          child: AnimatedScale(
+            scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
             duration: WaveMotion.fast,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: _hover
-                  ? (dark ? WaveColors.surfaceOverlay : WaveColors.lightOverlay)
-                  : (dark ? WaveColors.surface : WaveColors.lightSurface),
-              borderRadius: BorderRadius.circular(WaveRadius.controls),
-            ),
-            child: Row(
-              children: [
-                WaveArtwork(
-                  url: hit?.artworkUrl ?? '',
-                  size: 48,
-                  radius: isArtist ? 999 : WaveRadius.artwork,
-                  isCircle: isArtist,
-                  label: title,
-                  title: title,
-                  artist: hit?.artist ?? '',
-                  kind: isArtist ? ArtworkKind.artist : ArtworkKind.track,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.trackTitle),
-                      Text(_kindLine(hit),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.meta.copyWith(
+            curve: Curves.easeOutCubic,
+            child: AnimatedContainer(
+              duration: WaveMotion.normal,
+              curve: Curves.easeOutCubic,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _hover
+                    ? (dark ? WaveColors.surfaceOverlay : WaveColors.lightOverlay)
+                    : (dark ? WaveColors.surface : WaveColors.lightSurface),
+                borderRadius: BorderRadius.circular(WaveRadius.controls),
+                boxShadow: [
+                  if (_hover)
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                          alpha: dark ? 0.45 : 0.18),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  WaveArtwork(
+                    url: hit?.artworkUrl ?? '',
+                    size: 48,
+                    radius: isArtist ? 999 : WaveRadius.artwork,
+                    isCircle: isArtist,
+                    label: title,
+                    title: title,
+                    artist: hit?.artist ?? '',
+                    kind: isArtist ? ArtworkKind.artist : ArtworkKind.track,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: WaveType.trackTitle),
+                        Text(_kindLine(hit),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: WaveType.meta.copyWith(
                               color: waveTextTertiary(context))),
                     ],
                   ),
@@ -585,6 +607,7 @@ class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
           ),
         ),
       ),
+    )
     );
   }
 }

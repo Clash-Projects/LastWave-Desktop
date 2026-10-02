@@ -576,7 +576,9 @@ class _ArtistAlbumCard extends StatefulWidget {
 
 class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
   bool _hover = false;
+  bool _pressed = false;
   final FocusNode _focus = FocusNode();
+
   @override
   void dispose() {
     _focus.dispose();
@@ -585,6 +587,11 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    void play() {
+      _focus.requestFocus();
+      widget.onTap();
+    }
     return LWTooltip(
       message: widget.title,
       child: Focus(
@@ -594,7 +601,7 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
           if (event is KeyDownEvent &&
               (event.logicalKey == LogicalKeyboardKey.enter ||
                   event.logicalKey == LogicalKeyboardKey.space)) {
-            widget.onTap();
+            play();
             return KeyEventResult.handled;
           }
           return KeyEventResult.ignored;
@@ -602,72 +609,114 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           onEnter: (_) => setState(() => _hover = true),
-          onExit: (_) => setState(() => _hover = false),
+          onExit: (_) => setState(() {
+            _hover = false;
+            _pressed = false;
+          }),
           child: GestureDetector(
-            onTap: () {
-              _focus.requestFocus();
-              widget.onTap();
-            },
-            child: AnimatedContainer(
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapUp: (_) => setState(() => _pressed = false),
+            onTapCancel: () => setState(() => _pressed = false),
+            onTap: play,
+            child: AnimatedScale(
+              scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
               duration: WaveMotion.fast,
-              width: widget.width,
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: _hover || _focus.hasFocus
-                    ? (waveIsDark(context)
-                            ? const Color(0xFFFFFFFF)
-                            : const Color(0xFF000000))
-                        .withValues(alpha: 0.05)
-                    : Colors.transparent,
-                borderRadius:
-                    BorderRadius.circular(WaveRadius.artwork),
-                border: _focus.hasFocus
-                    ? Border.all(
-                        color: WaveColors.accentDim,
-                        width: WaveState.focusRing)
-                    : Border.all(color: Colors.transparent),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Stack(
-                    children: [
-                      WaveArtwork(
-                          url: widget.artworkUrl,
-                          size: widget.artSize,
-                          radius: WaveRadius.artwork,
-                          label: widget.title,
-                          title: widget.title,
-                          artist: widget.artist,
-                          kind: ArtworkKind.album),
-                      if (_hover)
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                duration: WaveMotion.normal,
+                curve: Curves.easeOutCubic,
+                width: widget.width,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: _hover || _focus.hasFocus
+                      ? (waveIsDark(context)
+                              ? const Color(0xFFFFFFFF)
+                              : const Color(0xFF000000))
+                          .withValues(alpha: 0.05)
+                      : Colors.transparent,
+                  borderRadius:
+                      BorderRadius.circular(WaveRadius.artwork),
+                  border: _focus.hasFocus
+                      ? Border.all(
+                          color: WaveColors.accentDim,
+                          width: WaveState.focusRing)
+                      : Border.all(color: Colors.transparent),
+                  boxShadow: [
+                    if (_hover)
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                            alpha: dark ? 0.45 : 0.18),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Stack(
+                      children: [
+                        WaveArtwork(
+                            url: widget.artworkUrl,
+                            size: widget.artSize,
+                            radius: WaveRadius.artwork,
+                            label: widget.title,
+                            title: widget.title,
+                            artist: widget.artist,
+                            kind: ArtworkKind.album),
                         Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.black
-                                  .withValues(alpha: 0.45),
-                              borderRadius: BorderRadius.circular(
-                                  WaveRadius.artwork),
+                          child: AnimatedOpacity(
+                            opacity: _hover ? 1 : 0,
+                            duration: WaveMotion.fast,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black.withValues(alpha: 0.55),
+                                  ],
+                                ),
+                                borderRadius:
+                                    BorderRadius.circular(WaveRadius.artwork),
+                              ),
+                              child: Center(
+                                child: AnimatedScale(
+                                  scale: _hover ? 1.0 : 0.70,
+                                  duration: WaveMotion.fast,
+                                  curve: Curves.easeOutBack,
+                                  child: GestureDetector(
+                                    onTap: play,
+                                    child: Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: waveAccent(context),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.4),
+                                            blurRadius: 12,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                          WaveIcons.play,
+                                          size: 18,
+                                          color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
-                            child: const Icon(WaveIcons.play,
-                                size: 24, color: Colors.white),
                           ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(widget.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.trackTitle
-                          .copyWith(fontSize: widget.titleSize)),
-                  if (widget.subtitle.isNotEmpty)
-                    Text(widget.subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            WaveType.meta.copyWith(fontSize: 11)),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

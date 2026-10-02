@@ -129,6 +129,13 @@ class YtHomeShelf {
   /// Song rows - populated for `musicShelfRenderer`.
   final List<YouTubeMusicTrack> tracks;
 
+  /// Song cards - populated for `musicCarouselShelfRenderer` items
+  /// that point at a watch endpoint (a video) rather than a browse
+  /// endpoint (an album/artist/playlist). "Listen again"-style
+  /// carousels are songs, not entities: treating them as albums
+  /// navigates to `/album/<videoId>` and dies on Empty album.
+  final List<YouTubeMusicTrack> trackCards;
+
   /// Two-row cards - populated for `musicCarouselShelfRenderer`.
   final List<YouTubeMusicEntity> entities;
 
@@ -136,12 +143,15 @@ class YtHomeShelf {
     required this.title,
     this.subtitle = '',
     this.tracks = const [],
+    this.trackCards = const [],
     this.entities = const [],
   });
 
   bool get isTrackShelf => tracks.isNotEmpty;
+  bool get isTrackCardShelf => trackCards.isNotEmpty;
   bool get isCardShelf => entities.isNotEmpty;
-  bool get isRenderable => isTrackShelf || isCardShelf;
+  bool get isRenderable =>
+      isTrackShelf || isTrackCardShelf || isCardShelf;
 }
 
 class YouTubePlaylistResult {
@@ -2129,6 +2139,15 @@ class InnerTubeMusicApi {
     return YouTubeEntityKind.album;
   }
 
+  /// Whether an id is the account's Liked Music auto playlist
+  /// (`VLLM` browse form / `LM` playlist form). It has its own homes
+  /// in the app (`/liked` plus the YT liked surface) and renders as a
+  /// bare thumbs-up auto-playlist page, so home shelves drop the card.
+  static bool isLikedMusicId(String id) {
+    final bare = id.startsWith('VL') ? id.substring(2) : id;
+    return bare == 'LM';
+  }
+
   /// Parse a home-browse response into titled shelves. Pure - no
   /// network - so it is unit tested over a captured fixture.
   ///
@@ -2202,29 +2221,75 @@ class InnerTubeMusicApi {
       }
       final contents = carousel['contents'];
       final entities = <YouTubeMusicEntity>[];
+      final trackCards = <YouTubeMusicTrack>[];
       if (contents is List) {
         for (final item in contents) {
           if (item is! Map<String, dynamic>) continue;
           final twoRow = item['musicTwoRowItemRenderer'];
           if (twoRow is! Map<String, dynamic>) continue;
-          final entity = _parseTwoRowEntity(
-            twoRow,
-            kind: kindForBrowseId(
+          final browseId =
               (((twoRow['navigationEndpoint'] as Map?)?['browseEndpoint']
                           as Map?)?['browseId'])
                       ?.toString() ??
-                  '',
-            ),
-          );
-          if (entity != null) entities.add(entity);
-          if (entities.length >= maxItemsPerShelf) break;
+                  '';
+          if (browseId.isNotEmpty) {
+            final entity = _parseTwoRowEntity(
+              twoRow,
+              kind: kindForBrowseId(browseId),
+            );
+            // Liked Music has dedicated homes in the app - never a
+            // shelf card (it renders as a bare auto-playlist page).
+            if (entity == null ||
+                isLikedMusicId(entity.browseId) ||
+                isLikedMusicId(entity.playlistId)) {
+              continue;
+            }
+            entities.add(entity);
+          } else {
+            // No browse endpoint: a playlist-only card (recap) when
+            // the watch endpoint carries just a playlist id, else a
+            // song card. Video id wins the tiebreak: song cards often
+            // carry a queue-context playlist id that is not browsable
+            // on its own.
+            final watch =
+                twoRow['navigationEndpoint'] as Map?;
+            final watchPlaylistId =
+                (watch?['watchEndpoint'] as Map?)?['playlistId']
+                        ?.toString() ??
+                    '';
+            final watchVideoId =
+                (watch?['watchEndpoint'] as Map?)?['videoId']
+                        ?.toString() ??
+                    '';
+            if (watchVideoId.isNotEmpty ||
+                watchPlaylistId.isEmpty) {
+              final song = _parseTwoRowSong(twoRow);
+              if (song != null) trackCards.add(song);
+            } else {
+              final entity = _parseTwoRowEntity(
+                twoRow,
+                kind: kindForBrowseId(watchPlaylistId),
+              );
+              if (entity == null ||
+                  isLikedMusicId(entity.browseId) ||
+                  isLikedMusicId(entity.playlistId)) {
+                continue;
+              }
+              entities.add(entity);
+            }
+          }
+          if (entities.length + trackCards.length >=
+              maxItemsPerShelf) {
+            break;
+          }
         }
       }
-      if (entities.isEmpty) return null;
+      if (entities.isEmpty && trackCards.isEmpty) return null;
       return YtHomeShelf(
         title: title ?? '',
         subtitle: subtitle,
         entities: entities,
+        trackCards: trackCards,
       );
     }
 
@@ -3114,6 +3179,53 @@ class InnerTubeMusicApi {
   /// known to be an album grid. The home shelves pass the kind derived
   /// from the browse id instead, since they mix albums, playlists and
   /// mixes in one carousel.
+  /// Parse one song `musicTwoRowItemRenderer` (carousel card backed
+  /// by a watch endpoint, no browse endpoint). Subtitles read
+  /// "Song • Artist" (sometimes with a trailing album run), so the
+  /// artist is the segment after the type token.
+  YouTubeMusicTrack? _parseTwoRowSong(Map<String, dynamic> r) {
+    final videoId =
+        ((r['navigationEndpoint'] as Map?)?['watchEndpoint']
+                    as Map?)?['videoId']
+                ?.toString() ??
+            '';
+    if (videoId.isEmpty) return null;
+    final titleObj = r['title'];
+    String title = '';
+    if (titleObj is Map) {
+      title = titleObj['text']?.toString() ??
+          _runsText(titleObj['runs']) ??
+          '';
+      title = title.trim();
+    }
+    if (title.isEmpty) return null;
+    var artist = '';
+    final subtitleObj = r['subtitle'];
+    if (subtitleObj is Map) {
+      final text = subtitleObj['text']?.toString() ??
+          _runsText(subtitleObj['runs']) ??
+          '';
+      final parts =
+          text.split('•').map((s) => s.trim()).toList();
+      if (parts.isNotEmpty) {
+        const types = {'song', 'video', 'single', 'ep', 'album'};
+        if (parts.length > 1 &&
+            types.contains(parts.first.toLowerCase())) {
+          artist = parts[1];
+        } else {
+          artist = parts.first;
+        }
+      }
+    }
+    if (artist.isEmpty) artist = 'Unknown artist';
+    return YouTubeMusicTrack(
+      videoId: videoId,
+      title: title,
+      artist: artist,
+      artworkUrl: _extractThumbnailsUrl(r) ?? '',
+    );
+  }
+
   YouTubeMusicEntity? _parseTwoRowEntity(
     Map<String, dynamic> r, {
     YouTubeEntityKind kind = YouTubeEntityKind.album,

@@ -277,7 +277,9 @@ class WaveHomePage extends ConsumerWidget {
               title: shelf.title,
               count: shelf.isTrackShelf
                   ? shelf.tracks.length
-                  : shelf.entities.length,
+                  : shelf.isTrackCardShelf
+                      ? shelf.trackCards.length
+                      : shelf.entities.length,
             ),
           ),
         ),
@@ -300,7 +302,34 @@ class WaveHomePage extends ConsumerWidget {
             itemBuilder: (context, i) => WaveEntrance(
               index: i,
               rise: 10,
-              child: _FreshRow(track: rows[i]),
+              child: _FreshRow(
+                track: rows[i],
+                sourceLabel: shelf.title,
+              ),
+            ),
+          ),
+        ));
+      } else if (shelf.trackCards.isNotEmpty) {
+        // Song cards (Listen again style): these are playable tracks,
+        // not containers - tapping plays, like every other song
+        // surface. The card menu (Play, Go to album, …) comes from
+        // WaveMediaCard itself once artist + videoId are set.
+        final cards = shelf.trackCards
+            .map((t) => GeneratedTrack(
+                  name: t.title,
+                  artist: t.artist,
+                  album: t.album,
+                  artworkUrl: t.artworkUrl,
+                  videoId: t.videoId,
+                  durationSeconds: t.durationSeconds,
+                ))
+            .toList();
+        slivers.add(SliverPadding(
+          padding: EdgeInsets.only(left: side, right: side, top: 10),
+          sliver: SliverToBoxAdapter(
+            child: _YtSongCardRow(
+              tracks: cards,
+              sourceLabel: shelf.title,
             ),
           ),
         ));
@@ -684,7 +713,14 @@ class _YtShelfRow extends StatelessWidget {
       case YouTubeEntityKind.artist:
         context.go('/artist/${Uri.encodeComponent(e.name)}');
       case YouTubeEntityKind.album:
-        context.go('/album/${Uri.encodeComponent(id)}');
+        // Albums are MPRE ids; anything else here is a misclassified
+        // playlist id (recap-style cards) and belongs on the playlist
+        // page instead of a dead Empty album.
+        if (id.startsWith('MPRE')) {
+          context.go('/album/${Uri.encodeComponent(id)}');
+        } else {
+          context.go('/ytplaylist/${Uri.encodeComponent(id)}');
+        }
       case YouTubeEntityKind.playlist:
       case YouTubeEntityKind.mix:
         context.go('/ytplaylist/${Uri.encodeComponent(id)}');
@@ -710,6 +746,58 @@ class _YtShelfRow extends StatelessWidget {
               titleFallback: e.name,
               artworkUrl: e.artworkUrl,
               onTap: () => _open(context, e),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Horizontal card rail for song cards from a YouTube Music home
+/// carousel (Listen again style).
+///
+/// Unlike [_YtShelfRow] containers, these cards are directly playable:
+/// tap (or the hover play button) starts a radio of the song - the
+/// single track plus endless similar when it ends, exactly like
+/// [_FreshRow]. The card's own context menu carries Play, Go to album
+/// and the rest.
+class _YtSongCardRow extends ConsumerWidget {
+  final List<GeneratedTrack> tracks;
+  final String sourceLabel;
+  const _YtSongCardRow({
+    required this.tracks,
+    required this.sourceLabel,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    void play(int i) => playGenerated(
+          ref,
+          context,
+          tracks[i],
+          sourceLabel: sourceLabel,
+        );
+    return SizedBox(
+      height: 216,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.zero,
+        itemCount: tracks.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final t = tracks[i];
+          return SizedBox(
+            width: 160,
+            child: WaveMediaCard(
+              title: t.name,
+              subtitle: t.artist,
+              titleFallback: t.name,
+              artist: t.artist,
+              videoId: t.videoId,
+              artworkUrl: t.artworkUrl,
+              onTap: () => play(i),
+              onPlay: () => play(i),
             ),
           );
         },
@@ -1292,8 +1380,12 @@ class _CoverCard extends ConsumerStatefulWidget {
 
 class _CoverCardState extends ConsumerState<_CoverCard> {
   bool _hover = false;
+  bool _pressed = false;
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    void play() => playGenerated(ref, context, widget.track,
+        sourceLabel: widget.source);
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
         ref: ref,
@@ -1303,38 +1395,105 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
         videoId: widget.track.videoId,
       ),
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
+        onExit: (_) => setState(() {
+          _hover = false;
+          _pressed = false;
+        }),
         child: GestureDetector(
-          onTap: () => playGenerated(ref, context, widget.track,
-              sourceLabel: widget.source),
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTap: play,
           child: SizedBox(
             width: 140,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Stack(
-                  children: [
-                    WaveArtwork(
-                      url: widget.track.artworkUrl,
-                      size: 140,
-                      radius: 6,
-                      title: widget.track.name,
-                      artist: widget.track.artist,
-                      label: widget.track.name,
-                    ),
-                    if (_hover)
-                      Positioned.fill(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.45),
-                            borderRadius: BorderRadius.circular(6),
+                AnimatedScale(
+                  scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+                  duration: WaveMotion.fast,
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedContainer(
+                    duration: WaveMotion.normal,
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),
+                      boxShadow: [
+                        if (_hover)
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                                alpha: dark ? 0.45 : 0.18),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
                           ),
-                          child: const Icon(WaveIcons.play,
-                              size: 26, color: Colors.white),
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        WaveArtwork(
+                          url: widget.track.artworkUrl,
+                          size: 140,
+                          radius: 6,
+                          title: widget.track.name,
+                          artist: widget.track.artist,
+                          label: widget.track.name,
                         ),
-                      ),
-                  ],
+                        Positioned.fill(
+                          child: AnimatedOpacity(
+                            duration: WaveMotion.fast,
+                            opacity: _hover ? 1 : 0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius:
+                                    BorderRadius.circular(6),
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black
+                                        .withValues(alpha: 0.55),
+                                  ],
+                                ),
+                              ),
+                              child: Center(
+                                child: AnimatedScale(
+                                  scale: _hover ? 1.0 : 0.70,
+                                  duration: WaveMotion.fast,
+                                  curve: Curves.easeOutBack,
+                                  child: GestureDetector(
+                                    onTap: play,
+                                    child: Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: waveAccent(context),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black
+                                                .withValues(
+                                                    alpha: 0.4),
+                                            blurRadius: 12,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                          WaveIcons.play,
+                                          size: 18,
+                                          color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Text(widget.track.name,
@@ -1419,9 +1578,13 @@ class _MixCard extends ConsumerStatefulWidget {
 
 class _MixCardState extends ConsumerState<_MixCard> {
   bool _hover = false;
+  bool _pressed = false;
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    final accent = waveAccent(context);
+    void play() => playGenerated(ref, context, widget.track,
+        sourceLabel: widget.title);
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
         ref: ref,
@@ -1431,85 +1594,148 @@ class _MixCardState extends ConsumerState<_MixCard> {
         videoId: widget.track.videoId,
       ),
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
+        onExit: (_) => setState(() {
+          _hover = false;
+          _pressed = false;
+        }),
         child: GestureDetector(
-          onTap: () => playGenerated(ref, context, widget.track,
-              sourceLabel: widget.title),
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTap: play,
           child: SizedBox(
             width: 220,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Stack(
-                children: [
-                  WaveArtwork(
-                    url: widget.track.artworkUrl,
-                    videoId: widget.track.videoId,
-                    size: 220,
-                    radius: 8,
-                    title: widget.track.name,
-                    artist: widget.track.artist,
-                    label: widget.track.name,
-                  ),
-                  Positioned.fill(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.72),
-                          ],
-                          stops: const [0.45, 1.0],
-                        ),
-                      ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AnimatedScale(
+                  scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+                  duration: WaveMotion.fast,
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedContainer(
+                    duration: WaveMotion.normal,
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        if (_hover)
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                              alpha: dark ? 0.45 : 0.18,
+                            ),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                      ],
                     ),
-                  ),
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    bottom: 10,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Stack(
                       children: [
-                        Text(
-                          widget.badge,
-                          style: WaveType.overline.copyWith(
-                            fontSize: 9.5,
-                            color: Colors.white.withValues(alpha: 0.75),
+                        WaveArtwork(
+                          url: widget.track.artworkUrl,
+                          videoId: widget.track.videoId,
+                          size: 220,
+                          radius: 8,
+                          title: widget.track.name,
+                          artist: widget.track.artist,
+                          label: widget.track.name,
+                        ),
+                        Positioned.fill(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.72),
+                                ],
+                                stops: const [0.45, 1.0],
+                              ),
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.title,
-                          style: WaveType.trackTitle.copyWith(
-                            fontSize: 16,
-                            color: Colors.white,
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          bottom: 10,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.badge,
+                                style: WaveType.overline.copyWith(
+                                  fontSize: 9.5,
+                                  color: Colors.white.withValues(alpha: 0.75),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.title,
+                                style: WaveType.trackTitle.copyWith(
+                                  fontSize: 16,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: AnimatedOpacity(
+                            opacity: _hover ? 1 : 0,
+                            duration: WaveMotion.fast,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black.withValues(alpha: 0.55),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Center(
+                                child: AnimatedScale(
+                                  scale: _hover ? 1.0 : 0.70,
+                                  duration: WaveMotion.fast,
+                                  curve: Curves.easeOutBack,
+                                  child: GestureDetector(
+                                    onTap: play,
+                                    child: Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: accent,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.4,
+                                            ),
+                                            blurRadius: 12,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        WaveIcons.play,
+                                        size: 18,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  if (_hover)
-                    Positioned(
-                      right: 10,
-                      top: 10,
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(WaveIcons.play,
-                            size: 15, color: Colors.black),
-                      ),
-                    ),
-                ],
-              ),
+                ),
               const SizedBox(height: 8),
               Text(widget.blurb,
                   maxLines: 1,
@@ -1581,57 +1807,128 @@ class _AlbumCard extends ConsumerStatefulWidget {
 
 class _AlbumCardState extends ConsumerState<_AlbumCard> {
   bool _hover = false;
+  bool _pressed = false;
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    void play() => playGenerated(ref, context, widget.track,
+        sourceLabel: widget.source);
     final card = MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
       child: GestureDetector(
-        onTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: widget.source),
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: play,
         child: SizedBox(
           width: 152,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Stack(
-                children: [
-                  WaveArtwork(
-                    url: widget.track.artworkUrl,
-                    videoId: widget.track.videoId,
-                    size: 152,
-                    radius: 6,
-                    title: widget.track.name,
-                    artist: widget.track.artist,
-                    label: widget.track.name,
+              AnimatedScale(
+                scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+                duration: WaveMotion.fast,
+                curve: Curves.easeOutCubic,
+                child: AnimatedContainer(
+                  duration: WaveMotion.normal,
+                  curve: Curves.easeOutCubic,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    boxShadow: [
+                      if (_hover)
+                        BoxShadow(
+                          color: Colors.black.withValues(
+                            alpha: dark ? 0.45 : 0.18,
+                          ),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                    ],
                   ),
-                  if (_hover)
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.45),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Icon(WaveIcons.play,
-                            size: 28, color: Colors.white),
+                  child: Stack(
+                    children: [
+                      WaveArtwork(
+                        url: widget.track.artworkUrl,
+                        videoId: widget.track.videoId,
+                        size: 152,
+                        radius: 6,
+                        title: widget.track.name,
+                        artist: widget.track.artist,
+                        label: widget.track.name,
                       ),
-                    ),
-                  if (_hover)
-                    Positioned(
-                      right: 6,
-                      top: 6,
-                      child: WaveOverflowButton(
-                        tooltip: 'More',
-                        items: waveTrackMenuItems(
-                          ref: ref,
-                          title: widget.track.name,
-                          artist: widget.track.artist,
-                          artworkUrl: widget.track.artworkUrl,
-                          videoId: widget.track.videoId,
+                      Positioned.fill(
+                        child: AnimatedOpacity(
+                          opacity: _hover ? 1 : 0,
+                          duration: WaveMotion.fast,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.55),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Center(
+                              child: AnimatedScale(
+                                scale: _hover ? 1.0 : 0.70,
+                                duration: WaveMotion.fast,
+                                curve: Curves.easeOutBack,
+                                child: GestureDetector(
+                                  onTap: play,
+                                  child: Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: waveAccent(context),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.4,
+                                          ),
+                                          blurRadius: 12,
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                      WaveIcons.play,
+                                      size: 18,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                      if (_hover)
+                        Positioned(
+                          right: 6,
+                          top: 6,
+                          child: WaveOverflowButton(
+                            tooltip: 'More',
+                            items: waveTrackMenuItems(
+                              ref: ref,
+                              title: widget.track.name,
+                              artist: widget.track.artist,
+                              artworkUrl: widget.track.artworkUrl,
+                              videoId: widget.track.videoId,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 6),
               Text(widget.track.name,
@@ -1746,18 +2043,31 @@ class _ChartRow extends ConsumerWidget {
 }
 
 /// Fresh Finds: 40px compact rows.
-class _FreshRow extends ConsumerWidget {
+class _FreshRow extends ConsumerStatefulWidget {
   final GeneratedTrack track;
+  final String sourceLabel;
   const _FreshRow({
     required this.track,
+    this.sourceLabel = 'Fresh finds',
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_FreshRow> createState() => _FreshRowState();
+}
+
+class _FreshRowState extends ConsumerState<_FreshRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final track = widget.track;
+    final sourceLabel = widget.sourceLabel;
     final playing = ref.watch(
           playbackServiceProvider.select((s) => s.current?.queueKey),
         ) ==
         track.key;
+    void play() => playGenerated(ref, context, track,
+        sourceLabel: sourceLabel);
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
         ref: ref,
@@ -1766,48 +2076,77 @@ class _FreshRow extends ConsumerWidget {
         artworkUrl: track.artworkUrl,
         videoId: track.videoId,
       ),
-      child: GestureDetector(
-        onTap: () => playGenerated(ref, context, track,
-            sourceLabel: 'Fresh finds'),
-        child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-          color: Colors.transparent,
-          child: Row(
-            children: [
-              WaveArtwork(
-                url: track.artworkUrl,
-                videoId: track.videoId,
-                size: 40,
-                radius: 6,
-                title: track.name,
-                artist: track.artist,
-                label: track.name,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: play,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            color: Colors.transparent,
+            child: Row(
+              children: [
+                Stack(
                   children: [
-                    Text(track.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: WaveType.trackTitle.copyWith(
-                            fontSize: 13,
-                            color: playing
-                                ? waveAccent(context)
-                                : null)),
-                    Text(track.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: WaveType.meta),
+                    WaveArtwork(
+                      url: track.artworkUrl,
+                      videoId: track.videoId,
+                      size: 40,
+                      radius: 6,
+                      title: track.name,
+                      artist: track.artist,
+                      label: track.name,
+                    ),
+                    Positioned.fill(
+                      child: AnimatedOpacity(
+                        opacity: _hover && !playing ? 1 : 0,
+                        duration: WaveMotion.fast,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black
+                                .withValues(alpha: 0.55),
+                            borderRadius:
+                                BorderRadius.circular(6),
+                          ),
+                          child: GestureDetector(
+                            onTap: play,
+                            child: const Icon(
+                                WaveIcons.play,
+                                size: 16,
+                                color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-              ),
-              if (playing)
-                Icon(WaveIcons.queue,
-                    size: 14, color: waveAccent(context)),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(track.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.trackTitle.copyWith(
+                              fontSize: 13,
+                              color: playing
+                                  ? waveAccent(context)
+                                  : null)),
+                      Text(track.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.meta),
+                    ],
+                  ),
+                ),
+                if (playing)
+                  Icon(WaveIcons.queue,
+                      size: 14, color: waveAccent(context)),
+              ],
+            ),
           ),
         ),
       ),

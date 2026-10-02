@@ -182,6 +182,7 @@ class _AlbumCard extends ConsumerStatefulWidget {
 
 class _AlbumCardState extends ConsumerState<_AlbumCard> {
   bool _hover = false;
+  bool _pressed = false;
 
   Future<String> _resolveBrowseId() async {
     final a = widget.album;
@@ -247,6 +248,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
   @override
   Widget build(BuildContext context) {
     final a = widget.album;
+    final dark = waveIsDark(context);
     final playing = ref.watch(
       playbackServiceProvider.select(
         (s) =>
@@ -256,98 +258,118 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                     s.current!.artist == a.artist)),
       ),
     );
+    
+    void play() => _open();
+    void quickPlay() => _quickPlay();
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
       child: GestureDetector(
-        onTap: _open,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 110),
-          decoration: BoxDecoration(
-            color: _hover
-                ? (waveIsDark(context) ? Colors.white : Colors.black)
-                    .withValues(alpha: 0.05)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          padding: const EdgeInsets.all(4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Stack(
-                children: [
-                  WaveArtwork(
-                      url: a.artwork,
-                      size: 160,
-                      radius: 6,
-                      label: a.title,
-                      title: a.title,
-                      artist: a.artist,
-                      kind: ArtworkKind.album),
-                  Positioned.fill(
-                    child: AnimatedOpacity(
-                      opacity: _hover ? 1 : 0,
-                      duration:
-                          const Duration(milliseconds: 110),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black
-                              .withValues(alpha: 0.42),
-                          borderRadius:
-                              BorderRadius.circular(6),
-                        ),
-                        child: Center(
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              LWTooltip(
-                                message: 'Play ${a.title}',
-                                child: GestureDetector(
-                                  onTap: _quickPlay,
-                                  child: Container(
-                                    width: 44,
-                                    height: 44,
-                                    decoration:
-                                        const BoxDecoration(
-                                      color: Colors.white,
-                                      shape: BoxShape.circle,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: play,
+        child: AnimatedScale(
+          scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+          duration: WaveMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: WaveMotion.normal,
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              color: _hover
+                  ? (waveIsDark(context) ? Colors.white : Colors.black)
+                      .withValues(alpha: 0.05)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+              boxShadow: [
+                if (_hover)
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                        alpha: dark ? 0.45 : 0.18),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+              ],
+            ),
+            padding: const EdgeInsets.all(4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    WaveArtwork(
+                        url: a.artwork,
+                        size: 160,
+                        radius: 6,
+                        label: a.title,
+                        title: a.title,
+                        artist: a.artist,
+                        kind: ArtworkKind.album),
+                    Positioned.fill(
+                      child: AnimatedOpacity(
+                        opacity: _hover ? 1 : 0,
+                        duration: WaveMotion.fast,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withValues(alpha: 0.55),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Center(
+                            child: AnimatedScale(
+                              scale: _hover ? 1.0 : 0.70,
+                              duration: WaveMotion.fast,
+                              curve: Curves.easeOutBack,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  LWTooltip(
+                                    message: 'Play ${a.title}',
+                                    child: GestureDetector(
+                                      onTap: quickPlay,
+                                      child: Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration:
+                                            const BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                            FluentIcons.play,
+                                            size: 18,
+                                            color: Colors.black),
+                                      ),
                                     ),
-                                    child: const Icon(
-                                        FluentIcons.play,
-                                        size: 18,
-                                        color: Colors.black),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              WaveContextMenu(
-                                items: () =>
-                                    waveTrackMenuItems(
-                                  ref: ref,
-                                  title: a.title,
-                                  artist: a.artist,
-                                  artworkUrl: a.artwork,
-                                ),
-                                child: Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: Colors.black
-                                        .withValues(alpha: 0.55),
-                                    shape: BoxShape.circle,
+                                  const SizedBox(width: 6),
+                                  WaveOverflowButton(
+                                    tooltip: 'More',
+                                    items: waveTrackMenuItems(
+                                      ref: ref,
+                                      title: a.title,
+                                      artist: a.artist,
+                                      artworkUrl: a.artwork,
+                                    ),
                                   ),
-                                  child: const Icon(
-                                      FluentIcons.more,
-                                      size: 14,
-                                      color: Colors.white),
-                                ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
                   if (playing)
                     Positioned(
                       left: 6,
@@ -401,6 +423,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
           ),
         ),
       ),
+    )
     );
   }
 }

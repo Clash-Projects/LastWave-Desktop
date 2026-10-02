@@ -17,6 +17,7 @@ import 'playlist_dialogs.dart'
         showWaveRenamePlaylist;
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
 /// Playlists browser: hero + filter + cover grid (never track rows).
 class WavePlaylistsPage extends ConsumerStatefulWidget {
@@ -207,7 +208,7 @@ class _YtSection extends StatelessWidget {
 }
 
 /// Single YouTube Music playlist card (art fills the grid cell).
-class _YtCard extends StatelessWidget {
+class _YtCard extends ConsumerStatefulWidget {
   final int index;
   final List<YouTubePlaylistSummary> lists;
   final double artSize;
@@ -215,38 +216,131 @@ class _YtCard extends StatelessWidget {
       {required this.index,
       required this.lists,
       required this.artSize});
+
+  @override
+  ConsumerState<_YtCard> createState() => _YtCardState();
+}
+
+class _YtCardState extends ConsumerState<_YtCard> {
+  bool _hover = false;
+  bool _pressed = false;
+
   @override
   Widget build(BuildContext context) {
-    final p = lists[index];
-    return GestureDetector(
-      onTap: () => context.go('/ytplaylist/${p.id}'
-          '?title=${Uri.encodeComponent(p.title)}'
-          '&art=${Uri.encodeComponent(p.artworkUrl)}'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          WaveArtwork(
-              url: p.artworkUrl,
-              size: artSize,
-              radius: 6,
-              label: p.title),
-          const SizedBox(height: 6),
-          Text(p.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: WaveType.trackTitle
-                  .copyWith(fontSize: 12.5)),
-          Text(
-              p.trackCountText.isNotEmpty
-                  ? p.trackCountText
-                  : 'YouTube playlist',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style:
-                  WaveType.meta.copyWith(fontSize: 11.5)),
-        ],
-      ),
-    );
+    final dark = waveIsDark(context);
+    final p = widget.lists[widget.index];
+    void play() => context.go('/ytplaylist/${p.id}'
+        '?title=${Uri.encodeComponent(p.title)}'
+        '&art=${Uri.encodeComponent(p.artworkUrl)}');
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: play,
+        child: AnimatedScale(
+          scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+          duration: WaveMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: WaveMotion.normal,
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              boxShadow: [
+                if (_hover)
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                        alpha: dark ? 0.45 : 0.18),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    WaveArtwork(
+                        url: p.artworkUrl,
+                        size: widget.artSize,
+                        radius: 6,
+                        label: p.title),
+                    Positioned.fill(
+                      child: AnimatedOpacity(
+                        opacity: _hover ? 1 : 0,
+                        duration: WaveMotion.fast,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withValues(alpha: 0.55),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Center(
+                            child: AnimatedScale(
+                              scale: _hover ? 1.0 : 0.70,
+                              duration: WaveMotion.fast,
+                              curve: Curves.easeOutBack,
+                              child: GestureDetector(
+                                onTap: play,
+                                child: Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: waveAccent(context),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.4),
+                                        blurRadius: 12,
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(
+                                      WaveIcons.play,
+                                      size: 18,
+                                      color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 6),
+                  Text(p.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.trackTitle
+                          .copyWith(fontSize: 12.5)),
+                  Text(
+                      p.trackCountText.isNotEmpty
+                          ? p.trackCountText
+                          : 'YouTube playlist',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          WaveType.meta.copyWith(fontSize: 11.5)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
   }
 }
 
@@ -263,19 +357,21 @@ class _PlaylistCard extends ConsumerStatefulWidget {
 class _PlaylistCardState
     extends ConsumerState<_PlaylistCard> {
   bool _hover = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
     final p = widget.playlist;
+    final dark = waveIsDark(context);
     final cover = _coverOf(p);
+    void play() => context.go('/playlists/${p.id}');
     return WaveContextMenu(
       items: () => [
         WaveMenuAction(
           leading:
               const Icon(FluentIcons.play, size: 13),
           label: 'Open',
-          onPressed: () =>
-              context.go('/playlists/${p.id}'),
+          onPressed: play,
         ),
         WaveMenuAction(
           leading: Icon(
@@ -305,74 +401,142 @@ class _PlaylistCardState
           ),
       ],
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
+        onExit: (_) => setState(() {
+          _hover = false;
+          _pressed = false;
+        }),
         child: GestureDetector(
-          onTap: () =>
-              context.go('/playlists/${p.id}'),
-          child: AnimatedContainer(
-            duration:
-                const Duration(milliseconds: 110),
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: _hover
-                  ? (waveIsDark(context)
-                          ? Colors.white
-                          : Colors.black)
-                      .withValues(alpha: 0.05)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                Stack(
-                  children: [
-                    WaveArtwork(
-                        url: cover ?? '',
-                        size: widget.artSize,
-                        radius: 6,
-                        label: p.title),
-                    if (p.isPinned)
-                      Positioned(
-                        left: 6,
-                        top: 6,
-                        child: Container(
-                          padding:
-                              const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(
-                                alpha: 0.7),
-                            borderRadius:
-                                BorderRadius.circular(
-                                    999),
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTap: play,
+          child: AnimatedScale(
+            scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+            duration: WaveMotion.fast,
+            curve: Curves.easeOutCubic,
+            child: AnimatedContainer(
+              duration: WaveMotion.normal,
+              curve: Curves.easeOutCubic,
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: _hover
+                    ? (waveIsDark(context)
+                            ? Colors.white
+                            : Colors.black)
+                        .withValues(alpha: 0.05)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: [
+                  if (_hover)
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                          alpha: dark ? 0.45 : 0.18),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Stack(
+                    children: [
+                      WaveArtwork(
+                          url: cover ?? '',
+                          size: widget.artSize,
+                          radius: 6,
+                          label: p.title),
+                      if (p.isPinned)
+                        Positioned(
+                          left: 6,
+                          top: 6,
+                          child: Container(
+                            padding:
+                                const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(
+                                  alpha: 0.7),
+                              borderRadius:
+                                  BorderRadius.circular(
+                                      999),
+                            ),
+                            child: const Text('PINNED',
+                                style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight:
+                                        FontWeight.w700,
+                                    letterSpacing: 0.6,
+                                    color: Colors.white)),
                           ),
-                          child: const Text('PINNED',
-                              style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight:
-                                      FontWeight.w700,
-                                  letterSpacing: 0.6,
-                                  color: Colors.white)),
+                        ),
+                      Positioned.fill(
+                        child: AnimatedOpacity(
+                          opacity: _hover ? 1 : 0,
+                          duration: WaveMotion.fast,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.55),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Center(
+                              child: AnimatedScale(
+                                scale: _hover ? 1.0 : 0.70,
+                                duration: WaveMotion.fast,
+                                curve: Curves.easeOutBack,
+                                child: GestureDetector(
+                                  onTap: play,
+                                  child: Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: waveAccent(context),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.4),
+                                          blurRadius: 12,
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                        WaveIcons.play,
+                                        size: 18,
+                                        color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(p.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.trackTitle
-                        .copyWith(fontSize: 12.5)),
-                Text('${p.tracks.length} tracks',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.meta
-                        .copyWith(fontSize: 11.5)),
-              ],
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(p.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.trackTitle
+                          .copyWith(fontSize: 12.5)),
+                  Text('${p.tracks.length} tracks',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.meta
+                          .copyWith(fontSize: 11.5)),
+                ],
+              ),
             ),
           ),
         ),

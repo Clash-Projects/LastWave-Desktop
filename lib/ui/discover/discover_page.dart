@@ -633,143 +633,158 @@ class _GenreTile extends StatefulWidget {
 
 class _GenreTileState extends State<_GenreTile> {
   bool _hover = false;
+  bool _pressed = false;
   @override
   Widget build(BuildContext context) {
     final height = widget.large ? 148.0 : 104.0;
-    // Sharp 4–8px geometry · hover tonal change + ≤1.01 scale + arrow.
-    return GestureDetector(
-      onTap: () =>
-          context.go('/search?q=${Uri.encodeComponent(widget.name)}'),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
+    void play() => context.go('/search?q=${Uri.encodeComponent(widget.name)}');
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: play,
         child: AnimatedScale(
-          scale: _hover ? 1.01 : 1.0,
+          scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
           duration: WaveMotion.fast,
           curve: Curves.easeOutCubic,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: Container(
-              height: height,
-              color: _hover
-                  ? WaveColors.surfaceOverlay
-                  : WaveColors.surface,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (widget.artworkUrl.isNotEmpty)
-                    Builder(builder: (context) {
-                      // dpr-aware decode: hardcoded 400x300 over-fetched
-                      // ~2x on hidpi and under-fetched on 4K. Tile height
-                      // is 104/148 logical; decode at 2x backing pixels.
-                      final dpr = MediaQuery.maybeDevicePixelRatioOf(
-                              context) ??
-                          1.0;
-                      final px =
-                          ((height * dpr * 2).round()).clamp(128, 1024);
-                      return CachedNetworkImage(
-                        imageUrl: widget.artworkUrl,
-                        memCacheWidth: px,
-                        memCacheHeight: (px * 3 ~/ 4).clamp(96, 768),
-                        maxWidthDiskCache: 512,
-                        maxHeightDiskCache: 512,
-                      fit: BoxFit.cover,
-                      fadeInDuration:
-                          const Duration(milliseconds: 110),
-                      placeholder: (context, _) => Container(
-                          color: WaveColors.surfaceRaised),
-                      errorWidget: (context, _, _) => Container(
-                          color: WaveColors.surfaceRaised),
-                      );
-                    }),
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.25),
-                          Colors.black.withValues(
-                              alpha: _hover ? 0.84 : 0.78),
-                        ],
+          child: AnimatedContainer(
+            duration: WaveMotion.normal,
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              boxShadow: [
+                if (_hover)
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                        alpha: waveIsDark(context) ? 0.45 : 0.18),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child:                     Container(
+                height: height,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (widget.artworkUrl.isNotEmpty)
+                      Builder(builder: (context) {
+                        final dpr = MediaQuery.maybeDevicePixelRatioOf(
+                                context) ??
+                            1.0;
+                        final px = ((height * dpr * 2).round()).clamp(128, 1024);
+                        return CachedNetworkImage(
+                          imageUrl: widget.artworkUrl,
+                          memCacheWidth: px,
+                          memCacheHeight: (px * 3 ~/ 4).clamp(96, 768),
+                          maxWidthDiskCache: 512,
+                          maxHeightDiskCache: 512,
+                          fit: BoxFit.cover,
+                          fadeInDuration:
+                              const Duration(milliseconds: 110),
+                          placeholder: (context, _) => Container(
+                              color: WaveColors.surfaceRaised),
+                          errorWidget: (context, _, _) => Container(
+                              color: WaveColors.surfaceRaised),
+                        );
+                      }),
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.25),
+                            Colors.black.withValues(
+                                alpha: _hover ? 0.84 : 0.78),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  Container(
-                      color: widget.tint.withValues(
-                          alpha: _hover ? 0.16 : 0.12)),
-                  Positioned(
-                    left: widget.large ? 16 : 12,
-                    right: widget.large ? 16 : 12,
-                    bottom: widget.large ? 14 : 10,
-                    top: widget.large ? 14 : 10,
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(widget.icon,
-                                size: widget.large ? 20 : 16,
-                                color: Colors.white
-                                    .withValues(alpha: 0.9)),
-                            const Spacer(),
-                            AnimatedOpacity(
-                              duration: WaveMotion.fast,
-                              opacity: _hover ? 1 : 0,
-                              child: AnimatedSlide(
+                    Container(
+                        color: widget.tint.withValues(
+                            alpha: _hover ? 0.16 : 0.12)),
+                    Positioned(
+                      left: widget.large ? 16 : 12,
+                      right: widget.large ? 16 : 12,
+                      bottom: widget.large ? 14 : 10,
+                      top: widget.large ? 14 : 10,
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(widget.icon,
+                                  size: widget.large ? 20 : 16,
+                                  color: Colors.white
+                                      .withValues(alpha: 0.9)),
+                              const Spacer(),
+                              AnimatedOpacity(
                                 duration: WaveMotion.fast,
-                                offset: _hover
-                                    ? Offset.zero
-                                    : const Offset(-0.25, 0),
-                                child: Container(
-                                  width: 26,
-                                  height: 26,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white,
-                                  ),
-                                  child: const Icon(
-                                    FluentIcons.chevron_right,
-                                    size: 13,
-                                    color: Colors.black,
+                                opacity: _hover ? 1 : 0,
+                                child: AnimatedSlide(
+                                  duration: WaveMotion.fast,
+                                  offset: _hover
+                                      ? Offset.zero
+                                      : const Offset(-0.25, 0),
+                                  child: Container(
+                                    width: 26,
+                                    height: 26,
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.white,
+                                    ),
+                                    child: const Icon(
+                                      FluentIcons.chevron_right,
+                                      size: 13,
+                                      color: Colors.black,
+                                    ),
                                   ),
                                 ),
                               ),
+                            ],
+                          ),
+                          SizedBox(
+                              height: widget.large ? 8 : 6),
+                          Text(
+                            widget.name,
+                            style: (widget.large
+                                    ? WaveType.pageTitle
+                                    : WaveType.trackTitle)
+                                .copyWith(
+                              fontSize:
+                                  widget.large ? 20 : 14,
+                              color: Colors.white,
                             ),
-                          ],
-                        ),
-                        SizedBox(
-                            height: widget.large ? 8 : 6),
-                        Text(
-                          widget.name,
-                          style: (widget.large
-                                  ? WaveType.pageTitle
-                                  : WaveType.trackTitle)
-                              .copyWith(
-                            fontSize:
-                                widget.large ? 20 : 14,
-                            color: Colors.white,
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.blurb,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.meta.copyWith(
-                            fontSize:
-                                widget.large ? 12 : 11,
-                            color: Colors.white
-                                .withValues(alpha: 0.7),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.blurb,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: WaveType.meta.copyWith(
+                              fontSize:
+                                  widget.large ? 12 : 11,
+                              color: Colors.white
+                                  .withValues(alpha: 0.7),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

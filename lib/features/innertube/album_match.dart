@@ -8,10 +8,16 @@ import 'innertube_api.dart';
 /// "Future DS2 (Deluxe)" returns "DS2: Track by Track Commentary"
 /// first. Taking results.first loads commentary/fan entities whose
 /// tracks have no artist, no durations and no artwork.
+///
+/// [minScore] floors acceptance: the default 60 admits substring
+/// title matches, while callers working from uncertain (backfilled)
+/// album text pass a higher bar so weak matches fall back to search
+/// instead of opening a wrong album page.
 YouTubeMusicEntity? pickBestAlbumMatch(
   List<YouTubeMusicEntity> results, {
   required String title,
   required String artist,
+  int minScore = 60,
 }) {
   final targetTitle = OfficialArtworkService.normalizeForSearch(title);
   final targetArtist = OfficialArtworkService.normalizeForSearch(artist);
@@ -59,6 +65,6 @@ YouTubeMusicEntity? pickBestAlbumMatch(
       best = e;
     }
   }
-  if (best == null || bestScore < 60) return null;
+  if (best == null || bestScore < minScore) return null;
   return best;
 }

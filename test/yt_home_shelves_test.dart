@@ -318,4 +318,202 @@ void main() {
       );
     });
   });
+
+  group('isLikedMusicId', () {
+    test('both id forms match, nothing else does', () {
+      expect(InnerTubeMusicApi.isLikedMusicId('VLLM'), isTrue);
+      expect(InnerTubeMusicApi.isLikedMusicId('LM'), isTrue);
+      expect(InnerTubeMusicApi.isLikedMusicId('VLPLlLI-kEw'), isFalse);
+      expect(InnerTubeMusicApi.isLikedMusicId('MPREb_1234'), isFalse);
+      expect(InnerTubeMusicApi.isLikedMusicId(''), isFalse);
+    });
+  });
+
+  group('liked music card filtering', () {
+    Map<String, dynamic> card(String name, String browseId) => {
+          'musicTwoRowItemRenderer': {
+            'title': {
+              'runs': [
+                {'text': name}
+              ],
+            },
+            'navigationEndpoint': {
+              'browseEndpoint': {'browseId': browseId},
+            },
+            'thumbnail': {
+              'thumbnails': [
+                {'url': 'https://art.example/a.jpg'}
+              ],
+            },
+          },
+        };
+
+    Map<String, dynamic> carouselRoot(List<Map<String, dynamic>> items) => {
+          'contents': {
+            'sectionListRenderer': {
+              'contents': [
+                {
+                  'musicCarouselShelfRenderer': {
+                    'header': {
+                      'musicCarouselShelfBasicHeaderRenderer': {
+                        'title': {
+                          'runs': [
+                            {'text': 'For you'}
+                          ],
+                        },
+                      },
+                    },
+                    'contents': items,
+                  },
+                },
+              ],
+            },
+          },
+        };
+
+    test('VLLM card is dropped, neighbors survive', () {
+      final shelves = tube.parseHomeShelves(carouselRoot([
+        card('Liked Music', 'VLLM'),
+        card('After Hours', 'MPREb_afterhours'),
+      ]));
+      expect(shelves.length, 1);
+      expect(shelves.first.entities.length, 1);
+      expect(shelves.first.entities.first.name, 'After Hours');
+    });
+
+    test('LM-only carousel yields no shelves', () {
+      expect(
+        tube.parseHomeShelves(carouselRoot([
+          card('Liked Music', 'VLLM'),
+        ])),
+        isEmpty,
+      );
+    });
+  });
+
+  group('carousel song cards', () {
+    Map<String, dynamic> songCard(
+      String title,
+      String subtitle,
+      String videoId,
+    ) =>
+        {
+          'musicTwoRowItemRenderer': {
+            'title': {
+              'runs': [
+                {'text': title}
+              ],
+            },
+            'subtitle': {
+              'runs': [
+                {'text': subtitle}
+              ],
+            },
+            'navigationEndpoint': {
+              'watchEndpoint': {'videoId': videoId},
+            },
+            'thumbnail': {
+              'thumbnails': [
+                {'url': 'https://art.example/s.jpg'}
+              ],
+            },
+          },
+        };
+
+    Map<String, dynamic> carouselRoot(List<Map<String, dynamic>> items) => {
+          'contents': {
+            'sectionListRenderer': {
+              'contents': [
+                {
+                  'musicCarouselShelfRenderer': {
+                    'header': {
+                      'musicCarouselShelfBasicHeaderRenderer': {
+                        'title': {
+                          'runs': [
+                            {'text': 'Listen again'}
+                          ],
+                        },
+                      },
+                    },
+                    'contents': items,
+                  },
+                },
+              ],
+            },
+          },
+        };
+
+    test('watch cards parse as tracks, not entities', () {
+      final shelves = tube.parseHomeShelves(carouselRoot([
+        songCard('South of the Border', 'Song • Ed Sheeran', 'v-song-1'),
+        songCard('Timeless', 'Song • The Weeknd', 'v-song-2'),
+      ]));
+      expect(shelves.length, 1);
+      final shelf = shelves.first;
+      expect(shelf.entities, isEmpty);
+      expect(shelf.isTrackCardShelf, isTrue);
+      expect(shelf.trackCards.length, 2);
+      expect(shelf.trackCards.first.title, 'South of the Border');
+      expect(shelf.trackCards.first.artist, 'Ed Sheeran');
+      expect(shelf.trackCards.first.videoId, 'v-song-1');
+      expect(shelf.trackCards.first.artworkUrl, isNotEmpty);
+    });
+
+    test('artist falls back gracefully without a type token', () {
+      final shelves = tube.parseHomeShelves(carouselRoot([
+        songCard('Chemical', 'Post Malone', 'v-song-3'),
+      ]));
+      expect(shelves.length, 1);
+      expect(
+        shelves.first.trackCards.first.artist,
+        'Post Malone',
+      );
+    });
+
+    test('cards without a video id are dropped', () {
+      final shelves = tube.parseHomeShelves(carouselRoot([
+        songCard('Ghost', 'Song • Nobody', ''),
+      ]));
+      expect(shelves, isEmpty);
+    });
+
+    test('playlist-only cards become entities, never albums', () {
+      // Recap style: no browse endpoint, watch endpoint with just a
+      // playlist id. Previously defaulted to album and routed a
+      // playlist at `/album/<VL…>` (artist "Private", dead list).
+      Map<String, dynamic> playlistCard() => {
+            'musicTwoRowItemRenderer': {
+              'title': {
+                'runs': [
+                  {'text': "June-August Recap '26"}
+                ],
+              },
+              'subtitle': {
+                'runs': [
+                  {'text': 'Playlist • Private'}
+                ],
+              },
+              'navigationEndpoint': {
+                'watchEndpoint': {
+                  'playlistId': 'VLRDCLAKrecap123',
+                },
+              },
+              'thumbnail': {
+                'thumbnails': [
+                  {'url': 'https://art.example/recap.jpg'}
+                ],
+              },
+            },
+          };
+      final shelves =
+          tube.parseHomeShelves(carouselRoot([playlistCard()]));
+      expect(shelves.length, 1);
+      final shelf = shelves.first;
+      expect(shelf.trackCards, isEmpty);
+      expect(shelf.entities.length, 1);
+      final entity = shelf.entities.first;
+      expect(entity.kind, YouTubeEntityKind.mix);
+      expect(entity.playlistId, 'VLRDCLAKrecap123');
+    });
+  });
 }

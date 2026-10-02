@@ -43,7 +43,11 @@ final _albumDetailProvider = FutureProvider.autoDispose
         .map((t) => GeneratedTrack(
             name: t.title,
             artist: t.artist,
-            artworkUrl: art,
+            // Per-track sleeves survive when the response carries
+            // them (recap-style listings); the header is only the
+            // fallback for true album rows that omit artwork.
+            artworkUrl:
+                t.artworkUrl.isNotEmpty ? t.artworkUrl : art,
             videoId: t.videoId,
             durationSeconds: t.durationSeconds))
         .toList(),
