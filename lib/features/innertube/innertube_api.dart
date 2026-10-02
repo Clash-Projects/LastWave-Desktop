@@ -3673,8 +3673,22 @@ class InnerTubeMusicApi {
     if (!forceRefresh) {
       final peek = peekCachedStream(videoId);
       if (peek != null) {
+        // cacheKey: youtube:videoId:clientKey:itag:scope:expiryMs.
+        // Surface them so a cache-hit line is as diagnosable as a
+        // fresh `resolved` line (previously client='' itag=-1).
+        var hitClient = '';
+        var hitItag = -1;
+        try {
+          final parts = peek.cacheKey.split(':');
+          if (parts.length >= 5 && parts[0] == 'youtube') {
+            hitClient = parts[2];
+            hitItag = int.tryParse(parts[3]) ?? -1;
+          }
+        } catch (_) {}
         _logStream('cache-hit',
             videoId: videoId,
+            client: hitClient,
+            itag: hitItag,
             mime: peek.mimeType,
             expiry: _expiryState(peek.expiresAt));
         return peek;

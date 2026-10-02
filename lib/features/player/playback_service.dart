@@ -975,6 +975,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         preferredQuality: _prefs.losslessQuality,
       );
       if (stream != null) return stream;
+      // Silent misses are the #1 "why YouTube?" confusion: log the
+      // lossless fallthrough in debug so the next report shows which
+      // tier failed instead of only the YouTube hit below.
+      if (kDebugMode) {
+        debugPrint('LastWaveAddon stage=miss '
+            'title="${track.title}" artist="${track.artist}" '
+            'album="${track.album}" quality=${_prefs.losslessQuality} '
+            '-> falling through to YouTube');
+      }
     } on AddonQuotaException catch (e) {
       // Daily addon quota spent: tell the UI once, then fall through
       // to YouTube like any other backend miss.

@@ -129,6 +129,16 @@ void main() {
             isNot(contains('atmos')));
       }
     });
+
+    test('search knob mirrors Android per tier', () {
+      // Android LosslessMusicApi searches with the tier's primary knob
+      // (27/7 -> hi_res, 6 -> lossless, 5 -> high); desktop must send
+      // the same or the server filters out tier-only entries.
+      expect(AddonApi.serverQualitiesForTier(27).first, 'hi_res');
+      expect(AddonApi.serverQualitiesForTier(7).first, 'hi_res');
+      expect(AddonApi.serverQualitiesForTier(6).first, 'lossless');
+      expect(AddonApi.serverQualitiesForTier(5).first, 'high');
+    });
   });
 
   group('khzFromServerSampleRate', () {
@@ -254,6 +264,15 @@ void main() {
             artist: artist,
             durationSeconds: dur);
 
+    AddonTrack ta(String id, String title, String artist, String album,
+            [int dur = 180]) =>
+        AddonTrack(
+            id: id,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: dur);
+
     test('exact match wins', () {
       final m = AddonApi.bestMatch(
         [
@@ -287,6 +306,147 @@ void main() {
             expectedDurationSeconds: 180,
           ),
           isNull);
+    });
+
+    test('feat in title still matches plain catalog entry', () {
+      // Dracula: queue bills "Dracula (feat. JENNIE)", catalog has "Dracula".
+      final m = AddonApi.bestMatch(
+        [t('1', 'Dracula', 'Tame Impala')],
+        title: 'Dracula (feat. JENNIE)',
+        artist: 'Tame Impala feat. JENNIE',
+      );
+      expect(m?.id, '1');
+    });
+
+    test('bare feat suffix still matches', () {
+      final m = AddonApi.bestMatch(
+        [t('1', 'Dracula', 'Tame Impala')],
+        title: 'Dracula feat JENNIE',
+        artist: 'Tame Impala, JENNIE',
+      );
+      expect(m?.id, '1');
+    });
+
+    test('explicit / single-version noise still matches', () {
+      expect(
+          AddonApi.bestMatch(
+            [t('1', 'Starboy', 'The Weeknd')],
+            title: 'Starboy (Explicit)',
+            artist: 'The Weeknd',
+          )?.id,
+          '1');
+      expect(
+          AddonApi.bestMatch(
+            [t('1', 'Starboy', 'The Weeknd')],
+            title: 'Starboy Single Version',
+            artist: 'The Weeknd',
+          )?.id,
+          '1');
+    });
+
+    test('collab artist billing matches primary', () {
+      final m = AddonApi.bestMatch(
+        [t('1', 'Starboy', 'The Weeknd')],
+        title: 'Starboy',
+        artist: 'The Weeknd; Daft Punk',
+      );
+      expect(m?.id, '1');
+    });
+
+    test('album breaks ties between same-title versions', () {
+      final m = AddonApi.bestMatch(
+        [
+          ta('1', 'Starboy', 'The Weeknd', 'Other Compilation'),
+          ta('2', 'Starboy', 'The Weeknd', 'Starboy'),
+        ],
+        title: 'Starboy',
+        artist: 'The Weeknd',
+        album: 'Starboy',
+      );
+      expect(m?.id, '2');
+    });
+
+    test('different songs still rejected', () {
+      // Stripping must not make "Cider" match "Cinderella"-style noise.
+      expect(
+          AddonApi.bestMatch(
+            [t('1', 'Dracula Untold Suite', 'Other Band')],
+            title: 'Dracula (feat. JENNIE)',
+            artist: 'Tame Impala feat. JENNIE',
+          ),
+          isNull);
+    });
+
+    test('wanted remix beats the original', () {
+      // Regression: queue asked for the JENNIE remix, pool holds both —
+      // stripped-exact equates them, feat fidelity must pick the remix.
+      final m = AddonApi.bestMatch(
+        [
+          t('orig', 'Dracula', 'Tame Impala'),
+          t('remix', 'Dracula (feat. JENNIE)', 'Tame Impala'),
+        ],
+        title: 'Dracula (feat. JENNIE)',
+        artist: 'Tame Impala',
+      );
+      expect(m?.id, 'remix');
+    });
+
+    test('wanted original beats the remix', () {
+      final m = AddonApi.bestMatch(
+        [
+          t('remix', 'Dracula (feat. JENNIE)', 'Tame Impala'),
+          t('orig', 'Dracula', 'Tame Impala'),
+        ],
+        title: 'Dracula',
+        artist: 'Tame Impala',
+      );
+      expect(m?.id, 'orig');
+    });
+
+    test('correct featured artist beats wrong one', () {
+      final m = AddonApi.bestMatch(
+        [
+          t('wrong', 'Dracula (feat. 1nonly)', 'Tame Impala'),
+          t('right', 'Dracula feat JENNIE', 'Tame Impala'),
+        ],
+        title: 'Dracula (feat. JENNIE)',
+        artist: 'Tame Impala',
+      );
+      expect(m?.id, 'right');
+    });
+
+    test('(with X) counts as a feature credit', () {
+      final m = AddonApi.bestMatch(
+        [t('1', 'Dracula (with JENNIE)', 'Tame Impala')],
+        title: 'Dracula (feat. JENNIE)',
+        artist: 'Tame Impala',
+      );
+      expect(m?.id, '1');
+    });
+
+    test('credit only in catalog title still matches', () {
+      // Queue: artist="Tame Impala", title has no feat; catalog puts
+      // the credit in its title. And the reverse direction.
+      expect(
+          AddonApi.bestMatch(
+            [t('1', 'Dracula feat JENNIE', 'Tame Impala')],
+            title: 'Dracula',
+            artist: 'Tame Impala',
+          )?.id,
+          '1');
+    });
+
+    test('bestMatches ranks remix, original, wrong-feat in order', () {
+      final ranked = AddonApi.bestMatches(
+        [
+          t('wrong', 'Dracula (feat. 1nonly)', 'Tame Impala'),
+          t('orig', 'Dracula', 'Tame Impala'),
+          t('remix', 'Dracula (feat. JENNIE)', 'Tame Impala'),
+        ],
+        title: 'Dracula (feat. JENNIE)',
+        artist: 'Tame Impala',
+      ).map((e) => e.id).toList();
+      expect(ranked, ['remix', 'orig', 'wrong']);
     });
   });
 
@@ -370,7 +530,145 @@ void main() {
         throwsA(isA<AddonQuotaException>()),
       );
     });
+
+    test('dead top match falls through to next-best version', () async {
+      // Starboy case: the top-ranked `swap_` composite 502s on every
+      // tier, so the resolver must serve the plain version rather
+      // than dropping to YouTube.
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+      }
+      final token = _hex('f');
+      final dio = Dio();
+      dio.httpClientAdapter = _PerTrackAdapter(
+        searchPayload: {
+          'tracks': [
+            {
+              'id': 'swap_dead',
+              'title': 'starboy feat daft punk the weeknd',
+              'artist': 'The Weeknd',
+            },
+            {'id': 'good', 'title': 'Starboy', 'artist': 'The Weeknd'},
+          ],
+        },
+        deadIds: const {'swap_dead'},
+        streamPayload: {
+          'url': 'https://cdn.test/starboy.flac',
+          'bitDepth': 16,
+          'sampleRate': 44100,
+        },
+      );
+      final api = AddonApi(['https://x.test/a/$token/'], dio);
+      final stream = await api.resolveStream(
+        title: 'Starboy (feat. Daft Punk)',
+        artist: 'The Weeknd',
+      );
+      expect(stream, isNotNull);
+      expect(stream!.url, 'https://cdn.test/starboy.flac');
+    });
+
+    test('tier 27 searches with hi_res knob (Android parity)', () async {
+      // Saadi Galli Aaja case: desktop hardcoded quality=lossless while
+      // Android searches with the tier knob (27 -> hi_res), so the
+      // server filtered hi_res-only entries out of desktop's pool.
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+      }
+      final token = _hex('f');
+      final dio = Dio();
+      final rec = _RecordingAdapter();
+      dio.httpClientAdapter = rec;
+      final api = AddonApi(['https://x.test/a/$token/'], dio);
+      await api.resolveStream(
+        title: 'Saadi Galli Aaja',
+        artist: 'Ayushmann Khurrana',
+        preferredQuality: 27,
+      );
+      expect(rec.searchQualities, isNotEmpty);
+      expect(rec.searchQualities.toSet(), {'hi_res'});
+    });
+
+    test('searchTracks defaults to lossless knob', () async {
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+      }
+      final token = _hex('f');
+      final dio = Dio();
+      final rec = _RecordingAdapter();
+      dio.httpClientAdapter = rec;
+      final api = AddonApi(['https://x.test/a/$token/'], dio);
+      await api.searchTracks('saadi galli aaja');
+      expect(rec.searchQualities, ['lossless']);
+    });
   });
+}
+
+/// Stub Dio adapter: records the `quality` param of every /search call,
+/// answers empty pools.
+class _RecordingAdapter implements HttpClientAdapter {
+  final List<String> searchQualities = [];
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options,
+      Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+    final path = options.uri.path;
+    if (path.contains('/search')) {
+      searchQualities
+          .add(options.queryParameters['quality']?.toString() ?? '');
+      return ResponseBody.fromString(
+        jsonEncode({'tracks': const []}),
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
+    return ResponseBody.fromString('nope', 404);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// Stub Dio adapter: search always answers, stream 500s for [deadIds]
+/// and succeeds for every other track id.
+class _PerTrackAdapter implements HttpClientAdapter {
+  _PerTrackAdapter({
+    required this.searchPayload,
+    required this.deadIds,
+    required this.streamPayload,
+  });
+
+  final Map<String, dynamic> searchPayload;
+  final Set<String> deadIds;
+  final Map<String, dynamic> streamPayload;
+
+  ResponseBody _json(Map<String, dynamic> payload) =>
+      ResponseBody.fromString(
+        jsonEncode(payload),
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options,
+      Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+    final path = options.uri.path;
+    if (path.contains('/search')) return _json(searchPayload);
+    if (path.contains('/stream/')) {
+      final id = path.split('/').last;
+      if (deadIds.contains(id)) {
+        return ResponseBody.fromString('boom', 502);
+      }
+      return _json(streamPayload);
+    }
+    return ResponseBody.fromString('nope', 404);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 /// Stub Dio adapter: search always answers, stream fails
