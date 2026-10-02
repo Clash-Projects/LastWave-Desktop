@@ -77,11 +77,22 @@ class _MprisObject extends DBusObject {
       ? 'Stopped'
       : (_snap.isPlaying ? 'Playing' : 'Paused');
 
-  String get _loop => switch (_snap.repeatMode) {
+  String get _loop => _loopFor(_snap.repeatMode);
+
+  static String _loopFor(RepeatMode mode) => switch (mode) {
         RepeatMode.off => 'None',
         RepeatMode.all => 'Playlist',
         RepeatMode.one => 'Track',
       };
+
+  /// Live loop status, read from the provider instead of the cached
+  /// snapshot (see the LoopStatus setter below). StateNotifier updates
+  /// state synchronously, so this observes each cycleRepeat() immediately.
+  String get _liveLoop =>
+      _loopFor(_svc._ref.read(playbackServiceProvider).repeatMode);
+
+  static const _minRate = 0.25;
+  static const _maxRate = 4.0;
 
   DBusValue get _metadata {
     final t = _snap.current;
@@ -111,8 +122,8 @@ class _MprisObject extends DBusObject {
         'Metadata': _metadata,
         'Volume': DBusDouble(_snap.volume),
         'Position': DBusInt64(_snap.position.inMicroseconds),
-        'MinimumRate': DBusDouble(0.25),
-        'MaximumRate': DBusDouble(4.0),
+        'MinimumRate': DBusDouble(_minRate),
+        'MaximumRate': DBusDouble(_maxRate),
         'CanGoNext': DBusBoolean(_snap.current != null),
         'CanGoPrevious': DBusBoolean(_snap.current != null),
         'CanPlay': DBusBoolean(_snap.current != null),
@@ -227,11 +238,7 @@ class _MprisObject extends DBusObject {
                 DBusSignature('x'), DBusArgumentDirection.in_,
                 name: 'Position'),
           ]),
-          DBusIntrospectMethod('OpenUri', args: [
-            DBusIntrospectArgument(
-                DBusSignature('s'), DBusArgumentDirection.in_,
-                name: 'Uri')
-          ]),
+          // No OpenUri: URI opening is unsupported (see handleMethodCall).
         ], signals: [
           DBusIntrospectSignal('Seeked', args: [
             DBusIntrospectArgument(
@@ -310,11 +317,16 @@ class _MprisObject extends DBusObject {
         }
       case 'LoopStatus':
         final want = (value as DBusString).value;
-        for (var i = 0; i < 3 && _loop != want; i++) {
+        // cycleRepeat() updates PlaybackService state synchronously, but
+        // our cached _snap only refreshes on the next provider snapshot —
+        // so re-read the LIVE state each iteration, otherwise the loop
+        // condition never observes progress and always spins all 3 steps.
+        for (var i = 0; i < 3 && _liveLoop != want; i++) {
           await player.cycleRepeat();
         }
       case 'Rate':
-        await player.setSpeed((value as DBusDouble).value);
+        await player.setSpeed(
+            (value as DBusDouble).value.clamp(_minRate, _maxRate));
       default:
         return DBusMethodErrorResponse.propertyReadOnly();
     }
@@ -333,7 +345,8 @@ class _MprisObject extends DBusObject {
             await windowManager.focus();
             return DBusMethodSuccessResponse();
           case 'Quit':
-            return DBusMethodSuccessResponse();
+            // CanQuit is false: quitting via MPRIS is unsupported.
+            return DBusMethodErrorResponse.failed('CanQuit is false');
         }
       } else if (call.interface == _playerIface) {
         switch (call.name) {
@@ -355,11 +368,15 @@ class _MprisObject extends DBusObject {
             await player.seek(target < Duration.zero ? Duration.zero : target);
           case 'SetPosition':
             if (call.values[0].asObjectPath().value == _trackId) {
+              final pos =
+                  Duration(microseconds: call.values[1].asInt64());
               await player.seek(
-                  Duration(microseconds: call.values[1].asInt64()));
+                  pos < Duration.zero ? Duration.zero : pos);
             }
           case 'OpenUri':
-            break;
+            // URI opening is not supported (HasTrackList is false, no
+            // queue ingestion) — report it instead of faking success.
+            return DBusMethodErrorResponse.unknownMethod();
           default:
             return DBusMethodErrorResponse.unknownMethod();
         }
