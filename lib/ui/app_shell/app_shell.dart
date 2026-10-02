@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../app/window.dart';
 import '../../core/audio/stream_models.dart';
@@ -22,6 +23,7 @@ import '../queue/queue_panel.dart';
 import '../theme/tokens.dart';
 import 'command_palette.dart';
 import 'title_bar.dart';
+import 'wave_hotkeys.dart';
 
 /// Rebuilt desktop shell — THIS IS A MUSIC PLAYER.
 ///
@@ -176,25 +178,135 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     // with Riverpod-aware handlers (HotKeyManager stores per-identifier
     // handlers, so re-register overwrites the no-op placeholders).
     _wireHotkeys();
+    // Truly global in-app shortcuts: HardwareKeyboard fires before focus
+    // dispatch, so Space/arrows can't be eaten by the focused button or
+    // list (see wave_hotkeys.dart).
+    HardwareKeyboard.instance.addHandler(_onGlobalKey);
+  }
+
+  /// OS-level hotkeys are background-only: the in-app global handler (§
+  /// _onGlobalKey) already toggles while the window is focused, so the OS
+  /// handler must stand down then or every press would fire twice.
+  Future<bool> _windowFocused() async {
+    try {
+      return await windowManager.isFocused();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _onGlobalKey(KeyEvent event) {
+    if (!mounted) return false;
+    return handleWaveHotkey(
+      event,
+      WaveHotkeyActions(
+        isTyping: () => waveIsTypingFocused(_searchFocus),
+        hasTrack: () =>
+            ref.read(playbackServiceProvider).current != null,
+        togglePlay: () {
+          if (mounted) ref.read(playbackServiceProvider.notifier).toggle();
+        },
+        next: () {
+          if (mounted) ref.read(playbackServiceProvider.notifier).next();
+        },
+        previous: () {
+          if (mounted) ref.read(playbackServiceProvider.notifier).previous();
+        },
+        openPalette: () {
+          if (mounted) _openPalette();
+        },
+        focusSearch: () => _searchFocus.requestFocus(),
+        toggleLyrics: () {
+          if (!mounted) return;
+          setState(() {
+            _lyricsOpen = !_lyricsOpen;
+            if (_lyricsOpen) _queueOpen = false;
+          });
+        },
+        goBack: () {
+          if (mounted) _goBack();
+        },
+        goForward: () {
+          if (mounted) _goForward();
+        },
+        handleEscape: () {
+          if (!mounted) return false;
+          return _handleEscape();
+        },
+        seekBySeconds: _seekBySeconds,
+        volumeByDelta: _volumeByDelta,
+      ),
+    );
+  }
+
+  /// Esc priority chain. Returns true when something was closed/unfocused.
+  bool _handleEscape() {
+    if (_searchFocus.hasFocus) {
+      _searchFocus.unfocus();
+      return true;
+    } else if (_lyricsOpen) {
+      setState(() => _lyricsOpen = false);
+      return true;
+    } else if (_queueOpen) {
+      setState(() => _queueOpen = false);
+      return true;
+    } else if (_miniOpen) {
+      setState(() => _miniOpen = false);
+      return true;
+    } else if (_lastCollapsed == false) {
+      // Overlay rail light-dismisses via keyboard too.
+      setState(() => _railExpanded = false);
+      return true;
+    } else if (_lastIsNowPlaying) {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/home');
+      }
+      return true;
+    }
+    return false;
+  }
+
+  void _seekBySeconds(int delta) {
+    if (!mounted) return;
+    final snap = ref.read(playbackServiceProvider);
+    if (snap.current == null) return;
+    final target = snap.position + Duration(seconds: delta);
+    final clamped = target.isNegative
+        ? Duration.zero
+        : (target > snap.duration ? snap.duration : target);
+    ref.read(playbackServiceProvider.notifier).seek(clamped);
+  }
+
+  void _volumeByDelta(double delta) {
+    if (!mounted) return;
+    final snap = ref.read(playbackServiceProvider);
+    if (snap.current == null) return;
+    final v = (snap.volume + delta).clamp(0.0, 1.0);
+    ref.read(playbackServiceProvider.notifier).setVolume(v);
   }
 
   Future<void> _wireHotkeys() async {
-    // No global backend on Wayland — the shell offers the same combos
-    // as in-app shortcuts instead (see build()).
+    // No global backend on Wayland — the in-app global handler covers
+    // these combos while the window is focused instead.
     if (!globalHotkeysSupported) return;
     try {
       Future<void> toggle(HotKey _) async {
         if (!mounted) return;
+        if (await _windowFocused()) return;
         await ref.read(playbackServiceProvider.notifier).toggle();
       }
 
       Future<void> next(HotKey _) async {
         if (!mounted) return;
+        if (await _windowFocused()) return;
         await ref.read(playbackServiceProvider.notifier).next();
       }
 
       Future<void> prev(HotKey _) async {
         if (!mounted) return;
+        if (await _windowFocused()) return;
         await ref.read(playbackServiceProvider.notifier).previous();
       }
 
@@ -227,6 +339,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onGlobalKey);
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -340,24 +453,11 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     );
   }
 
-  void _togglePlay() {
-    ref.read(playbackServiceProvider.notifier).toggle();
-  }
-
-  bool _isTyping() {
-    if (_searchFocus.hasFocus) return true;
-    final focus = FocusManager.instance.primaryFocus;
-    if (focus == null) return false;
-    final ctx = focus.context;
-    if (ctx == null) return false;
-    if (ctx.widget is EditableText) return true;
-    if (ctx.findAncestorWidgetOfExactType<EditableText>() != null) return true;
-    if (ctx.findAncestorStateOfType<EditableTextState>() != null) return true;
-    if (ctx.findAncestorWidgetOfExactType<TextBox>() != null) return true;
-    final debugLabel = focus.debugLabel;
-    if (debugLabel != null && debugLabel.contains('EditableText')) return true;
-    return false;
-  }
+  /// Latest layout/route snapshot for the focus-independent Esc chain
+  /// (the global key handler outlives individual builds, so it reads
+  /// these fields instead of capturing stale build locals).
+  bool _lastCollapsed = true;
+  bool _lastIsNowPlaying = false;
 
   Future<void> _dropFiles(List<String> paths) async {
     final tracks = <PlayableTrack>[];
@@ -409,80 +509,18 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     final isLyrics = routePath.startsWith('/lyrics');
     final isNowPlaying = routePath.startsWith('/now');
 
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
-            _goBack,
-        const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
-            _goForward,
-        const SingleActivator(LogicalKeyboardKey.keyK, control: true):
-            _openPalette,
-        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
-            () => _searchFocus.requestFocus(),
-        const SingleActivator(LogicalKeyboardKey.keyL, control: true): () {
-          if (hasTrack) {
-            setState(() {
-              _lyricsOpen = !_lyricsOpen;
-              if (_lyricsOpen) _queueOpen = false;
-            });
-          }
-        },
-        // Wayland fallback: global hotkeys can't register there, so the
-        // same transport combos work in-app while the window is focused.
-        // (On X11/Windows/macOS the global backend owns these keys, so
-        // these entries stay dormant and can never double-fire.)
-        if (!globalHotkeysSupported)
-          const SingleActivator(LogicalKeyboardKey.keyP,
-              control: true, alt: true): () {
-            ref.read(playbackServiceProvider.notifier).toggle();
-          },
-        if (!globalHotkeysSupported)
-          const SingleActivator(LogicalKeyboardKey.keyN,
-              control: true, alt: true): () {
-            ref.read(playbackServiceProvider.notifier).next();
-          },
-        if (!globalHotkeysSupported)
-          const SingleActivator(LogicalKeyboardKey.keyB,
-              control: true, alt: true): () {
-            ref.read(playbackServiceProvider.notifier).previous();
-          },
-        const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_searchFocus.hasFocus) {
-            _searchFocus.unfocus();
-          } else if (_lyricsOpen) {
-            setState(() => _lyricsOpen = false);
-          } else if (_queueOpen) {
-            setState(() => _queueOpen = false);
-          } else if (_miniOpen) {
-            setState(() => _miniOpen = false);
-          } else if (!collapsed) {
-            // Overlay rail light-dismisses via keyboard too.
-            setState(() => _railExpanded = false);
-          } else if (isNowPlaying) {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/home');
-            }
-          }
-        },
-      },
-      child: Focus(
-        autofocus: true,
-        onKeyEvent: (node, event) {
-          if (event is KeyDownEvent &&
-              event.logicalKey == LogicalKeyboardKey.space) {
-            if (_isTyping()) {
-              return KeyEventResult.ignored;
-            }
-            if (hasTrack) {
-              _togglePlay();
-              return KeyEventResult.handled;
-            }
-          }
-          return KeyEventResult.ignored;
-        },
-        child: Mica(
+    // Snapshot for the focus-independent Esc chain (the global
+    // HardwareKeyboard handler reads these fields).
+    _lastCollapsed = collapsed;
+    _lastIsNowPlaying = isNowPlaying;
+
+    // NOTE: no CallbackShortcuts / Focus(onKeyEvent) wrapper here on
+    // purpose. Those only fire via focus-bubbling, so focused buttons and
+    // lists ate Space/arrows before the shell saw them. All app-wide keys
+    // live in the HardwareKeyboard handler (see initState/_onGlobalKey +
+    // wave_hotkeys.dart), which runs before focus dispatch and works from
+    // anywhere. Enter is deliberately left to focused controls.
+    return Mica(
           backgroundColor:
               dark ? WaveColors.background : WaveColors.lightBackground,
           child: Column(
@@ -709,8 +747,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                     ),
             ],
           ),
-        ),
-      ),
-    );
+        );
   }
 }

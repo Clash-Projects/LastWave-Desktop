@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../core/audio/stream_models.dart';
-import '../../features/player/playback_service.dart';
+import '../app_shell/wave_hotkeys.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -38,8 +38,9 @@ enum WaveSortDir { asc, desc }
 ///   (shrink-wrapped embed) — never a giant [Column].
 /// - Header tap sorts when a `*SortOf` callback is provided (arrow indicator).
 /// - Responsive: Album hides <1000px, Quality hides <800px.
-/// - Keyboard: Up/Down move focus, Enter plays, Space toggles selection
-///   (or play/pause when not selectable), Delete removes where applicable.
+/// - Keyboard: Up/Down move focus, Enter plays, Delete removes where
+///   applicable. Space is global play/pause (shell-owned); row
+///   selection is mouse-driven (Ctrl/Shift+click).
 /// - Mouse: hover wash + play overlay on art + hover-only like/more,
 ///   single tap focuses/selects, double-click plays, right-click menu.
 /// - Playing row: animated [WaveEqDots] + accent title; durations tabular.
@@ -309,13 +310,16 @@ class _WaveDesktopTableState<T extends Object>
       widget.onPlay(_focusIndex);
       return KeyEventResult.handled;
     }
+    // Space is owned by the global shell handler (play/pause), which
+    // swallows it before focus dispatch whenever a track is loaded.
+    // This branch only runs with nothing loaded (selection toggle in
+    // selectable tables); otherwise it yields to global playback.
     if (k == LogicalKeyboardKey.space) {
       if (widget.selectable) {
         _onRowTap(_focusIndex, ctrl: true, shift: false);
-      } else {
-        ref.read(playbackServiceProvider.notifier).toggle();
+        return KeyEventResult.handled;
       }
-      return KeyEventResult.handled;
+      return KeyEventResult.ignored;
     }
     if ((k == LogicalKeyboardKey.delete ||
             k == LogicalKeyboardKey.backspace) &&
@@ -343,12 +347,17 @@ class _WaveDesktopTableState<T extends Object>
       return SliverMainAxisGroup(
         slivers: [
           // Zero-size focus host: keeps row-tap focus + Up/Down/Enter
-          // keyboard nav working with no visual impact.
+          // keyboard nav working with no visual impact. The nav scope
+          // keeps Up/Down local while the table has focus (global volume
+          // yields); Space stays global playback everywhere.
           SliverToBoxAdapter(
-            child: Focus(
-              focusNode: _focus,
-              onKeyEvent: (_, e) => _onKey(e),
-              child: const SizedBox.shrink(),
+            child: WaveKeyNavScope(
+              consumeUpDown: true,
+              child: Focus(
+                focusNode: _focus,
+                onKeyEvent: (_, e) => _onKey(e),
+                child: const SizedBox.shrink(),
+              ),
             ),
           ),
           ..._tableSlivers(
@@ -423,10 +432,15 @@ class _WaveDesktopTableState<T extends Object>
         }
 
         // Shrink-wrap path renders the header as the first list child.
-        return Focus(
-          focusNode: _focus,
-          onKeyEvent: (_, e) => _onKey(e),
-          child: list,
+        // Nav scope: see the sliver focus host above (Up/Down local,
+        // Space global).
+        return WaveKeyNavScope(
+          consumeUpDown: true,
+          child: Focus(
+            focusNode: _focus,
+            onKeyEvent: (_, e) => _onKey(e),
+            child: list,
+          ),
         );
       },
     );

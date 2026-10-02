@@ -12,6 +12,7 @@ import '../../features/home/home_providers.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/shared_providers.dart';
+import '../app_shell/wave_hotkeys.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip;
 
@@ -479,10 +480,16 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
     );
 
     if (widget.entries == null) return panel;
-    return Focus(
-      autofocus: true,
-      onKeyEvent: _onKey,
-      child: panel,
+    // Nav scope: Up/Down stay local while the menu has focus so the
+    // global volume shortcuts yield to menu keyboard navigation.
+    // (Space stays global: it toggles playback even with a menu open.)
+    return WaveKeyNavScope(
+      consumeUpDown: true,
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: _onKey,
+        child: panel,
+      ),
     );
   }
 }
