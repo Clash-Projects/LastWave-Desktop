@@ -13,6 +13,7 @@ import '../../ui/theme/fluent_theme.dart';
 import '../../ui/theme/haze.dart';
 import '../player/playback_service.dart';
 import '../audio_output/output_controller.dart';
+import '../mpris/mpris_service.dart';
 import '../presence/discord_presence_service.dart';
 import 'theme_controller.dart';
 
@@ -62,6 +63,11 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         // Discord Rich Presence: own block so an audio failure above can
         // never skip it; never throws (Discord closed degrades to silence).
         ref.read(discordPresenceProvider).startup();
+      } catch (_) {}
+      try {
+        // MPRIS (Linux): exposes now-playing + transport on the session
+        // bus for bars, playerctl and media keys. No-op elsewhere.
+        ref.read(mprisProvider).startup();
       } catch (_) {}
     });
   }
