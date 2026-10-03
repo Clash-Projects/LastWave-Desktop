@@ -22,7 +22,10 @@ import 'package:flutter/services.dart';
 ///   Space is global.
 /// - Typing (text fields) always wins for Space/arrows/Ctrl+L; only
 ///   Ctrl+K / Ctrl+F / Ctrl+Alt+P/N/B / Esc reach the shell while typing.
-/// - Hardware media keys are NOT handled here (MPRIS owns them).
+/// - Hardware media keys are NOT handled here (MPRIS owns them on
+///   Linux, SMTC on Windows — see `isSystemMediaKey`). Returning false
+///   (not swallowing) keeps that single-owner contract so a focused
+///   press can never double-fire through both paths.
 class WaveHotkeyActions {
   WaveHotkeyActions({
     required this.isTyping,
@@ -117,6 +120,20 @@ WaveKeyNavScope? _navScope() {
   return ctx.findAncestorWidgetOfExactType<WaveKeyNavScope>();
 }
 
+/// True for OS-level media/volume keys. SMTC (Windows) and MPRIS
+/// (Linux) own these — the in-app dispatcher must never swallow them,
+/// or a focused press would fire through both the OS path and this one.
+bool isSystemMediaKey(LogicalKeyboardKey k) =>
+    k == LogicalKeyboardKey.mediaPlayPause ||
+    k == LogicalKeyboardKey.mediaPlay ||
+    k == LogicalKeyboardKey.mediaPause ||
+    k == LogicalKeyboardKey.mediaStop ||
+    k == LogicalKeyboardKey.mediaTrackNext ||
+    k == LogicalKeyboardKey.mediaTrackPrevious ||
+    k == LogicalKeyboardKey.audioVolumeMute ||
+    k == LogicalKeyboardKey.audioVolumeUp ||
+    k == LogicalKeyboardKey.audioVolumeDown;
+
 /// Global key dispatcher. Attach via `HardwareKeyboard.instance.addHandler`
 /// and detach on dispose. Returns true = swallowed (focused widget never
 /// sees the key).
@@ -124,6 +141,9 @@ bool handleWaveHotkey(KeyEvent event, WaveHotkeyActions a) {
   final isDown = event is KeyDownEvent;
   final isRepeat = event is KeyRepeatEvent;
   if (!isDown && !isRepeat) return false;
+
+  // System media keys belong to SMTC/MPRIS — never swallow, never act.
+  if (isSystemMediaKey(event.logicalKey)) return false;
 
   final keys = HardwareKeyboard.instance.logicalKeysPressed;
   final ctrl = _has(keys, LogicalKeyboardKey.controlLeft,

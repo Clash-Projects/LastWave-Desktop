@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "smtc_channel.h"
 #include "wasapi_channel.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -28,6 +29,11 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   wasapi_channel_ = std::make_unique<lastwave::WasapiChannel>(
       flutter_controller_->engine()->messenger());
+  // SMTC (volume flyout / lock screen / media keys) binds the main window
+  // only — the hidden BotGuard WebView never gets its own registration.
+  // Best-effort: init failures degrade to silence inside the channel.
+  smtc_channel_ = std::make_unique<lastwave::SmtcChannel>(
+      flutter_controller_->engine()->messenger(), GetHandle());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -43,6 +49,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  smtc_channel_.reset();
   wasapi_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;

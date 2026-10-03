@@ -2,6 +2,7 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
+#include <shobjidl.h>
 #include <timeapi.h>
 #pragma comment(lib, "winmm.lib")
 
@@ -10,6 +11,8 @@
 
 #include "flutter_window.h"
 #include "utils.h"
+
+#include "app_identity.h"
 
 // Opt the process into dark Win32 popup menus (tray icon menu, ...).
 //
@@ -51,6 +54,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // ~115ms per iteration on the rare cipher-fallback path) and libmpv's
   // internal event/demuxer timing. Media players raise this during
   // playback; reverted on exit below.
+  // Explicit app identity BEFORE any window exists: taskbar grouping
+  // and the SMTC media-flyout source label ("Unknown app" otherwise).
+  // Best-effort — the app runs fine without it.
+  ::SetCurrentProcessExplicitAppUserModelID(kLastWaveAppUserModelId);
+
   ::timeBeginPeriod(1);
 
   flutter::DartProject project(L"data");
