@@ -156,6 +156,15 @@ class _Session {
   final Completer<void> _completion = Completer<void>();
   bool _firstByteLogged = false;
 
+  /// Exact assembled size once known (init + all segment bodies).
+  /// Null until the background size-discovery pass finishes; null
+  /// afterwards means discovery failed and ranges must fall back to
+  /// the safe complete-file wait (never serve `/*` — ffmpeg maps an
+  /// unknown total to filesize -1 and the mov demuxer then fails its
+  /// tail probe with "moov atom not found").
+  int? _totalBytes;
+  final Completer<void> _totalReady = Completer<void>();
+
   /// Live readers holding the partial open. The publish rename waits
   /// for zero — blind retries starve when a reader cycles ticks.
   int _openReaders = 0;
@@ -204,6 +213,12 @@ class _Session {
         sink.add(init);
         await sink.flush();
         _slog('init $name ${init.length}b');
+        // Size discovery races the body fetch: init (the first byte
+        // mpv needs) is already on disk, and the total is usually
+        // ready before mpv's first probe Range (~100ms after open).
+        // Ranges arriving before it wait briefly (see _awaitTotal);
+        // a failed discovery falls back to complete-file semantics.
+        unawaited(_discoverTotal(plan, init.length));
         final slots =
             List<List<int>?>.filled(plan.segmentCount, null);
         final ok = await DashAssembler.fetchSegments(
@@ -227,22 +242,32 @@ class _Session {
       // Windows rename won't overwrite: clear stale output first.
       // Then wait for a reader-free moment instead of blind retries
       // (a live reader cycling ticks starves fixed-attempt loops).
+      // A failed publish must stay visible: Pillowtalk truncated at
+      // 0:19 because `done` was logged while only the .part existed,
+      // and the .part was reaped mid-play (see prune snapshot below).
       try {
         final stale = File(_finalPath);
         if (await stale.exists()) await stale.delete();
       } catch (_) {}
-      for (var attempt = 0; attempt < 40; attempt++) {
+      var published = false;
+      for (var attempt = 0; attempt < 80; attempt++) {
         if (_openReaders == 0) {
           try {
             await File(_partPath).rename(_finalPath);
+            published = true;
             break;
           } catch (_) {}
         }
         await Future.delayed(const Duration(milliseconds: 50));
       }
       done = true;
-      _slog('assemble done $name');
-      unawaited(DashAssembler.pruneCache(_activePartials));
+      _slog(published
+          ? 'assemble done $name'
+          : 'assemble done $name publish=partial');
+      // Snapshot: prune is unawaited and the `finally` below removes
+      // this session from the live set — passing the live set let a
+      // session's own prune reap its fresh .part mid-play.
+      unawaited(DashAssembler.pruneCache(Set.of(_activePartials)));
     } catch (_) {
       failed = true;
       _slog('assemble FAILED $name');
@@ -253,12 +278,24 @@ class _Session {
     }
   }
 
+  /// The finished bytes: the published file, or the partial when the
+  /// publish rename never landed (all bytes are there — only the name
+  /// is missing). Null when neither exists.
+  Future<File?> _completeFile() async {
+    try {
+      final f = File(_finalPath);
+      if (await f.exists()) return f;
+    } catch (_) {}
+    try {
+      final p = File(_partPath);
+      if (await p.exists()) return p;
+    } catch (_) {}
+    return null;
+  }
+
   Future<File?> _awaitCompleteFile() async {
     if (failed) return null;
-    if (done) {
-      final f = File(_finalPath);
-      return await f.exists() ? f : null;
-    }
+    if (done) return _completeFile();
     try {
       await _completion.future.timeout(const Duration(seconds: 180));
     } catch (_) {
@@ -284,29 +321,31 @@ class _Session {
         await res.close();
         return;
       }
-      final file = await _awaitCompleteFile();
-      if (file == null) {
+      final start = int.parse(m.group(1)!);
+      final endStr = m.group(2)!;
+      if (done) {
+        // Finished assembly: instant ranges off the published file.
+        await _serveRangeFromCompleteFile(
+            res, start, endStr.isEmpty ? null : int.parse(endStr));
+        return;
+      }
+      if (failed) {
         res.statusCode = HttpStatus.internalServerError;
         await res.close();
         return;
       }
-      final length = await file.length();
-      final start = int.parse(m.group(1)!);
-      if (start >= length) {
-        res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-        await res.close();
-        return;
+      // Assembling: progressive ranges. A probe seek into already-
+      // fetched bytes unblocks WITHOUT waiting for the tail, so mpv
+      // starts audio while later segments still download. mpv seeks on
+      // every lavf probe, and the old code awaited the complete file
+      // for any Range — that single branch was the whole ~6s post-open
+      // stall. Same 180s patience as before; on timeout the existing
+      // 500 -> same-tier-retry path applies.
+      if (endStr.isNotEmpty) {
+        await _serveRangeProgressive(res, start, int.parse(endStr));
+      } else {
+        await _serveLive(req, startOffset: start, partial: true);
       }
-      final endStr = m.group(2)!;
-      var end = endStr.isEmpty ? length - 1 : int.parse(endStr);
-      end = min(end, length - 1);
-      res.statusCode = HttpStatus.partialContent;
-      res.headers.set(
-          HttpHeaders.contentRangeHeader, 'bytes $start-$end/$length');
-      res.headers.contentLength = end - start + 1;
-      res.headers.contentType = ContentType('audio', 'mp4');
-      await res.addStream(file.openRead(start, end + 1));
-      await res.close();
       return;
     }
     // Progressive open: finished file with length when present
@@ -324,15 +363,236 @@ class _Session {
     await _serveLive(req);
   }
 
-  Future<void> _serveLive(HttpRequest req) async {
+  /// Complete-file range serving: the pre-P2 behavior, used once the
+  /// assembly is published (instant) and as the fallback when assembly
+  /// finishes while a progressive range is waiting.
+  Future<void> _serveRangeFromCompleteFile(
+      HttpResponse res, int start, int? end) async {
+    final file = await _awaitCompleteFile();
+    if (file == null) {
+      res.statusCode = HttpStatus.internalServerError;
+      await res.close();
+      return;
+    }
+    final length = await file.length();
+    if (start >= length) {
+      res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      await res.close();
+      return;
+    }
+    var last = end ?? length - 1;
+    last = min(last, length - 1);
+    res.statusCode = HttpStatus.partialContent;
+    res.headers.set(
+        HttpHeaders.contentRangeHeader, 'bytes $start-$last/$length');
+    res.headers.contentLength = last - start + 1;
+    res.headers.contentType = ContentType('audio', 'mp4');
+    await res.addStream(file.openRead(start, last + 1));
+    await res.close();
+  }
+
+  /// Background size discovery: HEAD (fallback Range 0-0) every
+  /// segment URL so progressive ranges can advertise the real total.
+  /// Runs beside the body fetch; never throws. Null total afterwards
+  /// means the host won't tell us sizes — callers fall back to the
+  /// complete-file wait rather than serving an unknown total.
+  Future<void> _discoverTotal(
+    ({String initUrl, String mediaTemplate, int startNumber, int segmentCount})
+        plan,
+    int initLength,
+  ) async {
+    try {
+      final sizes = List<int?>.filled(plan.segmentCount, null);
+      for (var base = 0; base < plan.segmentCount; base += 12) {
+        final end = (base + 12).clamp(0, plan.segmentCount);
+        final batch = <Future<void>>[];
+        for (var i = base; i < end; i++) {
+          final index = i;
+          batch.add(_probeLength(DashAssembler.segmentUrlFor(
+                  plan.mediaTemplate, plan.startNumber + index))
+              .then((n) => sizes[index] = n));
+        }
+        await Future.wait(batch);
+        if (failed || done) return;
+      }
+      if (sizes.any((n) => n == null || n <= 0)) return;
+      _totalBytes = initLength + sizes.fold<int>(0, (a, b) => a + b!);
+      _slog('size $name total=$_totalBytes');
+    } catch (_) {
+      // Null total = fallback path; never fail the assembly for this.
+    } finally {
+      if (!_totalReady.isCompleted) _totalReady.complete();
+    }
+  }
+
+  /// Single size probe: HEAD content-length, else the total parsed
+  /// from a `bytes 0-0/TOTAL` range reply. Null on any miss. Short
+  /// budget — a slow size host must not stall the body fetch.
+  Future<int?> _probeLength(String url) async {
+    try {
+      final head = await _dio
+          .head<List<int>>(url,
+              options: Options(responseType: ResponseType.bytes))
+          .timeout(const Duration(seconds: 5));
+      final len = head.headers.value(HttpHeaders.contentLengthHeader) ??
+          head.headers.value('content-length');
+      final n = len == null ? null : int.tryParse(len.trim());
+      if (n != null && n > 0) return n;
+    } catch (_) {}
+    try {
+      final res = await _dio
+          .get<List<int>>(url,
+              options: Options(
+                responseType: ResponseType.bytes,
+                headers: {HttpHeaders.rangeHeader: 'bytes=0-0'},
+              ))
+          .timeout(const Duration(seconds: 5));
+      final cr = res.headers.value(HttpHeaders.contentRangeHeader);
+      if (cr != null) {
+        final m = RegExp(r'/(\d+)\s*$').firstMatch(cr);
+        final total = m == null ? null : int.tryParse(m.group(1)!);
+        if (total != null && total > 0) return total;
+      }
+      // A host that ignores Range and returns 200 with the whole
+      // segment: the body length IS the size (segments are ~0.5MB,
+      // acceptable one-off cost on this fallback path only).
+      final bytes = res.data;
+      if (res.statusCode == 200 && bytes != null && bytes.isNotEmpty) {
+        return bytes.length;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Real total, waiting briefly for the background discovery when an
+  /// mpv probe Range beats it. Null = unknown (discovery failed or
+  /// still silent after the grace) — caller must use complete-file
+  /// semantics, never an unknown-total reply.
+  Future<int?> _awaitTotal() async {
+    if (_totalBytes != null) return _totalBytes;
+    if (_totalReady.isCompleted) return _totalBytes;
+    try {
+      await _totalReady.future.timeout(const Duration(seconds: 15));
+    } catch (_) {}
+    return _totalBytes;
+  }
+
+  /// Wait until [offset]+[need] bytes are readable — from the growing
+  /// partial while assembling, or the published file once done. Null on
+  /// failure or after 180s without progress (same patience as the old
+  /// full-file wait). A done session never waits: the caller falls back
+  /// to complete-file semantics.
+  Future<File?> _awaitRangeAvailable(int offset, int need) async {
+    final deadline =
+        DateTime.now().add(const Duration(seconds: 180));
+    while (true) {
+      if (failed) return null;
+      if (done) {
+        final f = File(_finalPath);
+        try {
+          if (await f.exists()) return f;
+        } catch (_) {}
+        return null;
+      }
+      try {
+        final f = File(_partPath);
+        if (await f.exists() && await f.length() >= offset + need) {
+          return f;
+        }
+      } catch (_) {}
+      if (DateTime.now().isAfter(deadline)) return null;
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+  }
+
+  /// Explicit range off an in-progress assembly: serve as soon as the
+  /// requested bytes exist, advertising the REAL total discovered by
+  /// [_discoverTotal]. Never serves `/*`: ffmpeg maps an unknown total
+  /// to filesize -1 and the mov demuxer fails its tail probe with
+  /// "moov atom not found" (the P2 regression). Unknown total falls
+  /// back to the complete-file wait (pre-P2 safe behavior).
+  Future<void> _serveRangeProgressive(
+      HttpResponse res, int start, int end) async {
+    if (end < start) {
+      res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      await res.close();
+      return;
+    }
+    if (done) {
+      await _serveRangeFromCompleteFile(res, start, end);
+      return;
+    }
+    final total = await _awaitTotal();
+    if (total == null) {
+      // Size host silent/blocked: safe stall, same as before P2.
+      await _serveRangeFromCompleteFile(res, start, end);
+      return;
+    }
+    if (start >= total) {
+      res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      await res.close();
+      return;
+    }
+    final last = min(end, total - 1);
+    final file = await _awaitRangeAvailable(start, last - start + 1);
+    if (file == null) {
+      res.statusCode = HttpStatus.internalServerError;
+      await res.close();
+      return;
+    }
+    if (done) {
+      // Assembly finished while waiting: exact complete-file semantics.
+      await _serveRangeFromCompleteFile(res, start, end);
+      return;
+    }
+    res.statusCode = HttpStatus.partialContent;
+    res.headers.set(
+        HttpHeaders.contentRangeHeader, 'bytes $start-$last/$total');
+    res.headers.contentLength = last - start + 1;
+    res.headers.contentType = ContentType('audio', 'mp4');
+    await res.addStream(file.openRead(start, last + 1));
+    await res.close();
+  }
+
+  Future<void> _serveLive(HttpRequest req,
+      {int startOffset = 0, bool partial = false}) async {
     final res = req.response;
     res.headers.contentType = ContentType('audio', 'mp4');
+    int? liveTotal;
+    if (partial) {
+      if (done) {
+        await _serveRangeFromCompleteFile(res, startOffset, null);
+        return;
+      }
+      // Open-ended range off a live assembly: 206 with the REAL total
+      // (chunked body, no content-length — mpv reads to `total`).
+      // Unknown total falls back to the complete-file wait: an `/*`
+      // reply makes ffmpeg report filesize -1 and the mov probe dies
+      // with "moov atom not found".
+      final total = await _awaitTotal();
+      if (total == null) {
+        await _serveRangeFromCompleteFile(res, startOffset, null);
+        return;
+      }
+      if (startOffset >= total) {
+        res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        await res.close();
+        return;
+      }
+      liveTotal = total;
+      res.statusCode = HttpStatus.partialContent;
+      res.headers.set(HttpHeaders.contentRangeHeader,
+          'bytes $startOffset-${total - 1}/$total');
+    }
     // Chunked: no content-length, mpv plays as bytes arrive.
     // The source file is re-resolved every tick: once the producer
     // publishes, late ticks continue the SAME byte stream from the
     // finished file. Handles open only during actual I/O, counted in
     // _openReaders so the publish rename finds a reader-free moment.
-    var offset = 0;
+    // [startOffset]/[partial] serve an open-ended range off the live
+    // assembly (mpv's forward reads after a seek); plain GETs start at 0.
+    // A partial stream stops at the advertised total, never past it.
+    var offset = startOffset;
     while (true) {
       var path = _partPath;
       if (done) {
@@ -347,11 +607,18 @@ class _Session {
           raf = await File(path).open(mode: FileMode.read);
           _openReaders++;
           try {
-            final length = await raf.length();
+            var length = await raf.length();
+            if (liveTotal != null && length > liveTotal) {
+              length = liveTotal;
+            }
+            if (liveTotal != null && offset >= liveTotal) break;
             if (offset < length) {
               await raf.setPosition(offset);
-              final chunk =
-                  await raf.read(min(65536, length - offset));
+              var want = length - offset;
+              if (liveTotal != null) {
+                want = min(want, liveTotal - offset);
+              }
+              final chunk = await raf.read(min(65536, want));
               offset += chunk.length;
               res.add(chunk);
               await res.flush();
@@ -374,14 +641,17 @@ class _Session {
           await raf.close();
         } catch (_) {}
       }
+      if (liveTotal != null && offset >= liveTotal) break;
       if (!progressed) {
         if (failed) break;
         if (done) {
           // Published (or publish failed and producer is gone):
-          // one last check for the finished file, then stop.
+          // one last check for the finished bytes, then stop. A
+          // failed publish leaves the bytes in the .part — closing
+          // here truncated Pillowtalk at 0:19.
           try {
-            final f = File(_finalPath);
-            if (await f.exists()) {
+            final f = await _completeFile();
+            if (f != null) {
               final length = await f.length();
               if (offset < length) continue;
             }

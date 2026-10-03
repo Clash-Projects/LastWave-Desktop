@@ -183,8 +183,16 @@ class DashAssembler {
           final base = e.path.split(Platform.pathSeparator).last;
           final name = base.substring(0, base.length - 5);
           if (!activeNames.contains(name)) {
+            // Age-gated: a fresh .part may be a failed-publish
+            // leftover whose session just finished (or is serving
+            // from it) — reaping it truncated Pillowtalk at 0:19.
+            // Only previous-process orphans (stale > 1h) are reaped.
             try {
-              await e.delete();
+              final st = await e.stat();
+              if (DateTime.now().difference(st.modified) >
+                  const Duration(hours: 1)) {
+                await e.delete();
+              }
             } catch (_) {}
           }
           continue;

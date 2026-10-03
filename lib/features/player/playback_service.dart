@@ -106,6 +106,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   final Set<String> _prefetchInflight = {};
   String _prefetchSeedKey = '';
 
+  // -- first-audio clock (debug timing only) -------------------------------
+  //
+  // `open()` returning — and even `playing=true` — is NOT audible sound.
+  // mpv flips pause=no (media_kit's `playing`) as soon as loadfile is
+  // accepted, then prerolls cache (`paused-for-cache`) before the first
+  // frame renders. The only signal close to "sound coming out" is the
+  // position clock advancing past zero, so that's what arms this clock:
+  // resolve-start → first position > 0 for the same generation.
+  DateTime? _audioClockStart;
+  String _audioClockKey = '';
+  int _audioClockGeneration = -1;
+  DateTime? _audioOpenDoneAt;
+
   // -- native mpv serialization -------------------------------------------
   //
   // Windows libmpv corrupts its heap when stop/open/property writes
@@ -143,6 +156,41 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         mode: FileMode.append,
         flush: true,
       );
+    } catch (_) {}
+  }
+
+  /// Debug-only per-stage timing breadcrumb. Shape/timing only —
+  /// never URLs, headers, or tokens. Correlate stages by [key].
+  void _logTiming(String line) {
+    if (!kDebugMode) return;
+    debugPrint('LastWave-Timing $line');
+  }
+
+  /// Fires once per resolve: the first position tick past zero is the
+  /// first rendered frame — the closest signal to audible sound.
+  /// (NOT `playing=true`: mpv unpauses on loadfile-accept, before the
+  /// cache preroll finishes.) Consumed via [_audioClockGeneration] so
+  /// later ticks and seeks never re-log. Ticks arriving before open is
+  /// issued belong to the outgoing track (mpv keeps playing it until
+  /// the stop/open lands) — they must not fire the new clock, which is
+  /// exactly the `time_to_audio_ms=7 post_open_ms=-1` ghost.
+  void _maybeLogFirstAudio(Duration position) {
+    try {
+      if (!kDebugMode) return;
+      if (position <= Duration.zero) return;
+      if (_audioClockGeneration != _resolveGeneration) return;
+      if (_audioOpenDoneAt == null) return;
+      final start = _audioClockStart;
+      if (start == null || _audioClockKey.isEmpty) return;
+      if (state.current?.queueKey != _audioClockKey) return;
+      final now = DateTime.now();
+      final totalMs = now.difference(start).inMilliseconds;
+      final openDone = _audioOpenDoneAt;
+      final postOpenMs =
+          openDone != null ? now.difference(openDone).inMilliseconds : -1;
+      _logTiming('audio key=$_audioClockKey time_to_audio_ms=$totalMs '
+          'post_open_ms=$postOpenMs');
+      _audioClockGeneration = -1;
     } catch (_) {}
   }
 
@@ -235,6 +283,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         state = state.copyWith(isBuffering: _resolving || v);
       }),
       p.stream.position.listen((v) {
+        _maybeLogFirstAudio(v);
         if (_resolving || state.error != null) return;
         _tickScrobble(v);
         _maybePrefetchFromPosition(v);
@@ -797,10 +846,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _resolving = true;
     _resolvingIndex = index;
     _playbackAttempt = attempt;
+    final totalSw = Stopwatch()..start();
+    int resolveMs = 0;
     try {
       final track = state.queue[index];
       final wantedQueueKey = track.queueKey;
       _activeQueueKey = wantedQueueKey;
+      // Arm the first-audio clock: resolve-start → first playing=true.
+      _audioClockStart = DateTime.now();
+      _audioClockKey = wantedQueueKey;
+      _audioClockGeneration = generation;
+      _audioOpenDoneAt = null;
       final cacheKey = _playCacheKey(track, forceYoutube);
       final cached = !forceRefresh ? _playCache.get(cacheKey) : null;
       state = state.copyWith(
@@ -823,7 +879,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       final local = _localStream(track);
       if (local != null) {
         _resolving = false;
+        final localOpenSw = Stopwatch()..start();
         await _open(track, local, generation, wantedQueueKey);
+        localOpenSw.stop();
+        totalSw.stop();
+        _logTiming('play key=$wantedQueueKey path=local '
+            'mpv_open_ms=${localOpenSw.elapsedMilliseconds} '
+            'total_ms=${totalSw.elapsedMilliseconds}');
         return;
       }
       if (cached == null) {
@@ -836,9 +898,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           });
         } catch (_) {}
       }
+      final resolveSw = Stopwatch()..start();
       final stream = cached ??
           await _resolveRemote(track,
               forceYoutube: forceYoutube, forceRefresh: forceRefresh);
+      resolveSw.stop();
+      resolveMs = cached != null ? 0 : resolveSw.elapsedMilliseconds;
       // Stale guard: generation + track identity must still match.
       if (generation != _resolveGeneration) return;
       if (index >= state.queue.length ||
@@ -862,7 +927,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         return;
       }
       _resolving = false;
+      final openSw = Stopwatch()..start();
       await _open(track, stream, generation, wantedQueueKey);
+      openSw.stop();
+      totalSw.stop();
+      if (generation == _resolveGeneration) {
+        _logTiming('play key=$wantedQueueKey path=remote '
+            'playcache_hit=${cached != null} '
+            'resolve_ms=$resolveMs '
+            'mpv_open_ms=${openSw.elapsedMilliseconds} '
+            'total_ms=${totalSw.elapsedMilliseconds}');
+      }
       if (generation != _resolveGeneration) return;
       _prefetchNeighbors();
       _maybeRefillRadio();
@@ -963,18 +1038,32 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     bool forceRefresh = false,
   }) async {
     final allowLossless = _wouldTryLossless(track, forceYoutube);
+    final key = track.queueKey;
     if (!allowLossless) {
-      return _resolveYoutube(track, const {},
+      final ytOnlySw = Stopwatch()..start();
+      final ytOnly = await _resolveYoutube(track, const {},
           forceRefresh: forceRefresh);
+      ytOnlySw.stop();
+      _logTiming('resolve key=$key path=youtube-only '
+          'youtube_ms=${ytOnlySw.elapsedMilliseconds} hit=${ytOnly != null}');
+      return ytOnly;
     }
+    int losslessMs = 0;
     try {
+      final losslessSw = Stopwatch()..start();
       final stream = await _lossless.resolveStream(
         title: track.title,
         artist: track.artist,
         album: track.album,
         preferredQuality: _prefs.losslessQuality,
       );
-      if (stream != null) return stream;
+      losslessSw.stop();
+      losslessMs = losslessSw.elapsedMilliseconds;
+      if (stream != null) {
+        _logTiming('resolve key=$key path=lossless-hit '
+            'lossless_ms=$losslessMs');
+        return stream;
+      }
       // Silent misses are the #1 "why YouTube?" confusion: log the
       // lossless fallthrough in debug so the next report shows which
       // tier failed instead of only the YouTube hit below.
@@ -993,7 +1082,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {
       // The backend failed; continue with YouTube for this request.
     }
-    return _resolveYoutube(track, const {}, forceRefresh: forceRefresh);
+    final ytSw = Stopwatch()..start();
+    final yt = await _resolveYoutube(track, const {},
+        forceRefresh: forceRefresh);
+    ytSw.stop();
+    _logTiming('resolve key=$key path=lossless-miss+youtube '
+        'lossless_ms=$losslessMs youtube_ms=${ytSw.elapsedMilliseconds} '
+        'hit=${yt != null}');
+    return yt;
   }
 
   Future<ResolvedStream?> _resolveYoutube(
@@ -1007,8 +1103,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (track.videoId.isNotEmpty &&
         !excluded.contains(track.videoId)) {
       try {
+        final directSw = Stopwatch()..start();
         final stream = await _tube.resolveAudioStream(track.videoId,
             forceRefresh: forceRefresh);
+        directSw.stop();
+        _logTiming('youtube key=${track.queueKey} path=direct-videoId '
+            'stream_ms=${directSw.elapsedMilliseconds} '
+            'hit=${stream != null}');
         if (stream != null) {
           _rememberWatchtime(track.videoId, stream);
           return stream;
@@ -1022,12 +1123,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       excluded = {...excluded, track.videoId};
     }
     for (var attempt = 0; attempt < 2; attempt++) {
+      int matchMs = 0;
       try {
         // Best-effort: strict → primary-artist (collab billing like
         // "A; B; C") → title-only. Home feed tracks carry Last.fm
         // billing that fails the strict artist gate on songs that
         // plainly exist on YouTube. Budgets live inside (5s/tier);
         // the outer cap is a safety net only.
+        final matchSw = Stopwatch()..start();
         final match = await _tube
             .findBestEffortMatchOrNull(
               track.title,
@@ -1035,13 +1138,24 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
               excludedVideoIds: excluded,
             )
             .timeout(const Duration(seconds: 20), onTimeout: () => null);
+        matchSw.stop();
+        matchMs = matchSw.elapsedMilliseconds;
         final videoId = match?.videoId;
-        if (videoId == null || videoId.isEmpty) return null;
+        if (videoId == null || videoId.isEmpty) {
+          _logTiming('youtube key=${track.queueKey} attempt=$attempt '
+              'match_ms=$matchMs result=no-match');
+          return null;
+        }
         if (excluded.contains(videoId)) continue;
         // Persist the match so the next play is instant.
         _adoptVideoId(track, videoId, match!);
+        final streamSw = Stopwatch()..start();
         final stream = await _tube.resolveAudioStream(videoId,
             forceRefresh: forceRefresh && attempt == 0);
+        streamSw.stop();
+        _logTiming('youtube key=${track.queueKey} attempt=$attempt '
+            'match_ms=$matchMs stream_ms=${streamSw.elapsedMilliseconds} '
+            'hit=${stream != null}');
         if (stream != null) {
           _rememberWatchtime(videoId, stream);
           return stream;
@@ -1263,13 +1377,18 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       }
       final wasDash = _lastWasDash;
       final isDash = stream.mimeType.contains('dash');
+      int stopMs = 0;
+      int loadMs = 0;
       await _serializedMpv(() async {
         // Always tear down before loading: opening over a live stream
         // (or racing its teardown) corrupts the Windows libmpv heap —
         // first track plays, the next dies in ntdll.
+        final stopSw = Stopwatch()..start();
         try {
           await _player?.stop();
         } catch (_) {}
+        stopSw.stop();
+        stopMs = stopSw.elapsedMilliseconds;
         if (generation != _resolveGeneration) return;
         if (_activeQueueKey != wantedQueueKey) return;
         if (wasDash) {
@@ -1281,12 +1400,25 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           if (generation != _resolveGeneration) return;
           if (_activeQueueKey != wantedQueueKey) return;
         }
+        // Stamp open-issue BEFORE the call, not after it returns:
+        // mpv events (pause=no) and the open() reply travel on separate
+        // channels, so playing/position can beat the reply — a stamp
+        // taken after `await open()` is fundamentally racy (-1).
+        if (generation == _resolveGeneration &&
+            _activeQueueKey == wantedQueueKey) {
+          _audioOpenDoneAt = DateTime.now();
+        }
+        final loadSw = Stopwatch()..start();
         await _player?.open(
           Media(playUrl, httpHeaders: stream.requestHeaders),
           play: true,
         );
+        loadSw.stop();
+        loadMs = loadSw.elapsedMilliseconds;
         _lastWasDash = isDash;
       });
+      _logTiming('mpv key=$wantedQueueKey kind=$kind '
+          'stop_ms=$stopMs load_ms=$loadMs dash_grace=${wasDash ? 500 : 0}');
       if (generation != _resolveGeneration) return;
       if (_activeQueueKey != wantedQueueKey) return;
       if (state.speed != 1.0) {

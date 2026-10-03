@@ -870,18 +870,16 @@ class AddonApi implements LosslessSource {
   }) async {
     final cleanT = _clean(title);
     final cleanA = _clean(artist);
-    final strippedT = _strippedTitle(title);
-    final primaryA = _clean(primaryArtistForMatch(artist));
-    final cleanAlbum = _clean(album);
+    // Three queries, highest solo-hit-rate first: six concurrent
+    // requests still shared the host throttle (~2.3s slowest), while
+    // the dropped permutations (primary-artist, stripped-only,
+    // title-only, title+album) almost never win the pooled ranking —
+    // bestMatches re-ranks the union anyway, so recall is preserved.
     final queries = {
       if (cleanA.isNotEmpty && cleanT.isNotEmpty) '$cleanA $cleanT',
       if (cleanA.isNotEmpty && cleanT.isNotEmpty) '$cleanT $cleanA',
-      if (primaryA.isNotEmpty && cleanT.isNotEmpty) '$primaryA $cleanT',
-      if (strippedT.isNotEmpty) strippedT,
-      if (cleanT.isNotEmpty) cleanT,
-      if (cleanAlbum.isNotEmpty && cleanT.isNotEmpty) '$cleanT $cleanAlbum',
       '$title $artist',
-    }.where((q) => q.trim().isNotEmpty).take(6);
+    }.where((q) => q.trim().isNotEmpty).take(3);
     // Pool candidates across ALL queries, then rank once: per-query
     // winners with stripped-only scoring re-introduce the exact bug
     // being fixed (original beats remix). bestMatch already ranks by
@@ -894,15 +892,28 @@ class AddonApi implements LosslessSource {
     // tagged only for other tiers are server-filtered otherwise.
     final searchQuality =
         serverQualitiesForTier(preferredQuality).first;
-    for (final q in queries) {
-      List<AddonTrack> items;
-      try {
-        items = await searchTracks(q, limit: 30, quality: searchQuality);
-      } on AddonQuotaException {
-        rethrow;
-      } catch (_) {
-        continue;
-      }
+    final searchSw = Stopwatch()..start();
+    // Fan out all queries concurrently: sequential round-trips were the
+    // whole first-play delay (~4s of search). Results merge in query
+    // order so the ranking input is identical to the old sequential
+    // version; per-query failures still contribute nothing, and a quota
+    // rejection still aborts the resolve like before.
+    final queryList = queries.toList();
+    final searched = await Future.wait(
+      queryList.map((q) async {
+        try {
+          final items =
+              await searchTracks(q, limit: 30, quality: searchQuality);
+          return (true, items);
+        } on AddonQuotaException {
+          rethrow;
+        } catch (_) {
+          return (false, const <AddonTrack>[]);
+        }
+      }),
+    );
+    for (final (ok, items) in searched) {
+      if (!ok) continue;
       queriesOk++;
       for (final item in items) {
         if (seenIds.add(item.id)) {
@@ -910,11 +921,16 @@ class AddonApi implements LosslessSource {
         }
       }
     }
+    searchSw.stop();
+    final searchMs = searchSw.elapsedMilliseconds;
     if (kDebugMode && pool.isEmpty) {
       // No candidates at all: search failed/empty, not a gate reject
       // (bestMatch stays silent on empty input by design).
       debugPrint('LastWaveAddon stage=empty-pool title="$title" '
-          'artist="$artist" queriesOk=$queriesOk');
+          'artist="$artist" queriesOk=$queriesOk search_ms=$searchMs');
+      debugPrint('LastWave-Timing addon title="$title" '
+          'search_ms=$searchMs fetch_ms=0 result=empty-pool');
+      return null;
     }
     // Bound the worst case: each match fans out over qualities ×
     // bases with 15s timeouts, so only the top few are worth trying
@@ -927,9 +943,14 @@ class AddonApi implements LosslessSource {
       expectedDurationSeconds: expectedDurationSeconds,
     ).take(3).toList();
     if (matches.isEmpty) {
+      if (kDebugMode) {
+        debugPrint('LastWave-Timing addon title="$title" '
+            'search_ms=$searchMs fetch_ms=0 result=no-match');
+      }
       return null;
     }
     var fetchAttempts = 0;
+    final fetchSw = Stopwatch()..start();
     for (final match in matches) {
       for (final serverQuality in serverQualitiesForTier(preferredQuality)) {
         for (final root in bases) {
@@ -943,6 +964,12 @@ class AddonApi implements LosslessSource {
               artist: artist,
             );
             if (stream != null) {
+              fetchSw.stop();
+              if (kDebugMode) {
+                debugPrint('LastWave-Timing addon title="$title" '
+                    'search_ms=$searchMs fetch_ms=${fetchSw.elapsedMilliseconds} '
+                    'attempts=$fetchAttempts result=hit');
+              }
               return stream;
             }
           } on AddonQuotaException {
@@ -959,6 +986,12 @@ class AddonApi implements LosslessSource {
         debugPrint('LastWaveAddon stage=fetch-fail id="${match.id}" '
             'title="${match.title}" attempts=$fetchAttempts');
       }
+    }
+    fetchSw.stop();
+    if (kDebugMode) {
+      debugPrint('LastWave-Timing addon title="$title" '
+          'search_ms=$searchMs fetch_ms=${fetchSw.elapsedMilliseconds} '
+          'attempts=$fetchAttempts result=miss');
     }
     return null;
   }
