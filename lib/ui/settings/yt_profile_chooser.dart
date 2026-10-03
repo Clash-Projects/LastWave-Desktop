@@ -119,20 +119,35 @@ class _ChooserDialogState
         identity = null;
       }
       if (!mounted) return;
-      if (identity == null || identity.name.isEmpty) {
+      // Accept partial identities (name-only, email-only): preserve
+      // whichever fields the row already has so a transiently thin
+      // response never blanks a provisional row.
+      if (identity == null ||
+          (identity.name.isEmpty &&
+              identity.handle.isEmpty &&
+              identity.email.isEmpty &&
+              identity.photoUrl.isEmpty)) {
         continue;
       }
+      final liveName = identity.name.isNotEmpty
+          ? identity.name
+          : (r.channel.name.isNotEmpty
+              ? r.channel.name
+              : (identity.handle.isNotEmpty
+                  ? identity.handle
+                  : identity.email));
       final liveHandle = identity.handle.isNotEmpty
           ? identity.handle
           : r.channel.handle;
+      final livePhoto = identity.photoUrl.isNotEmpty
+          ? identity.photoUrl
+          : r.channel.photoUrl;
       setState(() {
         _rows[i] = r.withChannel(YtChannel(
           pageId: r.channel.pageId,
-          name: identity!.name,
+          name: liveName,
           handle: liveHandle == 'unknown' ? '' : liveHandle,
-          photoUrl: identity.photoUrl.isNotEmpty
-              ? identity.photoUrl
-              : r.channel.photoUrl,
+          photoUrl: livePhoto,
         ));
       });
     }
@@ -211,9 +226,12 @@ Widget _row(BuildContext dialogContext, _LiveRow r) {
   final rawName = r.channel.name.isNotEmpty
       ? r.channel.name
       : handle;
+  // Provisional rows (identity transiently empty right after login)
+  // show the account email — or a plain label while the live refresh
+  // resolves the real channel name — never a bare "Channel".
   final name = (rawName.isNotEmpty && rawName != 'unknown')
       ? rawName
-      : (mail.isNotEmpty ? mail : 'Channel');
+      : (mail.isNotEmpty ? mail : 'YouTube account');
   final idLine = handle.isNotEmpty ? handle : mail;
   final sub = [
     if (r.channel.name.isNotEmpty && idLine.isNotEmpty)

@@ -57,6 +57,7 @@ class YtWebLogin {
 
   /// Hide the window without destroying it.
   static Future<void> hideWindow() async {
+    _expectVisible = false;
     final w = _cachedWindow;
     if (w == null) return;
     if (Platform.isLinux) {
@@ -65,6 +66,46 @@ class YtWebLogin {
       try {
         await w.setWebviewWindowVisibility(false);
       } catch (_) {}
+    }
+  }
+
+  /// Tracks whether the login window SHOULD be visible right now.
+  /// Guards delayed foreground retries so they never re-show a
+  /// window the flow already hid (hide, never destroy).
+  static bool _expectVisible = false;
+
+  /// Bring the login window above the main window. A single
+  /// `bringToForeground()` often loses to Windows' foreground lock
+  /// silently (window ends up flashing in the taskbar / behind the
+  /// app — the "Add account opens in background" report), so the
+  /// first attempt is awaited inline and two more are re-asserted
+  /// shortly after. All guarded by [_expectVisible].
+  static Future<void> _foreground(Webview w) async {
+    _expectVisible = true;
+    if (Platform.isLinux) {
+      await YtWebviewGuard.show();
+      return;
+    }
+    await _foregroundOnce(w);
+    unawaited(_foregroundRetries(w));
+  }
+
+  static Future<void> _foregroundOnce(Webview w) async {
+    if (!identical(_cachedWindow, w) || !_expectVisible) return;
+    try {
+      await w.setWebviewWindowVisibility(true);
+    } catch (_) {}
+    if (!identical(_cachedWindow, w) || !_expectVisible) return;
+    try {
+      await w.bringToForeground();
+    } catch (_) {}
+  }
+
+  static Future<void> _foregroundRetries(Webview w) async {
+    for (var i = 0; i < 2; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      if (!identical(_cachedWindow, w) || !_expectVisible) return;
+      await _foregroundOnce(w);
     }
   }
 
@@ -102,6 +143,54 @@ class YtWebLogin {
     }
   }
 
+  /// Reload the login page in the cached window without destroying
+  /// it. Used as a manual escape hatch (and by the passkey-stall
+  /// auto-recovery below): the WebView2 user-data folder persists
+  /// cookies, so a reload after Windows Hello completes lands the
+  /// page signed-in and the cookie poller captures normally.
+  static Future<void> reloadLoginPage() async {
+    final w = _cachedWindow;
+    if (w == null) return;
+    try {
+      w.launch(_loginUrl, triggerOnUrlRequestEvent: false);
+    } catch (_) {}
+    // The user just clicked Reload in the main window — pull the
+    // login window back above it (fresh input ⇒ foreground succeeds).
+    await _foreground(w);
+    if (kDebugMode) {
+      debugPrint('YtWebLogin: login page reloaded');
+    }
+  }
+
+  /// Pure page-text matcher for the Google passkey stall:
+  /// "Verifying that it's you..." + a passkey reference. Unit-tested;
+  /// kept as a static so tests don't need a WebView.
+  static bool isPasskeyVerificationStall(String pageText) {
+    final t = pageText.toLowerCase();
+    return t.contains('verifying') && t.contains('passkey');
+  }
+
+  /// Best-effort read of the current page text. False on any failure
+  /// (non-YouTube pages, JS errors, closed window).
+  static Future<bool> _isStuckOnPasskeyPage(Webview webview) async {
+    try {
+      final raw = await webview
+          .evaluateJavaScript(
+              'document.body ? document.body.innerText.slice(0, 2000) : ""')
+          .timeout(const Duration(seconds: 8));
+      var v = (raw ?? '').trim();
+      // evaluateJavaScript returns JSON-encoded strings; strip the
+      // surrounding quotes (escapes don't matter for matching).
+      if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+        v = v.substring(1, v.length - 1);
+      }
+      if (v.isEmpty) return false;
+      return isPasskeyVerificationStall(v);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Title must match kYtWindowTitle in linux/runner/yt_webview_guard.cc
   /// (ASCII-only: compared byte-wise in native code).
   static const _windowTitle = 'LastWave YouTube Sign In';
@@ -115,10 +204,10 @@ class YtWebLogin {
         if (await YtWebviewGuard.show()) return cached;
       } else {
         try {
+          // Liveness probe: throws when the native window is gone,
+          // falling through to fresh-create below.
           await cached.setWebviewWindowVisibility(true);
-          try {
-            await cached.bringToForeground();
-          } catch (_) {}
+          await _foreground(cached);
           return cached;
         } catch (_) {}
       }
@@ -148,6 +237,10 @@ class YtWebLogin {
       if (Platform.isLinux) {
         // Ensure it is visible (create shows it; harmless if so).
         await YtWebviewGuard.show();
+      } else {
+        // A fresh window doesn't reliably activate above the main
+        // window on its own — assert z-order explicitly.
+        await _foreground(w);
       }
       return w;
     } catch (_) {
@@ -171,6 +264,11 @@ class YtWebLogin {
     try {
       // Same Windows gate bypass as _run (see comment there).
       w.launch(_logoutUrl, triggerOnUrlRequestEvent: false);
+      // Show progress: the logout round-trip is the first visible
+      // step of the add-account flow, and asserting z-order here
+      // (not just after the later login launch) keeps the window
+      // from settling behind the app during the 4s wait.
+      await _foreground(w);
       // Let the logout round-trip land before the login page loads.
       await Future<void>.delayed(const Duration(seconds: 4));
     } catch (_) {}
@@ -204,6 +302,10 @@ class YtWebLogin {
       // round-trip; if that silently fails the window sits on about:blank
       // forever.
       w.launch(_loginUrl, triggerOnUrlRequestEvent: false);
+      // Re-assert z-order AFTER navigation starts: a single
+      // pre-launch foreground is what left the window behind the app
+      // when Windows' foreground lock swallowed the attempt.
+      await _foreground(w);
       if (kDebugMode) {
         debugPrint('YtWebLogin: window launched');
       }
@@ -223,6 +325,9 @@ class YtWebLogin {
     } finally {
       // Hide, never destroy (see _cachedWindow note above). Linux goes
       // through the native guard; elsewhere the plugin call.
+      // Clears _expectVisible so in-flight foreground retries from
+      // _foreground() never re-show the just-hidden window.
+      _expectVisible = false;
       if (Platform.isLinux) {
         await YtWebviewGuard.hide();
       } else {
@@ -240,15 +345,56 @@ class YtWebLogin {
   /// closes the window. Single in-flight read per cycle: the native
   /// reader runs on the GTK thread, so a second overlapping read
   /// (or a read landing after destroy) risks a use-after-free.
+  ///
+  /// Windows passkey recovery: after Windows Hello completes, the
+  /// embedded WebView2 sometimes leaves Google's "Verifying that it's
+  /// you..." page stalled (the WebAuthn result never resumes the page
+  /// JS). The session IS minted though — a reload lands signed-in —
+  /// so when the stall text persists, the login page is reloaded
+  /// in place (cookies survive) instead of polling forever.
   static Future<String?> _waitForLogin(Webview webview) async {
     // Give the page a moment to load before the first read.
     await Future<void>.delayed(const Duration(seconds: 4));
     var closed = false;
     unawaited(webview.onClose.then((_) => closed = true));
+    var stuckCycles = 0;
+    var autoReloads = 0;
     while (!closed) {
       final header = await _readHeader(webview);
       if (header != null) return header;
       if (closed) return null;
+      // Stall check runs sequentially after the cookie read (never
+      // overlapping it). ~5 consecutive hits ≈ 10s stuck.
+      var stuck = false;
+      try {
+        stuck = await _isStuckOnPasskeyPage(webview);
+      } catch (_) {
+        stuck = false;
+      }
+      if (closed) return null;
+      if (stuck) {
+        stuckCycles++;
+        if (stuckCycles >= 5 && autoReloads < 2) {
+          autoReloads++;
+          stuckCycles = 0;
+          if (kDebugMode) {
+            debugPrint(
+                'YtWebLogin: passkey stall detected, reloading ($autoReloads/2)');
+          }
+          try {
+            webview.launch(_loginUrl,
+                triggerOnUrlRequestEvent: false);
+          } catch (_) {}
+          // Keep the reloaded page above the app (same foreground
+          // reason as the initial launch).
+          await _foreground(webview);
+          // Let the reloaded page settle before judging it again.
+          await Future<void>.delayed(const Duration(seconds: 8));
+          continue;
+        }
+      } else {
+        stuckCycles = 0;
+      }
       await Future<void>.delayed(_pollInterval);
     }
     return null;
