@@ -10,6 +10,7 @@ import 'package:synchronized/synchronized.dart';
 
 import '../../core/network/dio_factory.dart';
 import 'challenge_parser.dart';
+import 'yt_webview_guard.dart';
 
 class PoTokenResult {
   final String playerToken;
@@ -28,6 +29,13 @@ class PoTokenResult {
 /// timeouts and fail-open nulls. Only the host differs — a hidden
 /// system WebView instead of Android WebView — driven through a
 /// polling bridge (no message channels needed).
+///
+/// Lifetime: ONE persistent hidden WebView per app run, never destroyed
+/// and recreated per song. Linux `desktop_webview_window` 0.3.0
+/// segfaults on every webview destroy and implements no hide/move API,
+/// so on Linux the window is hidden via the native `lastwave/yt_webview`
+/// guard and reused; `close()` is never called there. On Windows the
+/// same reuse avoids the per-song popup + taskbar flash + 9s stall.
 class PoTokenEngine {
   static const _createUrl =
       'https://www.youtube.com/api/jnn/v1/Create';
@@ -54,12 +62,21 @@ class PoTokenEngine {
   bool _permanentlyBroken = false;
   final Map<String, String> _playerCache = {};
 
+  /// Kill-switch (Settings → direct-only mode). When false, no WebView
+  /// is ever created and every mint returns null (fail-open to direct
+  /// clients).
+  bool enabled = true;
+
+  /// Fail-open backoff: after an engine-init failure, don't recreate the
+  /// window on every song — return null until this passes.
+  DateTime? _coolingUntil;
+
   PoTokenEngine([Dio? dio])
       : _dio = dio ?? DioFactory.create();
 
   Future<void> preWarm(
       {String sessionId = 'lastwave_session'}) async {
-    if (_permanentlyBroken || sessionId.isEmpty) return;
+    if (!enabled || _permanentlyBroken || sessionId.isEmpty) return;
     // Reuse the single hidden WebView when tokens are still valid —
     // never recreate a warm engine just to pre-warm.
     final warm = await _mutex.synchronized(() async =>
@@ -79,7 +96,7 @@ class PoTokenEngine {
     String videoId, {
     String sessionId = 'lastwave_session',
   }) async {
-    if (_permanentlyBroken) return null;
+    if (!enabled || _permanentlyBroken) return null;
     if (videoId.isEmpty) return null;
     final ready = await _mutex.synchronized(() async =>
         _ready &&
@@ -137,22 +154,16 @@ class PoTokenEngine {
     String sessionId, {
     required bool forceNewEngine,
   }) async {
+    // Single pass, fail-open. A per-video or session miss must NOT
+    // destroy/recreate the window (that destroy+recreate overlap is what
+    // flashed two BotGuard windows per song, and on Linux close() = SEGV).
+    // Direct clients don't need poTokens anyway; WEB_REMIX proceeds
+    // without one.
     final sessionToken =
         await _ensureEngine(sessionId, force: forceNewEngine);
-    if (sessionToken == null) {
-      if (!forceNewEngine) {
-        await _destroyEngine();
-        return _mintInternal(videoId, sessionId,
-            forceNewEngine: true);
-      }
-      return null;
-    }
+    if (sessionToken == null) return null;
     try {
       final playerToken = await _mint(videoId);
-      // Fail-open: a per-video mint miss must NOT destroy the healthy
-      // engine (that destroy+recreate overlap is what briefly showed
-      // two BotGuard windows). Direct clients don't need poTokens
-      // anyway; WEB_REMIX proceeds without one.
       if (playerToken == null) return null;
       return PoTokenResult(
           playerToken: playerToken,
@@ -172,9 +183,25 @@ class PoTokenEngine {
           _expiresAt != null &&
           DateTime.now().isBefore(_expiresAt!);
       if (usable) return _cachedSessionToken;
-      await _destroyEngineLocked();
+      // Fail-open backoff: a recent init failure means the network or
+      // page is down — don't spin up a new window per song.
+      final cooling = _coolingUntil;
+      if (!force &&
+          cooling != null &&
+          DateTime.now().isBefore(cooling)) {
+        return null;
+      }
+      // Soft reset: drop tokens but KEEP the WebView alive and hidden.
+      // Recreating the OS window per song is the popup/lag/crash.
+      _ready = false;
+      _engineSessionId = null;
+      _cachedSessionToken = null;
+      _expiresAt = null;
       try {
-        await _createEngine();
+        await _ensureWebview();
+        // Init the minter in the SAME persistent page (Create/GenerateIT),
+        // then mint the session token with it. No window recreation.
+        await _initMinter();
         final sessionToken = await _mint(sessionId);
         if (sessionToken == null) {
           throw StateError('session mint null');
@@ -182,32 +209,48 @@ class PoTokenEngine {
         _engineSessionId = sessionId;
         _cachedSessionToken = sessionToken;
         _ready = true;
+        _coolingUntil = null;
+        // Re-hide: init takes 10-30s (Create/GenerateIT) and on Linux
+        // neither the plugin hide nor the first guard hide is guaranteed
+        // to have landed before the GTK window mapped.
+        await _hideWebview();
         return sessionToken;
       } catch (_) {
-        await _destroyEngineLocked();
+        // Keep the hidden window for the next attempt (don't close —
+        // Linux close() segfaults), but back off before retrying.
+        _ready = false;
+        _engineSessionId = null;
+        _cachedSessionToken = null;
+        _expiresAt = null;
+        _coolingUntil =
+            DateTime.now().add(const Duration(seconds: 60));
+        await _hideWebview();
         return null;
       }
     });
   }
 
-  Future<void> _destroyEngine() async {
-    await _mutex.synchronized(_destroyEngineLocked);
-  }
-
-  Future<void> _destroyEngineLocked() async {
-    _ready = false;
-    _engineSessionId = null;
-    _cachedSessionToken = null;
-    _expiresAt = null;
-    _playerCache.clear();
+  /// Hard close. Only ever called on dispose, and NEVER on Linux
+  /// (upstream destroy use-after-free → SEGV). The OS reclaims the
+  /// window on process exit anyway.
+  Future<void> _closeWebviewLocked() async {
     final w = _webview;
     _webview = null;
+    if (w == null) return;
+    if (Platform.isLinux) {
+      await _hideWebview();
+      return;
+    }
     try {
-      w?.close();
+      w.close();
     } catch (_) {}
   }
 
-  Future<void> _createEngine() async {
+  /// Creates the single persistent hidden WebView on first use, hides it
+  /// immediately (plugin hide is a no-op on Linux — the native guard does
+  /// the hide), and reuses it for app lifetime.
+  Future<void> _ensureWebview() async {
+    if (_webview != null) return;
     final html = await rootBundle.loadString(
         'assets/po_token.html');
     final patched = html.replaceFirst(
@@ -236,7 +279,7 @@ class PoTokenEngine {
       rethrow;
     }
     _webview = webview;
-    await webview.setWebviewWindowVisibility(false);
+    await _hideWebview();
     webview.launch(Uri.file(file.path).toString());
     final loaded = await _poll(
       () async {
@@ -246,6 +289,29 @@ class PoTokenEngine {
       timeout: const Duration(seconds: 10),
     );
     if (!loaded) throw StateError('bg page not loaded');
+    // The GTK window may have mapped after the pre-launch hide (the
+    // plugin hide is a no-op on Linux) — hide again now that it exists.
+    await _hideWebview();
+  }
+
+  /// Hides the BotGuard window without destroying it. The plugin hide
+  /// call is a no-op on Linux, so the native guard does it there; the
+  /// delete-event blocker it arms also converts the window's own X into
+  /// a hide (upstream destroy segfaults).
+  Future<void> _hideWebview() async {
+    if (Platform.isLinux) {
+      await YtWebviewGuard.hideBotGuard();
+    }
+    try {
+      await _webview?.setWebviewWindowVisibility(false);
+    } catch (_) {}
+  }
+
+  /// Runs the Create/GenerateIT handshake in the persistent page and
+  /// (re)creates the in-page minter. Safe to re-run on session expiry
+  /// or visitor rotation — no OS window is touched.
+  Future<void> _initMinter() async {
+    if (_webview == null) throw StateError('no webview');
     // POST Create (Dart side, like Android).
     final challengeJson = await _postJson(
       _createUrl,
@@ -397,6 +463,15 @@ class PoTokenEngine {
           const Duration(milliseconds: 100));
     }
     return null;
+  }
+
+  /// App-shutdown teardown. Never destroys the window on Linux (upstream
+  /// destroy use-after-free → SEGV); the OS reclaims it on exit.
+  Future<void> dispose() async {
+    await _mutex.synchronized(() async {
+      _ready = false;
+      await _closeWebviewLocked();
+    });
   }
 }
 

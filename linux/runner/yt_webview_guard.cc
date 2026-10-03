@@ -7,6 +7,8 @@
 // Must match CreateConfiguration(title:) in yt_web_login.dart (ASCII-only:
 // the title is compared byte-wise here).
 static constexpr const char* kYtWindowTitle = "LastWave YouTube Sign In";
+// Must match CreateConfiguration(title:) in potoken_engine.dart.
+static constexpr const char* kBotGuardTitle = "LastWave BotGuard";
 // Marker so the delete-event blocker is attached exactly once per window.
 static constexpr const char* kArmedKey = "lastwave-yt-guarded";
 
@@ -21,21 +23,29 @@ static gboolean on_yt_delete_event(GtkWidget* widget, GdkEvent* /*event*/,
   return TRUE;
 }
 
-static GtkWidget* find_yt_window() {
+static GtkWidget* find_window_by_title(const char* title) {
   GList* tops = gtk_window_list_toplevels();
   GtkWidget* found = nullptr;
   for (GList* l = tops; l != nullptr; l = l->next) {
     if (!GTK_IS_WINDOW(l->data)) {
       continue;
     }
-    const gchar* title = gtk_window_get_title(GTK_WINDOW(l->data));
-    if (title != nullptr && strcmp(title, kYtWindowTitle) == 0) {
+    const gchar* t = gtk_window_get_title(GTK_WINDOW(l->data));
+    if (t != nullptr && strcmp(t, title) == 0) {
       found = GTK_WIDGET(l->data);
       break;
     }
   }
   g_list_free(tops);
   return found;
+}
+
+static GtkWidget* find_yt_window() {
+  return find_window_by_title(kYtWindowTitle);
+}
+
+static GtkWidget* find_botguard_window() {
+  return find_window_by_title(kBotGuardTitle);
 }
 
 static void arm_delete_blocker(GtkWidget* window) {
@@ -68,6 +78,33 @@ static void handle_method_call(FlMethodChannel* /*channel*/,
       gtk_window_present(GTK_WINDOW(window));
     }
     g_autoptr(FlValue) result = fl_value_new_bool(window != nullptr);
+    fl_method_call_respond_success(method_call, result, nullptr);
+    return;
+  }
+  // BotGuard poToken window (potoken_engine.dart): same upstream destroy
+  // bug as the sign-in window, plus no visibility/move API on Linux, so
+  // it must never be destroyed either — hide and reuse for app lifetime.
+  // The Dart side never calls close() on Linux; these are the hide path
+  // (called right after create, since plugin hide is a no-op) and a
+  // show escape hatch for diagnostics.
+  if (strcmp(method, "hideBotGuard") == 0) {
+    GtkWidget* bg = find_botguard_window();
+    if (bg != nullptr) {
+      arm_delete_blocker(bg);
+      gtk_widget_hide(bg);
+    }
+    g_autoptr(FlValue) result = fl_value_new_bool(bg != nullptr);
+    fl_method_call_respond_success(method_call, result, nullptr);
+    return;
+  }
+  if (strcmp(method, "showBotGuard") == 0) {
+    GtkWidget* bg = find_botguard_window();
+    if (bg != nullptr) {
+      arm_delete_blocker(bg);
+      gtk_widget_show(bg);
+      gtk_window_present(GTK_WINDOW(bg));
+    }
+    g_autoptr(FlValue) result = fl_value_new_bool(bg != nullptr);
     fl_method_call_respond_success(method_call, result, nullptr);
     return;
   }

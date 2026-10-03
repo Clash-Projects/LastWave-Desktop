@@ -2,13 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-/// Linux-only guard for the YouTube sign-in WebView window.
+/// Linux-only guard for WebView windows.
 ///
 /// Backed by `lastwave/yt_webview`, registered in `linux/runner`
-/// (`yt_webview_guard.cc`): finds the window by title, hides/shows it,
-/// and converts its X button into a hide (upstream
+/// (`yt_webview_guard.cc`): finds windows by title, hides/shows them,
+/// and converts their X buttons into hides (upstream
 /// `desktop_webview_window` 0.3.0 implements no visibility API on
-/// Linux and segfaults on destroy, so the window must never die).
+/// Linux and segfaults on destroy, so no WebView window must ever die).
 class YtWebviewGuard {
   YtWebviewGuard._();
 
@@ -33,6 +33,30 @@ class YtWebviewGuard {
     if (!isSupported) return false;
     try {
       return await _channel.invokeMethod<bool>('show') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Hide the BotGuard poToken window (`LastWave BotGuard`). False when
+  /// unsupported or not found. Called right after create (the plugin
+  /// hide call is a no-op on Linux) and instead of `close()` — the
+  /// window is reused for app lifetime, never destroyed.
+  static Future<bool> hideBotGuard() async {
+    if (!isSupported) return false;
+    try {
+      return await _channel.invokeMethod<bool>('hideBotGuard') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Show the BotGuard window (diagnostics only — never used in
+  /// normal playback).
+  static Future<bool> showBotGuard() async {
+    if (!isSupported) return false;
+    try {
+      return await _channel.invokeMethod<bool>('showBotGuard') ?? false;
     } catch (_) {
       return false;
     }

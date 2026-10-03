@@ -244,6 +244,16 @@ class Prefs {
   Future<void> setSyncYtHistory(bool v) =>
       _sp.setBool('lw_sync_yt_history', v);
 
+  /// Skip BotGuard poToken minting entirely (direct-URL clients only).
+  /// Default off (poTokens enabled). Escape hatch for machines where the
+  /// hidden `LastWave BotGuard` WebView misbehaves: playback then never
+  /// opens a WebView and fails open to direct streams; some
+  /// ciphered-only tracks may not resolve.
+  bool get disablePoToken => _sp.getBool('lw_disable_potoken') ?? false;
+
+  Future<void> setDisablePoToken(bool v) =>
+      _sp.setBool('lw_disable_potoken', v);
+
   // -- Desktop-app Parity (Karaoke Lyrics & Visualizer & CD Mode) ------------
   int getLyricsOffset(String trackKey) =>
       _sp.getInt('lw_lyrics_offset_$trackKey') ?? 0;

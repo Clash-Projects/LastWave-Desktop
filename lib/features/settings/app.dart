@@ -13,6 +13,7 @@ import '../../ui/theme/fluent_theme.dart';
 import '../../ui/theme/haze.dart';
 import '../player/playback_service.dart';
 import '../audio_output/output_controller.dart';
+import '../innertube/innertube_api.dart';
 import '../mpris/mpris_service.dart';
 import '../presence/discord_presence_service.dart';
 import 'theme_controller.dart';
@@ -47,11 +48,11 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     );
     _router = buildRouter(gate: _gate);
     // Warm start (non-blocking, best-effort): create the single
-    // persistent media_kit/libmpv player. BotGuard is intentionally
-    // NOT pre-warmed here — it is lazy (only a WEB_REMIX fallback
-    // mints poTokens, and desktop_webview_window always spawns a real
-    // OS window, so warming it at startup is what produced the extra
-    // "LastWave BotGuard" taskbar tab).
+    // persistent media_kit/libmpv player. BotGuard pre-warms once on a
+    // delay (single hidden window, reused for app lifetime): this moves
+    // the one-time WebView init off the first ciphered playback, so a
+    // WEB_REMIX fallback never stalls transport on a cold window spawn.
+    // Direct-only mode (lw_disable_potoken) skips it — zero WebViews.
     Future.microtask(() {
       try {
         ref.read(playbackServiceProvider.notifier).ensurePlayer();
@@ -69,6 +70,12 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         // bus for bars, playerctl and media keys. No-op elsewhere.
         ref.read(mprisProvider).startup();
       } catch (_) {}
+      Future<void>.delayed(const Duration(seconds: 20), () {
+        try {
+          if (ref.read(prefsProvider).disablePoToken) return;
+          ref.read(innerTubeProvider).preWarmBotGuard();
+        } catch (_) {}
+      });
     });
   }
 

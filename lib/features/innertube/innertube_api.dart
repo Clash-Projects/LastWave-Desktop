@@ -13,6 +13,7 @@ import '../../core/audio/stream_models.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/network/lastfm_crypto.dart';
 import '../../core/storage/app_database.dart';
+import '../../core/storage/prefs.dart';
 import '../../core/storage/secure_store.dart';
 import '../search/shared_providers.dart';
 import '../player/play_diag.dart';
@@ -690,6 +691,11 @@ class InnerTubeMusicApi {
   AppDatabase? _disk;
   bool _diskLoaded = false;
 
+  /// Direct-only escape hatch (Settings). When false, no BotGuard WebView
+  /// is ever opened and minting returns null (fail-open to direct-URL
+  /// clients). Mirrors `PoTokenEngine.enabled`.
+  bool poTokenEnabled = true;
+
   String _apiKey = fallbackWebKey;
   String _clientVersion = fallbackWebVersion;
   String? _visitorData;
@@ -817,6 +823,7 @@ class InnerTubeMusicApi {
 
   /// Warm the single hidden BotGuard WebView early (no UI blocking).
   void preWarmBotGuard() {
+    if (!poTokenEnabled) return;
     try {
       unawaited(_poTokens?.preWarm());
     } catch (_) {}
@@ -3839,13 +3846,17 @@ class InnerTubeMusicApi {
   }
 
   /// Mint poTokens for [videoId] (fail-open null, like Android).
+  /// Uses a STABLE session id on purpose: the BotGuard engine is one
+  /// persistent hidden window, and keying it on rotating `_visitorData`
+  /// invalidated the cache and recreated the OS window per song (popup
+  /// on Windows, destroy-crash on Linux). `visitorData` is still sent
+  /// as `X-Goog-Visitor-Id` on player requests.
   Future<PoTokenResult?> _mintPoToken(String videoId) async {
     final engine = _poTokens;
-    if (engine == null) return null;
+    if (engine == null || !poTokenEnabled || !engine.enabled) return null;
     try {
       return await engine
-          .mintToken(videoId,
-              sessionId: _visitorData ?? 'lastwave_session')
+          .mintToken(videoId)
           .timeout(const Duration(seconds: 12));
     } catch (_) {
       return null;
@@ -5511,6 +5522,12 @@ final innerTubeProvider = Provider<InnerTubeMusicApi>((ref) {
     ref.watch(secureStoreProvider),
     ref.watch(poTokenEngineProvider),
   );
+  // Direct-only escape hatch: never open the BotGuard WebView.
+  try {
+    final off = ref.watch(prefsProvider).disablePoToken;
+    api.poTokenEnabled = !off;
+    api._poTokens?.enabled = !off;
+  } catch (_) {}
   // Fire-and-forget restore, then publish to the reactive mirrors so
   // the settings row flips to Connected without needing a rebuild.
   unawaited(() async {
