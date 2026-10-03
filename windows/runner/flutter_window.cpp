@@ -28,6 +28,9 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   wasapi_channel_ = std::make_unique<lastwave::WasapiChannel>(
       flutter_controller_->engine()->messenger());
+  media_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "lastwave/media_keys",
+      &flutter::StandardMethodCodec::GetInstance());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -44,6 +47,7 @@ bool FlutterWindow::OnCreate() {
 
 void FlutterWindow::OnDestroy() {
   wasapi_channel_.reset();
+  media_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -69,6 +73,19 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case WM_APPCOMMAND: {
+      int app_command = GET_APPCOMMAND_LPARAM(lparam);
+      if (media_channel_) {
+        if (app_command == APPCOMMAND_MEDIA_PLAY_PAUSE) {
+          media_channel_->InvokeMethod("play_pause", nullptr);
+        } else if (app_command == APPCOMMAND_MEDIA_NEXTTRACK) {
+          media_channel_->InvokeMethod("next", nullptr);
+        } else if (app_command == APPCOMMAND_MEDIA_PREVIOUSTRACK) {
+          media_channel_->InvokeMethod("previous", nullptr);
+        }
+      }
+      break;
+    }
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
