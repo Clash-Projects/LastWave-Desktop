@@ -843,9 +843,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                 SizedBox(
                   width: 30,
                   child: Center(
-                    child: playing
-                        ? const WaveEqDots()
-                        : Text(
+                    child: Text(
                                 (index + 1).toString().padLeft(2, '0'),
                                 style: WaveType.meta.copyWith(
                                   fontSize: 12,
