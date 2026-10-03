@@ -369,7 +369,11 @@ class YtProfile {
         return decoded
             .whereType<Map<String, dynamic>>()
             .map(YtProfile.fromJson)
-            .where((p) => p.email.isNotEmpty)
+            // Keep provisional entries (email scrubbed to '' by the
+            // repair pass) as long as they still hold a jar — they
+            // re-key on the next successful identity resolve.
+            .where(
+                (p) => p.email.isNotEmpty || p.cookies.isNotEmpty)
             .toList();
       }
     } catch (_) {}
@@ -1514,6 +1518,12 @@ class InnerTubeMusicApi {
   /// Name/photo/email come from ONE row only — mixing across rows
   /// produced mismatched avatars. The @handle is resolved separately
   /// (any node shape, else subtree scan) since its shape varies.
+  ///
+  /// Photo is optional: right after a fresh login YouTube often
+  /// returns the name without a photo yet. Name-only rows are
+  /// accepted as a fallback so the roster entry still keys correctly
+  /// (photo backfills on the next refresh) instead of degrading the
+  /// whole login to a nameless jar.
   YtAccount _parseAccount(Map<String, dynamic> root) {
     final active = <Map<String, dynamic>>[];
     final generic = <Map<String, dynamic>>[];
@@ -1522,21 +1532,29 @@ class InnerTubeMusicApi {
     _collectObjects(root, 'accountHeader', generic);
     _collectObjects(root, 'accountItemRenderer', items);
     final handle = _channelHandleText(root);
+    YtAccount? nameOnly;
     for (final h in [...active, ...generic, ...items]) {
       final name =
           (_runsText((h['accountName'] as Map?)?['runs']) ??
                   '')
               .trim();
+      if (name.isEmpty) continue;
       final photo = _accountPhoto(h);
-      if (name.isEmpty || photo.isEmpty) continue;
-      return YtAccount(
+      if (photo.isNotEmpty) {
+        return YtAccount(
+          name: name,
+          handle: handle,
+          email: _accountEmail(h),
+          photoUrl: photo,
+        );
+      }
+      nameOnly ??= YtAccount(
         name: name,
         handle: handle,
         email: _accountEmail(h),
-        photoUrl: photo,
       );
     }
-    return const YtAccount();
+    return nameOnly ?? const YtAccount();
   }
 
   /// Real @handle from the `channelHandle` node: substring search, not
@@ -5212,12 +5230,72 @@ Future<void> persistYtProfiles(
   } catch (_) {}
 }
 
+/// Provisional roster entry for a jar whose identity is transiently
+/// unresolvable (fresh login, `account_menu` not yet populated).
+/// Keyed under the 'unknown' sentinel (or the handle/hint when
+/// available) so handle-first matching still finds it; the startup
+/// [repairUnknownYtProfiles] pass re-keys it once identity serves.
+/// The jar itself is trusted here because every connect path
+/// re-verifies via `connectAs` before showing connected.
+Future<YtProfile> _upsertProvisional(
+  WidgetRef ref, {
+  required String cookies,
+  String pageId = '',
+  String emailHint = '',
+}) async {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final email = emailHint.isNotEmpty ? emailHint : 'unknown';
+  final roster = [...ref.read(ytProfilesProvider)];
+  final channel = YtChannel(pageId: pageId);
+  // Same-jar match: a re-capture whose identity is transiently empty
+  // refreshes the existing entry instead of forking a duplicate.
+  final pi = roster.indexWhere((p) =>
+      p.email == email ||
+      (p.cookies.isNotEmpty && p.cookies == cookies));
+  late final YtProfile profile;
+  if (pi < 0) {
+    profile = YtProfile(
+      email: email,
+      cookies: cookies,
+      channels: [channel],
+      activePageId: pageId,
+      lastUsedMillis: now,
+    );
+    roster.add(profile);
+  } else {
+    final channels = [...roster[pi].channels];
+    final ci = channels.indexWhere((c) => c.pageId == pageId);
+    if (ci < 0) {
+      channels.add(channel);
+    } else {
+      channels[ci] = channel;
+    }
+    profile = roster[pi].copyWith(
+      cookies: cookies,
+      channels: channels,
+      activePageId: pageId,
+      lastUsedMillis: now,
+    );
+    roster[pi] = profile;
+  }
+  await persistYtProfiles(ref, roster);
+  return profile;
+}
+
 /// Upsert a captured jar into the roster, keyed by account email +
 /// channel name. Resolves identity (optionally scoped to a brand
 /// [pageId]), creates the profile/channel on first sight, refreshes
-/// cookies + photo afterwards. Returns the upserted profile, or null
-/// when identity resolution fails (roster untouched).
+/// cookies + photo afterwards.
 ///
+/// A jar that just verified is NEVER dropped: when identity
+/// resolution comes back empty (transient right after login —
+/// `account_menu` not yet populated), a provisional entry is stored
+/// under the 'unknown' sentinel instead of returning null, so the
+/// chooser and settings card have a real row. The jar is
+/// authoritative (connectAs verifies before anything shows
+/// connected) and [repairUnknownYtProfiles] re-keys the entry once
+/// YouTube serves identity. Returns null only when [cookies] is
+/// empty.
 /// Brand-scoped menus often omit the email — pass [emailHint] (e.g.
 /// the main channel's resolved email for the same jar) so the entry
 /// still keys correctly instead of degrading to 'unknown'.
@@ -5227,14 +5305,21 @@ Future<YtProfile?> upsertYtCapture(
   String pageId = '',
   String emailHint = '',
 }) async {
+  if (cookies.isEmpty) return null;
   final api = ref.read(innerTubeProvider);
   final identity =
       await api.resolveIdentityFor(cookies, pageId: pageId);
-  if (identity == null || identity.name.isEmpty) {
+  final resolved = identity != null &&
+      (identity.name.isNotEmpty ||
+          identity.email.isNotEmpty ||
+          identity.handle.isNotEmpty);
+  if (!resolved) {
     if (kDebugMode) {
-      debugPrint('YtProfile: identity unresolvable, skipped');
+      debugPrint(
+          'YtProfile: identity transiently empty, provisional entry');
     }
-    return null;
+    return _upsertProvisional(ref,
+        cookies: cookies, pageId: pageId, emailHint: emailHint);
   }
   // Roster key is the Google account email (stable across channels
   // and handle renames); the display handle lives on the channel
@@ -5264,11 +5349,9 @@ Future<YtProfile?> upsertYtCapture(
           : (identity.handle.isNotEmpty
               ? identity.handle
               : 'unknown'));
-  if (email == 'unknown') {
-  if (kDebugMode) {
+  if (email == 'unknown' && kDebugMode) {
     debugPrint(
         'YtProfile: no email anywhere (page=${pageId.isEmpty ? 'main' : 'brand'})');
-  }
   }
   final now = DateTime.now().millisecondsSinceEpoch;
   final roster = [...ref.read(ytProfilesProvider)];
@@ -5281,11 +5364,15 @@ Future<YtProfile?> upsertYtCapture(
   YtProfile profile;
   // Handle-first matching: finds the entry even when the stored
   // email is stale or was never resolved. Email match second.
+  // Same-jar match last: heals provisional entries ('unknown' email,
+  // empty handle) once identity starts serving — cookie headers are
+  // unique per Google login, so this never merges distinct accounts.
   final handle = identity.handle;
   final pi = roster.indexWhere((p) =>
       (handle.isNotEmpty &&
           p.channels.any((c) => c.handle == handle)) ||
-      p.email == email);
+      p.email == email ||
+      (p.cookies.isNotEmpty && p.cookies == cookies));
   if (pi < 0) {
     profile = YtProfile(
       email: email,
@@ -5304,7 +5391,17 @@ Future<YtProfile?> upsertYtCapture(
     } else {
       channels[ci] = channel;
     }
-    profile = roster[pi].copyWith(
+    // Re-key the email when resolution improved (provisional
+    // 'unknown' → real email), but never downgrade a known email.
+    final prevEmail = roster[pi].email;
+    final nextEmail =
+        (email == 'unknown' || email.isEmpty) &&
+                prevEmail != 'unknown' &&
+                prevEmail.isNotEmpty
+            ? prevEmail
+            : email;
+    profile = YtProfile(
+      email: nextEmail,
       cookies: cookies,
       channels: channels,
       activePageId: pageId,

@@ -869,13 +869,23 @@ class _Ytm extends ConsumerWidget {
     YtConnection connection,
     YtAccount? account,
   ) {
-    final name = account?.name ?? '';
+    // Provisional connections (identity transiently empty right after
+    // login) fall back to the roster email so the card never renders
+    // a bare "Connected" for a known account.
+    final connEmail =
+        connection.profileEmail != 'unknown' ? connection.profileEmail : '';
+    final rawName = account?.name ?? '';
+    final name = rawName.isNotEmpty
+        ? rawName
+        : (connEmail.isNotEmpty ? connEmail : '');
     // Same @-gate as the chooser: fresh parses never emit junk, but
     // this keeps every path honest if a shape ever surprises us.
     final handle = (account?.handle ?? '').startsWith('@')
         ? account!.handle
         : '';
-    final email = account?.email ?? '';
+    final email = (account?.email ?? '').isNotEmpty
+        ? account!.email
+        : connEmail;
     final idLine = handle.isNotEmpty ? handle : ytDisplayEmail(email);
     final since = DateTime.fromMillisecondsSinceEpoch(
       connection.connectedAtMillis,
@@ -949,20 +959,39 @@ class _Ytm extends ConsumerWidget {
           waitDialogContext = dialogContext;
           return ContentDialog(
             title: const Text('Sign in with Google'),
-            content: const Row(
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(width: 20, height: 20, child: ProgressRing()),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Complete the sign-in in the browser window. '
-                    'This dialog closes automatically.',
-                    style: TextStyle(fontSize: 12),
-                  ),
+                Row(
+                  children: [
+                    SizedBox(width: 20, height: 20, child: ProgressRing()),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Complete the sign-in in the browser window. '
+                        'This dialog closes automatically.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Passkey verified but the Google page looks stuck? '
+                  'Press Reload — or pick "Try another way" in the '
+                  'Google window and use your password instead.',
+                  style: TextStyle(fontSize: 12),
                 ),
               ],
             ),
             actions: [
+              Button(
+                onPressed: () {
+                  YtWebLogin.reloadLoginPage();
+                },
+                child: const Text('Reload'),
+              ),
               Button(
                 onPressed: () {
                   cancelled = true;
@@ -1002,8 +1031,10 @@ class _Ytm extends ConsumerWidget {
             title: const Text('Sign-in incomplete'),
             content: const Text(
               'No session was captured. Please try again — if Google '
-              'refuses the embedded browser, make sure you complete '
-              'the sign-in fully before closing the window.',
+              'shows a passkey step that stalls after Windows Hello, '
+              'reload the browser window or pick "Try another way" '
+              'and sign in with your password instead. Make sure you '
+              'complete the sign-in fully before closing the window.',
             ),
             actions: [
               FilledButton(
@@ -1155,20 +1186,39 @@ class _CardActions extends ConsumerWidget {
           waitCtx = dialogContext;
           return ContentDialog(
             title: const Text('Add Google account'),
-            content: const Row(
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(width: 20, height: 20, child: ProgressRing()),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Log in as the other Google account in the '
-                    'browser window. This dialog closes automatically.',
-                    style: TextStyle(fontSize: 12),
-                  ),
+                Row(
+                  children: [
+                    SizedBox(width: 20, height: 20, child: ProgressRing()),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Log in as the other Google account in the '
+                        'browser window. This dialog closes automatically.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Passkey verified but the Google page looks stuck? '
+                  'Press Reload — or pick "Try another way" in the '
+                  'Google window and use your password instead.',
+                  style: TextStyle(fontSize: 12),
                 ),
               ],
             ),
             actions: [
+              Button(
+                onPressed: () {
+                  YtWebLogin.reloadLoginPage();
+                },
+                child: const Text('Reload'),
+              ),
               Button(
                 onPressed: () {
                   cancelled = true;
@@ -1352,6 +1402,11 @@ Future<void> _ytConnectCaptured(
   }
   try {
     await switchYtIdentity(ref, profile: target, pageId: sel.pageId);
+    // Identity is often transiently empty right after login; one
+    // force-refresh backfills the roster row + settings card without
+    // needing an app restart. Best-effort: failures just leave the
+    // provisional entry for the startup repair pass.
+    await _refreshYtIdentity(ref, pageId: sel.pageId);
     if (context.mounted) {
       await _showYtOk(
         context,
@@ -1364,6 +1419,22 @@ Future<void> _ytConnectCaptured(
       await _showYtFail(context, e);
     }
   }
+}
+
+/// One best-effort identity backfill after a fresh connect: re-runs
+/// the roster upsert now that the session is live (YouTube serves
+/// identity a moment after login — the capture-time resolve is often
+/// transiently empty) and refreshes the account card. Best-effort:
+/// failures just leave the provisional entry for the startup repair
+/// pass.
+Future<void> _refreshYtIdentity(WidgetRef ref, {String pageId = ''}) async {
+  try {
+    final cookies = ref.read(innerTubeProvider).connection.cookies;
+    if (cookies.isNotEmpty) {
+      await upsertYtCapture(ref, cookies: cookies, pageId: pageId);
+    }
+    ref.invalidate(ytAccountProvider);
+  } catch (_) {}
 }
 
 /// Cancelled-chooser fallback: connect the captured jar directly.
@@ -1383,6 +1454,7 @@ abstract class _YtmStaticFallback {
         pageId: pageId,
       );
       ref.read(ytConnectionProvider.notifier).state = tube.connection;
+      await _refreshYtIdentity(ref, pageId: pageId);
       if (context.mounted) {
         await _showYtOk(
           context,
