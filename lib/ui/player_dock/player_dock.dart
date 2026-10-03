@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
+import '../../core/shortcuts/app_shortcuts.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
@@ -220,7 +221,7 @@ class WavePlayerDock extends ConsumerWidget {
                                   onTap: notifier.toggleShuffle,
                                 ),
                                 _Glyph(
-                                  tooltip: 'Previous',
+                                  tooltip: AppShortcuts.tooltip('Previous', AppShortcut.previous),
                                   icon: WaveIcons.previous,
                                   large: true,
                                   onTap: current == null
@@ -234,7 +235,7 @@ class WavePlayerDock extends ConsumerWidget {
                                   onTap: notifier.toggle,
                                 ),
                                 _Glyph(
-                                  tooltip: 'Next',
+                                  tooltip: AppShortcuts.tooltip('Next', AppShortcut.next),
                                   icon: WaveIcons.next,
                                   large: true,
                                   onTap: current == null
@@ -299,13 +300,13 @@ class WavePlayerDock extends ConsumerWidget {
                           ],
                           if (showLyrics)
                             _Glyph(
-                              tooltip: 'Lyrics (Ctrl+L)',
+                              tooltip: AppShortcuts.tooltip('Lyrics', AppShortcut.lyrics),
                               icon: WaveIcons.lyrics,
                               active: lyricsActive,
                               onTap: onToggleLyrics,
                             ),
                           _Glyph(
-                            tooltip: 'Queue',
+                            tooltip: AppShortcuts.tooltip('Queue', AppShortcut.queue),
                             icon: WaveIcons.queue,
                             active: queueActive,
                             onTap: onToggleQueue,
@@ -317,7 +318,7 @@ class WavePlayerDock extends ConsumerWidget {
                             const _VolumeFlyoutSection(),
                           if (showExpand)
                             _Glyph(
-                              tooltip: 'Now Playing',
+                              tooltip: AppShortcuts.tooltip('Expand Player', AppShortcut.fullscreen),
                               icon: WaveIcons.expand,
                               onTap: onExpand,
                             ),
@@ -720,7 +721,7 @@ class _PlayGlyphState extends State<_PlayGlyph> {
         ? onAccent
         : onAccent.withValues(alpha: 0.5);
     return LWTooltip(
-      message: widget.playing ? 'Pause (Space)' : 'Play (Space)',
+      message: widget.playing ? AppShortcuts.tooltip('Pause', AppShortcut.playPause) : AppShortcuts.tooltip('Play', AppShortcut.playPause),
       child: Focus(
         focusNode: _focus,
         onFocusChange: (_) => setState(() {}),
@@ -728,7 +729,8 @@ class _PlayGlyphState extends State<_PlayGlyph> {
           if (event is KeyDownEvent &&
               (event.logicalKey == LogicalKeyboardKey.enter ||
                   event.logicalKey == LogicalKeyboardKey.space)) {
-            if (widget.enabled) widget.onTap();
+            if (!widget.enabled) return KeyEventResult.ignored;
+            widget.onTap();
             return KeyEventResult.handled;
           }
           return KeyEventResult.ignored;
@@ -1057,7 +1059,7 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
     return ScaleTransition(
       scale: _anim,
       child: _Glyph(
-        tooltip: liked ? 'Unlike' : 'Like',
+        tooltip: liked ? AppShortcuts.tooltip('Unlike', AppShortcut.like) : AppShortcuts.tooltip('Like', AppShortcut.like),
         icon: liked ? WaveIcons.likedFill : WaveIcons.liked,
         active: liked,
         onTap: _onToggle,
@@ -1302,7 +1304,7 @@ class _DockOverflow extends ConsumerWidget {
         if (showLyricsItem)
           WaveMenuAction(
             leading: const Icon(WaveIcons.lyrics, size: 15),
-            label: 'Lyrics  (Ctrl+L)',
+            label: AppShortcuts.tooltip('Lyrics', AppShortcut.lyrics),
             onPressed: onToggleLyrics,
           ),
         if (showQualityItem && stream != null)
@@ -1347,7 +1349,7 @@ class _DockOverflow extends ConsumerWidget {
         WaveMenuAction(
           leading: const Icon(WaveIcons.clock, size: 15),
           label: sleep == null
-              ? 'Sleep timer · 30 min'
+              ? AppShortcuts.tooltip('Sleep timer', AppShortcut.sleepTimer)
               : 'Sleep ${sleep.inMinutes}m (tap to clear)',
           onPressed: () {
             if (sleep != null) {
@@ -1359,7 +1361,7 @@ class _DockOverflow extends ConsumerWidget {
         ),
         WaveMenuAction(
           leading: const Icon(WaveIcons.downloadAction, size: 15),
-          label: 'Download this track',
+          label: AppShortcuts.tooltip('Download', AppShortcut.download),
           onPressed: () {
             final current =
                 ref.read(playbackServiceProvider).current;

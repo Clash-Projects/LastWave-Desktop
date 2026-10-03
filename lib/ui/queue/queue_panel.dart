@@ -5,6 +5,7 @@ import '../theme/wave_icons.dart';
 
 import '../../app/track_actions.dart';
 import '../../core/audio/stream_models.dart';
+import '../../core/shortcuts/app_shortcuts.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
@@ -268,7 +269,7 @@ class _CloseGlyphState extends State<_CloseGlyph> {
   @override
   Widget build(BuildContext context) {
     return LWTooltip(
-      message: 'Close (Esc)',
+      message: AppShortcuts.tooltip('Back', AppShortcut.back),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),

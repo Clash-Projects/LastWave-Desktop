@@ -10,6 +10,9 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 
 import '../../app/window.dart';
 import '../../core/audio/stream_models.dart';
+import '../../core/shortcuts/app_shortcuts.dart';
+import '../../features/downloads/download_manager.dart';
+import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
 import '../mini_player/mini_player.dart';
@@ -46,6 +49,8 @@ class WaveShell extends ConsumerStatefulWidget {
 }
 
 class _WaveShellState extends ConsumerState<WaveShell> {
+  static const _mediaChannel = MethodChannel('lastwave/media_keys');
+
   // Boot collapsed: the overlay rail covers content when open, so it
   // starts shut (toggle via hamburger, auto-collapses on outside tap).
   bool _railExpanded = false;
@@ -55,6 +60,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _draggingFiles = false;
   late final TextEditingController _searchController;
   final FocusNode _searchFocus = FocusNode();
+  // Root shell focus node. Sits inside the Shortcuts widget so that
+  // key events always reach it after navigation or search dismissal.
+  final FocusNode _shellFocus = FocusNode(debugLabel: 'WaveShell');
   final List<String> _backStack = [];
   final List<String> _forwardStack = [];
   bool _historyLocked = false;
@@ -172,61 +180,60 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
-    // Global hotkeys → playback. Re-registers the window.dart bindings
-    // with Riverpod-aware handlers (HotKeyManager stores per-identifier
-    // handlers, so re-register overwrites the no-op placeholders).
-    _wireHotkeys();
+    // Restore shell focus after any navigation or panel change so that
+    // the Shortcuts ancestor always sits in the active focus chain.
+    // Only reclaims if nothing else inside the shell has primary focus
+    // (e.g. a text field or list row).
+    _shellFocus.addListener(_reclaimFocusIfOrphaned);
+
+    _mediaChannel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'play_pause':
+          ref.read(playbackServiceProvider.notifier).toggle();
+          break;
+        case 'next':
+          ref.read(playbackServiceProvider.notifier).next();
+          break;
+        case 'previous':
+          ref.read(playbackServiceProvider.notifier).previous();
+          break;
+      }
+    });
   }
 
-  Future<void> _wireHotkeys() async {
-    // No global backend on Wayland — the shell offers the same combos
-    // as in-app shortcuts instead (see build()).
-    if (!globalHotkeysSupported) return;
-    try {
-      Future<void> toggle(HotKey _) async {
-        if (!mounted) return;
-        await ref.read(playbackServiceProvider.notifier).toggle();
-      }
-
-      Future<void> next(HotKey _) async {
-        if (!mounted) return;
-        await ref.read(playbackServiceProvider.notifier).next();
-      }
-
-      Future<void> prev(HotKey _) async {
-        if (!mounted) return;
-        await ref.read(playbackServiceProvider.notifier).previous();
-      }
-
-      await hotKeyManager.register(
-        HotKey(
-          key: PhysicalKeyboardKey.keyP,
-          modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
-          identifier: 'lastwave-toggle',
-        ),
-        keyDownHandler: toggle,
-      );
-      await hotKeyManager.register(
-        HotKey(
-          key: PhysicalKeyboardKey.keyN,
-          modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
-          identifier: 'lastwave-next',
-        ),
-        keyDownHandler: next,
-      );
-      await hotKeyManager.register(
-        HotKey(
-          key: PhysicalKeyboardKey.keyB,
-          modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
-          identifier: 'lastwave-prev',
-        ),
-        keyDownHandler: prev,
-      );
-    } catch (_) {}
+  void _reclaimFocusIfOrphaned() {
+    // Called whenever _shellFocus changes. If it just lost focus and no
+    // other meaningful node owns primary focus, take it back so Shortcuts
+    // keeps receiving key events.
+    if (_shellFocus.hasFocus) return;               // gained focus — fine
+    if (!mounted) return;
+    final primary = FocusManager.instance.primaryFocus;
+    // If nothing has focus, reclaim immediately.
+    if (primary == null) {
+      _shellFocus.requestFocus();
+      return;
+    }
+    // If an EditableText (search, dialogs, text rows) has focus, let it
+    // keep it — _isTyping() will gate single-key shortcuts correctly.
+    final ctx = primary.context;
+    if (ctx == null) {
+      _shellFocus.requestFocus();
+      return;
+    }
+    if (ctx.widget is EditableText) return;
+    if (ctx.findAncestorWidgetOfExactType<EditableText>() != null) return;
+    if (ctx.findAncestorStateOfType<EditableTextState>() != null) return;
+    if (ctx.findAncestorWidgetOfExactType<TextBox>() != null) return;
+    // Non-text widget stole focus (list row, button, etc.). Reclaim so
+    // Shortcuts still intercepts subsequent key events.
+    _shellFocus.requestFocus();
   }
 
   @override
   void dispose() {
+    _mediaChannel.setMethodCallHandler(null);
+    _shellFocus.removeListener(_reclaimFocusIfOrphaned);
+    _shellFocus.dispose();
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -266,6 +273,13 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     if (_searchController.text != q) {
       _searchController.text = q;
     }
+    
+    // Ensure the input receives focus after the search UI is mounted
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_searchFocus.hasFocus) {
+        _searchFocus.requestFocus();
+      }
+    });
   }
 
   void _applyRoute(String path) {
@@ -345,7 +359,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   }
 
   bool _isTyping() {
-    if (_searchFocus.hasFocus) return true;
     final focus = FocusManager.instance.primaryFocus;
     if (focus == null) return false;
     final ctx = focus.context;
@@ -409,80 +422,173 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     final isLyrics = routePath.startsWith('/lyrics');
     final isNowPlaying = routePath.startsWith('/now');
 
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
-            _goBack,
-        const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
-            _goForward,
-        const SingleActivator(LogicalKeyboardKey.keyK, control: true):
-            _openPalette,
-        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
-            () => _searchFocus.requestFocus(),
-        const SingleActivator(LogicalKeyboardKey.keyL, control: true): () {
-          if (hasTrack) {
-            setState(() {
-              _lyricsOpen = !_lyricsOpen;
-              if (_lyricsOpen) _queueOpen = false;
-            });
-          }
-        },
-        // Wayland fallback: global hotkeys can't register there, so the
-        // same transport combos work in-app while the window is focused.
-        // (On X11/Windows/macOS the global backend owns these keys, so
-        // these entries stay dormant and can never double-fire.)
-        if (!globalHotkeysSupported)
-          const SingleActivator(LogicalKeyboardKey.keyP,
-              control: true, alt: true): () {
-            ref.read(playbackServiceProvider.notifier).toggle();
-          },
-        if (!globalHotkeysSupported)
-          const SingleActivator(LogicalKeyboardKey.keyN,
-              control: true, alt: true): () {
-            ref.read(playbackServiceProvider.notifier).next();
-          },
-        if (!globalHotkeysSupported)
-          const SingleActivator(LogicalKeyboardKey.keyB,
-              control: true, alt: true): () {
-            ref.read(playbackServiceProvider.notifier).previous();
-          },
-        const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_searchFocus.hasFocus) {
-            _searchFocus.unfocus();
-          } else if (_lyricsOpen) {
-            setState(() => _lyricsOpen = false);
-          } else if (_queueOpen) {
-            setState(() => _queueOpen = false);
-          } else if (_miniOpen) {
-            setState(() => _miniOpen = false);
-          } else if (!collapsed) {
-            // Overlay rail light-dismisses via keyboard too.
-            setState(() => _railExpanded = false);
-          } else if (isNowPlaying) {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/home');
-            }
-          }
-        },
+    return Shortcuts(
+      shortcuts: {
+        AppShortcuts.activator(AppShortcut.playPause): const PlayPauseIntent(),
+        AppShortcuts.activator(AppShortcut.next): const NextTrackIntent(),
+        AppShortcuts.activator(AppShortcut.previous): const PreviousTrackIntent(),
+        AppShortcuts.activator(AppShortcut.like): const LikeTrackIntent(),
+        AppShortcuts.activator(AppShortcut.fullscreen): const FullscreenIntent(),
+        AppShortcuts.activator(AppShortcut.download): const DownloadTrackIntent(),
+        AppShortcuts.activator(AppShortcut.queue): const QueueIntent(),
+        AppShortcuts.activator(AppShortcut.search): const SearchIntent(),
+        AppShortcuts.activator(AppShortcut.downloads): const DownloadsIntent(),
+        AppShortcuts.activator(AppShortcut.sleepTimer): const SleepTimerIntent(),
+        AppShortcuts.activator(AppShortcut.playlists): const PlaylistsIntent(),
+        AppShortcuts.activator(AppShortcut.lyrics): const LyricsIntent(),
+        AppShortcuts.activator(AppShortcut.commandPalette): const CommandPaletteIntent(),
       },
-      child: Focus(
-        autofocus: true,
-        onKeyEvent: (node, event) {
-          if (event is KeyDownEvent &&
-              event.logicalKey == LogicalKeyboardKey.space) {
-            if (_isTyping()) {
-              return KeyEventResult.ignored;
-            }
-            if (hasTrack) {
-              _togglePlay();
-              return KeyEventResult.handled;
-            }
-          }
-          return KeyEventResult.ignored;
+      child: Actions(
+        actions: {
+          PlayPauseIntent: _WaveAction<PlayPauseIntent>(
+            singleKey: true,
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              if (hasTrack) _togglePlay();
+            },
+          ),
+          NextTrackIntent: _WaveAction<NextTrackIntent>(
+            singleKey: true,
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              ref.read(playbackServiceProvider.notifier).next();
+            },
+          ),
+          PreviousTrackIntent: _WaveAction<PreviousTrackIntent>(
+            singleKey: true,
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              ref.read(playbackServiceProvider.notifier).previous();
+            },
+          ),
+          LikeTrackIntent: _WaveAction<LikeTrackIntent>(
+            singleKey: true,
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              final track = ref.read(playbackServiceProvider).current;
+              if (track != null) {
+                ref.read(playlistRepositoryProvider.notifier).toggleLiked(
+                  StoredTrack(
+                    name: track.title,
+                    artist: track.artist,
+                    artworkUrl: track.artworkUrl,
+                    videoId: track.videoId,
+                  ),
+                );
+              }
+            },
+          ),
+          FullscreenIntent: _WaveAction<FullscreenIntent>(
+            singleKey: true,
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              _go('/now');
+            },
+          ),
+          DownloadTrackIntent: _WaveAction<DownloadTrackIntent>(
+            singleKey: true,
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              final track = ref.read(playbackServiceProvider).current;
+              if (track != null) {
+                ref.read(downloadManagerProvider.notifier).downloadTrack(
+                  title: track.title,
+                  artist: track.artist,
+                  album: track.album,
+                  artworkUrl: track.artworkUrl,
+                );
+              }
+            },
+          ),
+          QueueIntent: _WaveAction<QueueIntent>(
+            singleKey: true,
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              setState(() {
+                _queueOpen = !_queueOpen;
+                if (_queueOpen) _lyricsOpen = false;
+              });
+            },
+          ),
+          SearchIntent: _WaveAction<SearchIntent>(
+            singleKey: true,
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              if (!widget.location.startsWith('/search')) {
+                _go('/search');
+              } else {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _searchFocus.requestFocus();
+                });
+              }
+            },
+          ),
+          DownloadsIntent: _WaveAction<DownloadsIntent>(
+            isTyping: _isTyping,
+            onInvokeCallback: () => _go('/downloads'),
+          ),
+          SleepTimerIntent: _WaveAction<SleepTimerIntent>(
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              final notifier = ref.read(playbackServiceProvider.notifier);
+              if (ref.read(playbackServiceProvider).sleepRemaining != null) {
+                notifier.setSleepTimer(null);
+              } else {
+                notifier.setSleepTimer(const Duration(minutes: 30));
+              }
+            },
+          ),
+          PlaylistsIntent: _WaveAction<PlaylistsIntent>(
+            isTyping: _isTyping,
+            onInvokeCallback: () => _go('/playlists'),
+          ),
+          LyricsIntent: _WaveAction<LyricsIntent>(
+            isTyping: _isTyping,
+            onInvokeCallback: () {
+              if (hasTrack) {
+                setState(() {
+                  _lyricsOpen = !_lyricsOpen;
+                  if (_lyricsOpen) _queueOpen = false;
+                });
+              }
+            },
+          ),
+          CommandPaletteIntent: _WaveAction<CommandPaletteIntent>(
+            isTyping: _isTyping,
+            onInvokeCallback: _openPalette,
+          ),
         },
-        child: Mica(
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+                _goBack,
+            const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+                _goForward,
+            const SingleActivator(LogicalKeyboardKey.escape): () {
+              if (_searchFocus.hasFocus) {
+                _searchFocus.unfocus();
+              } else if (_lyricsOpen) {
+                setState(() => _lyricsOpen = false);
+              } else if (_queueOpen) {
+                setState(() => _queueOpen = false);
+              } else if (_miniOpen) {
+                setState(() => _miniOpen = false);
+              } else if (!collapsed) {
+                // Overlay rail light-dismisses via keyboard too.
+                setState(() => _railExpanded = false);
+              } else if (isNowPlaying) {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go('/home');
+                }
+              }
+            },
+          },
+          child: Focus(
+            focusNode: _shellFocus,
+            autofocus: true,
+            child: Mica(
           backgroundColor:
               dark ? WaveColors.background : WaveColors.lightBackground,
           child: Column(
@@ -707,10 +813,36 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                         ],
                       ),
                     ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
-    );
+    ),
+  );
+}
+}
+
+class _WaveAction<T extends Intent> extends Action<T> {
+  final void Function() onInvokeCallback;
+  final bool Function() isTyping;
+  final bool singleKey;
+
+  _WaveAction({
+    required this.onInvokeCallback,
+    required this.isTyping,
+    this.singleKey = false,
+  });
+
+  @override
+  bool isEnabled(covariant T intent) {
+    if (singleKey && isTyping()) return false;
+    return true;
+  }
+
+  @override
+  Object? invoke(covariant T intent) {
+    onInvokeCallback();
+    return null;
   }
 }

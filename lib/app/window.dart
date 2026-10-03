@@ -37,7 +37,6 @@ Future<void> setupWindow() async {
     });
   } catch (_) {}
   await _setupTray();
-  await _setupHotkeys();
 }
 
 Future<void> _setupAcrylic() async {
@@ -77,62 +76,7 @@ Future<void> _setupTray() async {
     await trayManager.setContextMenu(Menu(items: [
       MenuItem(key: 'show', label: 'Show LastWave'),
       MenuItem.separator(),
-      MenuItem(key: 'toggle', label: 'Play / Pause  (Ctrl+Alt+P)'),
-      MenuItem(key: 'next', label: 'Next  (Ctrl+Alt+N)'),
-      MenuItem(key: 'prev', label: 'Previous  (Ctrl+Alt+B)'),
-      MenuItem.separator(),
       MenuItem(key: 'quit', label: 'Quit'),
     ]));
-  } catch (_) {}
-}
-
-/// Whether the OS backend can deliver *global* transport hotkeys.
-///
-/// libkeybinder (hotkey_manager_linux) is X11-only: on Wayland sessions
-/// (`WAYLAND_DISPLAY` set) registration always fails with
-/// `Binding '<Primary><Alt>…' failed!` warnings and the keys stay dead.
-/// Shell UI must offer the same combos as in-app shortcuts instead.
-bool get globalHotkeysSupported {
-  if (!Platform.isLinux) return true;
-  return Platform.environment['WAYLAND_DISPLAY'] == null;
-}
-
-Future<void> _setupHotkeys() async {
-  // Global transport: Ctrl+Alt+P play/pause, Ctrl+Alt+N next,
-  // Ctrl+Alt+B previous. Handlers are wired in the shell via
-  // hotKeyManager.keyDownHandler forwarding to PlaybackService —
-  // see WaveShell initState. Registration here stays best-effort so
-  // a missing backend never blocks startup.
-  // Wayland has no global-hotkey backend: skip registration so the
-  // native plugin never logs `Binding '<Primary><Alt>…' failed!`.
-  // The shell falls back to in-app shortcuts (globalHotkeysSupported).
-  if (!globalHotkeysSupported) return;
-  try {
-    await hotKeyManager.unregisterAll();
-    final bindings = [
-      HotKey(
-        key: PhysicalKeyboardKey.keyP,
-        modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
-        identifier: 'lastwave-toggle',
-      ),
-      HotKey(
-        key: PhysicalKeyboardKey.keyN,
-        modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
-        identifier: 'lastwave-next',
-      ),
-      HotKey(
-        key: PhysicalKeyboardKey.keyB,
-        modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
-        identifier: 'lastwave-prev',
-      ),
-    ];
-    for (final binding in bindings) {
-      await hotKeyManager.register(
-        binding,
-        // No-op here: the live shell overrides keyDownHandler with a
-        // Riverpod-aware dispatcher once providers exist.
-        keyDownHandler: (_) {},
-      );
-    }
   } catch (_) {}
 }

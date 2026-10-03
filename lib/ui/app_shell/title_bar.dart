@@ -10,6 +10,7 @@ import '../../features/search/search_repository.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/menus.dart'
     show fastFlyoutTransition, WaveFlyoutPanel, WaveMenuAction, WaveMenuSeparator;
+import '../../core/shortcuts/app_shortcuts.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
@@ -94,7 +95,7 @@ class WaveTitleBar extends ConsumerWidget {
                 const SizedBox(width: 4),
                 if (!compact)
                   _BarBtn(
-                    tooltip: 'Commands (Ctrl+K)',
+                    tooltip: AppShortcuts.tooltip('Commands', AppShortcut.commandPalette),
                     icon: WaveIcons.command,
                     onTap: onPalette,
                   ),
@@ -263,7 +264,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
             const WaveMenuSeparator(),
             WaveMenuAction(
               leading: const Icon(WaveIcons.command, size: 15),
-              label: 'All commands  (Ctrl+K)',
+              label: AppShortcuts.tooltip('All commands', AppShortcut.commandPalette),
               onPressed: () {
                 _closeFlyout();
                 widget.focus.unfocus();
@@ -291,7 +292,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
     return FlyoutTarget(
       controller: _flyout,
       child: LWTooltip(
-        message: 'Search (Ctrl+F)',
+        message: AppShortcuts.tooltip('Search', AppShortcut.search),
         child: AnimatedContainer(
           duration: WaveMotion.fast,
           // Fill the Flexible budget from the parent; focus state only
@@ -352,7 +353,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                           ),
                         ),
                         child: Text(
-                          'Ctrl K',
+                          AppShortcuts.label(AppShortcut.commandPalette),
                           style: TextStyle(
                             fontSize: 9.5,
                             fontWeight: FontWeight.w500,
@@ -465,12 +466,12 @@ class _AppMenu extends StatelessWidget {
       items: [
         MenuFlyoutItem(
           leading: const Icon(WaveIcons.search, size: 15),
-          text: const Text('Search  (Ctrl+K)'),
+          text: Text(AppShortcuts.tooltip('Search', AppShortcut.search)),
           onPressed: () => context.go('/search'),
         ),
         MenuFlyoutItem(
           leading: const Icon(WaveIcons.lyrics, size: 15),
-          text: const Text('Lyrics  (Ctrl+L)'),
+          text: Text(AppShortcuts.tooltip('Lyrics', AppShortcut.lyrics)),
           onPressed: () => context.go('/lyrics'),
         ),
         const MenuFlyoutSeparator(),

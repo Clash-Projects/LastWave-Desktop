@@ -10,6 +10,7 @@ import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
+import '../../core/shortcuts/app_shortcuts.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
 import '../components/ambient.dart';
@@ -343,7 +344,7 @@ class _TopActionsBar extends StatelessWidget {
                   ),
                 ),
                 LWTooltip(
-                  message: 'Close (Esc)',
+                  message: AppShortcuts.tooltip('Back', AppShortcut.back),
                   child: _FsIconButton(
                     icon: WaveIcons.close,
                     onTap: onClose,

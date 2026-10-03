@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../../core/shortcuts/app_shortcuts.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
@@ -215,7 +216,7 @@ class _PanelBody extends ConsumerWidget {
                 ),
               const SizedBox(width: 8),
               LWTooltip(
-                message: 'Close lyrics (Esc)',
+                message: AppShortcuts.tooltip('Back', AppShortcut.back),
                 child: MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
