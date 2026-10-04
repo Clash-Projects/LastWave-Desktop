@@ -1541,6 +1541,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   void _onTrackCompleted() {
     if (_resolving || state.error != null) return;
     _flushScrobble(completed: true);
+    if (state.duration - state.position > const Duration(seconds: 10)) {
+      // mpv reported clean EOF far from the known end: a truncated
+      // stream, not a finished song (addon live-stream closed early:
+      // Titli died at ~71s of 147s with success reason 2 and the queue
+      // skipped ahead). Run the error path instead of advancing — for
+      // addon tracks that replays the now-complete file (same-tier
+      // retry), otherwise it falls through to YouTube. Repeat-one is
+      // covered too: its replay below would loop the broken prefix.
+      _crumb('premature eof pos=${state.position.inSeconds}s '
+          'dur=${state.duration.inSeconds}s key=${state.current?.queueKey}');
+      unawaited(_onPlayerError());
+      return;
+    }
     if (state.repeatMode == RepeatMode.one) {
       final loopTrack = state.current;
       seek(Duration.zero);

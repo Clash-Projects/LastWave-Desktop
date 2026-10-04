@@ -48,6 +48,46 @@ Map<String, List<int>> _bodies() => {
         'https://cdn.test/t/$i.mp4?sig=abc': [i, i + 10],
     };
 
+/// Larger bodies matching [_manifest] (init + 4 segments) for the
+/// slow-producer tests: big enough that a live GET spans the assembly.
+Map<String, List<int>> _bigBodies({required int segmentBytes}) =>
+    {
+      'https://cdn.test/t/0.mp4?sig=abc':
+          List<int>.generate(619, (i) => i % 251),
+      for (var i = 1; i <= 4; i++)
+        'https://cdn.test/t/$i.mp4?sig=abc':
+            List<int>.generate(segmentBytes, (j) => (i * 31 + j) % 251),
+    };
+
+List<int> _bigExpected({required int segmentBytes}) => [
+      ...List<int>.generate(619, (i) => i % 251),
+      for (var i = 1; i <= 4; i++)
+        ...List<int>.generate(segmentBytes, (j) => (i * 31 + j) % 251),
+    ];
+
+/// Stub that answers every fetch after [delay], so the session is still
+/// assembling when the test client connects (the live-stream path).
+class _DelayedAdapter implements HttpClientAdapter {
+  _DelayedAdapter(this.bodies, this.delay);
+
+  final Map<String, List<int>> bodies;
+  final Duration delay;
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options,
+      Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+    await Future.delayed(delay);
+    final bytes = bodies[options.uri.toString()];
+    if (bytes == null) {
+      return ResponseBody.fromString('missing', 404);
+    }
+    return ResponseBody.fromBytes(bytes, 200);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 List<int> _expected() => [
       0x66, 0x74, 0x79, 0x70,
       for (var i = 1; i <= 4; i++) ...[i, i + 10],
@@ -165,6 +205,60 @@ void main() {
       final out = await _get(uri!);
       expect(out.first, HttpStatus.ok);
       expect(out.sublist(1), isEmpty);
+    });
+
+    test('slow producer still delivers the full live stream', () async {
+      // The Titli shape: the GET arrives while segments are still
+      // downloading, so mpv reads the live (chunked) path. Every byte
+      // must arrive — an early close plays the buffered prefix then
+      // dies mid-track on a torn frame with a clean-EOF status.
+      final bodies = _bigBodies(segmentBytes: 16384);
+      final expected = _bigExpected(segmentBytes: 16384);
+      final dio = Dio();
+      dio.httpClientAdapter = _DelayedAdapter(bodies, const Duration(milliseconds: 50));
+      final server = LocalMediaServer(dio: dio);
+      addTearDown(server.close);
+      for (var i = 0; i < 5; i++) {
+        final cacheName = 'srv-test-slow-$i';
+        addTearDown(() => _scrub(cacheName));
+        final uri = await server.urlFor(
+            manifestXml: _manifest, cacheName: cacheName);
+        final out = await _get(uri!);
+        expect(out.first, HttpStatus.ok, reason: 'iteration $i');
+        expect(out.sublist(1), expected, reason: 'iteration $i');
+      }
+    });
+
+    test('tail range issued mid-assembly waits and serves exact bytes',
+        () async {
+      final bodies = _bigBodies(segmentBytes: 16384);
+      final expected = _bigExpected(segmentBytes: 16384);
+      final dio = Dio();
+      dio.httpClientAdapter = _DelayedAdapter(bodies, const Duration(milliseconds: 50));
+      final server = LocalMediaServer(dio: dio);
+      addTearDown(server.close);
+      addTearDown(() => _scrub('srv-test-tail'));
+      final uri = await server.urlFor(
+          manifestXml: _manifest, cacheName: 'srv-test-tail');
+      final total = expected.length;
+      final client = HttpClient();
+      try {
+        final req = await client.getUrl(uri!);
+        req.headers.set(
+            HttpHeaders.rangeHeader, 'bytes=${total - 4}-${total - 1}');
+        final res = await req.close().timeout(
+            const Duration(seconds: 30));
+        final bytes = <int>[];
+        await for (final chunk in res) {
+          bytes.addAll(chunk);
+        }
+        expect(res.statusCode, HttpStatus.partialContent);
+        expect(res.headers.value(HttpHeaders.contentRangeHeader),
+            'bytes ${total - 4}-${total - 1}/$total');
+        expect(bytes, expected.sublist(total - 4));
+      } finally {
+        client.close();
+      }
     });
   });
 }

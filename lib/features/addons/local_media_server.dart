@@ -488,11 +488,9 @@ class _Session {
     while (true) {
       if (failed) return null;
       if (done) {
-        final f = File(_finalPath);
-        try {
-          if (await f.exists()) return f;
-        } catch (_) {}
-        return null;
+        // Published file preferred; the partial when the rename never
+        // landed (publish=partial holds every byte under the old name).
+        return _completeFile();
       }
       try {
         final f = File(_partPath);
@@ -592,26 +590,48 @@ class _Session {
     // [startOffset]/[partial] serve an open-ended range off the live
     // assembly (mpv's forward reads after a seek); plain GETs start at 0.
     // A partial stream stops at the advertised total, never past it.
+    // Transient file errors are RETRIED, never fatal: the publish rename
+    // can land between the existence check and the open (or an AV
+    // scanner can briefly lock the partial), and closing the response
+    // there truncates the stream — mpv then plays the buffered prefix
+    // and dies mid-track on a torn frame with a clean-EOF status, which
+    // the player mistakes for natural completion and skips ahead.
     var offset = startOffset;
-    while (true) {
-      var path = _partPath;
-      if (done) {
-        try {
-          if (await File(_finalPath).exists()) path = _finalPath;
-        } catch (_) {}
+    String? resolvePath() {
+      try {
+        final partExists = File(_partPath).existsSync();
+        final finalExists = File(_finalPath).existsSync();
+        // While assembling, the partial is authoritative; once done,
+        // the published file — with the partial as fallback when the
+        // rename never landed (publish=partial).
+        if (done) return finalExists ? _finalPath : (partExists ? _partPath : null);
+        return partExists ? _partPath : (finalExists ? _finalPath : null);
+      } catch (_) {
+        return null;
       }
+    }
+
+    while (true) {
+      final path = resolvePath();
       var progressed = false;
-      if (await File(path).exists()) {
+      if (path != null) {
         RandomAccessFile? raf;
+        var opened = false;
         try {
           raf = await File(path).open(mode: FileMode.read);
+          opened = true;
           _openReaders++;
           try {
             var length = await raf.length();
             if (liveTotal != null && length > liveTotal) {
               length = liveTotal;
             }
-            if (liveTotal != null && offset >= liveTotal) break;
+            if (liveTotal != null && offset >= liveTotal) {
+              try {
+                await raf.close();
+              } catch (_) {}
+              break;
+            }
             if (offset < length) {
               await raf.setPosition(offset);
               var want = length - offset;
@@ -631,10 +651,19 @@ class _Session {
           } finally {
             _openReaders--;
           }
-        } catch (_) {
-          try {
-            await raf?.close();
-          } catch (_) {}
+        } catch (e) {
+          if (opened) {
+            try {
+              await raf?.close();
+            } catch (_) {}
+          }
+          if (e is FileSystemException && !failed) {
+            // Transient file race (publish rename, scanner lock):
+            // wait out the producer instead of truncating the stream.
+            // Client-side failures (res.add/flush) still break below.
+            await Future.delayed(const Duration(milliseconds: 50));
+            continue;
+          }
           break;
         }
         try {
