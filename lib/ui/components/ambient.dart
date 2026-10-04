@@ -10,7 +10,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:palette_generator/palette_generator.dart';
 
 import '../../core/storage/prefs.dart';
-import '../../features/player/playback_service.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 
@@ -64,18 +63,6 @@ class ArtworkPalette {
     shadow: Color(0xFF0C0806),
   );
 
-  ArtworkPalette lerp(ArtworkPalette other, double t) {
-    return ArtworkPalette(
-      primary: Color.lerp(primary, other.primary, t) ?? primary,
-      vibrant: Color.lerp(vibrant, other.vibrant, t) ?? vibrant,
-      darkMuted: Color.lerp(darkMuted, other.darkMuted, t) ?? darkMuted,
-      lightVibrant:
-          Color.lerp(lightVibrant, other.lightVibrant, t) ?? lightVibrant,
-      cream: Color.lerp(cream, other.cream, t) ?? cream,
-      shadow: Color.lerp(shadow, other.shadow, t) ?? shadow,
-    );
-  }
-
   @override
   bool operator ==(Object other) =>
       other is ArtworkPalette &&
@@ -107,18 +94,6 @@ double _scrimBoost(ArtworkPalette palette) {
       2;
   return ((light - 0.45) / 0.35).clamp(0.0, 1.0);
 }
-
-/// Frame budget for slow ambient motion: aura/mesh periods run 22–52s,
-/// so quantizing phase to 30fps buckets skips 1 of 2 repaints at 60Hz
-/// (3 of 4 at 120Hz+) with no visible difference. The builders still
-/// run per tick (cheap — UI thread stays ~1ms); only raster work is
-/// skipped, via the painters' `shouldRepaint`.
-double _phaseBucket(double value, int bucketsPerCycle) =>
-    (value * bucketsPerCycle).floor() / bucketsPerCycle;
-
-/// Repaint buckets per motion cycle at 30fps: period seconds × 30.
-int _motionBuckets(bool cinematic) => cinematic ? 1050 : 660;
-int _driftBuckets(bool cinematic) => cinematic ? 1560 : 930;
 
 /// Directional contrast scrim shared by every ambient stage
 /// (cinematic aura, solid-mode static gradient): tints the glass the
@@ -394,10 +369,11 @@ Future<ArtworkPalette> _extractPalette(_PaletteJob job) async {
 }
 
 /// Shared artwork-derived multi-color palette, cached by image identity.
+/// No keepAlive: entries auto-dispose when no widget watches them, so
+/// skipping tracks releases the decoded image instead of accumulating.
 final artworkPaletteProvider =
     FutureProvider.autoDispose.family<ArtworkPalette, String>((ref, url) async {
   if (url.isEmpty) return ArtworkPalette.fallback;
-  ref.keepAlive();
   ui.Image? image;
   try {
     image = await _decodeArtwork(url);
@@ -427,12 +403,11 @@ final artworkSeedProvider =
   return pal.primary;
 });
 
-/// Pre-blurred, small aura texture. Blur is baked once so Now Playing
-/// can rotate two shader layers at 30fps without live ImageFiltered.
+/// Pre-blurred, small aura texture. Blur is baked once per artwork URL;
+/// the ambient stage paints it statically (no rotation, no vsync ticks).
 final auraImageProvider =
     FutureProvider.autoDispose.family<ui.Image, String>((ref, url) async {
   if (url.isEmpty) throw StateError('empty artwork');
-  ref.keepAlive();
   final src = await _decodeArtwork(url);
   const out = 256;
   final recorder = ui.PictureRecorder();
@@ -467,12 +442,14 @@ final auraImageProvider =
   }
 });
 
-/// Dynamic ambient background.
+/// Static ambient background (no animation).
 ///
-/// Now Playing [cinematic] matches Apple Music / monochrome: two oversized
-/// copies of the album art, heavily blurred and slowly rotating in opposite
-/// directions, so the cover's real colors fill the stage.
-class WaveAmbientMesh extends ConsumerStatefulWidget {
+/// Fully static by design: no AnimationControllers, no tickers, no
+/// AnimatedBuilder, no per-frame CustomPaint repaints. Each stage paints
+/// exactly once per (artworkUrl, palette, theme) change, so RSS stays flat
+/// after first paint. The [cinematic] flag selects the static baked-aura
+/// stage vs the static palette-orb stage; both are still images.
+class WaveAmbientMesh extends ConsumerWidget {
   final String artworkUrl;
   final bool isFullBleed;
   final double height;
@@ -489,95 +466,19 @@ class WaveAmbientMesh extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<WaveAmbientMesh> createState() => _WaveAmbientMeshState();
-}
-
-class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
-    with TickerProviderStateMixin {
-  late final AnimationController _motionController;
-  late final AnimationController _driftController;
-  late final AnimationController _crossfadeController;
-
-  ArtworkPalette _currentPalette = ArtworkPalette.fallback;
-  ArtworkPalette _targetPalette = ArtworkPalette.fallback;
-
-  @override
-  void initState() {
-    super.initState();
-    _motionController = AnimationController(
-      vsync: this,
-      duration: Duration(seconds: widget.cinematic ? 35 : 22),
-    )..repeat();
-    _driftController = AnimationController(
-      vsync: this,
-      duration: Duration(seconds: widget.cinematic ? 52 : 31),
-    );
-    // Cinematic aura listens to spin only: a listenerless repeat()
-    // still forces empty vsync frames, so drift runs solely for the
-    // non-cinematic mesh that actually consumes it.
-    if (!widget.cinematic) _driftController.repeat();
-
-    _crossfadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1100),
-    );
-  }
-
-  @override
-  void dispose() {
-    _motionController.dispose();
-    _driftController.dispose();
-    _crossfadeController.dispose();
-    super.dispose();
-  }
-
-  void _onPaletteLoaded(ArtworkPalette newPalette) {
-    if (_targetPalette == newPalette) return;
-    _currentPalette = _currentPalette.lerp(
-      _targetPalette,
-      _crossfadeController.value,
-    );
-    _targetPalette = newPalette;
-    _crossfadeController.forward(from: 0.0);
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final reduceTransparency =
         MediaQuery.maybeOf(context)?.highContrast ?? false;
     final blurEnabled = WaveHazeScope.blurEnabled(context);
 
-    ref.listen<AsyncValue<ArtworkPalette>>(
-      artworkPaletteProvider(widget.artworkUrl),
-      (prev, next) {
-        final val = next.valueOrNull;
-        if (val != null) {
-          _onPaletteLoaded(val);
-        }
-      },
-    );
-
-    final paletteAsync = ref.watch(artworkPaletteProvider(widget.artworkUrl));
-    final activeTarget = paletteAsync.valueOrNull ?? ArtworkPalette.fallback;
-    if (_targetPalette == ArtworkPalette.fallback &&
-        activeTarget != ArtworkPalette.fallback) {
-      _targetPalette = activeTarget;
-      _currentPalette = activeTarget;
-    }
+    final paletteAsync = ref.watch(artworkPaletteProvider(artworkUrl));
+    final palette = paletteAsync.valueOrNull ?? ArtworkPalette.fallback;
 
     final isDark = waveIsDark(context);
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
-    final isPlaying = ref.watch(
-      playbackServiceProvider.select((s) => s.isPlaying),
-    );
 
-    if (!visualizerEnabled && _motionController.isAnimating) {
-      _motionController.stop();
-      _driftController.stop();
-    } else if (visualizerEnabled && !_motionController.isAnimating) {
-      _motionController.repeat();
-      if (!widget.cinematic) _driftController.repeat();
-    }
+    // Toggle is a hard show/hide: no fade animation, no retained layers.
+    if (!visualizerEnabled) return const SizedBox.shrink();
 
     if (reduceTransparency || !blurEnabled) {
       // Solid / high-contrast path: the static palette gradient gets
@@ -585,23 +486,22 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
       // light cover parks cream/lightVibrant under white theme text
       // (Now Playing lyrics) with nothing to read against — the reason
       // solid mode looked "broken" next to automatic.
-      return AnimatedOpacity(
-        duration: WaveMotion.normal,
-        opacity: visualizerEnabled ? 1.0 : 0.0,
-        child: IgnorePointer(
+      return IgnorePointer(
+        child: Opacity(
+          opacity: opacity,
           child: Stack(
             children: [
               Container(
-                height: widget.isFullBleed ? null : widget.height,
+                height: isFullBleed ? null : height,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.centerLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      _targetPalette.shadow,
-                      _targetPalette.darkMuted,
-                      _targetPalette.cream,
-                      _targetPalette.lightVibrant,
+                      palette.shadow,
+                      palette.darkMuted,
+                      palette.cream,
+                      palette.lightVibrant,
                     ],
                     stops: const [0.0, 0.28, 0.68, 1.0],
                   ),
@@ -610,7 +510,7 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
               Positioned.fill(
                 child: _StageScrim(
                   isDark: isDark,
-                  boost: _scrimBoost(_targetPalette),
+                  boost: _scrimBoost(palette),
                 ),
               ),
             ],
@@ -619,77 +519,49 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
       );
     }
 
-    final mesh = AnimatedBuilder(
-      animation: Listenable.merge([
-        _motionController,
-        _driftController,
-        _crossfadeController,
-      ]),
-      builder: (context, _) {
-        final t = _crossfadeController.isAnimating
-            ? CurvedAnimation(
-                parent: _crossfadeController,
-                curve: Curves.easeInOutCubic,
-              ).value
-            : 1.0;
-
-        final activePalette = _currentPalette.lerp(_targetPalette, t);
-        return CustomPaint(
-          isComplex: true,
-          willChange: true,
-          size: widget.isFullBleed
-              ? Size.infinite
-              : Size(double.infinity, widget.height),
-          painter: _AmbientMeshPainter(
-            palette: activePalette,
-            motionValue: _phaseBucket(
-                _motionController.value,
-                _motionBuckets(widget.cinematic)),
-            driftValue: _phaseBucket(_driftController.value,
-                _driftBuckets(widget.cinematic)),
-            isPlaying: isPlaying,
-            isDark: isDark,
-            opacity: widget.opacity,
-            cinematic: false,
+    final Widget content;
+    if (cinematic && artworkUrl.isNotEmpty) {
+      content = Stack(
+        children: [
+          _AppleArtworkAura(artworkUrl: artworkUrl),
+          // Contrast guarantee (shared _StageScrim): the aura
+          // paints the cover's real colors at high opacity, so a
+          // light cover yields a light stage and theme text
+          // vanishes — same role as the scrim baked into the
+          // non-cinematic mesh painter.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: _StageScrim(
+                isDark: isDark,
+                boost: _scrimBoost(palette),
+              ),
+            ),
           ),
-        );
-      },
-    );
-
-    final content = widget.cinematic && widget.artworkUrl.isNotEmpty
-        ? Stack(
-            children: [
-              _AppleArtworkAura(
-                artworkUrl: widget.artworkUrl,
-                spin: _motionController,
-              ),
-              // Contrast guarantee (shared _StageScrim): the aura
-              // paints the cover's real colors at high opacity, so a
-              // light cover yields a light stage and theme text
-              // vanishes — same role as the scrim baked into the
-              // non-cinematic mesh painter.
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: _StageScrim(
-                    isDark: isDark,
-                    boost: _scrimBoost(_targetPalette),
-                  ),
-                ),
-              ),
-            ],
-          )
-        : mesh;
+        ],
+      );
+    } else {
+      content = CustomPaint(
+        isComplex: false,
+        willChange: false,
+        size: isFullBleed
+            ? Size.infinite
+            : Size(double.infinity, height),
+        painter: _AmbientMeshPainter(
+          palette: palette,
+          isDark: isDark,
+          opacity: opacity,
+        ),
+      );
+    }
 
     return IgnorePointer(
-      child: AnimatedOpacity(
-        duration: WaveMotion.normal,
-        curve: Curves.easeOutCubic,
-        opacity: visualizerEnabled ? widget.opacity : 0.0,
-        child: widget.isFullBleed
+      child: Opacity(
+        opacity: opacity,
+        child: isFullBleed
             ? SizedBox.expand(child: content)
             : SizedBox(
                 width: double.infinity,
-                height: widget.height,
+                height: height,
                 child: content,
               ),
       ),
@@ -697,17 +569,12 @@ class _WaveAmbientMeshState extends ConsumerState<WaveAmbientMesh>
   }
 }
 
-/// Apple Music / monochrome artwork aura: a baked blur texture sampled
-/// through a slowly rotating mirrored shader. No live blur, no
-/// square-image edges (those were the rotating line).
+/// Apple Music / monochrome artwork aura: a baked blur texture painted
+/// once, statically. No rotation, no shader recompiles, no vsync ticks.
 class _AppleArtworkAura extends ConsumerWidget {
   final String artworkUrl;
-  final Animation<double> spin;
 
-  const _AppleArtworkAura({
-    required this.artworkUrl,
-    required this.spin,
-  });
+  const _AppleArtworkAura({required this.artworkUrl});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -715,37 +582,20 @@ class _AppleArtworkAura extends ConsumerWidget {
     return asyncImg.when(
       loading: () => const ColoredBox(color: Color(0xFF0B0D11)),
       error: (_, _) => const ColoredBox(color: Color(0xFF0B0D11)),
-      data: (image) => _AuraLayers(
-        image: image,
-        spin: spin,
-      ),
+      data: (image) => _AuraLayers(image: image),
     );
   }
 }
 
-/// Rotating aura layer with a cached shader.
+/// Static aura layer with a cached shader.
 ///
-/// The `ImageShader` holds only the static part (cover scale +
-/// image-origin centering) and is rebuilt solely when the image or
-/// the layout size changes — previously a fresh shader was allocated
-/// and compiled per layer per frame. Rotation/shift/scale ride on the
-/// canvas transform instead, which is pixel-identical (total matrix
-/// unchanged) and lets the GPU reuse texture state. Combined with the
-/// 30fps phase buckets, most vsync ticks skip raster entirely.
-///
-/// Single layer only: the second counter-rotating layer was dropped
-/// after profiling showed each dirty frame still exceeding the 8.3ms
-/// budget at 120Hz (raster 9.8ms avg with the throttle working — the
-/// red bars sat exactly on the 30Hz dirty cadence). One layer halves
-/// fill cost; the scrim + cover carry the lost depth.
+/// The `ImageShader` holds the cover scale + image-origin centering and is
+/// built once per (image, layout size). No animation: the painter draws a
+/// single still rect, so the stage rasterizes exactly once per change.
 class _AuraLayers extends StatefulWidget {
   final ui.Image image;
-  final Animation<double> spin;
 
-  const _AuraLayers({
-    required this.image,
-    required this.spin,
-  });
+  const _AuraLayers({required this.image});
 
   @override
   State<_AuraLayers> createState() => _AuraLayersState();
@@ -797,30 +647,24 @@ class _AuraLayersState extends State<_AuraLayers> {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: widget.spin,
-      builder: (context, _) => LayoutBuilder(
-        builder: (context, constraints) {
-          final size = constraints.biggest;
-          if (!size.isFinite || size.isEmpty) {
-            return const SizedBox.expand();
-          }
-          return RepaintBoundary(
-            child: CustomPaint(
-              isComplex: true,
-              willChange: true,
-              painter: _AuraPainter(
-                shader: _shaderFor(size),
-                canvasSize: size,
-                spin: _phaseBucket(widget.spin.value, 1050) *
-                    2 *
-                    math.pi,
-              ),
-              child: const SizedBox.expand(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        if (!size.isFinite || size.isEmpty) {
+          return const SizedBox.expand();
+        }
+        return RepaintBoundary(
+          child: CustomPaint(
+            isComplex: false,
+            willChange: false,
+            painter: _AuraPainter(
+              shader: _shaderFor(size),
+              canvasSize: size,
             ),
-          );
-        },
-      ),
+            child: const SizedBox.expand(),
+          ),
+        );
+      },
     );
   }
 }
@@ -828,46 +672,17 @@ class _AuraLayersState extends State<_AuraLayers> {
 class _AuraPainter extends CustomPainter {
   final ImageShader shader;
   final Size canvasSize;
-  final double spin;
 
   _AuraPainter({
     required this.shader,
     required this.canvasSize,
-    required this.spin,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-
-    // Single layer (see class docs): center/shift/rotate the cached
-    // shader via canvas transform; the bounding box covers the
-    // back-transformed screen rect (clipped by the rasterizer).
-    final center = Offset(
-      size.width * 0.58,
-      size.height * 0.44,
-    );
-    final cosA = math.cos(-spin);
-    final sinA = math.sin(-spin);
-    var minX = double.infinity;
-    var minY = double.infinity;
-    var maxX = -double.infinity;
-    var maxY = -double.infinity;
-    for (final corner in [
-      Offset.zero,
-      Offset(size.width, 0),
-      Offset(0, size.height),
-      Offset(size.width, size.height),
-    ]) {
-      final dx = corner.dx - center.dx;
-      final dy = corner.dy - center.dy;
-      final lx = dx * cosA - dy * sinA;
-      final ly = dx * sinA + dy * cosA;
-      if (lx < minX) minX = lx;
-      if (ly < minY) minY = ly;
-      if (lx > maxX) maxX = lx;
-      if (ly > maxY) maxY = ly;
-    }
+    // Single static wash: no rotation, no per-frame transform. The
+    // cached shader is painted once per (image, size) change.
     final paint = Paint()
       ..isAntiAlias = false
       ..filterQuality = FilterQuality.low
@@ -876,39 +691,24 @@ class _AuraPainter extends CustomPainter {
       // covers out into an overexposed double image.
       ..color = Colors.white.withValues(alpha: 0.40)
       ..shader = shader;
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate(spin);
-    canvas.drawRect(
-        Rect.fromLTRB(minX, minY, maxX, maxY), paint);
-    canvas.restore();
+    canvas.drawRect(Offset.zero & size, paint);
   }
 
   @override
   bool shouldRepaint(covariant _AuraPainter old) {
-    return old.spin != spin ||
-        old.shader != shader ||
-        old.canvasSize != canvasSize;
+    return old.shader != shader || old.canvasSize != canvasSize;
   }
 }
 
 class _AmbientMeshPainter extends CustomPainter {
   final ArtworkPalette palette;
-  final double motionValue;
-  final double driftValue;
-  final bool isPlaying;
   final bool isDark;
   final double opacity;
-  final bool cinematic;
 
   _AmbientMeshPainter({
     required this.palette,
-    required this.motionValue,
-    required this.driftValue,
-    required this.isPlaying,
     required this.isDark,
     required this.opacity,
-    required this.cinematic,
   });
 
   @override
@@ -916,51 +716,7 @@ class _AmbientMeshPainter extends CustomPainter {
     if (size.width <= 0 || size.height <= 0) return;
 
     final rect = Offset.zero & size;
-    final t = motionValue * 2 * math.pi;
-    final d = driftValue * 2 * math.pi;
     final maxDim = math.max(size.width, size.height);
-    final breathe = 1.0 + 0.10 * math.sin(t * 0.85) + (isPlaying ? 0.06 : 0.0);
-
-    Offset orb(
-      double x,
-      double y,
-      double ax,
-      double ay,
-      double sx,
-      double sy, {
-      double drift = 1,
-    }) {
-      return Offset(
-        size.width *
-            (x + ax * math.sin(t * sx) + 0.07 * drift * math.sin(d * sy)),
-        size.height *
-            (y + ay * math.cos(t * sy) + 0.06 * drift * math.cos(d * sx)),
-      );
-    }
-
-    if (cinematic) {
-      void mass(Offset center, Color color, double radius) {
-        canvas.drawCircle(
-          center,
-          radius * breathe,
-          Paint()
-            ..color = color
-            ..isAntiAlias = true,
-        );
-      }
-
-      mass(orb(0.86, 0.32, 0.10, 0.14, 0.70, 0.55), palette.cream, maxDim * 0.78);
-      mass(orb(0.58, 1.02, 0.16, 0.10, 0.52, 0.88), palette.lightVibrant, maxDim * 0.70);
-      mass(orb(0.42, 0.58, 0.18, 0.16, 0.95, 0.62), palette.vibrant, maxDim * 0.34);
-      mass(orb(0.18, 0.86, 0.12, 0.12, 0.78, 0.40), palette.primary, maxDim * 0.40);
-      mass(orb(0.04, 0.42, 0.14, 0.18, 0.60, 0.82), palette.shadow, maxDim * 0.72);
-      mass(orb(0.16, 0.12, 0.10, 0.12, 0.48, 0.70), palette.darkMuted, maxDim * 0.46);
-      return;
-    }
-
-    final pulse = isPlaying
-        ? (1.0 + 0.045 * math.sin(motionValue * 4 * math.pi))
-        : 1.0;
     final alphaScale = (isDark ? 0.38 : 0.22) * opacity;
 
     void paintOrb({
@@ -982,28 +738,30 @@ class _AmbientMeshPainter extends CustomPainter {
       canvas.drawRect(rect, paint);
     }
 
+    // Fixed orb layout: identical composition to the old animated stage
+    // at phase zero, painted once instead of 30×/sec.
     paintOrb(
-      center: orb(0.24, 0.22, 0.16, 0.12, 1.0, 1.0),
+      center: Offset(size.width * 0.24, size.height * 0.22),
       color: palette.primary,
-      radius: maxDim * 0.65 * pulse,
+      radius: maxDim * 0.65,
       strength: 1.1,
     );
     paintOrb(
-      center: orb(0.80, 0.32, 0.14, 0.16, 0.85, 0.85),
+      center: Offset(size.width * 0.80, size.height * 0.32),
       color: palette.vibrant,
-      radius: maxDim * 0.60 * pulse,
+      radius: maxDim * 0.60,
       strength: 0.95,
     );
     paintOrb(
-      center: orb(0.28, 0.80, 0.18, 0.14, 1.25, 1.25),
+      center: Offset(size.width * 0.28, size.height * 0.80),
       color: palette.lightVibrant,
-      radius: maxDim * 0.58 * pulse,
+      radius: maxDim * 0.58,
       strength: 0.85,
     );
     paintOrb(
-      center: orb(0.76, 0.74, 0.15, 0.15, 1.1, 1.1),
+      center: Offset(size.width * 0.76, size.height * 0.74),
       color: palette.darkMuted,
-      radius: maxDim * 0.70 * pulse,
+      radius: maxDim * 0.70,
       strength: 0.80,
     );
 
@@ -1023,13 +781,9 @@ class _AmbientMeshPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _AmbientMeshPainter old) {
-    return old.motionValue != motionValue ||
-        old.driftValue != driftValue ||
-        old.palette != palette ||
-        old.isPlaying != isPlaying ||
+    return old.palette != palette ||
         old.isDark != isDark ||
-        old.opacity != opacity ||
-        old.cinematic != cinematic;
+        old.opacity != opacity;
   }
 }
 
