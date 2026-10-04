@@ -135,18 +135,26 @@ class WaveGlass extends StatelessWidget {
   final BorderRadius borderRadius;
   final EdgeInsetsGeometry? padding;
 
+  /// When false, skips the [BackdropFilter] and renders the tonal fill
+  /// only. Use on pages that already composite over a full-window ambient
+  /// stage (e.g. Now Playing): each live backdrop blur retains a GPU
+  /// surface sampling everything behind it, which is the dominant RSS
+  /// cost on Windows ANGLE.
+  final bool blur;
+
   const WaveGlass({
     super.key,
     required this.child,
     this.borderRadius = const BorderRadius.all(Radius.circular(7)),
     this.padding,
+    this.blur = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final reduceT = MediaQuery.maybeOf(context)?.highContrast ?? false;
-    final blurOn = WaveHazeScope.blurEnabled(context) && !reduceT;
+    final blurOn = blur && WaveHazeScope.blurEnabled(context) && !reduceT;
     final fill = (dark ? const Color(0xFF121212) : const Color(0xFFF4F4F4))
         .withValues(alpha: blurOn ? 0.46 : 0.78);
     final edge = (dark ? Colors.white : Colors.black)

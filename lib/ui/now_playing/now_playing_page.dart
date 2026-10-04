@@ -300,6 +300,7 @@ class _TopActionsBar extends StatelessWidget {
       child: Row(
         children: [
           WaveGlass(
+            blur: false,
             borderRadius: WaveRadius.menuRadius,
             child: LWTooltip(
               message: 'Back',
@@ -311,6 +312,7 @@ class _TopActionsBar extends StatelessWidget {
           ),
           const Spacer(),
           WaveGlass(
+            blur: false,
             borderRadius: WaveRadius.menuRadius,
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             child: Row(
@@ -685,16 +687,18 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       height: size,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
+        // Kept shallow on purpose: large blurs over a full-window ambient
+        // stage retain big GPU surfaces on Windows ANGLE.
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: dark ? 0.58 : 0.30),
-            blurRadius: 48,
-            offset: const Offset(0, 22),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
           ),
           BoxShadow(
             color: Colors.black.withValues(alpha: dark ? 0.35 : 0.15),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -848,6 +852,7 @@ class _TrackMetadataSection extends ConsumerWidget {
         if (stream != null) ...[
           const SizedBox(height: 8),
           WaveGlass(
+            blur: false,
             borderRadius: WaveRadius.controlsRadius,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Text(
@@ -890,6 +895,7 @@ class _UpNextPill extends ConsumerWidget {
         child: GestureDetector(
           onTap: () => ref.read(playbackServiceProvider.notifier).next(),
           child: WaveGlass(
+            blur: false,
             borderRadius: BorderRadius.circular(20),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: Row(

@@ -592,6 +592,11 @@ class _AppleArtworkAura extends ConsumerWidget {
 /// The `ImageShader` holds the cover scale + image-origin centering and is
 /// built once per (image, layout size). No animation: the painter draws a
 /// single still rect, so the stage rasterizes exactly once per change.
+///
+/// Half-resolution retained surface: the aura is a blur wash, so painting
+/// at 0.5x and upscaling is visually identical while the cached layer
+/// holds a quarter of the pixels. Full-window retained layers are the
+/// dominant RSS cost on Windows ANGLE.
 class _AuraLayers extends StatefulWidget {
   final ui.Image image;
 
@@ -653,15 +658,23 @@ class _AuraLayersState extends State<_AuraLayers> {
         if (!size.isFinite || size.isEmpty) {
           return const SizedBox.expand();
         }
-        return RepaintBoundary(
-          child: CustomPaint(
-            isComplex: false,
-            willChange: false,
-            painter: _AuraPainter(
-              shader: _shaderFor(size),
-              canvasSize: size,
+        final half = Size(size.width / 2, size.height / 2);
+        return SizedBox.expand(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox.fromSize(
+              size: half,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  isComplex: false,
+                  willChange: false,
+                  painter: _AuraPainter(
+                    shader: _shaderFor(half),
+                    canvasSize: half,
+                  ),
+                ),
+              ),
             ),
-            child: const SizedBox.expand(),
           ),
         );
       },

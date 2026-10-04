@@ -772,6 +772,7 @@ class _KaraokeToolbar extends ConsumerWidget {
         8,
       ),
       child: WaveGlass(
+        blur: false,
         borderRadius: WaveRadius.floatingRadius,
         padding: EdgeInsets.symmetric(
           horizontal: compact ? 10 : 14,
