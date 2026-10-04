@@ -339,7 +339,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     await restoreSession();
   }
 
-  void disposePlayer() {
+  /// Ordered teardown for app quit: awaits the queued mpv stop/dispose
+  /// so no texture callbacks fire after the Flutter view is destroyed
+  /// (release-only `flutter_windows+1e220` crash on close).
+  Future<void> disposePlayer() async {
     // Flush any past-threshold window before tearing down (manual pause/
     // app close would otherwise leave it only as “Scrobbling now”).
     _flushScrobble(completed: false);
@@ -355,17 +358,21 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _persistThrottle?.cancel();
     // Queue teardown behind any in-flight open: disposing mid-loadfile
     // is the same heap race as overlapping stop/open (Alt+F4 path).
+    // Awaited (not fire-and-forget): the quit path must not destroy
+    // the native window while the mpv dispose is still in flight.
     final player = _player;
     _player = null;
     if (player != null) {
-      unawaited(_serializedMpv(() async {
-        try {
-          await player.stop();
-        } catch (_) {}
-        try {
-          await player.dispose();
-        } catch (_) {}
-      }));
+      try {
+        await _serializedMpv(() async {
+          try {
+            await player.stop();
+          } catch (_) {}
+          try {
+            await player.dispose();
+          } catch (_) {}
+        }).timeout(const Duration(seconds: 2), onTimeout: () {});
+      } catch (_) {}
     }
   }
 
@@ -2070,6 +2077,8 @@ final playbackServiceProvider =
       } catch (_) {}
     },
   );
-  ref.onDispose(service.disposePlayer);
+  ref.onDispose(() {
+    unawaited(service.disposePlayer());
+  });
   return service;
 });

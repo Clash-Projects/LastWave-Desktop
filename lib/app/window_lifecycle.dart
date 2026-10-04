@@ -43,25 +43,38 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     } catch (_) {}
   }
 
-  /// Ordered shutdown: dispose libmpv while Dart is alive (an mpv
-  /// background thread outliving the isolate aborts the VM on Alt+F4),
-  /// then destroy. Never traps: timeouts/errors still destroy.
+  /// Ordered shutdown: await libmpv stop/dispose while Dart is alive
+  /// (texture callbacks after view teardown = the release-only
+  /// `flutter_windows+1e220` access violation on close), then release
+  /// the prevent-close hook and close once via WM_CLOSE. Never calls
+  /// `destroy()` (abrupt DestroyWindow re-enters the WndProc with a
+  /// half-torn-down view controller). Never traps: timeouts still close.
   Future<void> _quitApp() async {
     if (_quitting) return;
     _quitting = true;
     try {
-      await Future(() {
+      await Future(() async {
         try {
-          ref.read(playbackServiceProvider.notifier).disposePlayer();
+          await ref
+              .read(playbackServiceProvider.notifier)
+              .disposePlayer();
         } catch (_) {}
         try {
           // Best-effort: clear Discord status before the pipe dies.
-          ref.read(discordPresenceProvider).shutdown();
+          await ref.read(discordPresenceProvider).shutdown();
         } catch (_) {}
-      }).timeout(const Duration(seconds: 3), onTimeout: () {});
+      }).timeout(const Duration(seconds: 4), onTimeout: () {});
     } catch (_) {}
     try {
-      await windowManager.destroy();
+      windowManager.removeListener(this);
+    } catch (_) {}
+    try {
+      // Let the native WM_CLOSE path run exactly once. Calling close()
+      // with prevent-close still armed would re-fire onWindowClose.
+      await windowManager.setPreventClose(false);
+    } catch (_) {}
+    try {
+      await windowManager.close();
     } catch (_) {}
   }
 

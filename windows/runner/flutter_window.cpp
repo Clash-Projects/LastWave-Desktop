@@ -45,10 +45,15 @@ bool FlutterWindow::OnCreate() {
   // window is shown. It is a no-op if the first frame hasn't completed yet.
   flutter_controller_->ForceRedraw();
 
+  // Clear the teardown guard: Win32Window::Create() calls Destroy() (and
+  // thus OnDestroy()) before the window exists, which latches destroying_.
+  // From here on the view controller is live and delegates must run.
+  destroying_ = false;
   return true;
 }
 
 void FlutterWindow::OnDestroy() {
+  destroying_ = true;
   smtc_channel_.reset();
   wasapi_channel_.reset();
   if (flutter_controller_) {
@@ -63,7 +68,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
   // Give Flutter, including plugins, an opportunity to handle window messages.
-  if (flutter_controller_) {
+  // Never forward once destroy has begun: DestroyWindow() re-enters here
+  // on the same thread while flutter_controller_ is being torn down.
+  if (flutter_controller_ && !destroying_) {
     std::optional<LRESULT> result =
         flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
                                                       lparam);
@@ -74,7 +81,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
   switch (message) {
     case WM_FONTCHANGE:
-      flutter_controller_->engine()->ReloadSystemFonts();
+      if (flutter_controller_ && flutter_controller_->engine()) {
+        flutter_controller_->engine()->ReloadSystemFonts();
+      }
       break;
   }
 
