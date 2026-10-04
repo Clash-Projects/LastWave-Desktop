@@ -66,6 +66,45 @@ jobs:
       - name: Build Linux app
         run: flutter build linux --release
 
+      # Portable AppImage is release-only (v* tags). Assembles an AppDir
+      # from the pristine bundle and lets linuxdeploy vendor the full
+      # ldd closure (GTK, WebKit2GTK, libmpv) into the image, so it runs
+      # on distros with or without system libmpv.
+      #
+      # ORDER MATTERS: this runs BEFORE `Normalize libmpv linkage` below.
+      # The retarget rewrites NEEDED libmpv.so.1 -> .so.2 for deb/rpm, but
+      # 22.04 itself ships only .so.1 — linuxdeploy resolves deps via ldd
+      # on THIS host, so it must see the pristine .so.1 linkage to find
+      # and bundle the library. (Result: the AppImage embeds mpv 0.34 +
+      # its ffmpeg closure and is fully self-contained.)
+      #
+      # Tools run via --appimage-extract-and-run so the builder needs no
+      # FUSE. linuxdeploy names the output from the desktop Name field
+      # (LastWave-x86_64.AppImage); renamed to the release scheme after.
+      # Expect a large file (WebKit2GTK + mpv closure ride along).
+      - name: Build AppImage
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          export VERSION="${GITHUB_REF_NAME#v}"
+          echo "Building AppImage for version $VERSION"
+          TOOLS="$RUNNER_TEMP/appimage-tools"
+          mkdir -p "$TOOLS" AppDir/usr/bin
+          cp -a build/linux/x64/release/bundle/. AppDir/usr/bin/
+          wget -q -O "$TOOLS/linuxdeploy" https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q -O "$TOOLS/linuxdeploy-plugin-gtk.sh" https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          wget -q -O "$TOOLS/appimagetool" https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$TOOLS/linuxdeploy" "$TOOLS/linuxdeploy-plugin-gtk.sh" "$TOOLS/appimagetool"
+          export PATH="$TOOLS:$PATH"
+          export ARCH=x86_64
+          "$TOOLS/linuxdeploy" --appimage-extract-and-run \
+            --appdir AppDir \
+            -d linux/packaging/lastwave-appimage.desktop \
+            -i lastwave-logo.png \
+            --plugin gtk \
+            --output appimage
+          mv LastWave-x86_64.AppImage "lastwave_${VERSION}_x86_64.AppImage"
+          ls -la "lastwave_${VERSION}_x86_64.AppImage"
+
       # Ubuntu 22.04 ships mpv 0.34 whose SONAME is libmpv.so.1, so the
       # source-built media_kit plugins record NEEDED libmpv.so.1 — which
       # exists on NO modern distro (24.04+, Fedora, Arch ship only
@@ -110,9 +149,9 @@ jobs:
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           export VERSION="${GITHUB_REF_NAME#v}"
           echo "Packaging version $VERSION"
-          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager deb --target ./lastwave-desktop_${VERSION}_amd64.deb
-          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager rpm --target ./lastwave-desktop_${VERSION}_x86_64.rpm
-          ls -la lastwave-desktop_${VERSION}_amd64.deb lastwave-desktop_${VERSION}_x86_64.rpm
+          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager deb --target ./lastwave_${VERSION}_amd64.deb
+          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager rpm --target ./lastwave_${VERSION}_x86_64.rpm
+          ls -la lastwave_${VERSION}_amd64.deb lastwave_${VERSION}_x86_64.rpm
 
       - name: Upload Linux Packages
         if: startsWith(github.ref, 'refs/tags/v')
@@ -120,8 +159,15 @@ jobs:
         with:
           name: LastWave-Linux-Packages
           path: |
-            lastwave-desktop_*_amd64.deb
-            lastwave-desktop_*_x86_64.rpm
+            lastwave_*_amd64.deb
+            lastwave_*_x86_64.rpm
+
+      - name: Upload Linux AppImage
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-Linux-AppImage
+          path: lastwave_*_x86_64.AppImage
 
   build-windows:
     name: Build Windows Bundle
@@ -170,7 +216,26 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Windows-Installer
-          path: build\windows\installer\*.exe
+          path: build\windows\installer\lastwave_*.exe
+
+      # Portable zip is release-only (v* tags): the raw Release folder
+      # above zipped as-is (lastwave_desktop.exe + bundled DLLs/data),
+      # no install step — run in place.
+      - name: Build Windows portable zip
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $ver = '${{ github.ref_name }}'.TrimStart('v')
+          $zip = "lastwave_${ver}_windows-x86_64-portable.zip"
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath $zip -Force
+          Get-ChildItem $zip
+
+      - name: Upload Windows Portable
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-Windows-Portable
+          path: lastwave_*_windows-*-portable.zip
 
   release:
     name: Publish GitHub Release
@@ -183,18 +248,36 @@ jobs:
       # empty, and the release publishes with zero binaries. So each
       # tag artifact is downloaded by exact name (a missing artifact
       # fails its step loudly instead of publishing an empty release).
-      # Assets ride the release as raw files: .exe, .deb, .rpm
-      # (macOS stays a zip — a bare .app bundle isn't shippable).
+      # Assets ride the release as raw files:
+      #   lastwave_<ver>_amd64.deb
+      #   lastwave_<ver>_x86_64.rpm
+      #   lastwave_<ver>_x86_64.AppImage (portable Linux)
+      #   lastwave_<ver>_windows-x86_64-setup.exe (installer)
+      #   lastwave_<ver>_windows-x86_64-portable.zip (portable)
+      #   lastwave_<ver>_macos-arm64.zip (macOS stays a zip — a bare
+      #     .app bundle isn't shippable).
       - name: Download Windows installer
         uses: actions/download-artifact@v4
         with:
           name: LastWave-Windows-Installer
           path: dist
 
+      - name: Download Windows portable
+        uses: actions/download-artifact@v4
+        with:
+          name: LastWave-Windows-Portable
+          path: dist
+
       - name: Download Linux packages
         uses: actions/download-artifact@v4
         with:
           name: LastWave-Linux-Packages
+          path: dist
+
+      - name: Download Linux AppImage
+        uses: actions/download-artifact@v4
+        with:
+          name: LastWave-Linux-AppImage
           path: dist
 
       - name: Download macOS archive
@@ -243,10 +326,11 @@ jobs:
 
       - name: Compress macOS Bundle
         run: |
-          ditto -c -k --keepParent "build/macos/Build/Products/Release/lastwave_desktop.app" "LastWave-Desktop-macos.zip"
+          VERSION="${GITHUB_REF_NAME#v}"
+          ditto -c -k --keepParent "build/macos/Build/Products/Release/lastwave_desktop.app" "lastwave_${VERSION}_macos-arm64.zip"
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Desktop-macOS
-          path: LastWave-Desktop-macos.zip
+          path: lastwave_*_macos-*.zip

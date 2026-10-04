@@ -1,10 +1,18 @@
 # LastWave — Linux system packages (deb + rpm) via nFPM.
 # Built ONLY for releases (v* tags); see .github/workflows/desktop.yml.
 # VERSION comes from the tag (v1.0.0 -> 1.0.0); nFPM expands env vars.
-name: lastwave-desktop
+name: lastwave
 arch: amd64
 platform: linux
 version: ${VERSION}
+# Transitional shims for the v1.0.0 rename (lastwave-desktop -> lastwave):
+# deb maps replaces->Replaces, conflicts->Conflicts; rpm maps
+# replaces->Obsoletes. Lets the new package supersede the old name
+# instead of co-installing under /opt/lastwave twice.
+replaces:
+  - lastwave-desktop
+conflicts:
+  - lastwave-desktop
 section: sound
 priority: optional
 maintainer: Clash-Projects <https://github.com/Clash-Projects/LastWave-Desktop>
