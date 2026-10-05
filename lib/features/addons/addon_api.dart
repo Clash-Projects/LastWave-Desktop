@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../core/env/app_env.dart';
+import '../../core/matching/match_vocab.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/storage/prefs.dart';
 import '../lossless/lossless_source.dart';
@@ -288,6 +290,120 @@ class AddonApi implements LosslessSource {
     if (w.isNotEmpty) return -2; // wanted remix, got original
     return -1; // wanted original, got remix
   }
+  /// Label filler that never distinguishes recordings: parental tags,
+  /// upload labels and the bare feat keywords left over after the credit
+  /// itself is removed. Real version billing (remix/live/acoustic/edit/
+  /// …, remixer names, extra vocalists) is NOT here.
+  static const Set<String> _versionNeutralWords =
+      MatchVocab.neutralWords;
+
+  /// Dash-separated title forms for bilingual billing
+  /// ("よあけのうた - Yoake no uta" → whole + each half): the catalog
+  /// may hold either script, so every half scores as its own form.
+  /// Android parity (`LosslessMusicApi.parseTitle` keeps the non-artist
+  /// tail as the core); the artist gate still rejects true mismatches.
+  /// Halves without a letter are skipped ("10:15" must not match "10").
+  /// `/` never splits (`AC/DC`).
+  static List<String> _titleForms(String title) {
+    final forms = <String>[title];
+    final seen = <String>{title.toLowerCase()};
+    for (final half in title.split(_titleHalfSeparator)) {
+      final h = half.trim();
+      if (h.length < 2 || !seen.add(h.toLowerCase())) continue;
+      if (!RegExp(r'\p{L}', unicode: true).hasMatch(h)) continue;
+      forms.add(h);
+    }
+    return forms;
+  }
+
+  static final RegExp _titleHalfSeparator =
+      RegExp(r'\s*[-–—:|]+\s*');
+
+  /// Title comparison over all bilingual forms: max raw/stripped dice
+  /// plus stripped-exact across whole×whole, halves×whole and
+  /// whole×halves. Short-script halves ("Yoake no uta") match a
+  /// romaji catalog entry exactly even when the request carries kana.
+  static ({int raw, int stripped, bool exact}) _titleScore(
+      String candidateTitle, String wantedTitle) {
+    final wantStrippedForms =
+        _titleForms(wantedTitle).map(_strippedTitle).toList();
+    var raw = 0;
+    var stripped = 0;
+    var exact = false;
+    for (final wf in _titleForms(wantedTitle)) {
+      final cleanW = _clean(wf);
+      for (final cf in _titleForms(candidateTitle)) {
+        final cleanC = _clean(cf);
+        raw = max(raw, dice(cleanC, cleanW));
+        final strippedC = _strippedTitle(cf);
+        for (final ws in wantStrippedForms) {
+          stripped = max(
+              stripped, max(dice(cleanC, ws), dice(strippedC, ws)));
+          if (strippedC == ws && ws.isNotEmpty) exact = true;
+        }
+      }
+    }
+    return (raw: raw, stripped: stripped, exact: exact);
+  }
+
+  /// Tokens that make a title a different recording: the feat credit
+  /// plus leftover version billing, minus artist-name echoes (catalog
+  /// `swap_` composites echo "title feat artist artist") and label
+  /// filler. A candidate is a faithful version of a request when its
+  /// set is a subset of the request's: "… [Explicit]" and bare/bracket
+  /// feat spellings pass, a remix with an extra vocalist does not —
+  /// even though [bestMatches] ranks the remix below the original,
+  /// the resolver used to *serve* it once the top entry's fetch 502'd.
+  static Set<String> _distinguishingTokens(
+      String title, Set<String> artistTokens) {
+    final feat = _featPart(title)
+        .split(' ')
+        .where((t) => t.isNotEmpty)
+        .toSet();
+    final stripped = _strippedTitle(title)
+        .split(' ')
+        .where((t) => t.isNotEmpty)
+        .toSet();
+    final cleanToks = _clean(title)
+        .split(' ')
+        .where((t) => t.isNotEmpty)
+        .toSet();
+    final residual = cleanToks
+        .difference(stripped)
+        .difference(feat)
+        .difference(_versionNeutralWords);
+    // Bracket-independent version billing: the strip regexes only catch
+    // bracketed/bare-tail spellings, so a bare "Song Remix" or
+    // "Song Slowed + Reverb" would otherwise leave zero residual and
+    // look faithful. Any shared-vocab version word is distinguishing
+    // unless the request names it (subset check below).
+    final versionToks = cleanToks
+        .intersection(MatchVocab.versionWords)
+        .difference(MatchVocab.neutralWords);
+    return feat.union(residual).union(versionToks).difference(artistTokens);
+  }
+
+  /// Whether [candidateTitle] is the requested recording (not just the
+  /// same song): it must add no feat credit or version billing beyond
+  /// the request, in ANY bilingual form (either script alone may carry
+  /// the match). The stream resolver serves only faithful versions —
+  /// anything else falls through to YouTube's match instead of playing
+  /// the wrong recording in lossless.
+  static bool isFaithfulVersion(String candidateTitle,
+      {required String title, required String artist}) {
+    final artistTokens = _clean(artist)
+        .split(' ')
+        .where((t) => t.isNotEmpty)
+        .toSet();
+    final wantDists = _titleForms(title)
+        .map((f) => _distinguishingTokens(f, artistTokens))
+        .toList();
+    for (final cf in _titleForms(candidateTitle)) {
+      final cd = _distinguishingTokens(cf, artistTokens);
+      if (wantDists.any((wd) => cd.difference(wd).isEmpty)) return true;
+    }
+    return false;
+  }
   /// Comparison-only stripped title: "Dracula (feat. JENNIE)" → "dracula",
   /// "Starboy [Explicit]" → "starboy". Queries still use [_clean].
   static String _strippedTitle(String s) {
@@ -357,10 +473,12 @@ class AddonApi implements LosslessSource {
   }
 
   /// All passing candidates, best first under the same ranking.
-  /// The resolver walks this list so a server-side stream failure
-  /// (HTTP 502 minting one entry, as seen on a `swap_`-prefixed
-  /// Starboy composite) falls through to the next-best version
-  /// instead of dropping to YouTube.
+  /// The resolver walks the same-version head of this list so a
+  /// server-side stream failure (HTTP 502 minting one entry, as seen on
+  /// a `swap_`-prefixed Starboy composite) falls through to another
+  /// entry of the SAME recording instead of dropping to YouTube —
+  /// while a different version (remix/feat-variant) is never attempted,
+  /// so a fetch failure degrades to YouTube's correct match.
   static List<AddonTrack> bestMatches(
     List<AddonTrack> candidates, {
     required String title,
@@ -369,20 +487,17 @@ class AddonApi implements LosslessSource {
     String album = '',
   }) {
     final scored = <({AddonTrack track, int title, int feat, int raw, int album})>[];
-    final wantStripped = _strippedTitle(title);
     final wantAlbum = _clean(album);
     for (final c in candidates) {
-      final rawScore = dice(_clean(c.title), _clean(title));
-      final candStripped = _strippedTitle(c.title);
-      final s1 = dice(_clean(c.title), wantStripped);
-      final s2 = dice(candStripped, wantStripped);
-      final strippedScore = s1 > s2 ? s1 : s2;
+      // Bilingual-aware: any dash-separated half may carry the match
+      // ("よあけのうた - Yoake no uta" vs a romaji catalog entry).
       // Exact-after-strip ("dracula" == "dracula (feat jennie)")
       // passes even though raw dice is ~50 on short bases.
-      final strippedExact = _strippedTitle(c.title) == wantStripped &&
-          wantStripped.isNotEmpty;
-      final titleScore = rawScore > strippedScore ? rawScore : strippedScore;
-      if (!strippedExact && titleScore < 90) continue;
+      final ts = _titleScore(c.title, title);
+      final rawScore = ts.raw;
+      final titleScore =
+          rawScore > ts.stripped ? rawScore : ts.stripped;
+      if (!ts.exact && titleScore < 90) continue;
       if (!_artistOkFeatAware(
         cTitle: c.title,
         cArtist: c.artist,
@@ -425,17 +540,12 @@ class AddonApi implements LosslessSource {
         ..sort((a, b) => b.value.compareTo(a.value));
       final top = byRaw.take(3).map((e) {
         final c = e.key;
-        final rawScore = dice(_clean(c.title), _clean(title));
-        final candStripped = _strippedTitle(c.title);
-        final s1 = dice(_clean(c.title), wantStripped);
-        final s2 = dice(candStripped, wantStripped);
-        final strippedScore = s1 > s2 ? s1 : s2;
-        final strippedExact = candStripped == wantStripped &&
-            wantStripped.isNotEmpty;
+        final cts = _titleScore(c.title, title);
+        final rawScore = cts.raw;
         final titleScore =
-            rawScore > strippedScore ? rawScore : strippedScore;
+            rawScore > cts.stripped ? rawScore : cts.stripped;
         String reason;
-        if (!strippedExact && titleScore < 90) {
+        if (!cts.exact && titleScore < 90) {
           reason = 'title';
         } else if (!_artistOkFeatAware(
             cTitle: c.title,
@@ -836,13 +946,16 @@ class AddonApi implements LosslessSource {
 
   // -- LosslessSource ---------------------------------------------------------------
 
+  // v2: pre-fix rows could memoize a different recording version
+  // (remix served for an original) under the same key. Old keys miss
+  // and re-resolve through the same-version gate.
   String _streamCacheKey(String title, String artist, int tier) =>
-      'addon:${_clean(title)}|${_clean(artist)}|$tier';
+      'addon:v2:${_clean(title)}|${_clean(artist)}|$tier';
 
   @override
   void invalidateStream(
       {required String title, required String artist}) {
-    final prefix = 'addon:${_clean(title)}|${_clean(artist)}|';
+    final prefix = 'addon:v2:${_clean(title)}|${_clean(artist)}|';
     _streamCache.invalidateWhere((key) => key.startsWith(prefix));
   }
 
@@ -883,6 +996,35 @@ class AddonApi implements LosslessSource {
     }
   }
 
+  /// Search queries for a resolve: the two cleaned orders plus the raw
+  /// billing, then bilingual dash-halves (tail first — Android keeps the
+  /// non-artist tail as the core, so "よあけのうた - Yoake no uta" also
+  /// searches pure romaji). Capped so the concurrent fan-out stays
+  /// bounded; the pool is re-ranked once, so order only breaks ties.
+  static List<String> searchQueries(String title, String artist) {
+    final cleanT = _clean(title);
+    final cleanA = _clean(artist);
+    final out = <String>[];
+    void add(String q) {
+      final t = q.trim();
+      if (t.isNotEmpty && !out.contains(t)) out.add(t);
+    }
+
+    if (cleanA.isNotEmpty && cleanT.isNotEmpty) {
+      add('$cleanA $cleanT');
+      add('$cleanT $cleanA');
+    }
+    final halves = _titleForms(title);
+    if (halves.length > 1 && cleanA.isNotEmpty) {
+      for (var i = halves.length - 1; i >= 1; i--) {
+        final h = _clean(halves[i]);
+        if (h.isNotEmpty && h != cleanT) add('$h $cleanA');
+      }
+    }
+    add('$title $artist');
+    return out.take(4).toList();
+  }
+
   Future<ResolvedStream?> _resolveStreamUncached({
     required String title,
     required String artist,
@@ -890,18 +1032,13 @@ class AddonApi implements LosslessSource {
     required int expectedDurationSeconds,
     required int preferredQuality,
   }) async {
-    final cleanT = _clean(title);
-    final cleanA = _clean(artist);
     // Three queries, highest solo-hit-rate first: six concurrent
     // requests still shared the host throttle (~2.3s slowest), while
     // the dropped permutations (primary-artist, stripped-only,
     // title-only, title+album) almost never win the pooled ranking —
     // bestMatches re-ranks the union anyway, so recall is preserved.
-    final queries = {
-      if (cleanA.isNotEmpty && cleanT.isNotEmpty) '$cleanA $cleanT',
-      if (cleanA.isNotEmpty && cleanT.isNotEmpty) '$cleanT $cleanA',
-      '$title $artist',
-    }.where((q) => q.trim().isNotEmpty).take(3);
+    // A bilingual half-query joins them (see [searchQueries]).
+    final queries = searchQueries(title, artist);
     // Pool candidates across ALL queries, then rank once: per-query
     // winners with stripped-only scoring re-introduce the exact bug
     // being fixed (original beats remix). bestMatch already ranks by
@@ -957,19 +1094,44 @@ class AddonApi implements LosslessSource {
     // Bound the worst case: each match fans out over qualities ×
     // bases with 15s timeouts, so only the top few are worth trying
     // before YouTube (which is instant from cache) wins on latency.
-    final matches = bestMatches(
+    // Only faithful versions are attempted: entries that add a feat
+    // credit or version billing the request never named (remix/live/
+    // cover, a different vocalist) are skipped; serving them plays the
+    // wrong song, while a miss falls through to YouTube's (correct) match.
+    // This is the actual "Don’t Let Me Down" bug: the top
+    // `swap_` entry 502’d and the walk degraded into a remix.
+    final ranked = bestMatches(
       pool,
       title: title,
       artist: artist,
       album: album,
       expectedDurationSeconds: expectedDurationSeconds,
-    ).take(3).toList();
-    if (matches.isEmpty) {
+    ).toList();
+    if (ranked.isEmpty) {
       if (kDebugMode) {
         debugPrint('LastWave-Timing addon title="$title" '
             'search_ms=$searchMs fetch_ms=0 result=no-match');
       }
       return null;
+    }
+    final top = ranked.first;
+    final matches = ranked
+        .where(
+            (c) => isFaithfulVersion(c.title, title: title, artist: artist))
+        .take(3)
+        .toList();
+    if (matches.isEmpty) {
+      if (kDebugMode) {
+        debugPrint('LastWaveAddon stage=version-skip title="$title" '
+            'top="${top.title}" reason=no-faithful-version');
+        debugPrint('LastWave-Timing addon title="$title" '
+            'search_ms=$searchMs fetch_ms=0 result=version-skip');
+      }
+      return null;
+    }
+    if (kDebugMode && matches.length < ranked.length) {
+      debugPrint('LastWaveAddon stage=version-skip title="$title" '
+          'top="${top.title}" kept=${matches.length}/${ranked.length}');
     }
     var fetchAttempts = 0;
     final fetchSw = Stopwatch()..start();
@@ -1003,8 +1165,8 @@ class AddonApi implements LosslessSource {
       }
       if (kDebugMode) {
         // One entry's mint failed on every tier (e.g. HTTP 502 on a
-        // `swap_` composite) — the loop tries the next-best version
-        // rather than dropping straight to YouTube.
+        // `swap_` composite) — the loop tries the next entry of the
+        // SAME version rather than degrading into a remix.
         debugPrint('LastWaveAddon stage=fetch-fail id="${match.id}" '
             'title="${match.title}" attempts=$fetchAttempts');
       }

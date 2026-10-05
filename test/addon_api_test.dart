@@ -448,6 +448,125 @@ void main() {
       ).map((e) => e.id).toList();
       expect(ranked, ['remix', 'orig', 'wrong']);
     });
+
+    test('bilingual dash billing matches either script', () {
+      // よあけのうた case: Last.fm bills kana + romaji, the catalog may
+      // hold either half. Android parity (parseTitle keeps the tail).
+      expect(
+          AddonApi.bestMatch(
+            [t('1', 'Yoake no uta', 'jo0ji')],
+            title: 'よあけのうた - Yoake no uta',
+            artist: 'jo0ji',
+          )?.id,
+          '1');
+      expect(
+          AddonApi.bestMatch(
+            [t('1', 'よあけのうた - Yoake no uta', 'jo0ji')],
+            title: 'Yoake no uta',
+            artist: 'jo0ji',
+          )?.id,
+          '1');
+    });
+
+    test('numeric colon tails never split into halves', () {
+      // "10:15" must not match a catalog track billed "10".
+      expect(
+          AddonApi.bestMatch(
+            [t('1', '10', 'Neon Coast')],
+            title: '10:15',
+            artist: 'Neon Coast',
+          ),
+          isNull);
+    });
+  });
+
+  group('isFaithfulVersion', () {
+    bool faithful(String candidate, String title, String artist) =>
+        AddonApi.isFaithfulVersion(candidate,
+            title: title, artist: artist);
+
+    test('remix with extra vocalist is unfaithful to the original', () {
+      // Regression: the resolver served this remix for
+      // "Don't Let Me Down (feat. Daya)" after the top entry 502'd.
+      expect(
+          faithful(
+              "Don't Let Me Down (Dom Da Bomb & Electric Bodega Remix) (feat. Daya & Konshens)",
+              "Don't Let Me Down (feat. Daya)",
+              'The Chainsmokers'),
+          isFalse);
+    });
+
+    test('bracket vs bare feat and explicit noise stay faithful', () {
+      expect(
+          faithful('Dracula (feat. JENNIE)', 'Dracula (feat. JENNIE)',
+              'Tame Impala'),
+          isTrue);
+      expect(
+          faithful(
+              'Dracula feat JENNIE', 'Dracula (feat. JENNIE)', 'Tame Impala'),
+          isTrue);
+      expect(
+          faithful('Dracula (feat. JENNIE) [Explicit]',
+              'Dracula (feat. JENNIE)', 'Tame Impala'),
+          isTrue);
+    });
+
+    test('different featured artists are unfaithful', () {
+      expect(
+          faithful('Dracula (feat. 1nonly)', 'Dracula (feat. JENNIE)',
+              'Tame Impala'),
+          isFalse);
+    });
+
+    test('catalog artist echo is not version billing', () {
+      // swap_ composites echo "title feat artist artist".
+      expect(
+          faithful('starboy feat daft punk the weeknd',
+              'Starboy (feat. Daft Punk)', 'The Weeknd'),
+          isTrue);
+    });
+
+    test('plain original is faithful to a remix request (safe direction)',
+        () {
+      expect(
+          faithful('Dracula', 'Dracula (JENNIE Remix)', 'Tame Impala'),
+          isTrue);
+    });
+
+    test('bare version tails are unfaithful without brackets', () {
+      // The strip regexes only catch bracketed/bare-tail spellings they
+      // list; the token-level check covers the rest.
+      expect(faithful('Starboy Remix', 'Starboy', 'The Weeknd'), isFalse);
+      expect(
+          faithful('Go Down Deh Slowed + Reverb', 'Go Down Deh',
+              'Spice'),
+          isFalse);
+    });
+
+    test('bilingual halves are faithful in both directions', () {
+      expect(
+          faithful('Yoake no uta', 'よあけのうた - Yoake no uta', 'jo0ji'),
+          isTrue);
+      expect(
+          faithful('よあけのうた - Yoake no uta', 'Yoake no uta', 'jo0ji'),
+          isTrue);
+    });
+  });
+
+  group('searchQueries', () {
+    test('plain titles keep the three classic queries', () {
+      expect(
+          AddonApi.searchQueries('Starboy', 'The Weeknd'),
+          ['the weeknd starboy', 'starboy the weeknd',
+            'Starboy The Weeknd']);
+    });
+
+    test('bilingual titles add the tail-half query', () {
+      final qs = AddonApi.searchQueries(
+          'よあけのうた - Yoake no uta', 'jo0ji');
+      expect(qs, contains('yoake no uta jo0ji'));
+      expect(qs.length, lessThanOrEqualTo(4));
+    });
   });
 
   group('dice', () {
@@ -565,6 +684,76 @@ void main() {
       );
       expect(stream, isNotNull);
       expect(stream!.url, 'https://cdn.test/starboy.flac');
+    });
+
+    test('dead top match never degrades into a remix', () async {
+      // Don't Let Me Down case: the faithful entry 502s and only a
+      // remix is fetchable — the resolver must miss (YouTube serves the
+      // original) rather than play the remix in lossless.
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+      }
+      final token = _hex('f');
+      final dio = Dio();
+      dio.httpClientAdapter = _PerTrackAdapter(
+        searchPayload: {
+          'tracks': [
+            {
+              'id': 'swap_dead',
+              'title': 'dont let me down feat daya the chainsmokers',
+              'artist': 'The Chainsmokers',
+            },
+            {
+              'id': 'remix',
+              'title':
+                  "Don't Let Me Down (Dom Da Bomb & Electric Bodega Remix) (feat. Daya & Konshens)",
+              'artist': 'The Chainsmokers',
+            },
+          ],
+        },
+        deadIds: const {'swap_dead'},
+        streamPayload: {
+          'url': 'https://cdn.test/remix.flac',
+          'bitDepth': 16,
+          'sampleRate': 44100,
+        },
+      );
+      final api = AddonApi(['https://x.test/a/$token/'], dio);
+      final stream = await api.resolveStream(
+        title: "Don't Let Me Down (feat. Daya)",
+        artist: 'The Chainsmokers',
+      );
+      expect(stream, isNull);
+    });
+
+    test('bilingual request resolves a romaji catalog entry', () async {
+      // よあけのうた end-to-end: the gate must admit the romaji entry
+      // and the faithful check must let it fetch.
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+      }
+      final token = _hex('f');
+      final dio = Dio();
+      dio.httpClientAdapter = _PerTrackAdapter(
+        searchPayload: {
+          'tracks': [
+            {'id': 'good', 'title': 'Yoake no uta', 'artist': 'jo0ji'},
+          ],
+        },
+        deadIds: const {},
+        streamPayload: {
+          'url': 'https://cdn.test/yoake.flac',
+          'bitDepth': 24,
+          'sampleRate': 48000,
+        },
+      );
+      final api = AddonApi(['https://x.test/a/$token/'], dio);
+      final stream = await api.resolveStream(
+        title: 'よあけのうた - Yoake no uta',
+        artist: 'jo0ji',
+      );
+      expect(stream, isNotNull);
+      expect(stream!.url, 'https://cdn.test/yoake.flac');
     });
 
     test('tier 27 searches with hi_res knob (Android parity)', () async {

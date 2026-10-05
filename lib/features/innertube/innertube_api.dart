@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import '../../core/audio/stream_models.dart';
+import '../../core/matching/match_vocab.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/network/lastfm_crypto.dart';
 import '../../core/storage/app_database.dart';
@@ -634,30 +635,33 @@ class InnerTubeMusicApi {
     ),
   ];
 
-  // -- matching tables (mirror Android companion) --------------------------
-  static final RegExp _nonWord = RegExp(r'[^a-z0-9]+');
+  // -- matching tables (mirror Android companion TextMatch) --------------------
+  // Variant words live in [MatchVocab] (shared with the addon matcher);
+  // the rest mirrors LastWave-Native `TextMatch` exactly. Desktop-only
+  // additions are marked.
+  static final RegExp _nonWord =
+      RegExp(r'[^\p{L}\p{N}]+', unicode: true);
   static final RegExp _diacritics = RegExp(r'\p{M}+', unicode: true);
   static final RegExp _multiSpace = RegExp(r'\s+');
-  static const Set<String> _variantWords = {
-    'live', 'remix', 'karaoke', 'cover', 'instrumental', 'slowed',
-    'sped', 'nightcore', 'acoustic', 'demo', 'edit', 'remaster',
-    'remastered', 'mono', 'stereo',
-  };
+  static const Set<String> _variantWords = MatchVocab.versionWords;
   static const Set<String> _matchNoiseWords = {
     'official', 'audio', 'video', 'visualizer', 'lyrics', 'lyric',
+    'hd', 'hq', '4k', 'track', 'music',
   };
   static final RegExp _featuringClause = RegExp(
       r'[(\\[]\s*(feat(?:uring)?|ft)\.?\s+.*?[)\]]',
       caseSensitive: false);
-  // Version noise stripped for matching: explicit/clean tags and the
-  // slowed/sped/nightcore family behave like remasters — Last.fm bills
+  // Version/label noise stripped for matching. Android parity
+  // (TextMatch.VERSION_OR_LABEL_CLAUSE) plus the desktop-only explicit/
+  // clean tags and the slowed/sped/nightcore family: Last.fm bills
   // "CHUSAMBA [Explicit]" while YouTube lists "CHUSAMBA", and without
-  // stripping the title similarity (66) never clears the 72 gate, so
-  // playback dies on songs that plainly exist. Bare "sped" is
-  // deliberately absent (it would also eat "speed"); "sped up" covers
-  // the real billing.
+  // stripping the title similarity (66) never clears the gate, so
+  // playback dies on songs that plainly exist. Bare "sped" stays out of
+  // the regex (it would also eat "speed" as a substring); "sped up"
+  // covers the real billing. Token-level VARIANT_WORDS still carries
+  // bare "sped" (whole-word, so "speed" is safe).
   static final RegExp _versionClause = RegExp(
-      r'[(\\[][^)\]]*(live|remix|acoustic|demo|edit|remaster(?:ed)?|mono|stereo|explicit|clean|slowed|sped up|nightcore)[^)\]]*[)\]]',
+      r'[(\\[][^)\]]*(official|music\s*video|audio|video|visualizer|lyrics?|hd|hq|4k|live|remix|acoustic|demo|edit|remaster(?:ed)?|mono|stereo|deluxe|bonus|version|mix|extended|radio|explicit|clean|slowed|sped up|nightcore)[^)\]]*[)\]]',
       caseSensitive: false);
   static final RegExp _codecPattern =
       RegExp('codecs?=["\']([^"\']+)["\']', caseSensitive: false);
@@ -3319,32 +3323,158 @@ class InnerTubeMusicApi {
       .replaceAll(_featuringClause, ' ')
       .replaceAll(_versionClause, ' ');
 
-  /// Token-Dice similarity with substring fast-path (0â€“100).
+  /// Token-Dice similarity with substring fast-path (0–100).
   static int similarity(String a, String b) {
     final normA = normalize(a);
     final normB = normalize(b);
     if (normA == normB) return 100;
-    if (normA.isNotEmpty && normB.isNotEmpty) {
-      if (normA.contains(normB) || normB.contains(normA)) {
-        final shorter = min(normA.length, normB.length);
-        final longer = max(normA.length, normB.length);
-        final ratio = (shorter * 100) ~/ longer;
-        // Short titles ("Cider" in "Cinderella", "Piranha" in
-        // "Wisakda Me (Piranha, Pt. 2)") must not count as the same song.
-        if (shorter >= 8 && ratio >= 70) return max(85, ratio);
-      }
+    if (normA.isEmpty || normB.isEmpty) return 0;
+    if (normA.contains(normB) || normB.contains(normA)) {
+      final shorter = min(normA.length, normB.length);
+      final longer = max(normA.length, normB.length);
+      final ratio = (shorter * 100) ~/ longer;
+      // Short titles ("Cider" in "Cinderella", "Piranha" in
+      // "Wisakda Me (Piranha, Pt. 2)") must not count as the same song.
+      if (shorter >= 8 && ratio >= 70) return max(85, ratio);
     }
     final left = _tokens(a);
     final right = _tokens(b);
     if (left.isEmpty || right.isEmpty) return 0;
     final common = left.intersection(right).length;
     final dice = (200 * common) ~/ (left.length + right.length);
+    // Android-parity safe subset: a pure token subset only counts when
+    // every extra word is version/noise filler or a number. The old
+    // desktop gate returned 80 for ANY subset ≥2 tokens, so
+    // "Don't Let Me Down" scored 80 against a remix stuffing the same
+    // base words plus remixer names.
+    var subset = 0;
     final shorterCount = min(left.length, right.length);
-    final subset =
-        (common == shorterCount && common > 0 && shorterCount >= 2)
-            ? 80
-            : 0;
+    if (common == shorterCount && common > 0) {
+      final extra = left.union(right).difference(left.intersection(right));
+      if (extra.every((w) =>
+          _variantWords.contains(w) ||
+          _matchNoiseWords.contains(w) ||
+          _isDigits(w))) {
+        subset = 80;
+      }
+    }
     return max(dice, subset);
+  }
+
+  static bool _isDigits(String w) =>
+      w.isNotEmpty && w.codeUnits.every((c) => c >= 48 && c <= 57);
+
+  /// Android-parity title gate (TextMatch.isSafeTitleMatch): exact,
+  /// base-title-exact (feat/version noise stripped), safe-subset, else
+  /// similarity ≥ 65. Rejects different songs that share a word or two
+  /// while letting feat/version noise through to the scorer.
+  static bool isSafeTitleMatch(
+      String candidateTitle, String wantedTitle, String artist) {
+    final normWanted = normalize(wantedTitle);
+    final normCandidate = normalize(candidateTitle);
+    if (normWanted == normCandidate) return true;
+    if (normWanted.isEmpty || normCandidate.isEmpty) return false;
+
+    var cleanCandidate = normCandidate;
+    if (artist.trim().isNotEmpty) {
+      final normArtist = normalize(artist);
+      if (normArtist.isNotEmpty &&
+          cleanCandidate.startsWith(normArtist)) {
+        cleanCandidate = cleanCandidate
+            .substring(normArtist.length)
+            .trim()
+            .replaceAll(RegExp(r'^-'), '')
+            .trim();
+      }
+    }
+    if (cleanCandidate == normWanted) return true;
+
+    final baseWanted = normalize(baseTitle(wantedTitle));
+    final baseCandidate = normalize(baseTitle(cleanCandidate));
+    if (baseWanted.isNotEmpty && baseWanted == baseCandidate) return true;
+
+    final wantedTokens = _tokens(wantedTitle);
+    final candidateTokens = _tokens(cleanCandidate);
+    if (wantedTokens.isEmpty || candidateTokens.isEmpty) return false;
+
+    final common = wantedTokens.intersection(candidateTokens);
+    if (common.length == wantedTokens.length ||
+        common.length == candidateTokens.length) {
+      final extra = wantedTokens
+          .union(candidateTokens)
+          .difference(common);
+      final artistTokens =
+          artist.trim().isNotEmpty ? _tokens(artist) : <String>{};
+      final allowed = _variantWords
+          .union(_matchNoiseWords)
+          .union(artistTokens);
+      if (extra.every((w) => allowed.contains(w) || _isDigits(w))) {
+        return true;
+      }
+    }
+
+    final sim = max(
+      similarity(cleanCandidate, wantedTitle),
+      similarity(baseCandidate, baseWanted),
+    );
+    return sim >= 65;
+  }
+
+  /// Raw feature-credit substring from a title ("daya & konshens" from
+  /// "… (feat. Daya & Konshens)", "jennie" from "Dracula feat JENNIE").
+  /// Mirrors AddonApi._featPart so the YTM scorer ranks feat fidelity
+  /// the same way the lossless tier does.
+  static String _featPart(String title) {
+    final m1 = _featClause.firstMatch(title);
+    if (m1 != null) {
+      var inner = m1.group(0)!;
+      inner = inner.replaceAll(RegExp(r'^[\(\[]\s*'), '');
+      inner = inner.replaceAll(RegExp(r'[\)\]]\s*$'), '');
+      inner = inner.replaceAll(
+          RegExp(r'^(?:feat(?:uring)?|ft|with)\.?\s+',
+              caseSensitive: false),
+          '');
+      return normalize(inner);
+    }
+    final m2 = _trailingFeat.firstMatch(title);
+    if (m2 != null) {
+      var tail = m2.group(0)!;
+      tail = tail.replaceAll(
+          RegExp(r'^\s+(?:feat(?:uring)?|ft)\.?\s+',
+              caseSensitive: false),
+          '');
+      return normalize(tail);
+    }
+    return '';
+  }
+
+  static final RegExp _featClause = RegExp(
+      r'[\(\[]\s*(feat(?:uring)?|ft|with)\.?\s+[^\)\]]*[\)\]]',
+      caseSensitive: false);
+  static final RegExp _trailingFeat = RegExp(
+      r'\s+(?:feat(?:uring)?|ft)\.?\s+.+$',
+      caseSensitive: false);
+
+  /// Feature fidelity adjustment for [matchScore]: when stripping
+  /// equates the base titles, the feat credit decides. A different
+  /// featured artist (Daya vs Daya & Konshens, 1nonly vs JENNIE) is a
+  /// different recording and must rank below the faithful pick.
+  static int _featBonus(String candidateTitle, String wantedTitle) {
+    final c = _featPart(candidateTitle);
+    final w = _featPart(wantedTitle);
+    if (w.isEmpty && c.isEmpty) return 0;
+    if (w.isNotEmpty && c.isNotEmpty) {
+      if (c == w) return 300;
+      final ct = c.split(' ').toSet();
+      final wt = w.split(' ').toSet();
+      // Partial overlap (extra remixer vocalist): same song family,
+      // but not the requested recording.
+      if (ct.intersection(wt).isNotEmpty) return -100;
+      return -600;
+    }
+    // Wanted the feat version, got the bare base (or vice versa).
+    if (w.isNotEmpty) return -350;
+    return -250;
   }
 
   static int matchScore(
@@ -3353,12 +3483,12 @@ class InnerTubeMusicApi {
     final wantedArtist = normalize(artist);
     final candidateTitle = normalize(candidate.title);
     final candidateArtist = normalize(candidate.artist);
-    var score = max(
-            similarity(candidate.title, title),
-            similarity(
-                baseTitle(candidate.title), baseTitle(title))) *
-        5 +
-        similarity(candidate.artist, artist) * 3;
+    final titleSim = max(
+        similarity(candidate.title, title),
+        similarity(
+            baseTitle(candidate.title), baseTitle(title)));
+    final artistSim = similarity(candidate.artist, artist);
+    var score = titleSim * 5 + artistSim * 3;
     if (candidateTitle == wantedTitle) score += 600;
     if (wantedArtist.isNotEmpty &&
         candidateArtist == wantedArtist) {
@@ -3369,6 +3499,21 @@ class InnerTubeMusicApi {
         .intersection(_variantWords)
         .difference(wantedVariants);
     score -= unexpected.length * 250;
+    // Feat fidelity: the stripped-exact tie between an original and its
+    // remix/feat-variant breaks toward the requested credit (and an
+    // unexpected extra vocalist ranks as a different recording).
+    score += _featBonus(candidate.title, title);
+    // Android parity: a low artist similarity that isn't even a
+    // substring containment is a different act; a weak title is noise.
+    if (wantedArtist.isNotEmpty) {
+      final artistContains = candidateArtist.contains(wantedArtist) ||
+          wantedArtist.contains(candidateArtist);
+      final titleContainsArtist = candidateTitle.contains(wantedArtist);
+      if (artistSim < 35 && !artistContains && !titleContainsArtist) {
+        score -= 1000;
+      }
+    }
+    if (titleSim < 50) score -= 1500;
     return score;
   }
 
@@ -3425,20 +3570,69 @@ class InnerTubeMusicApi {
     return true;
   }
 
+  /// Android-parity pass gates for one search candidate: the title must
+  /// survive [isSafeTitleMatch] and the artist must be compatible
+  /// (similarity ≥ 30 or a containment either way, so "The Chainsmokers"
+  /// still matches "Chainsmokers" billing and collab billing still
+  /// matches its primary). Blank artist skips the artist gate.
+  static bool _passesGates(
+      YouTubeMusicTrack c, String title, String cleanArtist) {
+    if (!isSafeTitleMatch(c.title, title, cleanArtist)) return false;
+    if (cleanArtist.trim().isEmpty) return true;
+    final normC = normalize(c.artist);
+    final normW = normalize(cleanArtist);
+    return similarity(c.artist, cleanArtist) >= 30 ||
+        (normW.isNotEmpty &&
+            (normC.contains(normW) || normW.contains(normC))) ||
+        normalize(c.title).contains(normW);
+  }
+
+  /// Rejects stale v1 rows: a cached remix/live/cover for a request
+  /// that names no such variant, or a cached title whose feat credit
+  /// conflicts with the request, forces a fresh search instead of
+  /// replaying the wrong videoId forever.
+  static bool _cachedRowStillFaithful(
+      YouTubeMusicTrack cached, String title, String cleanArtist) {
+    if (!_passesGates(cached, title, cleanArtist)) return false;
+    final wantedVariants = _tokens(title).intersection(_variantWords);
+    if (wantedVariants.isEmpty &&
+        _tokens(cached.title).intersection(_variantWords).isNotEmpty) {
+      return false;
+    }
+    if (_featBonus(cached.title, title) <= -600) return false;
+    return true;
+  }
+
   /// Best match (throws [NoReliableMatchException] like Android's
   /// IOException when nothing is reliable).
+  ///
+  /// Cache keys are versioned (`v2|…`): the v1 scorer equated remixes
+  /// with originals through stripped titles, so poisoned disk rows (e.g.
+  /// a remix videoId stored for an original) must never be served again.
   Future<YouTubeMusicTrack> findBestMatch(
     String title,
     String artist, {
     bool prefetchStreams = false,
     Set<String> excludedVideoIds = const {},
   }) async {
-    final cacheKey = '${normalize(artist)}|${normalize(title)}';
+    final cleanArtist = artist.trim().isEmpty ||
+            artist.trim().toLowerCase() == 'unknown artist'
+        ? ''
+        : artist;
+    final cacheKey = 'v2|${normalize(cleanArtist)}|${normalize(title)}';
     final cached = _matchCache[cacheKey];
     if (cached != null &&
         !excludedVideoIds.contains(cached.videoId) &&
         cached.durationSeconds > 0) {
-      return cached;
+      // v2 re-validates rows written by the old scorer: a cached remix
+      // for a non-remix request is dropped and re-resolved below.
+      if (_cachedRowStillFaithful(cached, title, cleanArtist)) {
+        return cached;
+      }
+      _matchCache.remove(cacheKey);
+      try {
+        _disk?.deleteMatchesForVideo(cached.videoId);
+      } catch (_) {}
     }
     // Persistent match cache: instant reuse across restarts.
     if (excludedVideoIds.isEmpty) {
@@ -3457,9 +3651,14 @@ class InnerTubeMusicApi {
                   disk['artwork_url']?.toString() ?? '',
               durationSeconds: duration,
             );
-            if (duration > 0) {
+            if (duration > 0 &&
+                _cachedRowStillFaithful(track, title, cleanArtist)) {
               _matchCache[cacheKey] = track;
               return track;
+            } else if (duration > 0) {
+              try {
+                _disk?.deleteMatchesForVideo(dv);
+              } catch (_) {}
             }
           }
         }
@@ -3467,21 +3666,31 @@ class InnerTubeMusicApi {
     }
     final results = await searchSongs('$title $artist',
         limit: 30, prefetchStreams: false);
+    final pool = results
+        .where((c) =>
+            c.videoId.isNotEmpty &&
+            !excludedVideoIds.contains(c.videoId))
+        .toList();
     YouTubeMusicTrack? best;
+    // When the request names no variant (no "remix"/"live"/…), a
+    // same-words remix must never outrank the faithful pick: rank
+    // variant-free candidates first and only fall back to the variant
+    // pool when nothing faithful passes the gates.
+    final wantedVariants = _tokens(title).intersection(_variantWords);
+    List<YouTubeMusicTrack> preferred = pool;
+    if (wantedVariants.isEmpty) {
+      final faithful = pool
+          .where((c) =>
+              _tokens(c.title).intersection(_variantWords).isEmpty)
+          .toList();
+      if (faithful.any((c) => _passesGates(c, title, cleanArtist))) {
+        preferred = faithful;
+      }
+    }
     var bestScore = -1 << 30;
-    for (final c in results) {
-      if (c.videoId.isEmpty ||
-          excludedVideoIds.contains(c.videoId)) {
-        continue;
-      }
-      final titleSim = max(similarity(c.title, title),
-          similarity(baseTitle(c.title), baseTitle(title)));
-      if (titleSim < 72) continue;
-      if (artist.trim().isNotEmpty &&
-          similarity(c.artist, artist) < 50) {
-        continue;
-      }
-      final score = matchScore(c, title, artist);
+    for (final c in preferred) {
+      if (!_passesGates(c, title, cleanArtist)) continue;
+      final score = matchScore(c, title, cleanArtist);
       if (score > bestScore) {
         bestScore = score;
         best = c;
@@ -3559,7 +3768,7 @@ class InnerTubeMusicApi {
   /// Tier 0 is the strict match (cached, instant on repeats). Tier 1
   /// retries with the primary artist for collab/featured billing
   /// ("IKKA; Dino James; Badshah" → "IKKA"). Tier 2 drops the artist
-  /// entirely — title-strong (≥72) wins via the exact-title bonus and
+  /// entirely — title-strong wins via the exact-title bonus and
   /// variant penalties already inside [findBestMatch].
   ///
   /// Deliberately does NOT poison the match cache: tier 1/2 hits stay
@@ -3616,7 +3825,7 @@ class InnerTubeMusicApi {
       {String? title, String? artist}) {
     if (track.videoId.isEmpty) return;
     final cacheKey =
-        '${normalize(artist ?? track.artist)}|${normalize(title ?? track.title)}';
+        'v2|${normalize(artist ?? track.artist)}|${normalize(title ?? track.title)}';
     _matchCache[cacheKey] = track;
     try {
       _disk?.saveMatchEntry(
