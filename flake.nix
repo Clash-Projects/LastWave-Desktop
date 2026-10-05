@@ -98,8 +98,8 @@
           });
 
         lastwave = pkgs.flutter.buildFlutterApplication {
-          pname = "lastwave-desktop";
-          version = "1.0.0";
+          pname = "lastwave";
+          version = "1.1.0";
           src = ./.;
 
           autoPubspecLock = ./pubspec.lock;
@@ -149,6 +149,8 @@
       in {
         packages = {
           default = lastwave;
+          lastwave = lastwave;
+          # Transitional alias for the rename (lastwave-desktop -> lastwave).
           lastwave-desktop = lastwave;
         };
 
