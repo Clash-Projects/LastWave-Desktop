@@ -99,7 +99,7 @@
 
         lastwave = pkgs.flutter.buildFlutterApplication {
           pname = "lastwave";
-          version = "1.1.0";
+          version = "1.1.1";
           src = ./.;
 
           autoPubspecLock = ./pubspec.lock;
@@ -141,7 +141,7 @@
           meta = with lib; {
             description = "Next-Gen Lossless Music player with Algorithmic Smart Playlist Generator";
             homepage = "https://github.com/Clash-Projects/LastWave-Desktop";
-            license = licenses.gpl3Plus;
+            license = licenses.unfree;
             platforms = ["x86_64-linux" "aarch64-linux"];
             mainProgram = "lastwave_desktop";
           };
