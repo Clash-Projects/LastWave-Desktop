@@ -195,6 +195,16 @@ class YtWebLogin {
   /// (ASCII-only: compared byte-wise in native code).
   static const _windowTitle = 'LastWave YouTube Sign In';
 
+  /// Appended to the system WebView's default UA before the first
+  /// navigation. On macOS the plugin hosts a WKWebView whose default
+  /// Safari UA (no `Chrome/` token) makes music.youtube.com render
+  /// "not optimized for your browser". The native call sets
+  /// `customUserAgent = defaultUA + suffix`, so the leading space
+  /// matters. Called once per window creation; the cached window
+  /// keeps it for reuse.
+  static const _macChromeSuffix =
+      ' Chrome/131.0.0.0 Safari/537.36';
+
   static Future<Webview?> _ensureWindow() async {
     final cached = _cachedWindow;
     if (cached != null) {
@@ -229,6 +239,11 @@ class YtWebLogin {
         ),
       );
       _cachedWindow = w;
+      if (Platform.isMacOS) {
+        try {
+          await w.setApplicationNameForUserAgent(_macChromeSuffix);
+        } catch (_) {}
+      }
       // If the window ever really dies, drop the cache so the next
       // sign-in creates a fresh window instead of talking to a dead one.
       unawaited(w.onClose.then((_) {
