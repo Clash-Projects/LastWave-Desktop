@@ -66,25 +66,13 @@ jobs:
       - name: Build Linux app
         run: flutter build linux --release
 
-      # Portable AppImage is release-only (v* tags). Assembles an AppDir
-      # from the pristine bundle and lets linuxdeploy vendor the full
-      # ldd closure (GTK, WebKit2GTK, libmpv) into the image, so it runs
-      # on distros with or without system libmpv.
-      #
-      # ORDER MATTERS: this runs BEFORE `Normalize libmpv linkage` below.
-      # The retarget rewrites NEEDED libmpv.so.1 -> .so.2 for deb/rpm, but
-      # 22.04 itself ships only .so.1 — linuxdeploy resolves deps via ldd
-      # on THIS host, so it must see the pristine .so.1 linkage to find
-      # and bundle the library. (Result: the AppImage embeds mpv 0.34 +
-      # its ffmpeg closure and is fully self-contained.)
-      #
-      # Tools run via --appimage-extract-and-run so the builder needs no
-      # FUSE. linuxdeploy names the output from the desktop Name field
-      # (LastWave-x86_64.AppImage); renamed to the release scheme after.
-      # Icon is a pre-scaled 512px copy: linuxdeploy rejects icons larger
-      # than 512x512, and lastwave-logo.png is 1024px (keep that source
-      # for deb/rpm/macOS; do NOT point -i back at it).
-      # Expect a large file (WebKit2GTK + mpv closure ride along).
+      # Portable AppImage, release-only (v* tags). linuxdeploy vendors the
+      # full ldd closure (GTK, WebKit2GTK, libmpv) into the image.
+      # ORDER: must run BEFORE `Normalize libmpv linkage` — linuxdeploy
+      # resolves deps via ldd on this host, so it needs the pristine .so.1
+      # linkage (22.04 has no .so.2) to find and bundle libmpv.
+      # Icon must stay 512px max and named lastwave.png (matches desktop
+      # Icon=lastwave by basename; linuxdeploy rejects anything else).
       - name: Build AppImage
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -102,10 +90,17 @@ jobs:
           "$TOOLS/linuxdeploy" --appimage-extract-and-run \
             --appdir AppDir \
             -d linux/packaging/lastwave-appimage.desktop \
-            -i linux/packaging/lastwave-icon-512.png \
-            --plugin gtk \
-            --output appimage
-          mv LastWave-x86_64.AppImage "lastwave_${VERSION}_x86_64.AppImage"
+            -i linux/packaging/lastwave.png \
+            --plugin gtk
+          # Dart dlopens UNVERSIONED names first (media_kit: libmpv.so,
+          # sqflite: libsqlite3.so) but linuxdeploy vendors only SONAMEs.
+          # Without these, the opens hit host -devel symlinks => a second
+          # copy of the lib (loader dedups by file, not name) => SIGSEGV.
+          # Same inode => one instance everywhere.
+          ln -sf libmpv.so.2 AppDir/usr/lib/libmpv.so
+          ln -sf libsqlite3.so.0 AppDir/usr/lib/libsqlite3.so
+          "$TOOLS/appimagetool" --appimage-extract-and-run \
+            AppDir "lastwave_${VERSION}_x86_64.AppImage"
           ls -la "lastwave_${VERSION}_x86_64.AppImage"
 
       # Ubuntu 22.04 ships mpv 0.34 whose SONAME is libmpv.so.1, so the

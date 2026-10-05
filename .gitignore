@@ -52,3 +52,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local AppImage assembly (CI builds these on tags; see desktop.yml)
+/AppDir/
+*.AppImage
