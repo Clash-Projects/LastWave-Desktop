@@ -417,8 +417,24 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
               MediaTagger.remuxWebmOpusToOgg(audioBytes, tags);
           finalExt = 'opus';
         } else if (container == 'mp4') {
-          outBytes = MediaTagger.tagM4a(audioBytes, tags);
-          finalExt = 'm4a';
+          // FLAC-in-MP4 (addon DASH assemblies) must not stay `.m4a`:
+          // transmux to native FLAC. Lossy `mp4a`/ALAC stay `.m4a`.
+          // A failed remux falls back to a tagged `.m4a` (cover +
+          // text preserved) — raw untagged bytes are the last resort
+          // in the outer catch only.
+          if (MediaTagger.isFlacInMp4(audioBytes)) {
+            try {
+              outBytes =
+                  MediaTagger.remuxFlacInMp4ToFlac(audioBytes, tags);
+              finalExt = 'flac';
+            } catch (_) {
+              outBytes = MediaTagger.tagM4a(audioBytes, tags);
+              finalExt = 'm4a';
+            }
+          } else {
+            outBytes = MediaTagger.tagM4a(audioBytes, tags);
+            finalExt = 'm4a';
+          }
         } else if (container == 'flac') {
           outBytes = MediaTagger.tagFlac(audioBytes, tags);
           finalExt = 'flac';

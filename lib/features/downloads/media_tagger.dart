@@ -14,10 +14,16 @@ import 'dart:typed_data';
 ///   repackaged audio packets with correct granule positions.
 /// - FLAC gets rebuilt `VORBIS_COMMENT` + `PICTURE` blocks (seektable is
 ///   dropped — its absolute offsets would be wrong after the rebuild).
+/// - FLAC-in-MP4 (addon DASH assemblies: `iso8/mp41dashcmfc` with an
+  ///   `fLaC` sample entry) is transmuxed into a native `.flac` file:
+  ///   `STREAMINFO` from the `dfLa` box + raw FLAC frames from the
+  ///   `mdat` boxes (sized by the `moof/traf/trun` entries), then tagged
+  ///   via [tagFlac]. A bit-for-bit remux — no decode, still lossless.
 /// - MP3 gets a fresh ID3v2.3 tag (`TIT2/TPE1/TALB/USLT/APIC`).
 /// - M4A gets a `moov/udta/meta/ilst` tag (`©nam/©ART/©alb/©lyr/covr`)
 ///   with `stco/co64` offset fixup. Fragmented files without a `moov`
-///   box are left untouched.
+///   box are left untouched. FLAC-in-MP4 never stays `.m4a` — see
+///   [remuxFlacInMp4ToFlac].
 ///
 /// Every entry point throws [TaggerSkip] when the input is not in the
 /// expected shape — callers must catch it and keep the untagged bytes
@@ -410,6 +416,290 @@ class MediaTagger {
     out.setRange(moov.boxStart + newMoov.length, out.length,
         m4a.sublist(moov.boxStart + oldTotal));
     return out;
+  }
+
+  // -- FLAC-in-MP4 (fLaC sample entry -> native FLAC) --------------------------
+
+  /// Audio sample-entry fourcc of the first audio track (`fLaC`, `alac`,
+  /// `mp4a`, ...). Throws [TaggerSkip] when there is no `moov/stsd`.
+  static String mp4AudioSampleEntry(Uint8List mp4) {
+    final entry = _mp4FirstAudioSampleEntry(mp4);
+    return entry.$1;
+  }
+
+  /// True when [mp4] is FLAC-in-MP4 (sample entry `fLaC`/`flac` with a
+  /// `dfLa` box). Never throws — returns false on any unparseable input.
+  static bool isFlacInMp4(Uint8List mp4) {
+    try {
+      final entry = _mp4FirstAudioSampleEntry(mp4);
+      return entry.$1 == 'fLaC' || entry.$1 == 'flac';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Transmuxes FLAC-in-MP4 into a tagged native FLAC file.
+  ///
+  /// `STREAMINFO` comes from the `dfLa` box, audio frames from the
+  /// `mdat` boxes (sized by the `moof/traf/trun` sample-size entries
+  /// for fragmented DASH assemblies). The result is passed through
+  /// [tagFlac] so title/artist/album/lyrics/cover are embedded.
+  ///
+  /// Throws [TaggerSkip] on any structural surprise (non-FLAC entry,
+  /// progressive layout without `moof`, size mismatch, bad frame sync)
+  /// — callers must keep the `.m4a` bytes in that case.
+  static Uint8List remuxFlacInMp4ToFlac(Uint8List mp4, DownloadTags tags) {
+    final entry = _mp4FirstAudioSampleEntry(mp4);
+    final fourcc = entry.$1;
+    if (fourcc != 'fLaC' && fourcc != 'flac') {
+      throw TaggerSkip('mp4 entry $fourcc');
+    }
+    final streaminfo = _mp4FlacStreaminfo(entry.$2);
+    final frames = _mp4CollectFlacFrames(mp4);
+    if (frames.isEmpty) throw const TaggerSkip('no flac frames');
+    // Minimal native FLAC: header + single STREAMINFO block, then the
+    // raw frames. tagFlac rebuilds the metadata (comments + picture).
+    final head = Uint8List(4 + 4 + streaminfo.length);
+    head.setRange(0, 4, utf8.encode('fLaC'));
+    head[4] = 0x80; // last-block + type 0 (STREAMINFO)
+    head[5] = 0;
+    head[6] = 0;
+    head[7] = 34;
+    head.setRange(8, 8 + streaminfo.length, streaminfo);
+    final total = head.length + frames.length;
+    if (total > 512 * 1024 * 1024) {
+      throw const TaggerSkip('flac too large');
+    }
+    final minimal = Uint8List(total);
+    minimal.setRange(0, head.length, head);
+    minimal.setRange(head.length, total, frames);
+    return tagFlac(minimal, tags);
+  }
+
+  /// (fourcc, full sample-entry bytes incl. size+type header) of the
+  /// first audio track's sample entry.
+  static (String, Uint8List) _mp4FirstAudioSampleEntry(Uint8List d) {
+    final top = _mp4ReadBoxes(d, 0, d.length);
+    _Mp4Box? moov;
+    for (final b in top) {
+      if (b.type == 'moov') moov = b;
+    }
+    if (moov == null) throw const TaggerSkip('no moov');
+    final traks = _mp4FindChildren(d, moov, 'trak');
+    for (final trak in traks) {
+      final mdias = _mp4FindChildren(d, trak, 'mdia');
+      for (final mdia in mdias) {
+        final minf = _mp4FindChild(d, mdia, 'minf');
+        if (minf == null) continue;
+        final stbl = _mp4FindChild(d, minf, 'stbl');
+        if (stbl == null) continue;
+        final stsd = _mp4FindChild(d, stbl, 'stsd');
+        if (stsd == null) continue;
+        final payload = d.sublist(stsd.contentStart, stsd.contentEnd);
+        if (payload.length < 8) throw const TaggerSkip('bad stsd');
+        final entryCount = _readU32be(payload, 4);
+        var pos = 8;
+        for (var i = 0; i < entryCount; i++) {
+          if (pos + 8 > payload.length) {
+            throw const TaggerSkip('stsd overrun');
+          }
+          final size = _readU32be(payload, pos);
+          final fourcc = String.fromCharCodes(payload.sublist(pos + 4, pos + 8));
+          if (size < 8 || pos + size > payload.length) {
+            throw const TaggerSkip('stsd entry overrun');
+          }
+          // First entry of the first audio track wins. Non-audio tracks
+          // (e.g. cover-art video track) are skipped by checking the
+          // handler: only `soun` tracks are considered.
+          if (_mp4TrackIsAudio(d, trak)) {
+            return (fourcc,
+                Uint8List.fromList(payload.sublist(pos, pos + size)));
+          }
+          pos += size;
+        }
+      }
+    }
+    throw const TaggerSkip('no audio stsd');
+  }
+
+  static bool _mp4TrackIsAudio(Uint8List d, _Mp4Box trak) {
+    try {
+      final mdias = _mp4FindChildren(d, trak, 'mdia');
+      for (final mdia in mdias) {
+        final hdlr = _mp4FindChild(d, mdia, 'hdlr');
+        if (hdlr == null) continue;
+        final payload = d.sublist(hdlr.contentStart, hdlr.contentEnd);
+        // hdlr content: version/flags(4) + pre_defined(4) + handler(4).
+        if (payload.length >= 12) {
+          final handler =
+              String.fromCharCodes(payload.sublist(8, 12));
+          if (handler == 'soun') return true;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// 34-byte STREAMINFO body from an `fLaC` sample entry.
+  static Uint8List _mp4FlacStreaminfo(Uint8List entry) {
+    // Entry: size(4) + type(4) + fixed sample-entry fields(28) +
+    // sub-boxes. dfLa is a FullBox: size + type + version/flags(4) +
+    // FLAC block header(4: 0x80/0x00 + type 0 + len 34) + STREAMINFO(34).
+    if (entry.length < 8 + 28 + 8) {
+      throw const TaggerSkip('short flac entry');
+    }
+    final payload = entry.sublist(8);
+    var pos = 28;
+    while (pos + 8 <= payload.length) {
+      final size = _readU32be(payload, pos);
+      if (size < 8 || pos + size > payload.length) {
+        throw const TaggerSkip('flac box overrun');
+      }
+      final type = String.fromCharCodes(payload.sublist(pos + 4, pos + 8));
+      if (type == 'dfLa') {
+        final body = payload.sublist(pos + 8, pos + size);
+        if (body.length < 4 + 4 + 34) {
+          throw const TaggerSkip('short dfLa');
+        }
+        final blockHeader = body.sublist(4, 8);
+        final streaminfo = body.sublist(8, 8 + 34);
+        // Tolerate both last-flag states; type must be 0 (STREAMINFO)
+        // with length 34.
+        if ((blockHeader[0] & 0x7F) != 0 ||
+            blockHeader[1] != 0 ||
+            blockHeader[2] != 0 ||
+            blockHeader[3] != 34) {
+          throw const TaggerSkip('bad dfLa header');
+        }
+        return Uint8List.fromList(streaminfo);
+      }
+      pos += size;
+    }
+    throw const TaggerSkip('no dfLa');
+  }
+
+  /// Concatenated raw FLAC frames from a fragmented MP4 (moof/mdat).
+  /// Sizes come from every `trun` sample-size entry in file order and
+  /// must exactly cover the concatenated `mdat` payloads.
+  static Uint8List _mp4CollectFlacFrames(Uint8List d) {
+    final top = _mp4ReadBoxes(d, 0, d.length);
+    final hasMoof = top.any((b) => b.type == 'moof');
+    if (!hasMoof) {
+      throw const TaggerSkip('progressive flac-in-mp4 unsupported');
+    }
+    final sizes = <int>[];
+    final mdatPayloads = <Uint8List>[];
+    var totalMdat = 0;
+    for (final b in top) {
+      if (b.type == 'moof') {
+        sizes.addAll(_mp4TrunSampleSizes(d, b));
+      } else if (b.type == 'mdat') {
+        final payload =
+            d.sublist(b.contentStart, b.contentEnd);
+        mdatPayloads.add(payload);
+        totalMdat += payload.length;
+        if (totalMdat > 512 * 1024 * 1024) {
+          throw const TaggerSkip('mdat too large');
+        }
+      }
+    }
+    if (sizes.isEmpty) throw const TaggerSkip('no trun sizes');
+    var totalSizes = 0;
+    for (final s in sizes) {
+      if (s <= 0 || s > 16 * 1024 * 1024) {
+        throw const TaggerSkip('bad sample size');
+      }
+      totalSizes += s;
+    }
+    if (totalSizes != totalMdat) {
+      throw const TaggerSkip('size mismatch');
+    }
+    final out = Uint8List(totalMdat);
+    var w = 0;
+    for (final p in mdatPayloads) {
+      out.setRange(w, w + p.length, p);
+      w += p.length;
+    }
+    // Validate FLAC frame sync on every sample boundary: 0xFF + top 3
+    // bits set (0xF8..0xFF). Catches mis-slicing before writing.
+    var pos = 0;
+    for (final s in sizes) {
+      if (pos + 2 > out.length || pos + s > out.length) {
+        throw const TaggerSkip('frame overrun');
+      }
+      if (out[pos] != 0xFF || (out[pos + 1] & 0xF8) != 0xF8) {
+        throw const TaggerSkip('bad flac sync');
+      }
+      pos += s;
+    }
+    return out;
+  }
+
+  /// All `trun` sample sizes under a `moof`, in box order.
+  static List<int> _mp4TrunSampleSizes(Uint8List d, _Mp4Box moof) {
+    final sizes = <int>[];
+    final trafs = _mp4FindChildren(d, moof, 'traf');
+    for (final traf in trafs) {
+      final truns = _mp4FindChildren(d, traf, 'trun');
+      for (final trun in truns) {
+        final raw = d.sublist(trun.contentStart, trun.contentEnd);
+        if (raw.length < 8) throw const TaggerSkip('short trun');
+        final flags =
+            (raw[1] << 16) | (raw[2] << 8) | raw[3];
+        final sampleCount = _readU32be(raw, 4);
+        if (sampleCount <= 0 || sampleCount > 100000) {
+          throw const TaggerSkip('bad sample count');
+        }
+        var pos = 8;
+        if ((flags & 0x1) != 0) pos += 4; // data_offset
+        if ((flags & 0x4) != 0) pos += 4; // first_sample_flags
+        var perSample = 0;
+        var sizeOffset = 0;
+        if ((flags & 0x100) != 0) {
+          sizeOffset = perSample;
+          perSample += 4; // duration
+        }
+        var hasSize = false;
+        if ((flags & 0x200) != 0) {
+          sizeOffset = perSample;
+          perSample += 4; // size
+          hasSize = true;
+        }
+        if ((flags & 0x400) != 0) perSample += 4; // flags
+        if ((flags & 0x800) != 0) perSample += 4; // cts
+        if (!hasSize) throw const TaggerSkip('trun without sizes');
+        if (raw.length < pos + perSample * sampleCount) {
+          throw const TaggerSkip('trun overrun');
+        }
+        for (var i = 0; i < sampleCount; i++) {
+          sizes.add(_readU32be(raw, pos + i * perSample + sizeOffset));
+        }
+      }
+    }
+    return sizes;
+  }
+
+  static _Mp4Box? _mp4FindChild(Uint8List d, _Mp4Box parent, String type) {
+    final kids =
+        _mp4ReadBoxes(d, parent.contentStart, parent.contentEnd);
+    for (final k in kids) {
+      if (k.type == type) return k;
+    }
+    return null;
+  }
+
+  static List<_Mp4Box> _mp4FindChildren(
+      Uint8List d, _Mp4Box parent, String type) {
+    final kids =
+        _mp4ReadBoxes(d, parent.contentStart, parent.contentEnd);
+    return kids.where((k) => k.type == type).toList();
+  }
+
+  static int _readU32be(List<int> d, int off) {
+    return ((d[off] & 0xFF) << 24) |
+        ((d[off + 1] & 0xFF) << 16) |
+        ((d[off + 2] & 0xFF) << 8) |
+        (d[off + 3] & 0xFF);
   }
 
   // == internals: bytes ======================================================

@@ -719,6 +719,28 @@ class AddonApi implements LosslessSource {
       }
       return null;
     }();
+    // Prefer a progressive `.flac` URL when the payload offers one
+    // alongside a DASH manifest: native FLAC needs no transmux and
+    // downloads land as `.flac` directly. Only for lossless tiers —
+    // `high` (MP3) must never steal a FLAC URL meant for another tier.
+    if (!mp3) {
+      for (final u in urls) {
+        if (u.startsWith('data:')) continue;
+        if (u.split('?').first.toLowerCase().endsWith('.flac')) {
+          return ResolvedStream(
+            url: u,
+            mimeType: 'audio/flac',
+            bitrateKbps: bitrateKbps,
+            audioCodec: codec,
+            cacheKey: cacheKey,
+            isLossless: true,
+            bitDepth: bitDepth,
+            samplingRateKhz: sampleRate,
+            expiresAt: expiresAt,
+          );
+        }
+      }
+    }
     if (inlineManifest != null && inlineManifest.contains('<MPD')) {
       // Windows libmpv 0.36 dies on its second DASH manifest per
       // process, and full pre-assembly stalls first audio for tens
