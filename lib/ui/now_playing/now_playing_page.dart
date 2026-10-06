@@ -449,19 +449,20 @@ class _FsIconButtonState extends State<_FsIconButton> {
   }
 }
 
-/// Mutes karaoke tickers while the window is unfocused/minimized, on top
-/// of the visibility gate. Framework TickerMode: auto-resumes on focus,
-/// clock resyncs from the snapshot. Scoped ConsumerWidget so blur
-/// rebuilds only this leaf, never the page.
-class _FocusedTicker extends ConsumerWidget {
+/// Mutes karaoke tickers while the window is minimized/tray-hidden, on
+/// top of the lyrics-open gate. Side-by-side (unfocused but visible)
+/// keeps ticking. Framework TickerMode: auto-resumes on restore, clock
+/// resyncs from the snapshot. Scoped ConsumerWidget so visibility flips
+/// rebuild only this leaf, never the page.
+class _VisibleTicker extends ConsumerWidget {
   final bool enabled;
   final Widget child;
-  const _FocusedTicker({required this.enabled, required this.child});
+  const _VisibleTicker({required this.enabled, required this.child});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final focused = ref.watch(windowFocusedProvider);
-    return TickerMode(enabled: enabled && focused, child: child);
+    final visible = ref.watch(windowVisibleProvider);
+    return TickerMode(enabled: enabled && visible, child: child);
   }
 }
 
@@ -576,13 +577,13 @@ class _DesktopDualPane extends StatelessWidget {
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(16),
-                              // Offstage skips paint/raster + _FocusedTicker
+                              // Offstage skips paint/raster + _VisibleTicker
                               // mutes the 30Hz karaoke ticker while hidden
                               // at width 0 / opacity 0 or while the window
-                              // is unfocused. No visual change.
+                              // is minimized. No visual change.
                               child: Offstage(
                                 offstage: !lyricsVisible,
-                                child: _FocusedTicker(
+                                child: _VisibleTicker(
                                   enabled: lyricsVisible,
                                   child: WaveKaraokeLyricsView(
                                     track: track,
@@ -623,9 +624,9 @@ class _NarrowCenteredPane extends StatelessWidget {
     if (lyricsVisible) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        // No Offstage here (unmounted when hidden); focus mute only,
+        // No Offstage here (unmounted when hidden); minimize mute only,
         // for minimized narrow windows. No visual change.
-        child: _FocusedTicker(
+        child: _VisibleTicker(
           enabled: true,
           child: WaveKaraokeLyricsView(
             track: track,

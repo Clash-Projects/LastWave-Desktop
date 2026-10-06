@@ -41,9 +41,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
   String _openedUrl = '';
   bool _visible = false;
   bool _silenced = false;
-  // True only while paused solely because the window is unfocused.
-  // Resume on focus fires exclusively on this flag — user pauses, detach
-  // pauses, and track-change reloads never resume through it.
+  // True only while paused solely because the window is minimized or
+  // tray-hidden. Resume on restore fires exclusively on this flag — user
+  // pauses, detach pauses, and track-change reloads never resume through
+  // it. Merely unfocused (side-by-side) never sets it.
   bool _pausedForBackground = false;
   // Serializes native ops (open/stop/dispose): each waits for the previous.
   Future<void> _tail = Future.value();
@@ -97,13 +98,14 @@ class AnimatedArtworkSession extends ChangeNotifier {
     _notify();
   }
 
-  /// Window blur/focus from WindowLifecycle. Pauses decode while the
-  /// window is invisible (minimized/background); resumes on focus only
-  /// when this pause caused it. Pause/play are the lightest native ops —
-  /// no stop/dispose, no texture teardown (see class docs) — serialized
-  /// like every native op, never throws. Autoplay advancing tracks while
-  /// blurred still opens clips (attach path); the open guards below
-  /// re-pause them so nothing decodes invisibly.
+  /// Window minimize/restore from WindowLifecycle. Pauses decode while the
+  /// window is minimized or tray-hidden; resumes on restore only when
+  /// this pause caused it. Pause/play are the lightest native ops — no
+  /// stop/dispose, no texture teardown (see class docs) — serialized like
+  /// every native op, never throws. Autoplay advancing tracks while
+  /// hidden still opens clips (attach path); the open guards below
+  /// re-pause them so nothing decodes invisibly. Side-by-side
+  /// (unfocused but visible) never calls this.
   void setBackgrounded(bool backgrounded) {
     if (_disposed) return;
     if (!backgrounded) {
@@ -147,8 +149,8 @@ class AnimatedArtworkSession extends ChangeNotifier {
         try {
           await _player?.play();
         } catch (_) {}
-        // Blurred toggle/skip: don't decode invisibly (flag stays set
-        // so focus still resumes).
+        // Hidden toggle/skip: don't decode invisibly (flag stays set
+        // so restore still resumes).
         try {
           if (_pausedForBackground) await _player?.pause();
         } catch (_) {}
@@ -187,8 +189,8 @@ class AnimatedArtworkSession extends ChangeNotifier {
       );
       if (gen != _generation || _disposed) return;
       if (_pausedForBackground) {
-        // Autoplay advanced while blurred: keep the new clip paused
-        // (flag stays set so focus resumes into it).
+        // Autoplay advanced while hidden: keep the new clip paused
+        // (flag stays set so restore resumes into it).
         try {
           await player.pause();
         } catch (_) {}

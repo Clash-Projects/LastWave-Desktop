@@ -12,17 +12,18 @@ import 'lyrics_panel.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
-/// Mutes the karaoke ticker while the window is unfocused/minimized.
+/// Mutes the karaoke ticker while the window is minimized/tray-hidden.
 /// Route-mounted with no ancestor TickerMode, so this is the only gate.
-/// Framework mute auto-resumes on focus. No visual change.
+/// Side-by-side keeps ticking. Framework mute auto-resumes on restore.
+/// No visual change.
 class _ScreenTicker extends ConsumerWidget {
   final Widget child;
   const _ScreenTicker({required this.child});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final focused = ref.watch(windowFocusedProvider);
-    return TickerMode(enabled: focused, child: child);
+    final visible = ref.watch(windowVisibleProvider);
+    return TickerMode(enabled: visible, child: child);
   }
 }
 

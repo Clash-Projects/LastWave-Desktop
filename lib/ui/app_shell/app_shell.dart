@@ -49,10 +49,11 @@ class WaveShell extends ConsumerStatefulWidget {
 }
 
 /// Drawer lyrics gate: Offstage skips raster while shut; TickerMode mutes
-/// the karaoke ticker while shut OR while the window is unfocused.
-/// Single gate on purpose (nested TickerModes don't AND — nearest wins —
-/// so nothing may add an inner gate inside the side panel). Scoped
-/// ConsumerWidget so focus flips rebuild only this leaf, never the shell.
+/// the karaoke ticker while shut OR while the window is minimized.
+/// Side-by-side (unfocused but visible) keeps ticking. Single gate on
+/// purpose (nested TickerModes don't AND — nearest wins — so nothing may
+/// add an inner gate inside the side panel). Scoped ConsumerWidget so
+/// visibility flips rebuild only this leaf, never the shell.
 class _DrawerTicker extends ConsumerWidget {
   final bool open;
   final Widget child;
@@ -60,11 +61,11 @@ class _DrawerTicker extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final focused = ref.watch(windowFocusedProvider);
+    final visible = ref.watch(windowVisibleProvider);
     return Offstage(
       offstage: !open,
       child: TickerMode(
-        enabled: open && focused,
+        enabled: open && visible,
         child: child,
       ),
     );
