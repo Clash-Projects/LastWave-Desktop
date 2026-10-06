@@ -408,12 +408,15 @@ List<LyricLine> parseLrc(String lrc) {
       final calcDur = nextTime != null
           ? (nextTime - lineStart).clamp(80, 20000)
           : 4000;
+      // Keep the author spacing when the plain body carries
+      // punctuation the word join would rewrite.
+      final joined = words.map((w) => w.text).join(' ');
       result.add(LyricLine(
         timeMs: lineStart,
         durationMs: calcDur,
-        text: text.isNotEmpty
+        text: text.isNotEmpty && text.length >= joined.length
             ? text
-            : words.map((w) => w.text).join(' '),
+            : joined,
         syllables: words,
       ));
       continue;
@@ -452,9 +455,9 @@ int _wordStampToMs(String minRaw, String secRaw, String fracRaw) {
   return min * 60000 + sec * 1000 + fracMs;
 }
 
-/// Split an enhanced-LRC body at its inline word stamps. Text before the
-/// first stamp is sung from the line start; each stamped run ends at the
-/// next stamp, the next line, or +800ms.
+/// Split an enhanced-LRC body at its inline word stamps. Each stamped
+/// run ends at the next stamp, the next line, or +800ms. Text before the
+/// first stamp carries no timing (native parity: it is not a syllable).
 List<LyricSyllable> _parseWordRuns(
   String body,
   int lineStartMs,
@@ -463,19 +466,6 @@ List<LyricSyllable> _parseWordRuns(
   final marks = _wordStampRegex.allMatches(body).toList();
   if (marks.isEmpty) return const [];
   final words = <LyricSyllable>[];
-  final leading = body.substring(0, marks.first.start).trim();
-  if (leading.isNotEmpty) {
-    final firstStart = _wordStampToMs(
-      marks.first.group(1)!,
-      marks.first.group(2)!,
-      marks.first.group(3)!,
-    );
-    words.add(LyricSyllable(
-      timeMs: lineStartMs,
-      durationMs: (firstStart - lineStartMs).clamp(0, 1 << 31),
-      text: leading,
-    ));
-  }
   for (var i = 0; i < marks.length; i++) {
     final mark = marks[i];
     final until =

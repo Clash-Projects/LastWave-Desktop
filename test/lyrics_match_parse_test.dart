@@ -51,12 +51,12 @@ void main() {
   test('parseLrc extracts inline word stamps as syllables', () {
     final lines = parseLrc('[00:01.00]Hel<00:01.20>lo\n[00:05.00]Next\n');
     expect(lines.length, 2);
+    // Native parity: the author text wins when longer; only stamped
+    // runs become syllables.
     expect(lines.first.text, 'Hello');
-    expect(lines.first.syllables.length, 2);
-    expect(lines.first.syllables[0].text, 'Hel');
-    expect(lines.first.syllables[0].timeMs, 1000);
-    expect(lines.first.syllables[1].text, 'lo');
-    expect(lines.first.syllables[1].timeMs, 1200);
+    expect(lines.first.syllables.length, 1);
+    expect(lines.first.syllables[0].text, 'lo');
+    expect(lines.first.syllables[0].timeMs, 1200);
     expect(lines.first.text.contains('<'), isFalse);
   });
 
