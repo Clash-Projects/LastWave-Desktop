@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 
 import 'lyrics_models.dart';
@@ -767,4 +768,235 @@ bool _artistMatchesLoose(String candidate, String request) {
   if (candidate.isEmpty || request.isEmpty) return false;
   if (candidate.toLowerCase() == request.toLowerCase()) return true;
   return lyricsArtistsMatchStrict(candidate, request);
+}
+
+// -- Musixmatch (apic.musixmatch.com) ------------------------------------------
+// Line-sync from the largest catalogue via its web client. No API key:
+// requests carry the client's signature scheme plus a session token
+// that is refreshed when the service rejects it. Ported from native
+// `MusixmatchLyricsApi` (host verified alive 2026-10-06 via 401 JSON).
+
+const _mxmBase = 'https://apic.musixmatch.com/ws/1.1';
+const _mxmAppId = 'web-desktop-app-v1.0';
+const _mxmSigningSecret = 'RJDefUswhwjkZDeM';
+
+String? _mxmToken;
+
+String _twoDigits(int n) => n.toString().padLeft(2, '0');
+
+/// Sign a Musixmatch URL the web-client way: HMAC-SHA256 over
+/// `url + yyyyMMdd(UTC)`, Base64, appended with the sha256 protocol.
+/// [now] is injectable for deterministic tests.
+String musixmatchSign(String url, {DateTime? now}) {
+  final date = (now ?? DateTime.now()).toUtc();
+  final stamp = '${date.year}${_twoDigits(date.month)}${_twoDigits(date.day)}';
+  final hmac = Hmac(sha256, utf8.encode(_mxmSigningSecret));
+  final raw = hmac.convert(utf8.encode('$url$stamp')).bytes;
+  final signature = base64Encode(raw);
+  return '$url&signature=${Uri.encodeQueryComponent(signature)}&signature_protocol=sha256';
+}
+
+double musixmatchScore({
+  required String trackName,
+  required String artistName,
+  int? trackLength,
+  required String title,
+  required String artist,
+  required int seconds,
+}) {
+  var score = 0.0;
+  final name = trackName.trim().toLowerCase();
+  final targetTitle = title.trim().toLowerCase();
+  if (name == targetTitle) {
+    score += 80;
+  } else if (name.contains(targetTitle) || targetTitle.contains(name)) {
+    score += 40;
+  }
+  if (artistName.trim().toLowerCase().contains(artist.trim().toLowerCase())) {
+    score += 40;
+  }
+  if (trackLength != null && seconds > 0) {
+    final diff = (trackLength - seconds).abs();
+    if (diff <= 2) {
+      score += 30;
+    } else if (diff <= 5) {
+      score += 15;
+    } else if (diff <= 10) {
+      score += 5;
+    } else {
+      score -= 20;
+    }
+  }
+  return score;
+}
+
+/// `[{text, time:{total:sec}}]` subtitle JSON → LRC text.
+String musixmatchSubtitleToLrc(String subtitleBody) {
+  dynamic decoded;
+  try {
+    decoded = jsonDecode(subtitleBody);
+  } catch (_) {
+    return '';
+  }
+  if (decoded is! List) return '';
+  final buf = StringBuffer();
+  for (final item in decoded) {
+    if (item is! Map) continue;
+    final text = item['text']?.toString() ?? '';
+    if (text.trim().isEmpty) continue;
+    final time = item['time'];
+    final total =
+        time is Map ? (time['total'] as num?)?.toDouble() ?? 0 : 0.0;
+    final totalMs = (total * 1000).toInt();
+    final minutes = totalMs ~/ 60000;
+    final seconds = (totalMs ~/ 1000) % 60;
+    final millis = totalMs % 1000;
+    buf.write('[${_twoDigits(minutes)}:${_twoDigits(seconds)}.'
+        '${millis.toString().padLeft(3, '0')}]$text\n');
+  }
+  return buf.toString().trim();
+}
+
+Future<String?> _mxmGet(Dio dio, String url) async {
+  try {
+    final res = await dio.get(
+      url,
+      options: Options(headers: {'Accept': 'application/json'}),
+    );
+    final data = res.data;
+    if (data == null) return null;
+    if (data is String) return data;
+    return jsonEncode(data);
+  } catch (_) {
+    return null;
+  }
+}
+
+bool _mxmUnauthorized(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    final status = decoded['message']?['header']?['status_code'];
+    return status == 401 || status == 402;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<String?> _mxmTokenFor(Dio dio) async {
+  if (_mxmToken != null) return _mxmToken;
+  final body = await _mxmGet(dio, musixmatchSign('$_mxmBase/token.get?app_id=$_mxmAppId'));
+  if (body == null) return null;
+  try {
+    final token = jsonDecode(body)['message']?['body']?['user_token'];
+    if (token is String && token.isNotEmpty) {
+      _mxmToken = token;
+      return token;
+    }
+  } catch (_) {}
+  return null;
+}
+
+/// GET with the session token; refresh once when the service rejects it.
+Future<String?> _mxmSignedGet(Dio dio, String unsignedUrl) async {
+  final token = await _mxmTokenFor(dio);
+  if (token == null) return null;
+  final first =
+      await _mxmGet(dio, musixmatchSign('$unsignedUrl&usertoken=$token'));
+  if (first != null && !_mxmUnauthorized(first)) return first;
+  _mxmToken = null;
+  final fresh = await _mxmTokenFor(dio);
+  if (fresh == null) return null;
+  return _mxmGet(dio, musixmatchSign('$unsignedUrl&usertoken=$fresh'));
+}
+
+Future<List<Map<String, dynamic>>?> _mxmSearchTracks(
+  Dio dio,
+  String title,
+  String artist,
+) async {
+  final query =
+      '$_mxmBase/track.search?app_id=$_mxmAppId&q_track=${Uri.encodeQueryComponent(title)}&q_artist=${Uri.encodeQueryComponent(artist)}&f_has_lyrics=1&s_track_rating=desc&quorum_factor=1&page_size=10&page=1';
+  final body = await _mxmSignedGet(dio, query);
+  if (body == null) return null;
+  try {
+    final list = jsonDecode(body)['message']?['body']?['track_list'];
+    if (list is! List) return null;
+    return [
+      for (final item in list)
+        if (item is Map<String, dynamic>) item,
+    ];
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<LyricsResult?> fetchMusixmatch(
+  Dio dio, {
+  required String title,
+  required String artist,
+  int? durationSeconds,
+}) async {
+  if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+  try {
+    final seconds = durationSeconds ?? 0;
+    final tracks = await _mxmSearchTracks(dio, title, artist);
+    if (tracks == null || tracks.isEmpty) return null;
+    // Both sides must agree: title-exact homonyms and same-singer wrong
+    // songs otherwise win on a high partial score with wrong timing.
+    Map<String, dynamic>? best;
+    var bestScore = 0.0;
+    for (final wrapper in tracks) {
+      final track = wrapper['track'];
+      if (track is! Map<String, dynamic>) continue;
+      final artistOk = artist.trim().isEmpty ||
+          (track['artist_name']?.toString() ?? '')
+              .toLowerCase()
+              .contains(artist.trim().toLowerCase());
+      if (!artistOk) continue;
+      final score = musixmatchScore(
+        trackName: track['track_name']?.toString() ?? '',
+        artistName: track['artist_name']?.toString() ?? '',
+        trackLength: (track['track_length'] as num?)?.toInt(),
+        title: title,
+        artist: artist,
+        seconds: seconds,
+      );
+      if (score < 80 || score <= bestScore) continue;
+      bestScore = score;
+      best = track;
+    }
+    if (best == null) return null;
+    if ((best['has_subtitles'] as num?)?.toInt() != 1) return null;
+    final trackId = '${best['track_id']}';
+    final subBody = await _mxmSignedGet(
+      dio,
+      '$_mxmBase/track.subtitle.get?app_id=$_mxmAppId&track_id=${Uri.encodeQueryComponent(trackId)}&subtitle_format=mxm',
+    );
+    if (subBody == null) return null;
+    String? subtitle;
+    try {
+      subtitle =
+          jsonDecode(subBody)['message']?['body']?['subtitle']?['subtitle_body']
+              ?.toString();
+    } catch (_) {
+      return null;
+    }
+    if (subtitle == null || subtitle.isEmpty) return null;
+    final lrc = musixmatchSubtitleToLrc(subtitle);
+    if (lrc.isEmpty) return null;
+    final lines = parseLrc(lrc);
+    if (lines.isEmpty) return null;
+    // Server fuzzy-matches with no usable candidate identity: reject
+    // wrong-cut timelines before they poison line-sync.
+    if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
+    return LyricsResult(
+      lines: lines,
+      isSynced: true,
+      isWordSynced: lines.any((l) => l.hasSyllables),
+      plainLyrics: lines.map((l) => l.text).join('\n'),
+      source: 'Catalog (Line-Sync)',
+    );
+  } catch (_) {
+    return null;
+  }
 }
