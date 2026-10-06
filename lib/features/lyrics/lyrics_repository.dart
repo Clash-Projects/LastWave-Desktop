@@ -285,16 +285,19 @@ class LyricsRepository {
     final excludes = excludeProviderIds.toSet();
     final sortedExcludes = excludes.toList()..sort();
     final key =
-        '${_key(title, artist, album)}|$wordByWord|${preferred.id}|${sortedExcludes.join(',')}';
+        '${_key(title, artist, album)}|${durationSeconds ?? 0}|$wordByWord|${preferred.id}|${sortedExcludes.join(',')}';
     if (!forceRefresh) {
       final cached = _lookup(key);
+      // Any usable cached result is served: the key already encodes
+      // track + duration + display mode + provider + exclusions, and
+      // display() adapts word content to line mode. Falling through
+      // here re-fetches (and can overwrite the entry with empty).
       if (cached != null) {
         if (!cached.isEmpty) onPartialResult?.call(cached);
-        final fromLyrically = cached.source.toLowerCase().contains('apple');
-        if (cached.isWordSynced || fromLyrically || cached.isInstrumental) {
+        if (!cached.isEmpty) {
           return lyricsForDisplayMode(cached, wordByWord: wordByWord);
         }
-        if (cached.isEmpty) return cached;
+        return cached;
       }
     }
 
@@ -358,42 +361,56 @@ class LyricsRepository {
       }
     }
 
-    if (wordByWord) {
-      // Preferred word provider gets a bounded head start. Only
-      // word-sync (or a matching instrumental) short-circuits; its
-      // line-sync result is stashed as the top fallback.
-      if (preferred.isWordProvider && !excludes.contains(preferred.id)) {
-        LyricsResult? single;
-        try {
-          single = normalize(await fetchFromProvider(
-            preferred.id,
-            title: title,
-            artist: artist,
-            album: album,
-            durationSeconds: durationSeconds,
-            videoId: videoId,
-          ).timeout(preferredHeadStart));
-        } on TimeoutException {
-          single = null;
-        } catch (_) {
-          single = null;
+    // Preferred word provider gets a bounded head start in both modes.
+    // Word mode short-circuits on word-sync; line mode keeps the hit
+    // as the top fallback (display strips it to lines). A matching
+    // instrumental wins everywhere; anything plausible is stashed.
+    if (preferred.isWordProvider && !excludes.contains(preferred.id)) {
+      LyricsResult? single;
+      try {
+        single = normalize(await fetchFromProvider(
+          preferred.id,
+          title: title,
+          artist: artist,
+          album: album,
+          durationSeconds: durationSeconds,
+          videoId: videoId,
+        ).timeout(preferredHeadStart));
+      } on TimeoutException {
+        single = null;
+      } catch (_) {
+        single = null;
+      }
+      if (single != null && plausible(single)) {
+        if (single.isWordSynced && wordByWord) {
+          _store(key, single);
+          return display(single);
         }
-        if (single != null) {
-          if (single.isWordSynced && plausible(single)) {
-            _store(key, single);
-            return display(single);
-          }
-          if (single.isInstrumental && wantsAlt) {
-            _store(key, single);
-            return display(single);
-          }
-          if (plausible(single)) {
-            preferredFallback = single;
-            onPartialResult?.call(display(single));
-          }
+        if (single.isInstrumental && wantsAlt) {
+          _store(key, single);
+          return display(single);
+        }
+        preferredFallback = single;
+        onPartialResult?.call(display(single));
+      }
+    }
+
+    Future<void> drainRace(List<Future<LyricsResult?>> pending) async {
+      await for (final result in Stream.fromFutures(pending)) {
+        if (result == null || result.isEmpty) continue;
+        if (!plausible(result)) continue;
+        if (result.isInstrumental && !wantsAlt) continue;
+        final currentFallback = lineFallback;
+        if (currentFallback == null ||
+            isBetterCandidate(result, currentFallback,
+                queryTitle: title)) {
+          lineFallback = result;
+          onPartialResult?.call(display(result));
         }
       }
+    }
 
+    if (wordByWord) {
       // Word race: fastest plausible word-sync wins; the first
       // plausible line result streams as a partial under the deadline.
       LyricsResult? raceWord;
@@ -438,23 +455,38 @@ class LyricsRepository {
         _store(key, won);
         return display(won);
       }
-      // Explicit choice outranks any other line-sync source.
-      final preferredSettled = preferredFallback;
-      if (preferredSettled != null) {
-        _store(key, preferredSettled);
-        return display(preferredSettled);
+    } else {
+      // Line mode: Apple + LRCLIB race for line sources under the same
+      // deadline (pre-port behavior), with the explicit pick above
+      // outranking whatever they find.
+      final pending = <Future<LyricsResult?>>[attempt('apple_music')];
+      if (!lrclibAttempted) {
+        lrclibAttempted = true;
+        pending.add(attempt('lrclib'));
       }
-      final lineSettled = lineFallback;
-      if (lineSettled != null) {
-        _store(key, lineSettled);
-        return display(lineSettled);
+      try {
+        await drainRace(pending).timeout(raceTotal);
+      } on TimeoutException {
+        // Collected partials still count below.
       }
-      // Extra line-sync catalogue after the word race.
-      final mxm = normalize(await attempt('musixmatch'));
-      if (mxm != null && plausible(mxm)) {
-        _store(key, mxm);
-        return display(mxm);
-      }
+    }
+
+    // Explicit choice outranks any other line-sync source.
+    final preferredSettled = preferredFallback;
+    if (preferredSettled != null) {
+      _store(key, preferredSettled);
+      return display(preferredSettled);
+    }
+    final lineSettled = lineFallback;
+    if (lineSettled != null) {
+      _store(key, lineSettled);
+      return display(lineSettled);
+    }
+    // Extra line-sync catalogue after the race.
+    final mxm = normalize(await attempt('musixmatch'));
+    if (mxm != null && plausible(mxm)) {
+      _store(key, mxm);
+      return display(mxm);
     }
 
     // LRCLIB line fallback (skipped when already tried as preferred).
@@ -508,14 +540,15 @@ class LyricsRepository {
             durationSeconds: durationSeconds,
           );
         case 'simp_music':
-          final lines = await fetchSimpMusic(
+          final fetched = await fetchSimpMusic(
             _dio,
             videoId: videoId,
             durationSeconds: durationSeconds,
           );
+          final lines = fetched?.lines;
           if (lines == null || lines.isEmpty) return null;
           if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
-          final wordSynced = lines.any((l) => l.hasSyllables);
+          final wordSynced = fetched!.wordSynced;
           return LyricsResult(
             lines: lines,
             isSynced: true,

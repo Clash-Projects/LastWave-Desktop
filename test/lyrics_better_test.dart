@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_providers.dart';
 
@@ -49,5 +50,38 @@ void main() {
     final lines = parseBetterDocument(enhanced);
     expect(lines, isNotNull);
     expect(lines!.first.hasSyllables, isTrue);
+  });
+
+  test('plain LRC stays line-sync end to end (no flag inflation)', () async {
+    const plainLrc =
+        '[00:01.00]Hello world\n[00:05.00]Second line\n[00:09.00]Third\n';
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.uri.toString().contains('boidu.dev')) {
+            handler.resolve(Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: '{"lyrics":"$plainLrc"}'));
+            return;
+          }
+          handler.reject(DioException(
+              requestOptions: options, type: DioExceptionType.unknown));
+        },
+      ),
+    );
+    final result = await fetchBetterLyrics(
+      dio,
+      title: 'Shape of You',
+      artist: 'Ed Sheeran',
+      durationSeconds: 30,
+    );
+    expect(result, isNotNull);
+    expect(result!.isSynced, isTrue);
+    // Interpolated syllables exist for display, but the flag must
+    // reflect real timing provenance.
+    expect(result.isWordSynced, isFalse);
+    expect(result.source, contains('Line-Sync'));
   });
 }

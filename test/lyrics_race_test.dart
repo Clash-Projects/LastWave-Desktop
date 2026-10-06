@@ -129,6 +129,10 @@ void main() {
     await repo.getLyrics(
         title: 'T', artist: 'A', preferredProviderId: 'kugou');
     expect(repo.calls['kugou'], 2); // new key → refetch
+    await repo.getLyrics(title: 'T', artist: 'A', durationSeconds: 200);
+    expect(repo.calls['kugou'], 3); // duration is part of the key
+    await repo.getLyrics(title: 'T', artist: 'A', durationSeconds: 200);
+    expect(repo.calls['kugou'], 3); // same duration → cache hit
   });
 
   test('race deadline resolves from collected partials', () async {
@@ -140,6 +144,61 @@ void main() {
     final result = await repo.getLyrics(title: 'T', artist: 'A');
     expect(result.isEmpty, isFalse);
     expect(result.source, contains('Apple'));
+  });
+
+  test('line mode honors preferred provider and strips to lines', () async {
+    final repo = _StubRepo({
+      'kugou': _word('Kugou KRC (Word-Sync)'),
+      'apple_music': _line('Apple Music (Line-Sync)'),
+    });
+    final result = await repo.getLyrics(
+      title: 'T',
+      artist: 'A',
+      wordByWord: false,
+      preferredProviderId: 'kugou',
+    );
+    expect(result.isEmpty, isFalse);
+    expect(result.isSynced, isTrue);
+    expect(result.isWordSynced, isFalse);
+    expect(result.lines.length, 2);
+    expect(result.source, contains('Kugou'));
+  });
+
+  test('line mode races Apple and LRCLIB, curated wins', () async {
+    final repo = _StubRepo({
+      'apple_music': _line('Apple Music (Line-Sync)'),
+      'lrclib': _line('lrclib'),
+    });
+    final result = await repo.getLyrics(
+      title: 'T',
+      artist: 'A',
+      wordByWord: false,
+    );
+    expect(result.source, contains('Apple'));
+    expect(repo.calls.containsKey('apple_music'), isTrue);
+    expect(repo.calls.containsKey('lrclib'), isTrue);
+  });
+
+  test('line mode never caches empty over a fetched preferred result',
+      () async {
+    final repo = _StubRepo({
+      'lrclib': _line('lrclib'),
+    });
+    final first = await repo.getLyrics(
+      title: 'T',
+      artist: 'A',
+      wordByWord: false,
+      preferredProviderId: 'lrclib',
+    );
+    expect(first.isEmpty, isFalse);
+    expect(first.source, contains('lrclib'));
+    await repo.getLyrics(
+      title: 'T',
+      artist: 'A',
+      wordByWord: false,
+      preferredProviderId: 'lrclib',
+    );
+    expect(repo.calls['lrclib'], 1);
   });
 }
 

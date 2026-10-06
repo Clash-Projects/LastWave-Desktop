@@ -122,6 +122,12 @@ Set<String> retryLyricsExcludingCurrent({
 // -- BetterLyrics (lyrics-api.boidu.dev) -----------------------------------
 // Free, no key. Apple-Music TTML with per-syllable timing; both TTML
 // endpoints are tried, then the QQ karaoke endpoint.
+//
+// Accepted trust model: these endpoints return bare lyric documents
+// with no candidate identity (no title/artist/duration to compare),
+// so client-side version gating is infeasible here — the server's
+// fuzzy match is trusted, with only the duration-plausibility lever
+// applied. Same exposure as LastWave-native.
 
 const _betterBases = [
   'https://lyrics-api.boidu.dev/getLyrics',
@@ -160,15 +166,17 @@ Future<LyricsResult?> fetchBetterLyrics(
   if (cleaned.$1 != title || cleaned.$2 != artist) attempts.add(cleaned);
   for (final attempt in attempts) {
     if (attempt.$1.trim().isEmpty || attempt.$2.trim().isEmpty) continue;
-    final lines = await _fetchBetterAttempt(
+    final fetched = await _fetchBetterAttempt(
       dio,
       title: attempt.$1,
       artist: attempt.$2,
       album: album,
       durationSeconds: durationSeconds,
     );
-    if (lines != null && lyricsPlausibleDuration(lines, durationSeconds)) {
-      final wordSynced = lines.any((l) => l.hasSyllables);
+    final lines = fetched?.lines;
+    if (lines != null &&
+        lyricsPlausibleDuration(lines, durationSeconds)) {
+      final wordSynced = fetched!.wordSynced;
       return LyricsResult(
         lines: lines,
         isSynced: true,
@@ -183,7 +191,7 @@ Future<LyricsResult?> fetchBetterLyrics(
   return null;
 }
 
-Future<List<LyricLine>?> _fetchBetterAttempt(
+Future<({List<LyricLine> lines, bool wordSynced})?> _fetchBetterAttempt(
   Dio dio, {
   required String title,
   required String artist,
@@ -210,10 +218,30 @@ Future<List<LyricLine>?> _fetchBetterAttempt(
       final body = res.data;
       if (body == null || body.isEmpty) continue;
       final parsed = parseBetterDocument(body);
-      if (parsed != null && parsed.isNotEmpty) return parsed;
+      if (parsed != null && parsed.isNotEmpty) {
+        final payload = _unwrapBetterPayload(body) ?? body;
+        return (lines: parsed, wordSynced: _betterHasWordTiming(payload));
+      }
     } catch (_) {}
   }
   return null;
+}
+
+/// True only for real timing provenance: TTML with timed word spans,
+/// the karaoke millisecond format, or enhanced-LRC word stamps.
+/// Plain line LRC / span-less TTML gain interpolated syllables for
+/// display later, which must never count as word-sync.
+bool _betterHasWordTiming(String payload) {
+  final lower = payload.toLowerCase();
+  if (lower.contains('<tt') || lower.contains('http://www.w3.org/ns/ttml')) {
+    if (parseTtml(payload).isNotEmpty) {
+      return RegExp(r'<span\b[^>]*\bbegin\s*=', caseSensitive: false)
+          .hasMatch(payload);
+    }
+  }
+  if (parseBetterKaraoke(payload).isNotEmpty) return true;
+  if (parseEnhancedLrc(payload).isNotEmpty) return true;
+  return false;
 }
 
 /// Parse a BetterLyrics document: TTML word timing first, then the
@@ -563,7 +591,9 @@ Future<LyricsResult?> fetchLrcRed(
   final lines = await fetchLrcRedLines(dio, hit);
   if (lines == null || lines.isEmpty) return null;
   if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
-  final wordSynced = lines.any((l) => l.hasSyllables);
+  // The catalogue's own timing label is authoritative: display
+  // interpolation later must never inflate this flag.
+  final wordSynced = hit.timingType?.toLowerCase() == 'word';
   return LyricsResult(
     lines: lines,
     isSynced: true,
@@ -991,6 +1021,11 @@ Future<LyricsResult?> fetchMusixmatch(
     for (final wrapper in tracks) {
       final track = wrapper['track'];
       if (track is! Map<String, dynamic>) continue;
+      // Never serve the wrong recording (live/remix/cover/etc.).
+      if (!lyricsSameVersion(
+          title, track['track_name']?.toString() ?? '')) {
+        continue;
+      }
       final artistOk = artist.trim().isEmpty ||
           (track['artist_name']?.toString() ?? '')
               .toLowerCase()
@@ -1032,10 +1067,12 @@ Future<LyricsResult?> fetchMusixmatch(
     // Server fuzzy-matches with no usable candidate identity: reject
     // wrong-cut timelines before they poison line-sync.
     if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
+    // Musixmatch subtitles are line-timed; display interpolation later
+    // must never inflate this flag.
     return LyricsResult(
       lines: lines,
       isSynced: true,
-      isWordSynced: lines.any((l) => l.hasSyllables),
+      isWordSynced: false,
       plainLyrics: lines.map((l) => l.text).join('\n'),
       source: 'Catalog (Line-Sync)',
     );
@@ -1050,9 +1087,11 @@ Future<LyricsResult?> fetchMusixmatch(
 // is enhanced LRC with per-word stamps; plain LRC is the fallback.
 // Ported from native `SimpMusicLyricsApi`.
 
-/// Returns raw lines (the race in `LyricsRepository` wraps them with the
-/// `Video-Match` source label and plausibility gate), null on miss.
-Future<List<LyricLine>?> fetchSimpMusic(
+/// Returns raw lines plus whether they carry real word timing (true
+/// only for the rich-sync path — plain LRC gains display syllables
+/// later, which must never count). The race wraps them with the
+/// `Video-Match` source label and plausibility gate.
+Future<({List<LyricLine> lines, bool wordSynced})?> fetchSimpMusic(
   Dio dio, {
   String? videoId,
   int? durationSeconds,
@@ -1087,12 +1126,13 @@ Future<List<LyricLine>?> fetchSimpMusic(
     final rich = pick['richSyncLyrics']?.toString() ?? '';
     if (rich.trim().isNotEmpty) {
       final lines = parseEnhancedLrc(rich);
-      if (lines.isNotEmpty) return lines;
+      if (lines.isNotEmpty) return (lines: lines, wordSynced: true);
     }
     final synced = pick['syncedLyrics']?.toString() ?? '';
     if (synced.trim().isEmpty) return null;
     final lines = parseLrc(synced);
-    return lines.isEmpty ? null : lines;
+    if (lines.isEmpty) return null;
+    return (lines: lines, wordSynced: false);
   } catch (_) {
     return null;
   }

@@ -126,4 +126,56 @@ void main() {
     expect(result.source, contains('Lrc.Red'));
     expect(result.lines.first.text, 'The club');
   });
+
+  test('line-timing catalogue hit stays line-sync', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final url = options.uri.toString();
+          if (url.startsWith('https://lrc.red/api/v1')) {
+            handler.resolve(Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'results': [
+                    {
+                      'track_name': 'Shape of You',
+                      'artist_name': 'Ed Sheeran',
+                      'duration': 234,
+                      'isrc': 'GBAHS1700003',
+                      'lyricsUrl': 'https://lrc.red/s/GBAHS1700003.ttml',
+                      'timing_type': 'line',
+                    },
+                  ],
+                }));
+            return;
+          }
+          if (url.startsWith('https://lrc.red/s/')) {
+            handler.resolve(Response(
+                requestOptions: options,
+                statusCode: 200,
+                // Line-timed TTML: <p> rows without word spans.
+                data: '<tt xmlns="http://www.w3.org/ns/ttml"><body><div>'
+                    '<p begin="00:09.73" end="00:12.00">The club</p>'
+                    '<p begin="00:15.12" end="00:18.00">So the bar</p>'
+                    '</div></body></tt>'));
+            return;
+          }
+          handler.reject(DioException(
+              requestOptions: options, type: DioExceptionType.unknown));
+        },
+      ),
+    );
+    final result = await fetchLrcRed(
+      dio,
+      title: 'Shape of You',
+      artist: 'Ed Sheeran',
+      durationSeconds: 234,
+    );
+    expect(result, isNotNull);
+    expect(result!.isSynced, isTrue);
+    expect(result.isWordSynced, isFalse);
+    expect(result.source, contains('Line-Sync'));
+  });
 }

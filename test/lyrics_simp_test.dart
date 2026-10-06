@@ -28,7 +28,7 @@ Dio _stubDio(Map<String, dynamic> payload) {
 
 void main() {
   test('rich sync yields word-synced lines', () async {
-    final lines = await fetchSimpMusic(
+    final res = await fetchSimpMusic(
       _stubDio({
         'success': true,
         'data': [
@@ -43,13 +43,15 @@ void main() {
       videoId: 'abc123',
       durationSeconds: 213,
     );
-    expect(lines, isNotNull);
-    expect(lines!.first.hasSyllables, isTrue);
+    expect(res, isNotNull);
+    expect(res!.wordSynced, isTrue);
+    final lines = res.lines;
+    expect(lines.first.hasSyllables, isTrue);
     expect(lines.first.text, 'Hi there');
   });
 
   test('plain synced falls back when rich sync absent', () async {
-    final lines = await fetchSimpMusic(
+    final res = await fetchSimpMusic(
       _stubDio({
         'success': true,
         'data': [
@@ -62,12 +64,34 @@ void main() {
       videoId: 'abc123',
       durationSeconds: 213,
     );
-    expect(lines, isNotNull);
-    expect(lines!.length, 2);
+    expect(res, isNotNull);
+    expect(res!.wordSynced, isFalse);
+    expect(res.lines.length, 2);
   });
 
-  test('duration mismatch and failure yield null', () async {
-    final dio = _stubDio({
+  test('bot-gate 403 yields null quietly (race never waits on it)', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.reject(
+            DioException(
+              requestOptions: options,
+              type: DioExceptionType.badResponse,
+              response: Response(requestOptions: options, statusCode: 403),
+            ),
+          );
+        },
+      ),
+    );
+    expect(
+      await fetchSimpMusic(dio,
+          videoId: 'abc123', durationSeconds: 213),
+      isNull,
+    );
+  });
+
+  test('duration mismatch and failure yield null', () async {    final dio = _stubDio({
       'success': true,
       'data': [
         {'duration': 213, 'syncedLyrics': '[00:01.00]Hi\n'},
