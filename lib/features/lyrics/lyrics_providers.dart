@@ -289,3 +289,242 @@ List<LyricLine> parseBetterKaraoke(String raw) {
   rows.sort((a, b) => a.timeMs.compareTo(b.timeMs));
   return rows;
 }
+
+// -- Lrc.Red (lrc.red/api/v1, Bini-compatible) -------------------------------
+// Recording-matched Apple TTML plus the ISRC other lookups can reuse.
+// Ported from native `BiniLyricsApi` with the base URL moved to lrc.red
+// (binimum 307-redirects there; schema verified identical 2026-10-06).
+
+const _lrcRedBase = 'https://lrc.red/api/v1';
+
+class LrcRedHit {
+  final String? trackName;
+  final String? artistName;
+  final String? albumName;
+  final int? duration;
+  final String? isrc;
+  final String? timingType;
+  final String? lyricsUrl;
+
+  const LrcRedHit({
+    this.trackName,
+    this.artistName,
+    this.albumName,
+    this.duration,
+    this.isrc,
+    this.timingType,
+    this.lyricsUrl,
+  });
+
+  factory LrcRedHit.fromJson(Map<String, dynamic> json) => LrcRedHit(
+        trackName: json['track_name']?.toString(),
+        artistName: json['artist_name']?.toString(),
+        albumName: json['album_name']?.toString(),
+        duration: (json['duration'] as num?)?.toInt(),
+        isrc: json['isrc']?.toString(),
+        timingType: json['timing_type']?.toString(),
+        lyricsUrl: json['lyricsUrl']?.toString(),
+      );
+}
+
+/// Floor: exact title + artist agreement (3 + 2). Fuzzy-title hits
+/// (1 + 2) never pass on their own — homonyms stay out.
+int scoreLrcRedHit(
+  LrcRedHit hit, {
+  required String title,
+  required String artist,
+  int? durationSeconds,
+}) {
+  var score = 0;
+  final candTitle = lyricsForSearchTitle(hit.trackName ?? '');
+  final reqTitle = lyricsForSearchTitle(title);
+  if (candTitle.toLowerCase() == reqTitle.toLowerCase()) {
+    score += 3;
+  } else if (lyricsTitlesMatchStrict(candTitle, reqTitle)) {
+    score += 1;
+  }
+  final candArtist = lyricsForSearchArtist(hit.artistName ?? '');
+  final reqArtist = lyricsForSearchArtist(artist);
+  if (candArtist.isNotEmpty &&
+      reqArtist.isNotEmpty &&
+      (candArtist.toLowerCase() == reqArtist.toLowerCase() ||
+          lyricsArtistsMatchStrict(candArtist, reqArtist))) {
+    score += 2;
+  }
+  final hitSecs = hit.duration ?? 0;
+  if (durationSeconds != null && durationSeconds > 0 && hitSecs > 0) {
+    final delta = (hitSecs - durationSeconds).abs();
+    if (delta <= 3) {
+      score += 3;
+    } else if (delta <= 10) {
+      score += 1;
+    }
+  }
+  return score;
+}
+
+int _lrcRedDurationDelta(LrcRedHit hit, int? durationSeconds) {
+  final hitSecs = hit.duration ?? 0;
+  if (durationSeconds == null || durationSeconds <= 0 || hitSecs <= 0) {
+    return 0;
+  }
+  return (hitSecs - durationSeconds).abs();
+}
+
+/// Same recording only, both sides agreeing, word-timed files first,
+/// duration closest. Below-floor hits are rejected.
+LrcRedHit? selectLrcRedBest(
+  List<LrcRedHit> hits, {
+  required String title,
+  required String artist,
+  int? durationSeconds,
+}) {
+  if (hits.isEmpty) return null;
+  final scored = <({LrcRedHit hit, int score})>[];
+  for (final hit in hits) {
+    if (!lyricsSameVersion(title, hit.trackName ?? '')) continue;
+    final score = scoreLrcRedHit(
+      hit,
+      title: title,
+      artist: artist,
+      durationSeconds: durationSeconds,
+    );
+    if (score >= 5) scored.add((hit: hit, score: score));
+  }
+  scored.sort((a, b) {
+    final byScore = b.score.compareTo(a.score);
+    if (byScore != 0) return byScore;
+    final aWord =
+        a.hit.timingType?.toLowerCase() == 'word' ? 0 : 1;
+    final bWord =
+        b.hit.timingType?.toLowerCase() == 'word' ? 0 : 1;
+    final byWord = aWord.compareTo(bWord);
+    if (byWord != 0) return byWord;
+    return _lrcRedDurationDelta(a.hit, durationSeconds)
+        .compareTo(_lrcRedDurationDelta(b.hit, durationSeconds));
+  });
+  return scored.isEmpty ? null : scored.first.hit;
+}
+
+Future<List<LrcRedHit>> _queryLrcRed(
+  Dio dio,
+  Map<String, String> params,
+) async {
+  try {
+    final res = await dio.get<Map<String, dynamic>>(
+      _lrcRedBase,
+      queryParameters: params,
+      options: Options(headers: {'Accept': 'application/json'}),
+    );
+    final results = res.data?['results'];
+    if (results is! List) return const [];
+    return [
+      for (final item in results)
+        if (item is Map<String, dynamic>) LrcRedHit.fromJson(item)
+        else if (item is Map)
+          LrcRedHit.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  } catch (_) {
+    return const [];
+  }
+}
+
+Future<LrcRedHit?> identifyLrcRed(
+  Dio dio, {
+  required String title,
+  required String artist,
+  String? album,
+  int? durationSeconds,
+  String? isrc,
+}) async {
+  if (isrc != null && isrc.trim().isNotEmpty) {
+    // ISRC names the recording exactly: take it, preferring a
+    // word-timed file when the catalogue holds several.
+    final hits = await _queryLrcRed(dio, {'isrc': isrc.trim()});
+    hits.sort((a, b) {
+      final aWord =
+          a.timingType?.toLowerCase() == 'word' ? 0 : 1;
+      final bWord =
+          b.timingType?.toLowerCase() == 'word' ? 0 : 1;
+      return aWord.compareTo(bWord);
+    });
+    if (hits.isNotEmpty) return hits.first;
+  }
+  if (title.trim().isEmpty) return null;
+  final shaped = {
+    'track': title.trim(),
+    'artist': artist.trim(),
+    if (album != null && album.trim().isNotEmpty) 'album': album.trim(),
+    if (durationSeconds != null && durationSeconds > 0)
+      'duration': '$durationSeconds',
+  };
+  // Free-text fallback: the shaped query can miss while `q` hits
+  // (and vice versa), so try both before giving up.
+  return selectLrcRedBest(
+        await _queryLrcRed(dio, shaped),
+        title: title,
+        artist: artist,
+        durationSeconds: durationSeconds,
+      ) ??
+      selectLrcRedBest(
+        await _queryLrcRed(dio, {
+          'q': artist.trim().isEmpty
+              ? title.trim()
+              : '${artist.trim()} - ${title.trim()}',
+        }),
+        title: title,
+        artist: artist,
+        durationSeconds: durationSeconds,
+      );
+}
+
+Future<List<LyricLine>?> fetchLrcRedLines(Dio dio, LrcRedHit hit) async {
+  final documentUrl = hit.lyricsUrl;
+  if (documentUrl == null || documentUrl.trim().isEmpty) return null;
+  try {
+    final res = await dio.get<String>(
+      documentUrl,
+      options: Options(
+        responseType: ResponseType.plain,
+        headers: {'Accept': 'application/xml, text/xml, */*'},
+      ),
+    );
+    final ttml = res.data;
+    if (ttml == null || ttml.trim().isEmpty) return null;
+    final lines = parseTtml(ttml);
+    return lines.isEmpty ? null : lines;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<LyricsResult?> fetchLrcRed(
+  Dio dio, {
+  required String title,
+  required String artist,
+  String? album,
+  int? durationSeconds,
+  String? isrc,
+}) async {
+  final hit = await identifyLrcRed(
+    dio,
+    title: title,
+    artist: artist,
+    album: album,
+    durationSeconds: durationSeconds,
+    isrc: isrc,
+  );
+  if (hit == null) return null;
+  final lines = await fetchLrcRedLines(dio, hit);
+  if (lines == null || lines.isEmpty) return null;
+  if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
+  final wordSynced = lines.any((l) => l.hasSyllables);
+  return LyricsResult(
+    lines: lines,
+    isSynced: true,
+    isWordSynced: wordSynced,
+    plainLyrics: lines.map((l) => l.text).join('\n'),
+    source:
+        wordSynced ? 'Lrc.Red (Word-Sync)' : 'Lrc.Red (Line-Sync)',
+  );
+}
