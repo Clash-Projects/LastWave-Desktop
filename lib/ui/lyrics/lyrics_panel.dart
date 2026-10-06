@@ -13,6 +13,11 @@ import '../../features/player/playback_service.dart';
 // Lyrics fetch is keyed by track identity — never by the playback clock
 // or duration (duration arrives late and would refetch). Position ticks
 // only drive the highlight index.
+final lyricsProviderOverrideProvider =
+    StateProvider.autoDispose.family<String?, String>((_, _) => null);
+final lyricsExcludedProvidersProvider =
+    StateProvider.autoDispose.family<Set<String>, String>((_, _) => <String>{});
+
 final waveLyricsProvider = StreamProvider.autoDispose
     .family<LyricsResult, String>((ref, key) {
   final current = ref.watch(
@@ -21,7 +26,13 @@ final waveLyricsProvider = StreamProvider.autoDispose
     return Stream.value(const LyricsResult.empty());
   }
   final repo = ref.watch(lyricsRepositoryProvider);
-  final wordByWord = ref.watch(prefsProvider).wordByWord;
+  final prefs = ref.watch(prefsProvider);
+  final wordByWord = prefs.wordByWord;
+  // Per-track source control (Task 9): an explicit provider pick
+  // (null = follow the Settings default) plus excluded providers.
+  // Watched, so switching sources refetches through a new cache key.
+  final override = ref.watch(lyricsProviderOverrideProvider(key));
+  final excludes = ref.watch(lyricsExcludedProvidersProvider(key));
   // Duration read once (no watch) so late duration arrival doesn't refetch.
   final durationSecs =
       ref.read(playbackServiceProvider).duration.inSeconds;
@@ -37,6 +48,9 @@ final waveLyricsProvider = StreamProvider.autoDispose
     album: current.album,
     durationSeconds: durationSecs > 0 ? durationSecs : null,
     wordByWord: wordByWord,
+    videoId: current.videoId.isNotEmpty ? current.videoId : null,
+    preferredProviderId: override ?? prefs.lyricsProviderId,
+    excludeProviderIds: excludes,
     onPartialResult: (result) {
       if (!disposed) results.add(result);
     },

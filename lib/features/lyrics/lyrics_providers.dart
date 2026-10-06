@@ -76,6 +76,49 @@ enum LyricsProviderId {
       );
 }
 
+/// Map a result `source` label back to its provider id. Unknown labels
+/// yield null (no exclusion possible for them).
+String? lyricsSourceToProviderId(String source) {
+  final s = source.toLowerCase();
+  if (s.startsWith('lrc.red')) return LyricsProviderId.lrcRed.id;
+  if (s.contains('apple')) return LyricsProviderId.appleMusic.id;
+  if (s.startsWith('betterlyrics')) return LyricsProviderId.betterLyrics.id;
+  if (s.startsWith('kugou')) return LyricsProviderId.kugou.id;
+  if (s.startsWith('video-match')) return LyricsProviderId.simpMusic.id;
+  if (s.startsWith('catalog')) return LyricsProviderId.musixmatch.id;
+  if (s.contains('lrclib')) return LyricsProviderId.lrclib.id;
+  return null;
+}
+
+/// Next per-track selection after the user picks [pickedId] (`auto`
+/// clears everything). A newly picked provider is pinned as the
+/// override AND the previously current provider is excluded from its
+/// fallback chain, so switching always attempts the best provider
+/// excluding the current one instead of serving it again.
+({String? override, Set<String> excludes}) nextLyricsSelection({
+  required String? pickedId,
+  required String? currentId,
+  required Set<String> currentExcludes,
+}) {
+  if (pickedId == null || pickedId == LyricsProviderId.auto.id) {
+    return (override: null, excludes: <String>{});
+  }
+  final excludes = currentId != null && currentId != pickedId
+      ? {...currentExcludes, currentId}
+      : Set<String>.from(currentExcludes);
+  return (override: pickedId, excludes: excludes);
+}
+
+/// `Try another source`: keep the override, exclude the current
+/// provider so the race settles on the best of the rest.
+Set<String> retryLyricsExcludingCurrent({
+  required String? currentId,
+  required Set<String> excludes,
+}) =>
+    currentId == null
+        ? Set<String>.from(excludes)
+        : {...excludes, currentId};
+
 // -- BetterLyrics (lyrics-api.boidu.dev) -----------------------------------
 // Free, no key. Apple-Music TTML with per-syllable timing; both TTML
 // endpoints are tried, then the QQ karaoke endpoint.
