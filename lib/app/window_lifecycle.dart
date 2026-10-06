@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../core/artwork/animated_artwork_session.dart';
 import '../core/storage/prefs.dart';
 import '../features/player/playback_service.dart';
 import '../features/presence/discord_presence_service.dart';
@@ -104,12 +105,18 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     try {
       ref.read(windowFocusedProvider.notifier).state = true;
     } catch (_) {}
+    try {
+      ref.read(animatedArtworkSessionProvider).setBackgrounded(false);
+    } catch (_) {}
   }
 
   @override
   void onWindowBlur() {
     try {
       ref.read(windowFocusedProvider.notifier).state = false;
+    } catch (_) {}
+    try {
+      ref.read(animatedArtworkSessionProvider).setBackgrounded(true);
     } catch (_) {}
   }
 
