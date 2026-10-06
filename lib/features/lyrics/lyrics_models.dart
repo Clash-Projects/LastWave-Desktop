@@ -562,6 +562,8 @@ bool lyricsSameVersion(String requestTitle, String candidateTitle) {
 }
 
 /// Removes a leading `Artist - ` / `Artist – ` / `Artist: ` segment.
+String stripLeadingArtistPrefix(String raw) => _stripLeadingArtistPrefix(raw);
+
 String _stripLeadingArtistPrefix(String raw) {
   final stripped =
       raw.replaceFirst(RegExp(r'^\s*.+?\s*[-–—:]\s+(?=\S)'), '').trim();

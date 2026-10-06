@@ -8,6 +8,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
@@ -527,4 +528,243 @@ Future<LyricsResult?> fetchLrcRed(
     source:
         wordSynced ? 'Lrc.Red (Word-Sync)' : 'Lrc.Red (Line-Sync)',
   );
+}
+
+// -- Kugou KRC (lyrics.kugou.com) --------------------------------------------
+// Word-sync via encrypted KRC documents: search → download (Base64) →
+// XOR decrypt → zlib inflate → KRC parse. HTTPS only. Ported from
+// native `KugouLyricsApi` (round-trip verified live 2026-10-06).
+
+const _kugouKey = [
+  0x40, 0x47, 0x61, 0x77, 0x5e, 0x32, 0x74, 0x47,
+  0x51, 0x36, 0x31, 0x2d, 0xce, 0xd2, 0x6e, 0x69,
+];
+
+const _kugouUserAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
+final _krcOffsetRegex =
+    RegExp(r'^\[offset:\s*([+-]?\d+)\s*]', caseSensitive: false);
+final _krcLineRegex = RegExp(r'^\[(\d+),(\d+)](.*)$');
+final _krcSyllableRegex = RegExp(r'<(\d+),(\d+),\d+>([^<]*)');
+final _krcCreditRegex = RegExp(
+  r'^\s*(?:lyrics\s*by|written\s*by|composed\s*by|produced\s*by|'
+  r'arranged\s*by|recorded\s*(?:at|by)|mixed\s*by|remixed\s*by|'
+  r'mixing\s*(?:assistant|engineer)?|mastered\s*by|mastering|drums|'
+  r'guitar|bass|keyboards|strings|vocals?|作\s*词|作\s*曲|编\s*曲|'
+  r'制\s*作(?:人)?|演\s*唱|录\s*音|混\s*音|母\s*带|吉\s*他|贝\s*斯|鼓)'
+  r'\s*[:：]',
+  caseSensitive: false,
+);
+
+bool _isKugouCreditLine(String text, bool isFirstLine) {
+  if (_krcCreditRegex.hasMatch(text)) return true;
+  if (isFirstLine &&
+      (text.contains(' - ') ||
+          text.contains(' – ') ||
+          text.contains(' — '))) {
+    return true;
+  }
+  return false;
+}
+
+/// Decrypt a KRC `content` payload: Base64 → drop 4 magic bytes →
+/// XOR with the rotating key → zlib inflate. Null on any bad input.
+String? decryptKugouKrc(String base64Content) {
+  try {
+    final enc = base64Decode(base64Content.trim());
+    if (enc.length <= 4) return null;
+    final xored = List<int>.generate(
+      enc.length - 4,
+      (i) => enc[i + 4] ^ _kugouKey[i % _kugouKey.length],
+    );
+    final inflated = ZLibCodec().decode(xored);
+    return utf8.decode(inflated);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Parse decrypted KRC text into word-timed lines. Credit rows and a
+/// leading `Artist - Title` row are dropped.
+List<LyricLine> parseKugouKrc(String krcText) {
+  final lines = <LyricLine>[];
+  var globalOffsetMs = 0;
+  var isFirstRawLine = true;
+  for (final rawLine in krcText.split('\n')) {
+    final trimmed = rawLine.trim();
+    if (trimmed.isEmpty || !trimmed.startsWith('[')) continue;
+    final offsetMatch = _krcOffsetRegex.firstMatch(trimmed);
+    if (offsetMatch != null) {
+      globalOffsetMs = int.tryParse(offsetMatch.group(1) ?? '') ?? 0;
+      continue;
+    }
+    final match = _krcLineRegex.firstMatch(trimmed);
+    if (match == null) continue;
+    final rawStart = int.tryParse(match.group(1) ?? '');
+    if (rawStart == null) continue;
+    final lineDurationMs = int.tryParse(match.group(2) ?? '') ?? 0;
+    final syllablesContent = match.group(3) ?? '';
+    final lineStartMs = math.max(0, rawStart + globalOffsetMs);
+
+    final syllables = <LyricSyllable>[];
+    final buf = StringBuffer();
+    for (final sylMatch in _krcSyllableRegex.allMatches(syllablesContent)) {
+      final offsetMs = int.tryParse(sylMatch.group(1) ?? '') ?? 0;
+      final durMs = int.tryParse(sylMatch.group(2) ?? '') ?? 0;
+      final sylText = sylMatch.group(3) ?? '';
+      if (sylText.trim().isEmpty) {
+        if (syllables.isNotEmpty &&
+            !syllables.last.text.endsWith(' ')) {
+          final last = syllables.last;
+          syllables[syllables.length - 1] = LyricSyllable(
+            timeMs: last.timeMs,
+            durationMs: last.durationMs,
+            text: '${last.text} ',
+            isBackground: last.isBackground,
+          );
+        }
+        buf.write(sylText);
+        continue;
+      }
+      syllables.add(LyricSyllable(
+        timeMs: math.max(0, lineStartMs + offsetMs),
+        durationMs: durMs,
+        text: sylText,
+      ));
+      buf.write(sylText);
+    }
+
+    final fullLineText = buf.toString().trim();
+    if (fullLineText.isNotEmpty && syllables.isNotEmpty) {
+      final isCredit = _isKugouCreditLine(fullLineText, isFirstRawLine);
+      isFirstRawLine = false;
+      if (isCredit) continue;
+      lines.add(LyricLine(
+        timeMs: lineStartMs,
+        durationMs: lineDurationMs,
+        text: fullLineText,
+        syllables: syllables,
+      ));
+    }
+  }
+  lines.sort((a, b) => a.timeMs.compareTo(b.timeMs));
+  return lines;
+}
+
+String _kugouCleanArtist(String raw) {
+  final noFeat = raw
+      .replaceAll(
+          RegExp(r'\s*(?:feat\.?|ft\.?)\s+.*$', caseSensitive: false), '')
+      .trim();
+  return lyricsForSearchArtist(noFeat.isEmpty ? raw : noFeat);
+}
+
+int _kugouDurationDelta(
+    Map<String, dynamic> cand, int? durationSeconds) {
+  final candMs = (cand['duration'] as num?)?.toInt() ?? 0;
+  if (durationSeconds == null || durationSeconds <= 0 || candMs <= 0) {
+    return 0;
+  }
+  return (candMs - durationSeconds * 1000).abs();
+}
+
+/// Search Kugou, download the best text-matched KRC, decrypt + parse.
+/// Text match is mandatory: duration alone never selects a candidate.
+Future<LyricsResult?> fetchKugou(
+  Dio dio, {
+  required String title,
+  required String artist,
+  int? durationSeconds,
+}) async {
+  if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+  try {
+    final cleanedTitle = lyricsForSearchTitle(title);
+    final cleanedArtist = _kugouCleanArtist(artist);
+    var searchTitle = stripLeadingArtistPrefix(cleanedTitle);
+    if (searchTitle.isEmpty) searchTitle = cleanedTitle;
+
+    final searchRes = await dio.get<Map<String, dynamic>>(
+      'https://lyrics.kugou.com/search',
+      queryParameters: {
+        'ver': '1',
+        'man': 'yes',
+        'client': 'pc',
+        'keyword': '$cleanedArtist - $searchTitle',
+        'duration': durationSeconds != null && durationSeconds > 0
+            ? '${durationSeconds * 1000}'
+            : '',
+        'hash': '',
+      },
+      options: Options(headers: {'User-Agent': _kugouUserAgent}),
+    );
+    final candidates = searchRes.data?['candidates'];
+    if (candidates is! List || candidates.isEmpty) return null;
+
+    bool textMatches(Map<String, dynamic> cand) {
+      final song = cand['song']?.toString() ?? '';
+      // Never serve the wrong recording (live/remix/cover/etc.).
+      if (!lyricsSameVersion(title, song)) return false;
+      final candSinger = _kugouCleanArtist(cand['singer']?.toString() ?? '');
+      final candSong = lyricsForSearchTitle(song);
+      if (!_artistMatchesLoose(candSinger, cleanedArtist)) return false;
+      return lyricsTitlesMatchStrict(candSong, cleanedTitle) ||
+          lyricsTitlesMatchStrict(candSong, searchTitle);
+    }
+
+    final matched = [
+      for (final c in candidates)
+        if (c is Map<String, dynamic> && textMatches(c)) c
+        else if (c is Map &&
+            textMatches(Map<String, dynamic>.from(c)))
+          Map<String, dynamic>.from(c),
+    ]..sort((a, b) => _kugouDurationDelta(a, durationSeconds)
+        .compareTo(_kugouDurationDelta(b, durationSeconds)));
+    if (matched.isEmpty) return null;
+
+    Map<String, dynamic>? pick(int maxDelta) {
+      for (final c in matched) {
+        if (_kugouDurationDelta(c, durationSeconds) <= maxDelta) return c;
+      }
+      return null;
+    }
+
+    final candidate =
+        pick(8000) ?? pick(30000) ?? matched.first;
+
+    final downloadRes = await dio.get<Map<String, dynamic>>(
+      'https://lyrics.kugou.com/download',
+      queryParameters: {
+        'ver': '1',
+        'client': 'pc',
+        'id': '${candidate['id']}',
+        'accesskey': '${candidate['accesskey']}',
+        'fmt': 'krc',
+        'charset': 'utf8',
+      },
+      options: Options(headers: {'User-Agent': _kugouUserAgent}),
+    );
+    final rawBase64 = downloadRes.data?['content']?.toString();
+    if (rawBase64 == null || rawBase64.isEmpty) return null;
+    final krcText = decryptKugouKrc(rawBase64);
+    if (krcText == null) return null;
+    final lines = parseKugouKrc(krcText);
+    if (lines.isEmpty) return null;
+    if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
+    return LyricsResult(
+      lines: lines,
+      isSynced: true,
+      isWordSynced: lines.any((l) => l.hasSyllables),
+      plainLyrics: lines.map((l) => l.text).join('\n'),
+      source: 'Kugou KRC (Word-Sync)',
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+bool _artistMatchesLoose(String candidate, String request) {
+  if (candidate.isEmpty || request.isEmpty) return false;
+  if (candidate.toLowerCase() == request.toLowerCase()) return true;
+  return lyricsArtistsMatchStrict(candidate, request);
 }
