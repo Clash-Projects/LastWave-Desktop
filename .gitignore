@@ -1,3 +1,6 @@
+# Local git worktrees (isolated feature workspaces)
+.worktrees/
+
 # Miscellaneous
 *.class
 *.log
