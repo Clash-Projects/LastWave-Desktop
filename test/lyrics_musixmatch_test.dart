@@ -191,7 +191,7 @@ void main() {
             searchTokens.add(
                 options.uri.queryParameters['usertoken'] ?? '');
             if (searches == 1) {
-              handler.resolve(unauthorized() as Response);
+              handler.resolve(unauthorized());
               return;
             }
             handler.resolve(Response(
