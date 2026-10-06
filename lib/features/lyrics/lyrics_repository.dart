@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/dio_factory.dart';
 import 'lyrics_models.dart';
+import 'lyrics_providers.dart';
 
 /// Lyrics orchestrator with Apple Music lyrics via Lyrically.
 ///
@@ -237,7 +238,16 @@ class LyricsRepository {
   static const _maxCacheEntries = 50;
   final Map<String, LyricsResult> _cache = {};
 
-  LyricsRepository([Dio? dio]) : _dio = dio ?? DioFactory.create();
+  /// Race tuning (constructor-injectable for tests; production uses the
+  /// native-parity defaults: 4s preferred head start, 12s total race).
+  final Duration preferredHeadStart;
+  final Duration raceTotal;
+
+  LyricsRepository([
+    Dio? dio,
+    this.preferredHeadStart = const Duration(seconds: 4),
+    this.raceTotal = const Duration(seconds: 12),
+  ]) : _dio = dio ?? DioFactory.create();
 
   void _store(String key, LyricsResult value) {
     _cache
@@ -266,9 +276,16 @@ class LyricsRepository {
     int? durationSeconds,
     bool forceRefresh = false,
     bool wordByWord = true,
+    String? videoId,
+    String preferredProviderId = 'auto',
+    Set<String> excludeProviderIds = const {},
     void Function(LyricsResult partial)? onPartialResult,
   }) async {
-    final key = _key(title, artist, album);
+    final preferred = LyricsProviderId.fromId(preferredProviderId);
+    final excludes = excludeProviderIds.toSet();
+    final sortedExcludes = excludes.toList()..sort();
+    final key =
+        '${_key(title, artist, album)}|$wordByWord|${preferred.id}|${sortedExcludes.join(',')}';
     if (!forceRefresh) {
       final cached = _lookup(key);
       if (cached != null) {
@@ -284,41 +301,244 @@ class LyricsRepository {
     LyricsResult? lineFallback;
     final wantsAlt = lyricsIsAlternateRecording(title, album: album);
 
-    final pending = <Future<LyricsResult?>>[
-      _fetchLrclib(title, artist, album, durationSeconds)
-          .timeout(const Duration(seconds: 12))
-          .then<LyricsResult?>((value) => value, onError: (_) => null),
-      _fetchAppleWordByWord(title, artist, album, durationSeconds)
-          .timeout(const Duration(seconds: 20))
-          .then<LyricsResult?>((value) => value, onError: (_) => null),
-    ];
-    await for (final result in Stream.fromFutures(pending)) {
-      if (result == null || result.isEmpty) continue;
-      final ready = normalizeKaraokeTimings(result);
-      if (ready.isWordSynced) {
-        _store(key, ready);
-        return lyricsForDisplayMode(ready, wordByWord: wordByWord);
-      }
-      if (ready.isInstrumental && wantsAlt) {
-        _store(key, ready);
-        return ready;
-      }
-      if (lineFallback == null ||
-          isBetterCandidate(ready, lineFallback, queryTitle: title)) {
-        lineFallback = ready;
-        onPartialResult?.call(
-          lyricsForDisplayMode(ready, wordByWord: wordByWord),
-        );
+    LyricsResult? normalize(LyricsResult? result) {
+      if (result == null || result.isEmpty) return null;
+      try {
+        return normalizeKaraokeTimings(result);
+      } catch (_) {
+        // Never drop lyrics over a normalization edge: fall back to
+        // the un-normalized result.
+        return result;
       }
     }
 
-    if (lineFallback != null) {
-      _store(key, lineFallback);
-      return lyricsForDisplayMode(lineFallback, wordByWord: wordByWord);
+    bool plausible(LyricsResult result) =>
+        result.isInstrumental ||
+        lyricsPlausibleDuration(result.lines, durationSeconds);
+
+    LyricsResult display(LyricsResult result) =>
+        lyricsForDisplayMode(result, wordByWord: wordByWord);
+
+    Future<LyricsResult?> attempt(String providerId) {
+      if (excludes.contains(providerId)) return Future.value(null);
+      return fetchFromProvider(
+        providerId,
+        title: title,
+        artist: artist,
+        album: album,
+        durationSeconds: durationSeconds,
+        videoId: videoId,
+      )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => null,
+          )
+          .then<LyricsResult?>(
+            (result) => normalize(result),
+            onError: (_) => null,
+          );
+    }
+
+    // Preferred LRCLIB goes first so the explicit choice is honored.
+    // A word-sync hit from anywhere later still wins.
+    var lrclibAttempted = false;
+    LyricsResult? preferredFallback;
+    if (preferred == LyricsProviderId.lrclib) {
+      lrclibAttempted = true;
+      final first = normalize(await attempt('lrclib'));
+      if (first != null) {
+        if (first.isWordSynced || (first.isInstrumental && wantsAlt)) {
+          _store(key, first);
+          return display(first);
+        }
+        if (plausible(first)) {
+          preferredFallback = first;
+          onPartialResult?.call(display(first));
+        }
+      }
+    }
+
+    if (wordByWord) {
+      // Preferred word provider gets a bounded head start. Only
+      // word-sync (or a matching instrumental) short-circuits; its
+      // line-sync result is stashed as the top fallback.
+      if (preferred.isWordProvider && !excludes.contains(preferred.id)) {
+        LyricsResult? single;
+        try {
+          single = normalize(await fetchFromProvider(
+            preferred.id,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+            videoId: videoId,
+          ).timeout(preferredHeadStart));
+        } on TimeoutException {
+          single = null;
+        } catch (_) {
+          single = null;
+        }
+        if (single != null) {
+          if (single.isWordSynced && plausible(single)) {
+            _store(key, single);
+            return display(single);
+          }
+          if (single.isInstrumental && wantsAlt) {
+            _store(key, single);
+            return display(single);
+          }
+          if (plausible(single)) {
+            preferredFallback = single;
+            onPartialResult?.call(display(single));
+          }
+        }
+      }
+
+      // Word race: fastest plausible word-sync wins; the first
+      // plausible line result streams as a partial under the deadline.
+      LyricsResult? raceWord;
+      final pending = <Future<LyricsResult?>>[
+        for (final id in const [
+          'lrc_red',
+          'apple_music',
+          'better_lyrics',
+          'kugou',
+          'simp_music',
+        ])
+          if (id != 'simp_music' || (videoId?.isNotEmpty ?? false))
+            attempt(id),
+      ];
+      Future<void> runRace() async {
+        await for (final result in Stream.fromFutures(pending)) {
+          if (result == null || result.isEmpty) continue;
+          if (raceWord != null) continue;
+          if (result.isWordSynced && plausible(result)) {
+            raceWord = result;
+            return;
+          }
+          if (!plausible(result)) continue;
+          if (result.isInstrumental && !wantsAlt) continue;
+          final currentFallback = lineFallback;
+          if (currentFallback == null ||
+              isBetterCandidate(result, currentFallback,
+                  queryTitle: title)) {
+            lineFallback = result;
+            onPartialResult?.call(display(result));
+          }
+        }
+      }
+
+      try {
+        await runRace().timeout(raceTotal);
+      } on TimeoutException {
+        // Collected partials still count below.
+      }
+      final won = raceWord;
+      if (won != null) {
+        _store(key, won);
+        return display(won);
+      }
+      // Explicit choice outranks any other line-sync source.
+      final preferredSettled = preferredFallback;
+      if (preferredSettled != null) {
+        _store(key, preferredSettled);
+        return display(preferredSettled);
+      }
+      final lineSettled = lineFallback;
+      if (lineSettled != null) {
+        _store(key, lineSettled);
+        return display(lineSettled);
+      }
+      // Extra line-sync catalogue after the word race.
+      final mxm = normalize(await attempt('musixmatch'));
+      if (mxm != null && plausible(mxm)) {
+        _store(key, mxm);
+        return display(mxm);
+      }
+    }
+
+    // LRCLIB line fallback (skipped when already tried as preferred).
+    if (!lrclibAttempted) {
+      final lrc = normalize(await attempt('lrclib'));
+      if (lrc != null) {
+        _store(key, lrc);
+        return display(lrc);
+      }
     }
     const empty = LyricsResult.empty();
     _store(key, empty);
     return empty;
+  }
+
+  /// Single-provider dispatch. Subclasses (tests) override this one seam
+  /// to stub providers without touching the network.
+  Future<LyricsResult?> fetchFromProvider(
+    String providerId, {
+    required String title,
+    required String artist,
+    String album = '',
+    int? durationSeconds,
+    String? videoId,
+  }) async {
+    try {
+      switch (providerId) {
+        case 'lrc_red':
+          return await fetchLrcRed(
+            _dio,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+          );
+        case 'apple_music':
+          return await _fetchAppleWordByWord(title, artist, album, durationSeconds);
+        case 'better_lyrics':
+          return await fetchBetterLyrics(
+            _dio,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+          );
+        case 'kugou':
+          return await fetchKugou(
+            _dio,
+            title: title,
+            artist: artist,
+            durationSeconds: durationSeconds,
+          );
+        case 'simp_music':
+          final lines = await fetchSimpMusic(
+            _dio,
+            videoId: videoId,
+            durationSeconds: durationSeconds,
+          );
+          if (lines == null || lines.isEmpty) return null;
+          if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
+          final wordSynced = lines.any((l) => l.hasSyllables);
+          return LyricsResult(
+            lines: lines,
+            isSynced: true,
+            isWordSynced: wordSynced,
+            plainLyrics: lines.map((l) => l.text).join('\n'),
+            source: wordSynced
+                ? 'Video-Match (Word-Sync)'
+                : 'Video-Match (Line-Sync)',
+          );
+        case 'musixmatch':
+          return await fetchMusixmatch(
+            _dio,
+            title: title,
+            artist: artist,
+            durationSeconds: durationSeconds,
+          );
+        case 'lrclib':
+          return await _fetchLrclib(title, artist, album, durationSeconds);
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
   }
 
   /// Compares two lyrics candidates to decide if [newRes] should supersede [current].
