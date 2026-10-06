@@ -119,6 +119,12 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   bool _following = true;
   late final Ticker _ticker;
   final ValueNotifier<int> _interpolatedPositionMs = ValueNotifier<int>(0);
+  // Clock subscriptions owned here (initState/dispose), not watched in
+  // build: position/isPlaying/speed tick 10Hz and feed only ticker/drift
+  // side effects, never widget output.
+  ProviderSubscription<Duration>? _posSub;
+  ProviderSubscription<bool>? _playingSub;
+  ProviderSubscription<double>? _speedSub;
   int _lastAudioMs = 0;
   DateTime _lastSyncTime = DateTime.now();
   bool _isPlaying = false;
@@ -146,6 +152,21 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
 
     _lyricController.isSelectingNotifier.addListener(_onSelectingChanged);
     _ticker = createTicker(_onTick);
+    // Subscribe without rebuilding: each emission only re-syncs the
+    // interpolation clock (same math the in-build block used to run).
+    _posSub = ref.listenManual(
+      playbackServiceProvider.select((s) => s.position),
+      (_, _) => _syncPlaybackClock(),
+    );
+    _playingSub = ref.listenManual(
+      playbackServiceProvider.select((s) => s.isPlaying),
+      (_, _) => _syncPlaybackClock(),
+    );
+    _speedSub = ref.listenManual(
+      playbackServiceProvider.select((s) => s.speed),
+      (_, _) => _syncPlaybackClock(),
+    );
+    _syncPlaybackClock();
   }
 
   void _onSelectingChanged() {
@@ -159,6 +180,9 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
 
   @override
   void dispose() {
+    _posSub?.close();
+    _playingSub?.close();
+    _speedSub?.close();
     _ticker.dispose();
     _interpolatedPositionMs.dispose();
     _lyricController.isSelectingNotifier.removeListener(_onSelectingChanged);
@@ -187,33 +211,20 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     _lyricController.setProgress(Duration(milliseconds: math.max(0, currentMs)));
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final position = ref.watch(
-      playbackServiceProvider.select((s) => s.position),
-    );
-    final isPlaying = ref.watch(
-      playbackServiceProvider.select((s) => s.isPlaying),
-    );
-    final speed = ref.watch(
-      playbackServiceProvider.select((s) => s.speed),
-    );
-    final offsetMs = ref.watch(lyricsOffsetProvider(widget.track.queueKey));
-    final showTransliteration = ref.watch(lyricsTransliterationProvider);
-    // Select the single pref: toggling theme/quality elsewhere must
-    // not rebuild the karaoke view (it recreates the lyric adapter).
-    final wordByWord =
-        ref.watch(prefsProvider.select((p) => p.wordByWord));
-    final async = ref.watch(waveLyricsProvider(widget.track.queueKey));
-
-    _isPlaying = isPlaying;
-    _speed = speed <= 0 ? 1.0 : speed;
-    _offsetMs = offsetMs;
-    final audioMs = position.inMilliseconds;
+  /// Syncs the 30Hz interpolation clock from the 10Hz playback snapshot.
+  /// Runs from tick listeners and rare rebuilds — writes only the ticker,
+  /// the position notifier, and the lyric controller, never setState, so
+  /// it never schedules extra frames. Same math the in-build block ran,
+  /// only the trigger changed.
+  void _syncPlaybackClock() {
+    final snap = ref.read(playbackServiceProvider);
+    final audioMs = snap.position.inMilliseconds;
+    _isPlaying = snap.isPlaying;
+    _speed = snap.speed <= 0 ? 1.0 : snap.speed;
     if (!_isPlaying) {
       _lastAudioMs = audioMs;
       _lastSyncTime = DateTime.now();
-      final effectiveMs = audioMs - offsetMs;
+      final effectiveMs = audioMs - _offsetMs;
       _interpolatedPositionMs.value = effectiveMs;
       _lyricController.setProgress(Duration(milliseconds: math.max(0, effectiveMs)));
     } else if (audioMs != _lastAudioMs) {
@@ -223,7 +234,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       if (drift <= -450 || drift >= 250) {
         _lastAudioMs = audioMs;
         _lastSyncTime = DateTime.now();
-        final effectiveMs = audioMs - offsetMs;
+        final effectiveMs = audioMs - _offsetMs;
         _interpolatedPositionMs.value = effectiveMs;
         _lyricController.setProgress(
             Duration(milliseconds: math.max(0, effectiveMs)));
@@ -235,6 +246,26 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     } else if (!_isPlaying && _ticker.isActive) {
       _ticker.stop();
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // NOTE: position/isPlaying/speed are subscribed in initState
+    // (_syncPlaybackClock), not watched here. They tick 10Hz and feed
+    // only ticker/drift side effects, never widget output — watching them
+    // rebuilt the whole toolbar + style + list 10x/sec for nothing.
+    final offsetMs = ref.watch(lyricsOffsetProvider(widget.track.queueKey));
+    final showTransliteration = ref.watch(lyricsTransliterationProvider);
+    // Select the single pref: toggling theme/quality elsewhere must
+    // not rebuild the karaoke view (it recreates the lyric adapter).
+    final wordByWord =
+        ref.watch(prefsProvider.select((p) => p.wordByWord));
+    final async = ref.watch(waveLyricsProvider(widget.track.queueKey));
+
+    _offsetMs = offsetMs;
+    // Covers offset/track/data-driven syncs; clock ticks arrive via the
+    // initState subscriptions. Rare either way (no per-tick rebuilds).
+    _syncPlaybackClock();
 
     return async.when(
       loading: () => ConstrainedBox(
