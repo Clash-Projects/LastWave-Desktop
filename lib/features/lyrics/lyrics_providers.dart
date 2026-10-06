@@ -5,6 +5,8 @@
 /// the Bini-compatible search API (`/api/v1`) and word-sync TTML
 /// documents (`/s/{ISRC}.ttml`) — verified live 2026-10-06
 /// (`lyrics-api.binimum.org` 307-redirects to `lrc.red/api/v1`).
+library;
+
 import 'dart:convert';
 import 'dart:math' as math;
 
