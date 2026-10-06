@@ -44,6 +44,8 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   bool _queueVisible = false;
   bool _controlsIdle = false;
   Timer? _idleTimer;
+  DateTime _lastHoverAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastArmAt = DateTime.fromMillisecondsSinceEpoch(0);
   String _preloadedKey = '';
   // Memoized in-page queue drawer: without this every page build
   // reconstructs the full row list (menus, tooltips, flyout targets).
@@ -68,15 +70,41 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   }
 
   void _resetIdleTimer() {
+    _lastHoverAt = DateTime.now();
     if (_controlsIdle) {
       setState(() => _controlsIdle = false);
+      _armIdleTimer();
+      return;
     }
+    // Throttle per-pixel hover re-arms while visible: high-DPI mice poll
+    // ~1000Hz and each event cancelled/armed a Timer. The timeout below
+    // self-corrects against _lastHoverAt, so hide still lands exactly
+    // 3.5s after the last movement. Showing from hidden stays instant.
+    final now = DateTime.now();
+    if (now.difference(_lastArmAt).inMilliseconds < 200 &&
+        (_idleTimer?.isActive ?? false)) {
+      return;
+    }
+    _armIdleTimer();
+  }
+
+  void _armIdleTimer() {
+    _lastArmAt = DateTime.now();
     _idleTimer?.cancel();
-    _idleTimer = Timer(const Duration(milliseconds: 3500), () {
-      if (mounted) {
-        setState(() => _controlsIdle = true);
-      }
-    });
+    _idleTimer = Timer(const Duration(milliseconds: 3500), _onIdleTimeout);
+  }
+
+  void _onIdleTimeout() {
+    if (!mounted) return;
+    // A throttled hover may have landed after the last arm: re-arm for
+    // the remainder instead of hiding early.
+    final elapsed = DateTime.now().difference(_lastHoverAt).inMilliseconds;
+    if (elapsed < 3500) {
+      _idleTimer =
+          Timer(Duration(milliseconds: 3500 - elapsed), _onIdleTimeout);
+      return;
+    }
+    setState(() => _controlsIdle = true);
   }
 
   @override
@@ -531,11 +559,20 @@ class _DesktopDualPane extends StatelessWidget {
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(16),
-                              child: WaveKaraokeLyricsView(
-                                track: track,
-                                compact: false,
-                                showHeaderControls: true,
-                                fontSize: 36.0,
+                              // Offstage skips paint/raster + TickerMode mutes
+                              // the 30Hz karaoke ticker while hidden at
+                              // width 0 / opacity 0. No visual change.
+                              child: Offstage(
+                                offstage: !lyricsVisible,
+                                child: TickerMode(
+                                  enabled: lyricsVisible,
+                                  child: WaveKaraokeLyricsView(
+                                    track: track,
+                                    compact: false,
+                                    showHeaderControls: true,
+                                    fontSize: 36.0,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
