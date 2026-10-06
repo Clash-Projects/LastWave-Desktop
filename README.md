@@ -74,5 +74,5 @@ Enjoy ad-free streaming and smart playlist generation! -->
 > - LastWave **does not host, stream from private servers, or distribute any copyrighted media**. All content and metadata are accessed directly from public endpoints in accordance with their respective terms. All trademarks belong to their respective owners.
 
 <div align="center">
-  <p>Built with ❤️ by <a href="https://github.com/mrinmoyhaloi">Mrinmoy</a> & <a href="https://github.com/ajisth69">Ajisth</a>.</p>
+  <p>Built with ❤️ by <a href="https://github.com/mrinmoyhaloi">Mrinmoy</a>, <a href="https://github.com/SYR3X">Kehan</a> & <a href="https://github.com/ajisth69">Ajisth</a>.</p>
 </div>
