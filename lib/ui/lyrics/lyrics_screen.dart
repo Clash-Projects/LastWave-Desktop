@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/window_lifecycle.dart';
 import '../../design_system/fluent/lw_viewport.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
@@ -10,6 +11,20 @@ import '../components/states.dart';
 import 'lyrics_panel.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
+
+/// Mutes the karaoke ticker while the window is unfocused/minimized.
+/// Route-mounted with no ancestor TickerMode, so this is the only gate.
+/// Framework mute auto-resumes on focus. No visual change.
+class _ScreenTicker extends ConsumerWidget {
+  final Widget child;
+  const _ScreenTicker({required this.child});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final focused = ref.watch(windowFocusedProvider);
+    return TickerMode(enabled: focused, child: child);
+  }
+}
 
 class WaveLyricsScreen extends ConsumerStatefulWidget {
   const WaveLyricsScreen({super.key});
@@ -104,9 +119,11 @@ class _WaveLyricsScreenState extends ConsumerState<WaveLyricsScreen> {
                   child: LayoutBuilder(builder: (context, content) {
                     final split = _artwork && !_focus &&
                         content.maxWidth >= 760 && content.maxHeight >= 360;
-                    final reader = WaveLyricsPanel(
-                      key: ValueKey(current.queueKey),
-                      track: current,
+                    final reader = _ScreenTicker(
+                      child: WaveLyricsPanel(
+                        key: ValueKey(current.queueKey),
+                        track: current,
+                      ),
                     );
                     if (!split) {
                       return Center(

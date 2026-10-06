@@ -100,6 +100,20 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   }
 
   @override
+  void onWindowFocus() {
+    try {
+      ref.read(windowFocusedProvider.notifier).state = true;
+    } catch (_) {}
+  }
+
+  @override
+  void onWindowBlur() {
+    try {
+      ref.read(windowFocusedProvider.notifier).state = false;
+    } catch (_) {}
+  }
+
+  @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
       case 'show':
@@ -142,3 +156,11 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   @override
   Widget build(BuildContext context) => widget.child;
 }
+
+/// True while the OS window is focused. Karaoke tickers mute on blur via
+/// framework TickerMode (auto-resumes on focus, clock resyncs from the
+/// 10Hz snapshot), so a minimized window stops the 30Hz clock and the
+/// lyric package's display-rate repaint storm. Playback state keeps
+/// flowing — only hidden tickers sleep. Defaults true (window.dart
+/// shows + focuses at launch).
+final windowFocusedProvider = StateProvider<bool>((ref) => true);

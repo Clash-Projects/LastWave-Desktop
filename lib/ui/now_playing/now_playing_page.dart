@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/window_lifecycle.dart';
 import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/artwork/artwork_resolver.dart';
@@ -448,6 +449,22 @@ class _FsIconButtonState extends State<_FsIconButton> {
   }
 }
 
+/// Mutes karaoke tickers while the window is unfocused/minimized, on top
+/// of the visibility gate. Framework TickerMode: auto-resumes on focus,
+/// clock resyncs from the snapshot. Scoped ConsumerWidget so blur
+/// rebuilds only this leaf, never the page.
+class _FocusedTicker extends ConsumerWidget {
+  final bool enabled;
+  final Widget child;
+  const _FocusedTicker({required this.enabled, required this.child});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final focused = ref.watch(windowFocusedProvider);
+    return TickerMode(enabled: enabled && focused, child: child);
+  }
+}
+
 /// Desktop Dual-Pane split layout with smooth cinematic centering when lyrics are hidden.
 class _DesktopDualPane extends StatelessWidget {
   final PlayableTrack track;
@@ -559,12 +576,13 @@ class _DesktopDualPane extends StatelessWidget {
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(16),
-                              // Offstage skips paint/raster + TickerMode mutes
-                              // the 30Hz karaoke ticker while hidden at
-                              // width 0 / opacity 0. No visual change.
+                              // Offstage skips paint/raster + _FocusedTicker
+                              // mutes the 30Hz karaoke ticker while hidden
+                              // at width 0 / opacity 0 or while the window
+                              // is unfocused. No visual change.
                               child: Offstage(
                                 offstage: !lyricsVisible,
-                                child: TickerMode(
+                                child: _FocusedTicker(
                                   enabled: lyricsVisible,
                                   child: WaveKaraokeLyricsView(
                                     track: track,
@@ -605,10 +623,15 @@ class _NarrowCenteredPane extends StatelessWidget {
     if (lyricsVisible) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: WaveKaraokeLyricsView(
-          track: track,
-          compact: true,
-          showHeaderControls: true,
+        // No Offstage here (unmounted when hidden); focus mute only,
+        // for minimized narrow windows. No visual change.
+        child: _FocusedTicker(
+          enabled: true,
+          child: WaveKaraokeLyricsView(
+            track: track,
+            compact: true,
+            showHeaderControls: true,
+          ),
         ),
       );
     }

@@ -10,6 +10,7 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/window.dart';
+import '../../app/window_lifecycle.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
@@ -45,6 +46,29 @@ class WaveShell extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<WaveShell> createState() => _WaveShellState();
+}
+
+/// Drawer lyrics gate: Offstage skips raster while shut; TickerMode mutes
+/// the karaoke ticker while shut OR while the window is unfocused.
+/// Single gate on purpose (nested TickerModes don't AND — nearest wins —
+/// so nothing may add an inner gate inside the side panel). Scoped
+/// ConsumerWidget so focus flips rebuild only this leaf, never the shell.
+class _DrawerTicker extends ConsumerWidget {
+  final bool open;
+  final Widget child;
+  const _DrawerTicker({required this.open, required this.child});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final focused = ref.watch(windowFocusedProvider);
+    return Offstage(
+      offstage: !open,
+      child: TickerMode(
+        enabled: open && focused,
+        child: child,
+      ),
+    );
+  }
 }
 
 class _WaveShellState extends ConsumerState<WaveShell> {
@@ -694,24 +718,19 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                           excluding: !(_lyricsOpen && hasTrack),
                                           child: IgnorePointer(
                                             ignoring: !(_lyricsOpen && hasTrack),
-                                        child: Offstage(
+                                        child: _DrawerTicker(
                                           // See queue panel above: skips
                                           // rasterizing the hidden karaoke
                                           // view on every navigation.
-                                          // TickerMode mutes the karaoke
-                                          // ticker itself while shut: it
-                                          // would otherwise fire 30Hz
-                                          // setStates into an off-screen
-                                          // layer on every page. Resumes
-                                          // transparently (position resyncs).
-                                          offstage:
-                                              !(_lyricsOpen && hasTrack),
-                                          child: TickerMode(
-                                            enabled:
-                                                _lyricsOpen && hasTrack,
-                                            child: _lyricsPanelFor(
-                                                _lyricsOpen && hasTrack),
-                                          ),
+                                          // Mutes the karaoke ticker while
+                                          // shut or unfocused: it would
+                                          // otherwise fire 30Hz into an
+                                          // off-screen or invisible layer.
+                                          // Resumes transparently
+                                          // (position resyncs).
+                                          open: _lyricsOpen && hasTrack,
+                                          child: _lyricsPanelFor(
+                                              _lyricsOpen && hasTrack),
                                         ),
                                           ),
                                         ),
