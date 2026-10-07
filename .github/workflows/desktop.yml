@@ -35,7 +35,7 @@ jobs:
             clang cmake ninja-build pkg-config patchelf binutils \
             libgtk-3-dev liblzma-dev libstdc++-12-dev \
             libayatana-appindicator3-dev libasound2-dev libmpv-dev mpv \
-            libkeybinder-3.0-dev libwebkit2gtk-4.1-dev
+            libkeybinder-3.0-dev libwebkit2gtk-4.1-dev glib-networking
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -87,11 +87,33 @@ jobs:
           chmod +x "$TOOLS/linuxdeploy" "$TOOLS/linuxdeploy-plugin-gtk.sh" "$TOOLS/appimagetool"
           export PATH="$TOOLS:$PATH"
           export ARCH=x86_64
+          # hotkey_manager_linux links libkeybinder-3.0.so.0 at runtime
+          # (same reason nfpm deb/rpm declare it as a dependency): force
+          # it into the image so global hotkeys work on distros that
+          # don't ship keybinder3. Resolved via ldconfig with the
+          # Ubuntu multiarch path as fallback.
+          KEYBINDER_LIB="$(ldconfig -p 2>/dev/null | grep -m1 'libkeybinder-3.0.so.0 ' | awk '{print $NF}')"
+          if [ -z "$KEYBINDER_LIB" ]; then
+            KEYBINDER_LIB="/usr/lib/x86_64-linux-gnu/libkeybinder-3.0.so.0"
+          fi
+          echo "Using keybinder lib: $KEYBINDER_LIB"
+          ls -la "$KEYBINDER_LIB"
           "$TOOLS/linuxdeploy" --appimage-extract-and-run \
             --appdir AppDir \
             -d linux/packaging/lastwave-appimage.desktop \
             -i linux/packaging/lastwave.png \
-            --plugin gtk
+            --plugin gtk \
+            --library "$KEYBINDER_LIB"
+          # linuxdeploy should have vendored keybinder via --library
+          # above (or via the hotkey plugin's NEEDED entry); verify so
+          # a silently-missing lib never ships. Fall back to a manual
+          # copy if the deploy step didn't place it.
+          if ! ls AppDir/usr/lib/libkeybinder-3.0.so* >/dev/null 2>&1; then
+            echo "::warning::linuxdeploy did not vendor libkeybinder, copying manually"
+            cp -a "$KEYBINDER_LIB" AppDir/usr/lib/
+          fi
+          echo "--- vendored keybinder:"
+          ls -la AppDir/usr/lib/libkeybinder*
           # Dart dlopens UNVERSIONED names first (media_kit: libmpv.so,
           # sqflite: libsqlite3.so) but linuxdeploy vendors only SONAMEs.
           # Without these, the opens hit host -devel symlinks => a second
@@ -99,6 +121,95 @@ jobs:
           # Same inode => one instance everywhere.
           ln -sf libmpv.so.2 AppDir/usr/lib/libmpv.so
           ln -sf libsqlite3.so.0 AppDir/usr/lib/libsqlite3.so
+          # WebKit2GTK helpers: libwebkit2gtk-4.1.so.0 spawns
+          # WebKitNetworkProcess/WebKitWebProcess/WebKitGPUProcess from a
+          # compile-time absolute path (/usr/lib/x86_64-linux-gnu/
+          # webkit2gtk-4.1 on Ubuntu). linuxdeploy bundles the .so (via the
+          # webview plugin's NEEDED chain) but NOT the helper executables,
+          # so off-Ubuntu the spawn fails with "No such file or directory"
+          # and WebKit SIGTRAPs the whole app. WEBKIT_EXEC_PATH was removed
+          # upstream, so ship the helpers and byte-patch the path (below).
+          WEBKIT_SRC="/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1"
+          WEBKIT_DST="AppDir/usr/lib/webkit2gtk-4.1"
+          if [ ! -d "$WEBKIT_SRC" ]; then
+            echo "::error::WebKit helper dir missing: $WEBKIT_SRC"
+            exit 1
+          fi
+          mkdir -p "$WEBKIT_DST"
+          cp -a "$WEBKIT_SRC"/. "$WEBKIT_DST/"
+          find "$WEBKIT_DST" -type f -perm -111 -print0 | while IFS= read -r -d '' elf; do
+            if file "$elf" | grep -q ELF; then
+              patchelf --set-rpath '$ORIGIN/..' "$elf" 2>/dev/null || true
+            fi
+          done
+          echo "--- vendored webkit helpers:"
+          ls -la "$WEBKIT_DST"
+          # GIO TLS modules: the gtk plugin copies libgio but not the
+          # $libdir/gio/modules dir holding glib-networking's
+          # libgiognutls.so. Without it WebKit reports "TLS is not
+          # available" on the first HTTPS request off-Debian (masked on
+          # Ubuntu by the host fallback path).
+          GIO_SRC="/usr/lib/x86_64-linux-gnu/gio/modules"
+          GIO_DST="AppDir/usr/lib/gio/modules"
+          if [ ! -d "$GIO_SRC" ]; then
+            echo "::error::GIO modules dir missing: $GIO_SRC (is glib-networking installed?)"
+            exit 1
+          fi
+          mkdir -p "$GIO_DST"
+          cp -a "$GIO_SRC"/. "$GIO_DST/"
+          find "$GIO_DST" -name '*.so' -print0 | while IFS= read -r -d '' so; do
+            patchelf --set-rpath '$ORIGIN/../..' "$so" 2>/dev/null || true
+          done
+          echo "--- vendored GIO modules:"
+          ls -la "$GIO_DST"
+          # Byte-patch the hardcoded helper path inside the bundled
+          # libwebkit: the /tmp replacement must fit (NUL-padded when
+          # shorter). Fails the job if the string is absent or the
+          # replacement is too long, so a broken image never ships.
+          python3 - "AppDir/usr/lib/libwebkit2gtk-4.1.so*" "/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1" "/tmp/.lastwave-webkit/webkit2gtk-4.1" <<'PY'
+          import glob, os, sys
+          lib_pattern, old, new = sys.argv[1], sys.argv[2].encode(), sys.argv[3].encode()
+          if len(new) > len(old):
+              sys.exit(f"FATAL: replacement {new!r} longer than original {old!r}")
+          padded = new + b'\x00' * (len(old) - len(new))
+          total = 0
+          for path in glob.glob(lib_pattern):
+              if os.path.islink(path):
+                  continue
+              data = open(path, 'rb').read()
+              count = data.count(old)
+              if count:
+                  open(path, 'wb').write(data.replace(old, padded))
+                  print(f"Patched {count} occurrence(s) in {path}")
+                  total += count
+          if total == 0:
+              sys.exit(f"FATAL: hardcoded WebKit path {old!r} not found in {lib_pattern}")
+          PY
+          # Custom AppRun wrapper: keep linuxdeploy's generated AppRun as
+          # AppRun.real and symlink the patched /tmp helper path at the
+          # bundled helpers before launch. Also export the bundled GIO
+          # module dir and disable WebKit's bubblewrap sandbox (its fresh
+          # mount namespace cannot see the AppImage FUSE mount, so helpers
+          # spawned inside it can't reach the bundle; standard practice for
+          # AppImage-packaged WebKitGTK). No `set -e`: wrapper failures
+          # must fall through to the real AppRun, never block launch.
+          mv AppDir/AppRun AppDir/AppRun.real
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          if [ -d "$HERE/usr/lib/webkit2gtk-4.1" ]; then
+            mkdir -p /tmp/.lastwave-webkit
+            ln -snf "$HERE/usr/lib/webkit2gtk-4.1" /tmp/.lastwave-webkit/webkit2gtk-4.1
+            export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          fi
+          if [ -d "$HERE/usr/lib/gio/modules" ]; then
+            export GIO_MODULE_DIR="$HERE/usr/lib/gio/modules"
+          fi
+          exec "$HERE/AppRun.real" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          echo "--- AppRun wrapper:"
+          cat AppDir/AppRun
           "$TOOLS/appimagetool" --appimage-extract-and-run \
             AppDir "lastwave_${VERSION}_x86_64.AppImage"
           ls -la "lastwave_${VERSION}_x86_64.AppImage"

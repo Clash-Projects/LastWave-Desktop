@@ -1753,7 +1753,7 @@ class _About extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('LastWave Desktop · v1.1.1', style: WaveType.trackTitle),
+          Text('LastWave Desktop · v1.2.0', style: WaveType.trackTitle),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,

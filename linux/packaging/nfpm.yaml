@@ -46,6 +46,9 @@ overrides:
       - libayatana-appindicator3-1 | libappindicator3-1
       - libasound2
       - libmpv2
+      # hotkey_manager links libkeybinder-3.0 at runtime: without this,
+      # global shortcuts are dead on distros that don't ship it.
+      - libkeybinder-3.0-0
   rpm:
     depends:
       - gtk3
@@ -53,3 +56,5 @@ overrides:
       - libappindicator-gtk3
       - alsa-lib
       - mpv-libs
+      # Same as above (Fedora name for the keybinder3 runtime).
+      - keybinder3
