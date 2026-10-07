@@ -139,6 +139,10 @@ class DashAssembler {
   /// Parallel-batched segment fetch. [onSegment] fires per arrival
   /// (arrival order varies); [onBatch] fires after each fully-arrived
   /// batch so callers can flush contiguous prefixes. False on any miss.
+  ///
+  /// [totalTimeout] bounds the whole fetch: a stalled CDN must fail
+  /// fast into the caller's fallback (same-tier retry, then YouTube),
+  /// never wedge the session while the player reads a partial file.
   static Future<bool> fetchSegments(
     Dio dio, {
     required String mediaTemplate,
@@ -146,26 +150,36 @@ class DashAssembler {
     required int count,
     required void Function(int index, List<int> bytes) onSegment,
     Future<void> Function(int base, int end)? onBatch,
+    Duration? totalTimeout,
   }) async {
-    for (var base = 0; base < count; base += parallelDownloads) {
-      final end = (base + parallelDownloads).clamp(0, count);
-      final batch = <Future<bool>>[];
-      for (var i = base; i < end; i++) {
-        final index = i;
-        batch.add(fetchBytes(
-          dio,
-          segmentUrlFor(mediaTemplate, startNumber + index),
-        ).then((bytes) {
-          if (bytes == null) return false;
-          onSegment(index, bytes);
-          return true;
-        }));
+    Future<bool> run() async {
+      for (var base = 0; base < count; base += parallelDownloads) {
+        final end = (base + parallelDownloads).clamp(0, count);
+        final batch = <Future<bool>>[];
+        for (var i = base; i < end; i++) {
+          final index = i;
+          batch.add(fetchBytes(
+            dio,
+            segmentUrlFor(mediaTemplate, startNumber + index),
+          ).then((bytes) {
+            if (bytes == null) return false;
+            onSegment(index, bytes);
+            return true;
+          }));
+        }
+        final results = await Future.wait(batch);
+        if (results.any((ok) => !ok)) return false;
+        if (onBatch != null) await onBatch(base, end);
       }
-      final results = await Future.wait(batch);
-      if (results.any((ok) => !ok)) return false;
-      if (onBatch != null) await onBatch(base, end);
+      return true;
     }
-    return true;
+
+    if (totalTimeout == null) return run();
+    try {
+      return await run().timeout(totalTimeout);
+    } on TimeoutException {
+      return false;
+    }
   }
 
   /// Enforce the assembled-file cache caps. [activeNames] are partials

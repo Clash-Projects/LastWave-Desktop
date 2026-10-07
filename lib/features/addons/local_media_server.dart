@@ -221,11 +221,15 @@ class _Session {
         unawaited(_discoverTotal(plan, init.length));
         final slots =
             List<List<int>?>.filled(plan.segmentCount, null);
+        // 120s overall budget (healthy assembles finish in ~3-28s):
+        // a stalled CDN fails here into the same-tier retry path
+        // instead of wedging the session under a reading player.
         final ok = await DashAssembler.fetchSegments(
           _dio,
           mediaTemplate: plan.mediaTemplate,
           startNumber: plan.startNumber,
           count: plan.segmentCount,
+          totalTimeout: const Duration(seconds: 120),
           onSegment: (i, bytes) => slots[i] = bytes,
           onBatch: (base, end) async {
             for (var i = base; i < end; i++) {
