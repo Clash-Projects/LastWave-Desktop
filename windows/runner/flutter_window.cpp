@@ -1,10 +1,41 @@
-#include "flutter_window.h"
+﻿#include "flutter_window.h"
 
 #include <optional>
 
+#include <propkey.h>
+#include <propvarutil.h>
+#include <shobjidl.h>
+
+#include "app_identity.h"
 #include "flutter/generated_plugin_registrant.h"
 #include "smtc_channel.h"
 #include "wasapi_channel.h"
+
+namespace {
+
+// Window-level AppUserModelID: GetForWindow-based SMTC resolves the
+// flyout label/icon from the HWND's property store first, then falls
+// back to the process ID set in main.cpp. Setting both to the same
+// kLastWaveAppUserModelId keeps taskbar grouping + SMTC in sync.
+// Best-effort: any failure degrades to the process-level ID.
+void SetWindowAppUserModelId(HWND hwnd) {
+  if (hwnd == nullptr) return;
+  IPropertyStore* store = nullptr;
+  if (FAILED(::SHGetPropertyStoreForWindow(
+          hwnd, IID_PPV_ARGS(&store)))) {
+    return;
+  }
+  PROPVARIANT pv{};
+  if (SUCCEEDED(::InitPropVariantFromString(
+          kLastWaveAppUserModelId, &pv))) {
+    store->SetValue(PKEY_AppUserModel_ID, pv);
+    store->Commit();
+    ::PropVariantClear(&pv);
+  }
+  store->Release();
+}
+
+}  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -15,6 +46,11 @@ bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
   }
+
+  // Explicit window identity BEFORE the SMTC channel binds GetForWindow:
+  // without this the shell falls back to "Unknown app" for the HWND
+  // even when the process-level ID (main.cpp) is correct.
+  SetWindowAppUserModelId(GetHandle());
 
   RECT frame = GetClientArea();
 
@@ -30,7 +66,7 @@ bool FlutterWindow::OnCreate() {
   wasapi_channel_ = std::make_unique<lastwave::WasapiChannel>(
       flutter_controller_->engine()->messenger());
   // SMTC (volume flyout / lock screen / media keys) binds the main window
-  // only — the hidden BotGuard WebView never gets its own registration.
+  // only - the hidden BotGuard WebView never gets its own registration.
   // Best-effort: init failures degrade to silence inside the channel.
   smtc_channel_ = std::make_unique<lastwave::SmtcChannel>(
       flutter_controller_->engine()->messenger(), GetHandle());
@@ -89,3 +125,4 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
 }
+
