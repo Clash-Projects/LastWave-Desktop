@@ -560,9 +560,16 @@ String _stripLeadingArtistPrefix(String raw) {
   return stripped.length >= 2 ? stripped : raw.trim();
 }
 
+String _normalizeLyricsSymbol(String s) {
+  var v = s.toLowerCase();
+  v = v.replaceAll(RegExp(r'\$(?=\d)'), '');
+  v = v.replaceAll(r'$', 's');
+  return v;
+}
+
 bool _tokenOverlap(String a, String b, double floor) {
-  final aTokens = a.toLowerCase().split(RegExp(r'\s+')).toSet();
-  final bTokens = b.toLowerCase().split(RegExp(r'\s+')).toSet();
+  final aTokens = _normalizeLyricsSymbol(a).split(RegExp(r'\s+')).toSet();
+  final bTokens = _normalizeLyricsSymbol(b).split(RegExp(r'\s+')).toSet();
   final union = aTokens.union(bTokens).length;
   if (union == 0) return false;
   return aTokens.intersection(bTokens).length / union >= floor;
@@ -573,12 +580,11 @@ bool _tokenOverlap(String a, String b, double floor) {
 /// side must cover >=70% of the longer side), else token overlap decides.
 bool lyricsTitlesMatchStrict(String candidateTitle, String requestTitle) {
   for (final cand in [candidateTitle, _stripLeadingArtistPrefix(candidateTitle)]) {
-    final ca = cand.trim();
-    final cb = requestTitle.trim();
+    final ca = _normalizeLyricsSymbol(cand).trim();
+    final cb = _normalizeLyricsSymbol(requestTitle).trim();
     if (ca.isEmpty || cb.isEmpty) continue;
-    if (ca.toLowerCase() == cb.toLowerCase()) return true;
-    if (ca.toLowerCase().contains(cb.toLowerCase()) ||
-        cb.toLowerCase().contains(ca.toLowerCase())) {
+    if (ca == cb) return true;
+    if (ca.contains(cb) || cb.contains(ca)) {
       final ratio =
           math.min(ca.length, cb.length) / math.max(ca.length, cb.length);
       if (ratio >= 0.7) return true;
@@ -592,12 +598,11 @@ bool lyricsTitlesMatchStrict(String candidateTitle, String requestTitle) {
 /// ways accepted `Ann` for `Annie` — exact wins, substring needs length
 /// cover, otherwise token overlap.
 bool lyricsArtistsMatchStrict(String candidateArtist, String requestArtist) {
-  final ca = candidateArtist.trim();
-  final ra = requestArtist.trim();
+  final ca = _normalizeLyricsSymbol(candidateArtist).trim();
+  final ra = _normalizeLyricsSymbol(requestArtist).trim();
   if (ca.isEmpty || ra.isEmpty) return false;
-  if (ca.toLowerCase() == ra.toLowerCase()) return true;
-  if (ca.toLowerCase().contains(ra.toLowerCase()) ||
-      ra.toLowerCase().contains(ca.toLowerCase())) {
+  if (ca == ra) return true;
+  if (ca.contains(ra) || ra.contains(ca)) {
     if (math.min(ca.length, ra.length) < 4) {
       return _tokenOverlap(ca, ra, 0.5);
     }

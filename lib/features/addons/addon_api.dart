@@ -212,6 +212,8 @@ class AddonApi implements LosslessSource {
   static String _clean(String s) {
     var v = s.toLowerCase();
     v = v.replaceAll(RegExp(r"['’`]"), '');
+    v = v.replaceAll(RegExp(r'\$(?=\d)'), '');
+    v = v.replaceAll(r'$', 's');
     v = v.replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ');
     return v.replaceAll(RegExp(r'\s+'), ' ').trim();
   }

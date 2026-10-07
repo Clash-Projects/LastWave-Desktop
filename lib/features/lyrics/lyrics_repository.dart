@@ -50,6 +50,8 @@ String cleanSongArtist(String artist) {
 /// and "All Caps [Official Audio]" compare equal.
 String normalizeLyricsTitle(String s) {
   var t = s.toLowerCase();
+  t = t.replaceAll(RegExp(r'\$(?=\d)'), '');
+  t = t.replaceAll(r'$', 's');
   t = t.replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
   t = t.replaceAll(RegExp(r'\b(?:feat\.?|ft\.?|featuring)\b.*$'), ' ');
   t = t.replaceAll(RegExp(r'\(\s*\)'), ' ');
@@ -89,11 +91,18 @@ bool lyricsTitlesMatch(String query, String candidate) {
   return true;
 }
 
+String _normalizeLyricsArtist(String s) {
+  var v = s.toLowerCase();
+  v = v.replaceAll(RegExp(r'\$(?=\d)'), '');
+  v = v.replaceAll(r'$', 's');
+  return v;
+}
+
 /// Artists match when equal, or the shorter name is a full token in the
 /// longer billing ("Madvillain" in "Madvillain & MF DOOM").
 bool lyricsArtistsMatch(String query, String candidate) {
-  final q = cleanSongArtist(query).toLowerCase().trim();
-  final c = cleanSongArtist(candidate).toLowerCase().trim();
+  final q = _normalizeLyricsArtist(cleanSongArtist(query)).trim();
+  final c = _normalizeLyricsArtist(cleanSongArtist(candidate)).trim();
   if (q.isEmpty || c.isEmpty) return false;
   if (q == c) return true;
   final shorter = q.length <= c.length ? q : c;
@@ -421,10 +430,13 @@ class LyricsRepository {
           'better_lyrics',
           'kugou',
           'simp_music',
+          'lrclib',
         ])
           if (id != 'simp_music' || (videoId?.isNotEmpty ?? false))
-            attempt(id),
+            if (id != 'lrclib' || !lrclibAttempted)
+              attempt(id),
       ];
+      if (!lrclibAttempted) lrclibAttempted = true;
       Future<void> runRace() async {
         await for (final result in Stream.fromFutures(pending)) {
           if (result == null || result.isEmpty) continue;
@@ -689,6 +701,10 @@ class LyricsRepository {
       if (cleanT != title || cleanA != artist) ...[
         {'track_name': title, 'artist_name': artist, 'album_name': album},
         {'track_name': title, 'artist_name': artist},
+      ],
+      if (cleanA.contains(r'$')) ...[
+        {'track_name': cleanT, 'artist_name': cleanA.replaceAll(r'$', 's'), 'album_name': album},
+        {'track_name': cleanT, 'artist_name': cleanA.replaceAll(r'$', 's')},
       ],
     ];
     for (final params in attempts) {

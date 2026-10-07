@@ -238,7 +238,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       final elapsed = DateTime.now().difference(_lastSyncTime).inMilliseconds;
       final predicted = _lastAudioMs + (elapsed * _speed).round();
       final drift = audioMs - predicted;
-      if (drift <= -450 || drift >= 250) {
+      if (drift < -80 || drift > 80) {
         _lastAudioMs = audioMs;
         _lastSyncTime = DateTime.now();
         final effectiveMs = audioMs - _offsetMs;
@@ -325,7 +325,8 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           _currentResult = result;
           _lastTransliteration = showTransliteration;
           _lastWordByWord = wordByWord;
-          if (wordByWord) {
+          final canWordByWord = wordByWord && result.isWordSynced;
+          if (canWordByWord) {
             final model = convertToFlutterLyricModel(
               result,
               showTransliteration: showTransliteration,
@@ -369,7 +370,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                 },
               ),
             Expanded(
-              child: wordByWord && result.isSynced
+              child: (wordByWord && result.isWordSynced)
                   ? Stack(
                       children: [
                         Positioned.fill(
