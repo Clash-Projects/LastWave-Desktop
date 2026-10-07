@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/window_lifecycle.dart';
 import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/artwork/artwork_resolver.dart';
@@ -44,6 +45,8 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   bool _queueVisible = false;
   bool _controlsIdle = false;
   Timer? _idleTimer;
+  DateTime _lastHoverAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastArmAt = DateTime.fromMillisecondsSinceEpoch(0);
   String _preloadedKey = '';
   // Memoized in-page queue drawer: without this every page build
   // reconstructs the full row list (menus, tooltips, flyout targets).
@@ -68,15 +71,41 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   }
 
   void _resetIdleTimer() {
+    _lastHoverAt = DateTime.now();
     if (_controlsIdle) {
       setState(() => _controlsIdle = false);
+      _armIdleTimer();
+      return;
     }
+    // Throttle per-pixel hover re-arms while visible: high-DPI mice poll
+    // ~1000Hz and each event cancelled/armed a Timer. The timeout below
+    // self-corrects against _lastHoverAt, so hide still lands exactly
+    // 3.5s after the last movement. Showing from hidden stays instant.
+    final now = DateTime.now();
+    if (now.difference(_lastArmAt).inMilliseconds < 200 &&
+        (_idleTimer?.isActive ?? false)) {
+      return;
+    }
+    _armIdleTimer();
+  }
+
+  void _armIdleTimer() {
+    _lastArmAt = DateTime.now();
     _idleTimer?.cancel();
-    _idleTimer = Timer(const Duration(milliseconds: 3500), () {
-      if (mounted) {
-        setState(() => _controlsIdle = true);
-      }
-    });
+    _idleTimer = Timer(const Duration(milliseconds: 3500), _onIdleTimeout);
+  }
+
+  void _onIdleTimeout() {
+    if (!mounted) return;
+    // A throttled hover may have landed after the last arm: re-arm for
+    // the remainder instead of hiding early.
+    final elapsed = DateTime.now().difference(_lastHoverAt).inMilliseconds;
+    if (elapsed < 3500) {
+      _idleTimer =
+          Timer(Duration(milliseconds: 3500 - elapsed), _onIdleTimeout);
+      return;
+    }
+    setState(() => _controlsIdle = true);
   }
 
   @override
@@ -420,6 +449,23 @@ class _FsIconButtonState extends State<_FsIconButton> {
   }
 }
 
+/// Mutes karaoke tickers while the window is minimized/tray-hidden, on
+/// top of the lyrics-open gate. Side-by-side (unfocused but visible)
+/// keeps ticking. Framework TickerMode: auto-resumes on restore, clock
+/// resyncs from the snapshot. Scoped ConsumerWidget so visibility flips
+/// rebuild only this leaf, never the page.
+class _VisibleTicker extends ConsumerWidget {
+  final bool enabled;
+  final Widget child;
+  const _VisibleTicker({required this.enabled, required this.child});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final visible = ref.watch(windowVisibleProvider);
+    return TickerMode(enabled: enabled && visible, child: child);
+  }
+}
+
 /// Desktop Dual-Pane split layout with smooth cinematic centering when lyrics are hidden.
 class _DesktopDualPane extends StatelessWidget {
   final PlayableTrack track;
@@ -531,11 +577,21 @@ class _DesktopDualPane extends StatelessWidget {
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(16),
-                              child: WaveKaraokeLyricsView(
-                                track: track,
-                                compact: false,
-                                showHeaderControls: true,
-                                fontSize: 36.0,
+                              // Offstage skips paint/raster + _VisibleTicker
+                              // mutes the 30Hz karaoke ticker while hidden
+                              // at width 0 / opacity 0 or while the window
+                              // is minimized. No visual change.
+                              child: Offstage(
+                                offstage: !lyricsVisible,
+                                child: _VisibleTicker(
+                                  enabled: lyricsVisible,
+                                  child: WaveKaraokeLyricsView(
+                                    track: track,
+                                    compact: false,
+                                    showHeaderControls: true,
+                                    fontSize: 36.0,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -568,10 +624,15 @@ class _NarrowCenteredPane extends StatelessWidget {
     if (lyricsVisible) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: WaveKaraokeLyricsView(
-          track: track,
-          compact: true,
-          showHeaderControls: true,
+        // No Offstage here (unmounted when hidden); minimize mute only,
+        // for minimized narrow windows. No visual change.
+        child: _VisibleTicker(
+          enabled: true,
+          child: WaveKaraokeLyricsView(
+            track: track,
+            compact: true,
+            showHeaderControls: true,
+          ),
         ),
       );
     }

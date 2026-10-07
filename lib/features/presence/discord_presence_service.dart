@@ -292,9 +292,23 @@ class DiscordPresenceService {
 
 final discordPresenceProvider = Provider<DiscordPresenceService>((ref) {
   final svc = DiscordPresenceService(ref);
-  ref.listen<PlayerSnapshot>(playbackServiceProvider, (prev, next) {
-    unawaited(svc.onSnapshot(next));
-  });
+  // Slice matches _evaluate's push key exactly
+  // (queueKey/isPlaying/duration/bitrate): position ticks fired this 10Hz
+  // and died in the key check every time. Settings toggles call refresh()
+  // explicitly and the 15s heartbeat self-heals, so no push path is lost.
+  // (MPRIS/SMTC must keep the full snapshot: their seek detection diffs
+  // consecutive positions. This one never consumes position per tick.)
+  ref.listen(
+    playbackServiceProvider.select((s) => (
+      s.current?.queueKey ?? '',
+      s.isPlaying,
+      s.duration,
+      s.bitrateKbps,
+    )),
+    (_, _) {
+      unawaited(svc.onSnapshot(ref.read(playbackServiceProvider)));
+    },
+  );
   ref.onDispose(svc.dispose);
   return svc;
 });

@@ -173,7 +173,7 @@ void main() {
           '<p begin="1.0" end="3.0">'
           '<span begin="1.0" end="2.0">Hello</span>'
           '<span begin="2.0" end="3.0">world</span></p>';
-      final lines = LyricsRepository.parseTtml(ttml);
+      final lines = parseTtml(ttml);
       expect(lines.length, 1);
       expect(lines.first.text, 'Hello world');
       expect(lines.first.syllables.length, 2);

@@ -41,6 +41,11 @@ class AnimatedArtworkSession extends ChangeNotifier {
   String _openedUrl = '';
   bool _visible = false;
   bool _silenced = false;
+  // True only while paused solely because the window is minimized or
+  // tray-hidden. Resume on restore fires exclusively on this flag — user
+  // pauses, detach pauses, and track-change reloads never resume through
+  // it. Merely unfocused (side-by-side) never sets it.
+  bool _pausedForBackground = false;
   // Serializes native ops (open/stop/dispose): each waits for the previous.
   Future<void> _tail = Future.value();
 
@@ -93,6 +98,41 @@ class AnimatedArtworkSession extends ChangeNotifier {
     _notify();
   }
 
+  /// Window minimize/restore from WindowLifecycle. Pauses decode while the
+  /// window is minimized or tray-hidden; resumes on restore only when
+  /// this pause caused it. Pause/play are the lightest native ops — no
+  /// stop/dispose, no texture teardown (see class docs) — serialized like
+  /// every native op, never throws. Autoplay advancing tracks while
+  /// hidden still opens clips (attach path); the open guards below
+  /// re-pause them so nothing decodes invisibly. Side-by-side
+  /// (unfocused but visible) never calls this.
+  void setBackgrounded(bool backgrounded) {
+    if (_disposed) return;
+    if (!backgrounded) {
+      if (!_pausedForBackground) return;
+      _pausedForBackground = false;
+      unawaited(
+        _serialized(() async {
+          try {
+            // Detached tiles stay paused: detach's own timer owns them,
+            // and resuming a dead surface would flash black on return.
+            if (_refs > 0) await _player?.play();
+          } catch (_) {}
+        }),
+      );
+      return;
+    }
+    if (_refs == 0 || _pausedForBackground) return;
+    _pausedForBackground = true;
+    unawaited(
+      _serialized(() async {
+        try {
+          await _player?.pause();
+        } catch (_) {}
+      }),
+    );
+  }
+
   Future<void> open(String url) async {
     if (url.isEmpty || _disposed) return;
     if (url == _url && _player != null) {
@@ -108,6 +148,11 @@ class AnimatedArtworkSession extends ChangeNotifier {
       await _serialized(() async {
         try {
           await _player?.play();
+        } catch (_) {}
+        // Hidden toggle/skip: don't decode invisibly (flag stays set
+        // so restore still resumes).
+        try {
+          if (_pausedForBackground) await _player?.pause();
         } catch (_) {}
       });
       _ready = false;
@@ -143,6 +188,13 @@ class AnimatedArtworkSession extends ChangeNotifier {
         play: true,
       );
       if (gen != _generation || _disposed) return;
+      if (_pausedForBackground) {
+        // Autoplay advanced while hidden: keep the new clip paused
+        // (flag stays set so restore resumes into it).
+        try {
+          await player.pause();
+        } catch (_) {}
+      }
       _openedUrl = url;
       _watchReady(gen);
     } catch (_) {}

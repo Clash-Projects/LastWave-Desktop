@@ -151,6 +151,13 @@ class Prefs {
   bool get wordByWord => _sp.getBool('lw_word_by_word') ?? true;
   Future<void> setWordByWord(bool v) => _sp.setBool('lw_word_by_word', v);
 
+  /// Primary lyrics provider id (`auto` default). Explicit picks get a
+  /// head start; the rest of the chain stays as automatic fallback.
+  String get lyricsProviderId =>
+      _sp.getString('lw_lyrics_provider') ?? 'auto';
+  Future<void> setLyricsProviderId(String v) =>
+      _sp.setString('lw_lyrics_provider', v);
+
   String get lyricsAnimation =>
       _sp.getString('lw_lyrics_animation') ?? 'apple_fluid';
   Future<void> setLyricsAnimation(String v) =>

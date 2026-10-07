@@ -74,6 +74,16 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
   StreamSubscription<Map<String, dynamic>>? _hotplug;
   bool _attached = false;
   String? _lastLogged;
+  // Fingerprint of every input _rebuildPath consumes, so position-only
+  // ticks can skip it. Controller-side inputs (device, exclusive flags,
+  // prefs, notifier fields) don't arrive via the snapshot, so they are
+  // cached here too — otherwise a hotplug/config change landing between
+  // ticks would be missed. Updated on every rebuild, all entry points.
+  bool? _lastExclusiveApplied;
+  String? _lastWasapiError;
+  String? _lastDeviceId;
+  bool? _lastExclusiveRequested;
+  bool? _lastCrossfade;
   // Last non-zero volume, so unmute restores the pre-mute level
   // instead of full blast. Updated on every audible setVolume and
   // on every mute press (covers slider-dragged-to-zero too).
@@ -236,7 +246,38 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
     }
   }
 
+  /// True only when every input _rebuildPath reads is unchanged, so the
+  /// rebuild would produce an identical path. Position/buffer ticks fire
+  /// 10Hz while playing; skipping them saves the negotiator + string
+  /// alloc + notify on every tick with provably identical output.
+  bool _pathInputsUnchanged(PlayerSnapshot snap) {
+    final playback = _ref.read(playbackServiceProvider.notifier);
+    return playback.exclusiveApplied == _lastExclusiveApplied &&
+        playback.wasapiError == _lastWasapiError &&
+        (state.selected?.id ?? '') == (_lastDeviceId ?? '') &&
+        state.exclusiveRequested == _lastExclusiveRequested &&
+        _ref.read(prefsProvider).crossfadeEnabled == _lastCrossfade;
+  }
+
+  void _rememberPathInputs(PlayerSnapshot snap) {
+    final playback = _ref.read(playbackServiceProvider.notifier);
+    _lastExclusiveApplied = playback.exclusiveApplied;
+    _lastWasapiError = playback.wasapiError;
+    _lastDeviceId = state.selected?.id ?? '';
+    _lastExclusiveRequested = state.exclusiveRequested;
+    _lastCrossfade = _ref.read(prefsProvider).crossfadeEnabled;
+  }
+
   Future<void> _onPlayback(PlayerSnapshot? prev, PlayerSnapshot next) async {
+    if (prev != null &&
+        prev.stream == next.stream &&
+        prev.volume == next.volume &&
+        prev.speed == next.speed &&
+        prev.outputFormat == next.outputFormat &&
+        prev.outputIsFloat == next.outputIsFloat &&
+        _pathInputsUnchanged(next)) {
+      return;
+    }
     final prevFmt = _sourceOf(prev?.stream);
     final nextFmt = _sourceOf(next.stream);
     if (nextFmt != null && state.exclusiveRequested) {
@@ -364,6 +405,7 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
       path: path,
       lastOpenedFormat: source ?? state.lastOpenedFormat,
     );
+    _rememberPathInputs(snap);
     final line =
         'Device: ${path.deviceName} Exclusive: ${path.exclusiveActive} '
         'Source: ${path.sourceLabel} Output: ${path.outputLabel} '
