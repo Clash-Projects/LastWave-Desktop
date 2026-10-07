@@ -14,6 +14,7 @@ import 'playlist_dialogs.dart'
     show
         showWaveCreatePlaylist,
         showWaveDeletePlaylist,
+        showWaveImportPlaylist,
         showWaveRenamePlaylist;
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -86,6 +87,15 @@ class _WavePlaylistsPageState
                     icon: FluentIcons.add,
                     onPressed: () =>
                         showWaveCreatePlaylist(
+                      context,
+                      ref,
+                    ),
+                  ),
+                  WaveGhostButton(
+                    label: 'Import',
+                    icon: FluentIcons.download,
+                    onPressed: () =>
+                        showWaveImportPlaylist(
                       context,
                       ref,
                     ),

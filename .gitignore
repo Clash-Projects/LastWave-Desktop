@@ -1,5 +1,6 @@
-# Local git worktrees (isolated feature workspaces)
+# Local git worktrees + agent scratch (isolated feature workspaces)
 .worktrees/
+.superpowers/
 
 # Miscellaneous
 *.class
