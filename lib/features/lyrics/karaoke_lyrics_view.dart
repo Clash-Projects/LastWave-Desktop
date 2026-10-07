@@ -325,12 +325,12 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           _currentResult = result;
           _lastTransliteration = showTransliteration;
           _lastWordByWord = wordByWord;
-          final canWordByWord = wordByWord && result.isWordSynced;
-          if (canWordByWord) {
+          final useFlutterLyric = wordByWord && result.isSynced;
+          if (useFlutterLyric) {
             final model = convertToFlutterLyricModel(
               result,
               showTransliteration: showTransliteration,
-              wordByWord: true,
+              wordByWord: result.isWordSynced,
             );
             _lyricController.loadLyricModel(model);
             final effectiveMs = _interpolatedPositionMs.value;
@@ -370,7 +370,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                 },
               ),
             Expanded(
-              child: (wordByWord && result.isWordSynced)
+              child: (wordByWord && result.isSynced)
                   ? Stack(
                       children: [
                         Positioned.fill(
@@ -1219,7 +1219,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       builder: (context, posMs, _) {
         final active = _activeIndex(posMs);
         if (widget.following && _scroll.isAttached) {
-          if (active <= 0 || posMs < 400) {
+          if (posMs < 400 || active < 0) {
             _pinOpeningToTop();
             _lastIndex = active;
           } else if (active != _lastIndex) {
@@ -1309,8 +1309,9 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
             },
             child: ScrollablePositionedList.builder(
               itemScrollController: _scroll,
-              initialScrollIndex: 0,
-              initialAlignment: 0,
+              initialScrollIndex: active > 0 ? active : 0,
+              initialAlignment: lyricFollowAlignment(active > 0 ? active : 0,
+                  compact: widget.compact),
               itemCount: widget.result.lines.length,
               padding: padding,
               itemBuilder: (context, i) => lineAt(i),
