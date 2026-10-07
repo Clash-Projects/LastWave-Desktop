@@ -604,7 +604,13 @@ class LyricsRepository {
       if (!newMentions && curMentions) return false;
     }
 
-    // 5. Complete unsynced Apple text beats a shorter timed LRCLIB cut
+    // 5. Timed lyrics always beat static text: static lines can never
+    // highlight or follow, no matter how complete. Length/richness
+    // below only compare like with like.
+    if (newRes.isSynced && !current.isSynced) return true;
+    if (!newRes.isSynced && current.isSynced) return false;
+
+    // 6. Complete text beats a shorter cut of the same sync kind
     final newLen = lyricsBodyLength(newRes);
     final curLen = lyricsBodyLength(current);
     if (newLen >= (curLen * 1.25).round() && newLen - curLen >= 120) {
@@ -614,7 +620,7 @@ class LyricsRepository {
       return false;
     }
 
-    // 6. Unique-line richness beats a padded loop with the same raw count
+    // 7. Unique-line richness beats a padded loop with the same raw count
     final newUnique = lyricsUniqueLineCount(newRes);
     final curUnique = lyricsUniqueLineCount(current);
     if (newUnique >= (curUnique * 1.5).round() && newUnique - curUnique >= 4) {
@@ -623,10 +629,6 @@ class LyricsRepository {
     if (curUnique >= (newUnique * 1.5).round() && curUnique - newUnique >= 4) {
       return false;
     }
-
-    // 7. Synced always beats unsynced (after the text is known to be right)
-    if (newRes.isSynced && !current.isSynced) return true;
-    if (!newRes.isSynced && current.isSynced) return false;
 
     // 8. Official curated sources (Apple Music) beat crowdsourced
     // user submissions (lrclib)

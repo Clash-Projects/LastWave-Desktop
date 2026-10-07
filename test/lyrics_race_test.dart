@@ -200,6 +200,76 @@ void main() {
     );
     expect(repo.calls['lrclib'], 1);
   });
+
+  test('synced lines beat longer unsynced text (static must lose)', () {
+    final synced = LyricsResult(
+      lines: const [
+        LyricLine(timeMs: 10000, durationMs: 3000, text: 'Alpha verse one here'),
+        LyricLine(timeMs: 15000, durationMs: 3000, text: 'Beta verse two here'),
+        LyricLine(timeMs: 20000, durationMs: 3000, text: 'Gamma verse three here'),
+      ],
+      isSynced: true,
+      isWordSynced: false,
+      plainLyrics: 'Alpha verse one here Beta verse two here Gamma verse three here',
+      source: 'lrclib',
+    );
+    final unsynced = LyricsResult(
+      lines: const [
+        LyricLine(timeMs: 0, text: 'Delta line number one sung loudly'),
+        LyricLine(timeMs: 0, text: 'Epsilon line number two sung loudly'),
+        LyricLine(timeMs: 0, text: 'Zeta line number three sung loudly'),
+        LyricLine(timeMs: 0, text: 'Eta line number four sung loudly'),
+        LyricLine(timeMs: 0, text: 'Theta line number five sung loudly'),
+        LyricLine(timeMs: 0, text: 'Iota line number six sung loudly'),
+        LyricLine(timeMs: 0, text: 'Kappa line number seven sung loudly'),
+        LyricLine(timeMs: 0, text: 'Lambda line number eight sung loudly'),
+        LyricLine(timeMs: 0, text: 'Mu line number nine sung loudly'),
+        LyricLine(timeMs: 0, text: 'Nu line number ten sung loudly'),
+        LyricLine(timeMs: 0, text: 'Xi line number eleven sung loudly'),
+        LyricLine(timeMs: 0, text: 'Omicron line twelve sung loudly here'),
+      ],
+      isSynced: false,
+      isWordSynced: false,
+      plainLyrics: 'Delta Epsilon Zeta Eta Theta Iota Kappa Lambda Mu Nu Xi Omicron',
+      source: 'Apple Music',
+    );
+    expect(
+      LyricsRepository.isBetterCandidate(unsynced, synced,
+          queryTitle: 'Xyzt Distinct'),
+      isFalse,
+    );
+    expect(
+      LyricsRepository.isBetterCandidate(synced, unsynced,
+          queryTitle: 'Xyzt Distinct'),
+      isTrue,
+    );
+  });
+
+  test('among unsynced, the complete text still wins', () {
+    final short = LyricsResult(
+      lines: const [LyricLine(timeMs: 0, text: 'Short bit')],
+      isSynced: false,
+      plainLyrics: 'Short bit',
+      source: 'lrclib',
+    );
+    final full = LyricsResult(
+      lines: const [
+        LyricLine(timeMs: 0, text: 'A much longer complete transcript follows here'),
+        LyricLine(timeMs: 0, text: 'Second full verse of the complete transcript here'),
+        LyricLine(timeMs: 0, text: 'Third full verse of the complete transcript here'),
+        LyricLine(timeMs: 0, text: 'Fourth full verse of the complete transcript here'),
+        LyricLine(timeMs: 0, text: 'Fifth full verse of the complete transcript here'),
+      ],
+      isSynced: false,
+      plainLyrics: 'A much longer complete transcript follows here and on',
+      source: 'Apple Music',
+    );
+    expect(
+      LyricsRepository.isBetterCandidate(full, short,
+          queryTitle: 'Xyzt Distinct'),
+      isTrue,
+    );
+  });
 }
 
 class _HangingRepo extends LyricsRepository {
