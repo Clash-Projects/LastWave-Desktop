@@ -87,11 +87,33 @@ jobs:
           chmod +x "$TOOLS/linuxdeploy" "$TOOLS/linuxdeploy-plugin-gtk.sh" "$TOOLS/appimagetool"
           export PATH="$TOOLS:$PATH"
           export ARCH=x86_64
+          # hotkey_manager_linux links libkeybinder-3.0.so.0 at runtime
+          # (same reason nfpm deb/rpm declare it as a dependency): force
+          # it into the image so global hotkeys work on distros that
+          # don't ship keybinder3. Resolved via ldconfig with the
+          # Ubuntu multiarch path as fallback.
+          KEYBINDER_LIB="$(ldconfig -p 2>/dev/null | grep -m1 'libkeybinder-3.0.so.0 ' | awk '{print $NF}')"
+          if [ -z "$KEYBINDER_LIB" ]; then
+            KEYBINDER_LIB="/usr/lib/x86_64-linux-gnu/libkeybinder-3.0.so.0"
+          fi
+          echo "Using keybinder lib: $KEYBINDER_LIB"
+          ls -la "$KEYBINDER_LIB"
           "$TOOLS/linuxdeploy" --appimage-extract-and-run \
             --appdir AppDir \
             -d linux/packaging/lastwave-appimage.desktop \
             -i linux/packaging/lastwave.png \
-            --plugin gtk
+            --plugin gtk \
+            --library "$KEYBINDER_LIB"
+          # linuxdeploy should have vendored keybinder via --library
+          # above (or via the hotkey plugin's NEEDED entry); verify so
+          # a silently-missing lib never ships. Fall back to a manual
+          # copy if the deploy step didn't place it.
+          if ! ls AppDir/usr/lib/libkeybinder-3.0.so* >/dev/null 2>&1; then
+            echo "::warning::linuxdeploy did not vendor libkeybinder, copying manually"
+            cp -a "$KEYBINDER_LIB" AppDir/usr/lib/
+          fi
+          echo "--- vendored keybinder:"
+          ls -la AppDir/usr/lib/libkeybinder*
           # Dart dlopens UNVERSIONED names first (media_kit: libmpv.so,
           # sqflite: libsqlite3.so) but linuxdeploy vendors only SONAMEs.
           # Without these, the opens hit host -devel symlinks => a second
