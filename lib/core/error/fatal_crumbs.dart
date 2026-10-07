@@ -36,3 +36,49 @@ void writeFatalCrumb(String line) {
     );
   } catch (_) {}
 }
+
+/// Runs [body] and converts a synchronous throw into a crumb instead
+/// of an isolate-killing unhandled error. Use in timer callbacks,
+/// stream listeners, and post-frame callbacks on the hot playback
+/// path, where today any throw aborts the whole process (fail-fast).
+/// Returns the body value, or null when it threw.
+T? runGuarded<T>(
+  String scope,
+  T Function() body, {
+  void Function(String line)? onError,
+}) {
+  try {
+    return body();
+  } catch (error, stack) {
+    final line = 'GUARD $scope: ${fatalCrumb(error, stack)}';
+    if (onError != null) {
+      try {
+        onError(line);
+      } catch (_) {}
+    } else {
+      writeFatalCrumb(line);
+    }
+    return null;
+  }
+}
+
+/// Async twin of [runGuarded] for listener bodies that await.
+Future<T?> runGuardedAsync<T>(
+  String scope,
+  Future<T> Function() body, {
+  void Function(String line)? onError,
+}) async {
+  try {
+    return await body();
+  } catch (error, stack) {
+    final line = 'GUARD $scope: ${fatalCrumb(error, stack)}';
+    if (onError != null) {
+      try {
+        onError(line);
+      } catch (_) {}
+    } else {
+      writeFatalCrumb(line);
+    }
+    return null;
+  }
+}

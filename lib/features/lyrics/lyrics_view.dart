@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../../core/error/fatal_crumbs.dart';
 import '../../design_system/components.dart';
 import '../../design_system/icons.dart';
 import '../../design_system/tokens.dart';
@@ -78,17 +79,21 @@ class _LyricsColumnState extends ConsumerState<LyricsColumn> {
       compact: widget.compact,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.isAttached || !mounted) return;
-      if (animate) {
-        _scroll.scrollTo(
-          index: itemIndex,
-          alignment: alignment,
-          duration: LwMotion.slow,
-          curve: LwMotion.emphasized,
-        );
-      } else {
-        _scroll.jumpTo(index: itemIndex, alignment: alignment);
-      }
+      // Guarded: stale index after a result swap throws RangeError,
+      // which aborts the process via fail-fast.
+      runGuarded('lyrics.scroll', () {
+        if (!_scroll.isAttached || !mounted) return;
+        if (animate) {
+          _scroll.scrollTo(
+            index: itemIndex,
+            alignment: alignment,
+            duration: LwMotion.slow,
+            curve: LwMotion.emphasized,
+          );
+        } else {
+          _scroll.jumpTo(index: itemIndex, alignment: alignment);
+        }
+      });
     });
   }
 

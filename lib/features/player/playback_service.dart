@@ -19,6 +19,7 @@ import 'player_state.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
 import '../search/shared_providers.dart';
+import '../../core/error/fatal_crumbs.dart';
 
 /// Desktop playback service built on media_kit (MPV).
 ///
@@ -284,65 +285,88 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     final p = _player!;
     _subs.addAll([
       p.stream.playing.listen((v) {
-        state = state.copyWith(isPlaying: v);
-        _onPlayingChanged(v);
+        runGuarded('player.playing', () {
+          state = state.copyWith(isPlaying: v);
+          _onPlayingChanged(v);
+        });
       }),
       p.stream.buffering.listen((v) {
-        if (state.error != null) return;
-        state = state.copyWith(isBuffering: _resolving || v);
+        runGuarded('player.buffering', () {
+          if (state.error != null) return;
+          state = state.copyWith(isBuffering: _resolving || v);
+        });
       }),
       p.stream.position.listen((v) {
-        _maybeLogFirstAudio(v);
-        if (_resolving || state.error != null) return;
-        _tickScrobble(v);
-        _maybePrefetchFromPosition(v);
-        if (state.position == v) return;
-        final now = DateTime.now();
-        if (now.difference(_lastPositionEmit).inMilliseconds < 100) {
-          return;
-        }
-        _lastPositionEmit = now;
-        state = state.copyWith(position: v);
+        runGuarded('player.position', () {
+          _maybeLogFirstAudio(v);
+          if (_resolving || state.error != null) return;
+          _tickScrobble(v);
+          _maybePrefetchFromPosition(v);
+          if (state.position == v) return;
+          final now = DateTime.now();
+          if (now.difference(_lastPositionEmit).inMilliseconds < 100) {
+            return;
+          }
+          _lastPositionEmit = now;
+          state = state.copyWith(position: v);
+        });
       }),
       p.stream.buffer.listen((v) {
-        if (_resolving || state.error != null) return;
-        state = state.copyWith(buffered: v);
+        runGuarded('player.buffer', () {
+          if (_resolving || state.error != null) return;
+          state = state.copyWith(buffered: v);
+        });
       }),
       p.stream.duration.listen((v) {
-        if (_resolving || state.error != null) return;
-        state = state.copyWith(duration: v);
-        // Keep scrobble duration in sync with the track that owns the
-        // current window — not the next track that has already been
-        // written to state during resolve.
-        if (_scrobbleTrack != null &&
-            _scrobbleTrack!.queueKey == state.current?.queueKey) {
-          _scrobbleDurationSec = v.inSeconds;
-        }
+        runGuarded('player.duration', () {
+          if (_resolving || state.error != null) return;
+          state = state.copyWith(duration: v);
+          // Keep scrobble duration in sync with the track that owns the
+          // current window — not the next track that has already been
+          // written to state during resolve.
+          if (_scrobbleTrack != null &&
+              _scrobbleTrack!.queueKey == state.current?.queueKey) {
+            _scrobbleDurationSec = v.inSeconds;
+          }
+        });
       }),
       p.stream.volume.listen((v) {
-        if (_lockSoftwareVolume) return;
-        state = state.copyWith(volume: (v / 100).clamp(0.0, 1.0));
+        runGuarded('player.volume', () {
+          if (_lockSoftwareVolume) return;
+          state = state.copyWith(volume: (v / 100).clamp(0.0, 1.0));
+        });
       }),
       p.stream.completed.listen((done) {
-        if (done) _onTrackCompleted();
+        runGuarded('player.completed', () {
+          if (done) _onTrackCompleted();
+        });
       }),
       p.stream.log.listen((PlayerLog l) {
-        if (kDebugMode) {
-          _mpvLogTail.add(l);
-          if (_mpvLogTail.length > _mpvLogTailMax) {
-            _mpvLogTail.removeRange(0, _mpvLogTail.length - _mpvLogTailMax);
+        runGuarded('player.log', () {
+          if (kDebugMode) {
+            _mpvLogTail.add(l);
+            if (_mpvLogTail.length > _mpvLogTailMax) {
+              _mpvLogTail.removeRange(
+                  0, _mpvLogTail.length - _mpvLogTailMax);
+            }
           }
-        }
+        });
       }),
       p.stream.error.listen((e) {
-        if (kDebugMode) {
-          debugPrint('LastWave-Player: mpv error: $e');
-          _dumpMpvLog('p.stream.error');
-        }
-        unawaited(_onPlayerError());
+        runGuarded('player.error-event', () {
+          if (kDebugMode) {
+            debugPrint('LastWave-Player: mpv error: $e');
+            _dumpMpvLog('p.stream.error');
+          }
+          unawaited(runGuardedAsync(
+              'player.error', () => _onPlayerError()));
+        });
       }),
       p.stream.audioParams.listen((_) {
-        unawaited(_refreshAoFormat());
+        runGuarded('player.audio-params', () {
+          unawaited(runGuardedAsync(
+              'player.ao-format', () => _refreshAoFormat()));
+        });
       }),
     ]);
     await restoreSession();
@@ -1596,6 +1620,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _resolveAndOpen(nextIndex);
   }
 
+  /// Shuffle orders can outlive queue edits (remove/reorder during
+  /// resolve churn). Stale indices must never reach `queue[i]`: a
+  /// RangeError inside an mpv callback aborts the whole process.
+  bool _queueIndexValid(int i) =>
+      i >= 0 && i < state.queue.length;
+
   int? _nextIndex({bool skipUnavailable = false}) {
     final queue = state.queue;
     if (queue.isEmpty || state.currentIndex < 0) return null;
@@ -1603,13 +1633,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       final pos = _shuffleOrder.indexOf(state.currentIndex);
       if (pos >= 0 && pos + 1 < _shuffleOrder.length) {
         final candidate = _shuffleOrder[pos + 1];
+        if (!_queueIndexValid(candidate)) {
+          return _wrapIndex(skipUnavailable: skipUnavailable);
+        }
         if (skipUnavailable &&
             _unavailable.contains(queue[candidate].queueKey)) {
           // walk forward past unavailable
           for (var i = pos + 1; i < _shuffleOrder.length; i++) {
-            if (!_unavailable
-                .contains(queue[_shuffleOrder[i]].queueKey)) {
-              return _shuffleOrder[i];
+            final idx = _shuffleOrder[i];
+            if (!_queueIndexValid(idx)) continue;
+            if (!_unavailable.contains(queue[idx].queueKey)) {
+              return idx;
             }
           }
           return _wrapIndex(skipUnavailable: skipUnavailable);
@@ -1638,6 +1672,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         ? _shuffleOrder
         : List<int>.generate(state.queue.length, (index) => index);
     for (final index in order) {
+      if (!_queueIndexValid(index)) continue;
       if (!skipUnavailable ||
           !_unavailable.contains(state.queue[index].queueKey)) {
         return index;
@@ -1648,7 +1683,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   int? _prevIndex() {
     if (state.shuffleEnabled && _shuffleOrder.isNotEmpty) {
       final pos = _shuffleOrder.indexOf(state.currentIndex);
-      if (pos > 0) return _shuffleOrder[pos - 1];
+      if (pos > 0) {
+        final prev = _shuffleOrder[pos - 1];
+        return _queueIndexValid(prev) ? prev : null;
+      }
       return null;
     }
     if (state.currentIndex > 0) return state.currentIndex - 1;
