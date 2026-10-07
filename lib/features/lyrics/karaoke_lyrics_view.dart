@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../../core/error/fatal_crumbs.dart';
 import '../../core/storage/prefs.dart';
 import '../../ui/components/buttons.dart' show LWTooltip;
 import '../../ui/components/menus.dart' show fastFlyoutTransition;
@@ -195,7 +196,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   DateTime _lastTickWall = DateTime.now();
 
   void _onTick(Duration _) {
-    if (!_isPlaying) return;
+    // Guarded: a throw here (e.g. a progress value the lyric
+    // controller rejects) aborts the whole process via fail-fast.
+    runGuarded('karaoke.tick', () {
+      if (!_isPlaying) return;
     // Cap interpolation at ~30Hz: the ticker fires at display refresh
     // (up to 144Hz), and every admitted tick pushes setProgress + a
     // lyric-view update. Syllable transitions are 50-200ms, so 30Hz
@@ -211,6 +215,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
     _interpolatedPositionMs.value = currentMs;
     _lyricController.setProgress(Duration(milliseconds: math.max(0, currentMs)));
+    });
   }
 
   /// Syncs the 30Hz interpolation clock from the 10Hz playback snapshot.
@@ -1159,17 +1164,21 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       compact: widget.compact,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.isAttached || !mounted) return;
-      if (animate) {
-        _scroll.scrollTo(
-          index: index,
-          alignment: alignment,
-          duration: WaveMotion.normal,
-          curve: Curves.easeOutCubic,
-        );
-      } else {
-        _scroll.jumpTo(index: index, alignment: alignment);
-      }
+      // Guarded: a stale index (lyrics swapped mid-flight) throws
+      // RangeError here, which aborts the process via fail-fast.
+      runGuarded('karaoke.scroll', () {
+        if (!_scroll.isAttached || !mounted) return;
+        if (animate) {
+          _scroll.scrollTo(
+            index: index,
+            alignment: alignment,
+            duration: WaveMotion.normal,
+            curve: Curves.easeOutCubic,
+          );
+        } else {
+          _scroll.jumpTo(index: index, alignment: alignment);
+        }
+      });
     });
   }
 
