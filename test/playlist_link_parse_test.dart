@@ -102,11 +102,38 @@ void main() {
       InterceptorsWrapper(
         onRequest: (options, handler) {
           requests++;
-          handler.resolve(Response(
-              requestOptions: options, statusCode: 404, data: 'nope'));
+          final url = options.uri.toString();
+          if (url.contains('spotify.link/XYZ')) {
+            // Short link: Dio follows the HTTP redirect; the canonical
+            // playlist id comes from the final URI.
+            handler.resolve(Response(
+                requestOptions: RequestOptions(
+                    path:
+                        'https://open.spotify.com/playlist/ABC123?si=x'),
+                statusCode: 200,
+                data: 'redirect landing'));
+            return;
+          }
+          if (url.contains('spotify.com/embed/playlist/ABC123')) {
+            handler.resolve(Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: _fixture('spotify_embed_sample.html')));
+            return;
+          }
+          handler.reject(DioException(
+            requestOptions: options,
+            type: DioExceptionType.badResponse,
+            response:
+                Response(requestOptions: options, statusCode: 404),
+          ));
         },
       ),
     );
+    // Short URL resolves through the redirect to the real playlist.
+    final viaShort = await fetchSpotifyPlaylist(dio, 'https://spotify.link/XYZ');
+    expect(viaShort.title, 'Sample & Mix');
+    expect(viaShort.rows.length, 2);
     await expectLater(
       fetchSpotifyPlaylist(dio, 'not a link'),
       throwsA(isA<FormatException>()),
@@ -119,6 +146,6 @@ void main() {
       fetchSpotifyPlaylist(dio, 'https://open.spotify.com/playlist/NOPE'),
       throwsA(isA<StateError>()),
     );
-    expect(requests, 1); // only the 404 fetch hit the network
+    expect(requests, 3); // short+embed, 404; garbage never hits HTTP
   });
 }

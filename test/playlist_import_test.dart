@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
@@ -119,7 +121,7 @@ void main() {
     );
   });
 
-  test('importPreview creates playlist with matched tracks only', () async {
+    test('importPreview creates playlist with matched tracks only', () async {
     final writer = _FakeWriter();
     final created = await importPreviewWith(
       writer,
@@ -136,4 +138,43 @@ void main() {
     expect(writer.createdTitle, 'Spot Mix');
     expect(writer.added.map((t) => t.videoId).toList(), ['v1', 'v2']);
   });
+
+  test('importPreview refuses an empty preview (never an empty playlist)',
+      () async {
+    final writer = _FakeWriter();
+    await expectLater(
+      importPreviewWith(
+        writer,
+        const PlaylistImportPreview(
+            title: 'Nothing', totalRows: 3, matchedTracks: []),
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(writer.createdTitle, isNull);
+  });
+
+  test('stalled YouTube fetch fails loudly under the cap', () async {
+    final source = _FakeSource();
+    source.playlist = null;
+    await expectLater(
+      previewPlaylistLinkWith(
+        _HangingSource(),
+        _pageDio(),
+        'https://music.youtube.com/playlist?list=PLxyz',
+        fetchTimeout: const Duration(milliseconds: 300),
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(source.findMatchCalled, isFalse);
+  });
+}
+
+class _HangingSource implements PlaylistTrackSource {
+  @override
+  Future<YouTubePlaylistResult?> fetchPlaylist(String idOrUrl) =>
+      Completer<YouTubePlaylistResult?>().future;
+
+  @override
+  Future<YouTubeMusicTrack?> findMatch(String title, String artist) async =>
+      null;
 }

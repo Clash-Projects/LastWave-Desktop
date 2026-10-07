@@ -6,6 +6,8 @@
 /// wire the production implementations.
 library;
 
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 
 import '../innertube/innertube_api.dart';
@@ -83,8 +85,9 @@ Future<SavedPlaylist> importPreview({
 Future<PlaylistImportPreview> previewPlaylistLinkWith(
   PlaylistTrackSource source,
   Dio dio,
-  String rawLink,
-) async {
+  String rawLink, {
+  Duration fetchTimeout = const Duration(seconds: 20),
+}) async {
   final detected = detectPlaylistLink(rawLink);
   if (detected == null) {
     throw FormatException(
@@ -101,7 +104,15 @@ Future<PlaylistImportPreview> previewPlaylistLinkWith(
       throw FormatException(
           'Mixes and radio cannot be imported. Paste a playlist link instead.');
     }
-    final fetched = await source.fetchPlaylist(rawLink);
+    YouTubePlaylistResult? fetched;
+    try {
+      fetched = await source
+          .fetchPlaylist(rawLink)
+          .timeout(fetchTimeout);
+    } on TimeoutException {
+      throw StateError(
+          'Could not load that YouTube playlist. Check the link is public and try again.');
+    }
     final tracks = fetched?.tracks ?? const [];
     if (tracks.isEmpty) {
       throw StateError('No playable tracks found in that playlist.');
@@ -169,10 +180,14 @@ Future<PlaylistImportPreview> previewPlaylistLinkWith(
 }
 
 /// Testable create core: one playlist, exactly the matched tracks.
+/// An empty preview is refused — imports never create trackless playlists.
 Future<SavedPlaylist> importPreviewWith(
   PlaylistWriter writer,
   PlaylistImportPreview preview,
 ) async {
+  if (preview.matchedTracks.isEmpty) {
+    throw StateError('No playable tracks found in that playlist.');
+  }
   final created = await writer.createCustom(preview.title);
   for (final track in preview.matchedTracks) {
     await writer.addTrack(created.id, track);

@@ -7,6 +7,7 @@
 /// (`list=` param, `playlist/` path, else trimmed raw).
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -391,39 +392,90 @@ const _desktopMacUa =
 const _fetchTimeout = Duration(seconds: 20);
 
 /// Downloads a public Spotify playlist page and parses its track list.
+/// `spotify.link` short URLs are followed to their canonical playlist
+/// (Dio follows the HTTP redirect; the id is re-read from the final URI).
 Future<PlaylistLinkPage> fetchSpotifyPlaylist(
     Dio dio, String urlOrId) async {
-  final id =
+  if (_isMixId(urlOrId)) {
+    throw FormatException(
+        'Mixes and radio cannot be imported. Paste a playlist link instead.');
+  }
+  var id =
       extractPlaylistId(urlOrId, PlaylistLinkSource.spotify);
+  if (id == null &&
+      urlOrId.trim().toLowerCase().contains('spotify.link')) {
+    id = await _expandShortLink(dio, urlOrId.trim());
+  }
   if (id == null || id.isEmpty) {
     throw FormatException(
         'That does not look like a Spotify playlist link.');
   }
-  final res = await dio
-      .get<String>(
-        '$_spotifyEmbedBase$id',
-        options: Options(
-          responseType: ResponseType.plain,
-          headers: {
-            'User-Agent': _desktopWindowsUa,
-            'Accept': 'text/html',
-          },
-        ),
-      )
-      .timeout(_fetchTimeout);
-  final body = res.data ?? '';
-  if (res.statusCode != 200 || body.trim().isEmpty) {
+  try {
+    final res = await dio
+        .get<String>(
+          '$_spotifyEmbedBase$id',
+          options: Options(
+            responseType: ResponseType.plain,
+            headers: {
+              'User-Agent': _desktopWindowsUa,
+              'Accept': 'text/html',
+            },
+          ),
+        )
+        .timeout(_fetchTimeout);
+    final body = res.data ?? '';
+    if (res.statusCode != 200 || body.trim().isEmpty) {
+      throw StateError(
+          'Spotify playlist page returned HTTP ${res.statusCode}.');
+    }
+    return parseSpotifyEmbed(body);
+  } on DioException {
     throw StateError(
-        'Spotify playlist page returned HTTP ${res.statusCode}.');
+        'Could not load that Spotify playlist. Check the link is public and try again.');
+  } on TimeoutException {
+    throw StateError(
+        'Could not load that Spotify playlist. Check the link is public and try again.');
   }
-  return parseSpotifyEmbed(body);
 }
+
+/// Follows a short link to its canonical playlist id (null when the
+/// target is not a playlist link).
+Future<String?> _expandShortLink(Dio dio, String raw) async {
+  var target = raw.trim();
+  if (!target.toLowerCase().startsWith('http')) {
+    target = 'https://$target';
+  }
+  try {
+    final res = await dio
+        .get<String>(
+          target,
+          options: Options(
+            responseType: ResponseType.plain,
+            headers: {'User-Agent': _desktopWindowsUa},
+          ),
+        )
+        .timeout(_fetchTimeout);
+    return extractPlaylistId(
+        '${res.realUri}', PlaylistLinkSource.spotify);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Mix/radio ids are never browsable playlists (explicit guard so a
+/// regex change elsewhere cannot silently start importing mixes).
+bool _isMixId(String raw) =>
+    raw.trim().toUpperCase().startsWith('RD');
 
 /// Downloads a public Apple Music playlist page and parses it.
 /// Accepts a full URL, a scheme-less host path, an id-bearing path, or
 /// a bare `pl.<id>` (fetched from the `us` storefront by id redirect).
 Future<PlaylistLinkPage> fetchApplePlaylist(
     Dio dio, String urlOrId) async {
+  if (_isMixId(urlOrId)) {
+    throw FormatException(
+        'Mixes and radio cannot be imported. Paste a playlist link instead.');
+  }
   final input = urlOrId.trim();
   final isUrl = input.toLowerCase().startsWith('http://') ||
       input.toLowerCase().startsWith('https://');
