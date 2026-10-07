@@ -248,12 +248,14 @@ class _PanelBody extends ConsumerWidget {
                   title: 'Nothing playing',
                   subtitle: 'Play a track to view live lyrics.',
                 )
-              : WaveKaraokeLyricsView(
-                  track: track,
-                  compact: false,
-                  fontSize: 34,
-                  showHeaderControls: true,
-                  onClose: null,
+              : RepaintBoundary(
+                  child: WaveKaraokeLyricsView(
+                    track: track,
+                    compact: false,
+                    fontSize: 34,
+                    showHeaderControls: true,
+                    onClose: null,
+                  ),
                 ),
         ),
       ],

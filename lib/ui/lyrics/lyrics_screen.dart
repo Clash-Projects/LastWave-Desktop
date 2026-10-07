@@ -121,9 +121,11 @@ class _WaveLyricsScreenState extends ConsumerState<WaveLyricsScreen> {
                     final split = _artwork && !_focus &&
                         content.maxWidth >= 760 && content.maxHeight >= 360;
                     final reader = _ScreenTicker(
-                      child: WaveLyricsPanel(
-                        key: ValueKey(current.queueKey),
-                        track: current,
+                      child: RepaintBoundary(
+                        child: WaveLyricsPanel(
+                          key: ValueKey(current.queueKey),
+                          track: current,
+                        ),
                       ),
                     );
                     if (!split) {
