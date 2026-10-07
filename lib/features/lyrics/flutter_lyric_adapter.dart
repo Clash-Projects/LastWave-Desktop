@@ -234,7 +234,7 @@ LyricStyle buildAppleMusicLyricStyle(
     fadeRange: FadeRange(top: 90, bottom: 180),
     scrollDuration: const Duration(milliseconds: 380),
     scrollCurve: Curves.easeOutCubic,
-    enableSwitchAnimation: true,
+    enableSwitchAnimation: false,
     switchEnterDuration: const Duration(milliseconds: 220),
     switchExitDuration: const Duration(milliseconds: 220),
     switchEnterCurve: Curves.easeOutCubic,

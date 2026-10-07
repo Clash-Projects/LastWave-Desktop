@@ -187,7 +187,9 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
           children: [
             // Background Visualizer
             Positioned.fill(
-              child: _NowAmbient(artworkUrl: current.artworkUrl),
+              child: RepaintBoundary(
+                child: _NowAmbient(artworkUrl: current.artworkUrl),
+              ),
             ),
 
             // Main Layout Content
@@ -516,8 +518,9 @@ class _DesktopDualPane extends StatelessWidget {
                   duration: const Duration(milliseconds: 500),
                   curve: Curves.easeInOutCubic,
                   width: colWidth,
-                  child: SingleChildScrollView(
-                    physics: const ClampingScrollPhysics(),
+                  child: RepaintBoundary(
+                    child: SingleChildScrollView(
+                      physics: const ClampingScrollPhysics(),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: lyricsVisible
@@ -547,6 +550,7 @@ class _DesktopDualPane extends StatelessWidget {
                     ),
                   ),
                 ),
+              ),
 
                 // Gap
                 AnimatedContainer(
@@ -585,11 +589,13 @@ class _DesktopDualPane extends StatelessWidget {
                                 offstage: !lyricsVisible,
                                 child: _VisibleTicker(
                                   enabled: lyricsVisible,
-                                  child: WaveKaraokeLyricsView(
-                                    track: track,
-                                    compact: false,
-                                    showHeaderControls: true,
-                                    fontSize: 36.0,
+                                  child: RepaintBoundary(
+                                    child: WaveKaraokeLyricsView(
+                                      track: track,
+                                      compact: false,
+                                      showHeaderControls: true,
+                                      fontSize: 36.0,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -628,10 +634,12 @@ class _NarrowCenteredPane extends StatelessWidget {
         // for minimized narrow windows. No visual change.
         child: _VisibleTicker(
           enabled: true,
-          child: WaveKaraokeLyricsView(
-            track: track,
-            compact: true,
-            showHeaderControls: true,
+          child: RepaintBoundary(
+            child: WaveKaraokeLyricsView(
+              track: track,
+              compact: true,
+              showHeaderControls: true,
+            ),
           ),
         ),
       );

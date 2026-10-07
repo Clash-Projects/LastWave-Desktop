@@ -137,6 +137,11 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   LyricsResult? _currentResult;
   bool _lastTransliteration = true;
   bool _lastWordByWord = true;
+  LyricStyle? _cachedStyle;
+  bool? _lastCompact;
+  double? _lastFontSize;
+  bool? _lastIsDark;
+  bool? _lastIsRtl;
 
   @override
   void initState() {
@@ -339,86 +344,103 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           }
         }
 
-        final style = buildAppleMusicLyricStyle(
-          context,
-          compact: widget.compact,
-          fontSize: widget.fontSize,
-          isDark: waveIsDark(context),
-          isRtl: isRtl,
-        );
+        final isDark = waveIsDark(context);
+        if (_cachedStyle == null ||
+            _lastCompact != widget.compact ||
+            _lastFontSize != widget.fontSize ||
+            _lastIsDark != isDark ||
+            _lastIsRtl != isRtl) {
+          _lastCompact = widget.compact;
+          _lastFontSize = widget.fontSize;
+          _lastIsDark = isDark;
+          _lastIsRtl = isRtl;
+          _cachedStyle = buildAppleMusicLyricStyle(
+            context,
+            compact: widget.compact,
+            fontSize: widget.fontSize,
+            isDark: isDark,
+            isRtl: isRtl,
+          );
+        }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (widget.showHeaderControls)
-              _KaraokeToolbar(
-                track: widget.track,
-                result: result,
-                offsetMs: offsetMs,
-                showTransliteration: showTransliteration,
-                following: _following,
-                compact: widget.compact,
-                wordByWord: wordByWord,
-                onClose: widget.onClose,
-                onToggleFollowing: () {
-                  if (!_following) {
-                    _lyricController.stopSelection();
-                    setState(() => _following = true);
-                  } else {
-                    setState(() => _following = false);
-                  }
-                },
-              ),
-            Expanded(
-              child: (wordByWord && result.isSynced)
-                  ? Stack(
-                      children: [
-                        Positioned.fill(
-                          child: MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: LyricView(
-                              controller: _lyricController,
-                              style: style,
+        return RepaintBoundary(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (widget.showHeaderControls)
+                _KaraokeToolbar(
+                  track: widget.track,
+                  result: result,
+                  offsetMs: offsetMs,
+                  showTransliteration: showTransliteration,
+                  following: _following,
+                  compact: widget.compact,
+                  wordByWord: wordByWord,
+                  onClose: widget.onClose,
+                  onToggleFollowing: () {
+                    if (!_following) {
+                      _lyricController.stopSelection();
+                      setState(() => _following = true);
+                    } else {
+                      setState(() => _following = false);
+                    }
+                  },
+                ),
+              Expanded(
+                child: (wordByWord && result.isSynced)
+                    ? Stack(
+                        children: [
+                          Positioned.fill(
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: RepaintBoundary(
+                                child: LyricView(
+                                  controller: _lyricController,
+                                  style: _cachedStyle!,
+                                ),
+                              ),
                             ),
                           ),
+                          if (!_following)
+                            Positioned(
+                              right: 16,
+                              bottom: 16,
+                              child: _ReturnToCurrentPill(
+                                onTap: () {
+                                  _lyricController.stopSelection();
+                                  setState(() => _following = true);
+                                },
+                              ),
+                            ),
+                        ],
+                      )
+                    : RepaintBoundary(
+                        child: _AppleLineLyricsView(
+                          result: result,
+                          positionListenable: _interpolatedPositionMs,
+                          compact: widget.compact,
+                          fontSize: widget.fontSize,
+                          showTransliteration: showTransliteration,
+                          following: _following,
+                          onUserScroll: () {
+                            if (_following) setState(() => _following = false);
+                          },
+                          onResume: () {
+                            _lyricController.stopSelection();
+                            setState(() => _following = true);
+                          },
+                          onSeekLineMs: (lineMs) {
+                            final seekTargetMs = lineMs + _offsetMs;
+                            ref.read(playbackServiceProvider.notifier).seek(
+                                  Duration(
+                                      milliseconds: math.max(0, seekTargetMs)),
+                                );
+                          },
                         ),
-                        if (!_following)
-                          Positioned(
-                            right: 16,
-                            bottom: 16,
-                            child: _ReturnToCurrentPill(
-                              onTap: () {
-                                _lyricController.stopSelection();
-                                setState(() => _following = true);
-                              },
-                            ),
-                          ),
-                      ],
-                    )
-                  : _AppleLineLyricsView(
-                      result: result,
-                      positionListenable: _interpolatedPositionMs,
-                      compact: widget.compact,
-                      fontSize: widget.fontSize,
-                      showTransliteration: showTransliteration,
-                      following: _following,
-                      onUserScroll: () {
-                        if (_following) setState(() => _following = false);
-                      },
-                      onResume: () {
-                        _lyricController.stopSelection();
-                        setState(() => _following = true);
-                      },
-                      onSeekLineMs: (lineMs) {
-                        final seekTargetMs = lineMs + _offsetMs;
-                        ref.read(playbackServiceProvider.notifier).seek(
-                              Duration(
-                                  milliseconds: math.max(0, seekTargetMs)),
-                            );
-                      },
-                    ),
-            ),
-          ],
+                      ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -677,10 +699,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
           sigmaX: widget.karaoke ? 1.15 : 1.8,
           sigmaY: widget.karaoke ? 1.15 : 1.8,
         ),
-        child: Opacity(
-          opacity: widget.karaoke ? 0.88 : 0.92,
-          child: body,
-        ),
+        child: body,
       );
     }
 
