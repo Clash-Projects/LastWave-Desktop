@@ -277,6 +277,8 @@ class OfficialArtworkService {
             caseSensitive: false),
         '');
     s = s.replaceAll(RegExp(r'^\s*[\w&.\- ]+\s*-\s+'), '');
+    s = s.replaceAll(RegExp(r'\$(?=\d)'), '');
+    s = s.replaceAll(r'$', 's');
     s = s.replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ');
     return s.replaceAll(RegExp(r'\s+'), ' ').trim();
   }

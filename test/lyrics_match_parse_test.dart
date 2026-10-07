@@ -32,6 +32,9 @@ void main() {
     expect(lyricsArtistsMatchStrict('Ann', 'Annie'), isFalse);
     expect(lyricsArtistsMatchStrict('MF DOOM', 'Madvillain & MF DOOM'), isTrue);
     expect(lyricsArtistsMatchStrict('Ed Sheeran', 'Ed Sheeran'), isTrue);
+    expect(lyricsArtistsMatchStrict('KR\$NA', 'Krsna'), isTrue);
+    expect(lyricsArtistsMatchStrict('Ke\$ha', 'Kesha'), isTrue);
+    expect(lyricsArtistsMatchStrict('A\$AP Rocky', 'ASAP Rocky'), isTrue);
   });
 
   test('forSearch keeps version markers, drops credits', () {

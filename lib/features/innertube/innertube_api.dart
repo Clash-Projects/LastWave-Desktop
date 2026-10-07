@@ -3309,6 +3309,10 @@ class InnerTubeMusicApi {
     // characters decompose and diacritics can be stripped.
     var v = unorm.nfd(s.toLowerCase());
     v = v.replaceAll(_diacritics, '');
+    // Currency symbol '$' in artist/track names is universally stylized 's'
+    // (e.g. KR$NA -> krsna, Ke$ha -> kesha, A$AP -> asap, Ty Dolla $ign -> ty dolla sign).
+    v = v.replaceAll(RegExp(r'\$(?=\d)'), '');
+    v = v.replaceAll(r'$', 's');
     v = v.replaceAll(_nonWord, ' ');
     v = v.trim().replaceAll(_multiSpace, ' ');
     return v;
