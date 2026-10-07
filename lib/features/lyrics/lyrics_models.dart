@@ -352,12 +352,17 @@ bool isRtlText(String text) {
 
 /// Parse standard LRC into [LyricLine]s with line durations and
 /// word-by-word syllable interpolation.
+///
+/// Enhanced LRC carries inline word stamps (`<m:ss.xx>word`): the text
+/// before the first stamp is sung from the line start, each stamped run
+/// runs to the next stamp (or the next line, or +800ms), and stamps are
+/// stripped from the display text. Unstamped input parses exactly as before.
 List<LyricLine> parseLrc(String lrc) {
   final timestampRegex =
       RegExp(r'\[(\d{1,2}):(\d{2})(?:[.:](\d{2,3}))?\]');
   final offsetRegex = RegExp(r'\[offset:\s*([+-]?\d+)\]');
   var offset = 0;
-  final rawLines = <LyricLine>[];
+  final rawEntries = <({int timeMs, String body})>[];
   for (final raw in lrc.split('\n')) {
     final line = raw.trim();
     if (line.isEmpty) continue;
@@ -368,8 +373,7 @@ List<LyricLine> parseLrc(String lrc) {
     }
     final matches = timestampRegex.allMatches(line).toList();
     if (matches.isEmpty) continue;
-    final text = line.replaceAll(timestampRegex, '').trim();
-    if (text.isEmpty) continue;
+    final body = line.replaceAll(timestampRegex, '');
     for (final m in matches) {
       final min = int.tryParse(m.group(1) ?? '') ?? 0;
       final sec = int.tryParse(m.group(2) ?? '') ?? 0;
@@ -385,33 +389,453 @@ List<LyricLine> parseLrc(String lrc) {
       final totalMs =
           (min * 60000 + sec * 1000 + fracMs + offset)
               .clamp(0, 1 << 31);
-      rawLines.add(LyricLine(timeMs: totalMs, text: text));
+      rawEntries.add((timeMs: totalMs, body: body));
     }
   }
-  rawLines.sort((a, b) => a.timeMs.compareTo(b.timeMs));
+  rawEntries.sort((a, b) => a.timeMs.compareTo(b.timeMs));
 
-  // Compute duration and synthesize word syllables for smooth karaoke wipe
+  // Compute duration and syllables (real word stamps, else interpolation
+  // for smooth karaoke wipe).
   final result = <LyricLine>[];
-  for (var i = 0; i < rawLines.length; i++) {
-    final current = rawLines[i];
-    final nextTime = (i + 1 < rawLines.length) ? rawLines[i + 1].timeMs : null;
+  for (var i = 0; i < rawEntries.length; i++) {
+    final current = rawEntries[i];
+    final nextTime =
+        (i + 1 < rawEntries.length) ? rawEntries[i + 1].timeMs : null;
+    final text = current.body.replaceAll(_wordStampRegex, '').trim();
+    final words = _parseWordRuns(current.body, current.timeMs, nextTime);
+    if (words.isNotEmpty) {
+      final lineStart = math.min(current.timeMs, words.first.timeMs);
+      final calcDur = nextTime != null
+          ? (nextTime - lineStart).clamp(80, 20000)
+          : 4000;
+      // Keep the author spacing when the plain body carries
+      // punctuation the word join would rewrite.
+      final joined = words.map((w) => w.text).join(' ');
+      result.add(LyricLine(
+        timeMs: lineStart,
+        durationMs: calcDur,
+        text: text.isNotEmpty && text.length >= joined.length
+            ? text
+            : joined,
+        syllables: words,
+      ));
+      continue;
+    }
+    if (text.isEmpty) continue;
     final calcDur = nextTime != null
         ? (nextTime - current.timeMs).clamp(80, 20000)
         : 4000;
-    final syllables = current.hasSyllables
-        ? current.syllables
-        : interpolateLineSyllables(
-            text: current.text,
-            startTimeMs: current.timeMs,
-            durationMs: calcDur,
-          );
     result.add(LyricLine(
       timeMs: current.timeMs,
       durationMs: calcDur,
-      text: current.text,
-      syllables: syllables,
-      transliteration: current.transliteration,
+      text: text,
+      syllables: interpolateLineSyllables(
+        text: text,
+        startTimeMs: current.timeMs,
+        durationMs: calcDur,
+      ),
     ));
   }
   return result;
 }
+
+final _wordStampRegex = RegExp(r'<(\d{1,3}):(\d{2})[.:](\d{2,3})>');
+
+int _wordStampToMs(String minRaw, String secRaw, String fracRaw) {
+  final min = int.tryParse(minRaw) ?? 0;
+  final sec = int.tryParse(secRaw) ?? 0;
+  var fracMs = 0;
+  if (fracRaw.length == 1) {
+    fracMs = (int.tryParse(fracRaw) ?? 0) * 100;
+  } else if (fracRaw.length == 2) {
+    fracMs = (int.tryParse(fracRaw) ?? 0) * 10;
+  } else if (fracRaw.length == 3) {
+    fracMs = int.tryParse(fracRaw) ?? 0;
+  }
+  return min * 60000 + sec * 1000 + fracMs;
+}
+
+/// Split an enhanced-LRC body at its inline word stamps. Each stamped
+/// run ends at the next stamp, the next line, or +800ms. Text before the
+/// first stamp carries no timing (native parity: it is not a syllable).
+List<LyricSyllable> _parseWordRuns(
+  String body,
+  int lineStartMs,
+  int? lineEndMs,
+) {
+  final marks = _wordStampRegex.allMatches(body).toList();
+  if (marks.isEmpty) return const [];
+  final words = <LyricSyllable>[];
+  for (var i = 0; i < marks.length; i++) {
+    final mark = marks[i];
+    final until =
+        i + 1 < marks.length ? marks[i + 1].start : body.length;
+    final text = body.substring(mark.end, until).trim();
+    if (text.isEmpty) continue;
+    final startMs = _wordStampToMs(
+      mark.group(1)!,
+      mark.group(2)!,
+      mark.group(3)!,
+    );
+    final endMs = i + 1 < marks.length
+        ? _wordStampToMs(
+            marks[i + 1].group(1)!,
+            marks[i + 1].group(2)!,
+            marks[i + 1].group(3)!,
+          )
+        : (lineEndMs ?? (startMs + 800));
+    words.add(LyricSyllable(
+      timeMs: startMs.clamp(0, 1 << 31),
+      durationMs: (endMs - startMs).clamp(0, 1 << 31),
+      text: text,
+    ));
+  }
+  return words;
+}
+
+/// Parse enhanced LRC (inline `<m:ss.xx>` word stamps) only: returns
+/// empty when the source carries no word stamps at all.
+List<LyricLine> parseEnhancedLrc(String lrc) {
+  if (!_wordStampRegex.hasMatch(lrc)) return const [];
+  return parseLrc(lrc);
+}
+
+/// Recording-version tags that distinguish releases of one song.
+/// Remaster/radio-edit style markers are deliberately absent: cleaning
+/// normalizes those, and they denote the same recording.
+const _versionKeywords = <String, String>{
+  'live': 'live',
+  'concert': 'live',
+  'session': 'live',
+  'unplugged': 'unplugged',
+  'acoustic': 'acoustic',
+  'remix': 'remix',
+  'cover': 'cover',
+  'karaoke': 'karaoke',
+  'instrumental': 'instrumental',
+  'slowed': 'slowed',
+  'sped up': 'sped',
+  'speed up': 'sped',
+  'spedup': 'sped',
+  'sped': 'sped',
+  'nightcore': 'sped',
+  'demo': 'demo',
+  'lullaby': 'lullaby',
+  '8d': '8d',
+};
+
+/// Version tags found in brackets or a trailing `- X` suffix.
+Set<String> _versionTags(String rawTitle) {
+  final tags = <String>{};
+  final segments = <String>[];
+  for (final m in RegExp(r'[\(\[](.*?)[\)\]]').allMatches(rawTitle)) {
+    segments.add(m.group(1) ?? '');
+  }
+  final trailing =
+      RegExp(r'\s*[-–—:]\s*([^-–—:\(\[]+)\s*$').firstMatch(rawTitle);
+  if (trailing != null) segments.add(trailing.group(1) ?? '');
+  for (final segment in segments) {
+    final lower = ' ${segment.toLowerCase()} ';
+    _versionKeywords.forEach((keyword, tag) {
+      if (lower.contains(keyword)) tags.add(tag);
+    });
+  }
+  return tags;
+}
+
+/// True only when both titles describe the same recording version —
+/// a live/remix/cover tag on one side but not the other rejects.
+bool lyricsSameVersion(String requestTitle, String candidateTitle) {
+  final a = _versionTags(requestTitle);
+  final b = _versionTags(candidateTitle);
+  return a.length == b.length && a.containsAll(b);
+}
+
+/// Removes a leading `Artist - ` / `Artist – ` / `Artist: ` segment.
+String stripLeadingArtistPrefix(String raw) => _stripLeadingArtistPrefix(raw);
+
+String _stripLeadingArtistPrefix(String raw) {
+  final stripped =
+      raw.replaceFirst(RegExp(r'^\s*.+?\s*[-–—:]\s+(?=\S)'), '').trim();
+  return stripped.length >= 2 ? stripped : raw.trim();
+}
+
+bool _tokenOverlap(String a, String b, double floor) {
+  final aTokens = a.toLowerCase().split(RegExp(r'\s+')).toSet();
+  final bTokens = b.toLowerCase().split(RegExp(r'\s+')).toSet();
+  final union = aTokens.union(bTokens).length;
+  if (union == 0) return false;
+  return aTokens.intersection(bTokens).length / union >= floor;
+}
+
+/// Title match that also tolerates dirty community titles carrying an
+/// `Artist - Title` prefix. Bare `contains` is length-gated (shorter
+/// side must cover >=70% of the longer side), else token overlap decides.
+bool lyricsTitlesMatchStrict(String candidateTitle, String requestTitle) {
+  for (final cand in [candidateTitle, _stripLeadingArtistPrefix(candidateTitle)]) {
+    final ca = cand.trim();
+    final cb = requestTitle.trim();
+    if (ca.isEmpty || cb.isEmpty) continue;
+    if (ca.toLowerCase() == cb.toLowerCase()) return true;
+    if (ca.toLowerCase().contains(cb.toLowerCase()) ||
+        cb.toLowerCase().contains(ca.toLowerCase())) {
+      final ratio =
+          math.min(ca.length, cb.length) / math.max(ca.length, cb.length);
+      if (ratio >= 0.7) return true;
+    }
+    if (_tokenOverlap(ca, cb, 0.5)) return true;
+  }
+  return false;
+}
+
+/// Artist agreement for search-result filtering. Bare `contains` both
+/// ways accepted `Ann` for `Annie` — exact wins, substring needs length
+/// cover, otherwise token overlap.
+bool lyricsArtistsMatchStrict(String candidateArtist, String requestArtist) {
+  final ca = candidateArtist.trim();
+  final ra = requestArtist.trim();
+  if (ca.isEmpty || ra.isEmpty) return false;
+  if (ca.toLowerCase() == ra.toLowerCase()) return true;
+  if (ca.toLowerCase().contains(ra.toLowerCase()) ||
+      ra.toLowerCase().contains(ca.toLowerCase())) {
+    if (math.min(ca.length, ra.length) < 4) {
+      return _tokenOverlap(ca, ra, 0.5);
+    }
+    final ratio =
+        math.min(ca.length, ra.length) / math.max(ca.length, ra.length);
+    if (ratio >= 0.6) return true;
+  }
+  return _tokenOverlap(ca, ra, 0.5);
+}
+
+final _searchWhitespace = RegExp(r'\s+');
+final _searchCredits = [
+  RegExp(r'\s*[(\[]\s*(feat|ft|featuring|with)\b[^)\]]*[)\]]',
+      caseSensitive: false),
+  RegExp(r'\s+(feat|ft|featuring)\.?\s+.*$', caseSensitive: false),
+  RegExp(
+      r'\s*[(\[]\s*(official\s*)?(music\s*)?'
+      r'(video|audio|visuali[sz]er|lyrics?\s*video|lyrics?|m/?v|hd|hq|4k|full\s*song)'
+      r'\s*[)\]]',
+      caseSensitive: false),
+  RegExp(r'\s*[(\[]\s*official\s*[)\]]', caseSensitive: false),
+];
+
+/// Search-form title: strip credits/packaging only. Version markers
+/// (remix, live, acoustic …) name a different recording and survive so
+/// [lyricsSameVersion] can reject the wrong cut.
+String lyricsForSearchTitle(String raw) {
+  var name = raw;
+  for (final pattern in _searchCredits) {
+    name = name.replaceAll(pattern, ' ');
+  }
+  return name
+      .replaceAll(_searchWhitespace, ' ')
+      .trim()
+      .replaceAll(RegExp(r'[,–—-]+$'), '')
+      .trim()
+      .ifEmpty(raw.trim());
+}
+
+/// Search-form artist: strip the YouTube `- Topic` suffix.
+String lyricsForSearchArtist(String raw) {
+  final stripped = raw.replaceAll(RegExp(r'\s*-\s*Topic$'), '').trim();
+  return stripped.isEmpty ? raw.trim() : stripped;
+}
+
+extension _IfEmpty on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
+}
+
+/// Decode HTML/XML entities (`&#x..;`, `&#..;`, named — `&amp;` last).
+String lyricsDecodeEntities(String raw) {
+  if (!raw.contains('&')) return raw;
+  var out = raw.replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'), (m) {
+    final code = int.tryParse(m.group(1)!, radix: 16);
+    return code == null ? m.group(0)! : String.fromCharCode(code);
+  });
+  out = out.replaceAllMapped(RegExp(r'&#(\d+);'), (m) {
+    final code = int.tryParse(m.group(1)!);
+    return code == null ? m.group(0)! : String.fromCharCode(code);
+  });
+  return out
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&apos;', "'")
+      .replaceAll('&#39;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&');
+}
+
+/// Duration plausibility for providers whose responses carry no
+/// candidate identity: the lyric timeline must roughly fit the track.
+/// Rejects timelines running 45s+ past the end, or covering under half
+/// of a track while missing 90s+. Lenient by design.
+bool lyricsPlausibleDuration(List<LyricLine> lines, int? durationSeconds) {
+  if (durationSeconds == null || durationSeconds <= 0) return true;
+  if (lines.length < 3) return true;
+  final expectedMs = durationSeconds * 1000;
+  if (expectedMs < 60000) return true;
+  var endMs = 0;
+  for (final line in lines) {
+    var sylEnd = 0;
+    for (final s in line.syllables) {
+      final e = s.timeMs + s.durationMs;
+      if (e > sylEnd) sylEnd = e;
+    }
+    final e = math.max(line.timeMs + line.durationMs, sylEnd);
+    if (e > endMs) endMs = e;
+  }
+  if (endMs <= 0) return true;
+  if (endMs > expectedMs + 45000) return false;
+  if (endMs < expectedMs * 0.5 && expectedMs - endMs > 90000) return false;
+  return true;
+}
+
+/// Parse TTML (`<p begin end>` lines, `<span begin end>` words).
+List<LyricLine> parseTtml(String ttml) {
+  final pTag = RegExp(
+      r'<p\s+([^>]*?)>(.*?)</p>',
+      dotAll: true);
+  final spanTag = RegExp(
+      r'<span\s+([^>]*?)>(.*?)</span>(\s*)',
+      dotAll: true);
+  final xmlTag = RegExp(r'<[^>]+>');
+  final lines = <LyricLine>[];
+
+  for (final p in pTag.allMatches(ttml)) {
+    final pAttrs = p.group(1) ?? '';
+    final inner = p.group(2) ?? '';
+    final pBeginMatch = RegExp(r'begin="([^"]+)"').firstMatch(pAttrs);
+    final pEndMatch = RegExp(r'end="([^"]+)"').firstMatch(pAttrs);
+    final start = _parseTtmlTime(pBeginMatch?.group(1) ?? '');
+    final end = _parseTtmlTime(pEndMatch?.group(1) ?? '');
+    final duration = (end - start).clamp(0, 1 << 31);
+    final spans = spanTag.allMatches(inner).toList();
+
+    if (spans.isEmpty) {
+      final text = _unescapeXml(inner.replaceAll(xmlTag, '').trim());
+      if (text.isEmpty) continue;
+      final syllables = interpolateLineSyllables(
+        text: text,
+        startTimeMs: start,
+        durationMs: duration > 0 ? duration : 4000,
+      );
+      lines.add(LyricLine(
+        timeMs: start,
+        durationMs: duration,
+        text: text,
+        syllables: syllables,
+      ));
+    } else {
+      final syllables = <LyricSyllable>[];
+      final buf = StringBuffer();
+      final hasExplicitInterTagSpaces =
+          RegExp(r'</span>\s+<span').hasMatch(inner);
+
+      for (var i = 0; i < spans.length; i++) {
+        final s = spans[i];
+        final isLast = i == spans.length - 1;
+        final attrs = s.group(1) ?? '';
+        final rawContent = s.group(2) ?? '';
+        final trailingSpace = s.group(3) ?? '';
+
+        final beginMatch = RegExp(r'begin="([^"]+)"').firstMatch(attrs);
+        final endMatch = RegExp(r'end="([^"]+)"').firstMatch(attrs);
+
+        if (beginMatch == null || endMatch == null) {
+          // Nested or container span (e.g. <span ttm:role="x-bg">)
+          final innerSpans = spanTag.allMatches(rawContent).toList();
+          final isBg = attrs.contains('role="x-bg"');
+          for (var j = 0; j < innerSpans.length; j++) {
+            final ispan = innerSpans[j];
+            final isInnerLast = isLast && j == innerSpans.length - 1;
+            final iattrs = ispan.group(1) ?? '';
+            final ibMatch = RegExp(r'begin="([^"]+)"').firstMatch(iattrs);
+            final ieMatch = RegExp(r'end="([^"]+)"').firstMatch(iattrs);
+            if (ibMatch == null || ieMatch == null) continue;
+            final ws = _parseTtmlTime(ibMatch.group(1) ?? '');
+            final we = _parseTtmlTime(ieMatch.group(1) ?? '');
+            final wt = _unescapeXml(ispan.group(2)?.replaceAll(xmlTag, '') ?? '');
+            final iTrailing = ispan.group(3) ?? '';
+            final addSpace = hasExplicitInterTagSpaces
+                ? (wt.endsWith(' ') || iTrailing.isNotEmpty)
+                : (!isInnerLast && !wt.endsWith(' '));
+            final sylText = addSpace ? '${wt.trimRight()} ' : wt;
+            syllables.add(LyricSyllable(
+              timeMs: ws,
+              durationMs: (we - ws).clamp(0, 1 << 31),
+              text: hasExplicitInterTagSpaces ? sylText : wt.trim(),
+              isBackground: isBg,
+            ));
+            buf.write(sylText);
+          }
+          continue;
+        }
+
+        final ws = _parseTtmlTime(beginMatch.group(1) ?? '');
+        final we = _parseTtmlTime(endMatch.group(1) ?? '');
+        final wt = _unescapeXml(rawContent.replaceAll(xmlTag, ''));
+        final isBg = attrs.contains('role="x-bg"');
+        final addSpace = hasExplicitInterTagSpaces
+            ? (wt.endsWith(' ') || trailingSpace.isNotEmpty)
+            : (!isLast && !wt.endsWith(' '));
+        final sylText = addSpace ? '${wt.trimRight()} ' : wt;
+        syllables.add(LyricSyllable(
+          timeMs: ws,
+          durationMs: (we - ws).clamp(0, 1 << 31),
+          text: hasExplicitInterTagSpaces ? sylText : wt.trim(),
+          isBackground: isBg,
+        ));
+        buf.write(sylText);
+      }
+
+      final text = buf.toString().trim();
+      if (text.isEmpty) continue;
+      lines.add(LyricLine(
+        timeMs: start,
+        durationMs: duration,
+        text: text,
+        syllables: syllables,
+      ));
+    }
+  }
+  lines.sort((a, b) => a.timeMs.compareTo(b.timeMs));
+  return lines;
+}
+
+int _parseTtmlTime(String s) {
+  s = s.trim();
+  if (s.isEmpty) return 0;
+  try {
+    if (s.endsWith('ms')) {
+      return double.parse(s.substring(0, s.length - 2)).round();
+    }
+    if (s.endsWith('s')) {
+      return (double.parse(s.substring(0, s.length - 1)) * 1000).round();
+    }
+    if (s.contains(':')) {
+      final parts = s.split(':');
+      final nums = parts.map(double.parse).toList().reversed.toList();
+      var total = 0.0;
+      var mult = 1.0;
+      for (final n in nums) {
+        total += n * mult;
+        mult *= 60.0;
+      }
+      return (total * 1000).round();
+    }
+    return (double.parse(s) * 1000).round();
+  } catch (_) {
+    return 0;
+  }
+}
+
+String _unescapeXml(String s) => s
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&apos;', "'")
+    .replaceAll('&#39;', "'");

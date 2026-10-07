@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/dio_factory.dart';
 import 'lyrics_models.dart';
+import 'lyrics_providers.dart';
 
 /// Lyrics orchestrator with Apple Music lyrics via Lyrically.
 ///
@@ -237,7 +238,16 @@ class LyricsRepository {
   static const _maxCacheEntries = 50;
   final Map<String, LyricsResult> _cache = {};
 
-  LyricsRepository([Dio? dio]) : _dio = dio ?? DioFactory.create();
+  /// Race tuning (constructor-injectable for tests; production uses the
+  /// native-parity defaults: 4s preferred head start, 12s total race).
+  final Duration preferredHeadStart;
+  final Duration raceTotal;
+
+  LyricsRepository([
+    Dio? dio,
+    this.preferredHeadStart = const Duration(seconds: 4),
+    this.raceTotal = const Duration(seconds: 12),
+  ]) : _dio = dio ?? DioFactory.create();
 
   void _store(String key, LyricsResult value) {
     _cache
@@ -266,59 +276,302 @@ class LyricsRepository {
     int? durationSeconds,
     bool forceRefresh = false,
     bool wordByWord = true,
+    String? videoId,
+    String preferredProviderId = 'auto',
+    Set<String> excludeProviderIds = const {},
     void Function(LyricsResult partial)? onPartialResult,
   }) async {
-    final key = _key(title, artist, album);
+    final preferred = LyricsProviderId.fromId(preferredProviderId);
+    final excludes = excludeProviderIds.toSet();
+    final sortedExcludes = excludes.toList()..sort();
+    final key =
+        '${_key(title, artist, album)}|${durationSeconds ?? 0}|$wordByWord|${preferred.id}|${sortedExcludes.join(',')}';
     if (!forceRefresh) {
       final cached = _lookup(key);
+      // Any usable cached result is served: the key already encodes
+      // track + duration + display mode + provider + exclusions, and
+      // display() adapts word content to line mode. Falling through
+      // here re-fetches (and can overwrite the entry with empty).
       if (cached != null) {
         if (!cached.isEmpty) onPartialResult?.call(cached);
-        final fromLyrically = cached.source.toLowerCase().contains('apple');
-        if (cached.isWordSynced || fromLyrically || cached.isInstrumental) {
+        if (!cached.isEmpty) {
           return lyricsForDisplayMode(cached, wordByWord: wordByWord);
         }
-        if (cached.isEmpty) return cached;
+        return cached;
       }
     }
 
     LyricsResult? lineFallback;
     final wantsAlt = lyricsIsAlternateRecording(title, album: album);
 
-    final pending = <Future<LyricsResult?>>[
-      _fetchLrclib(title, artist, album, durationSeconds)
-          .timeout(const Duration(seconds: 12))
-          .then<LyricsResult?>((value) => value, onError: (_) => null),
-      _fetchAppleWordByWord(title, artist, album, durationSeconds)
-          .timeout(const Duration(seconds: 20))
-          .then<LyricsResult?>((value) => value, onError: (_) => null),
-    ];
-    await for (final result in Stream.fromFutures(pending)) {
-      if (result == null || result.isEmpty) continue;
-      final ready = normalizeKaraokeTimings(result);
-      if (ready.isWordSynced) {
-        _store(key, ready);
-        return lyricsForDisplayMode(ready, wordByWord: wordByWord);
-      }
-      if (ready.isInstrumental && wantsAlt) {
-        _store(key, ready);
-        return ready;
-      }
-      if (lineFallback == null ||
-          isBetterCandidate(ready, lineFallback, queryTitle: title)) {
-        lineFallback = ready;
-        onPartialResult?.call(
-          lyricsForDisplayMode(ready, wordByWord: wordByWord),
-        );
+    LyricsResult? normalize(LyricsResult? result) {
+      if (result == null || result.isEmpty) return null;
+      try {
+        return normalizeKaraokeTimings(result);
+      } catch (_) {
+        // Never drop lyrics over a normalization edge: fall back to
+        // the un-normalized result.
+        return result;
       }
     }
 
-    if (lineFallback != null) {
-      _store(key, lineFallback);
-      return lyricsForDisplayMode(lineFallback, wordByWord: wordByWord);
+    bool plausible(LyricsResult result) =>
+        result.isInstrumental ||
+        lyricsPlausibleDuration(result.lines, durationSeconds);
+
+    LyricsResult display(LyricsResult result) =>
+        lyricsForDisplayMode(result, wordByWord: wordByWord);
+
+    Future<LyricsResult?> attempt(String providerId) {
+      if (excludes.contains(providerId)) return Future.value(null);
+      return fetchFromProvider(
+        providerId,
+        title: title,
+        artist: artist,
+        album: album,
+        durationSeconds: durationSeconds,
+        videoId: videoId,
+      )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => null,
+          )
+          .then<LyricsResult?>(
+            (result) => normalize(result),
+            onError: (_) => null,
+          );
+    }
+
+    // Preferred LRCLIB goes first so the explicit choice is honored.
+    // A word-sync hit from anywhere later still wins.
+    var lrclibAttempted = false;
+    LyricsResult? preferredFallback;
+    if (preferred == LyricsProviderId.lrclib) {
+      lrclibAttempted = true;
+      final first = normalize(await attempt('lrclib'));
+      if (first != null) {
+        if (first.isWordSynced || (first.isInstrumental && wantsAlt)) {
+          _store(key, first);
+          return display(first);
+        }
+        if (plausible(first)) {
+          preferredFallback = first;
+          onPartialResult?.call(display(first));
+        }
+      }
+    }
+
+    // Preferred word provider gets a bounded head start in both modes.
+    // Word mode short-circuits on word-sync; line mode keeps the hit
+    // as the top fallback (display strips it to lines). A matching
+    // instrumental wins everywhere; anything plausible is stashed.
+    if (preferred.isWordProvider && !excludes.contains(preferred.id)) {
+      LyricsResult? single;
+      try {
+        single = normalize(await fetchFromProvider(
+          preferred.id,
+          title: title,
+          artist: artist,
+          album: album,
+          durationSeconds: durationSeconds,
+          videoId: videoId,
+        ).timeout(preferredHeadStart));
+      } on TimeoutException {
+        single = null;
+      } catch (_) {
+        single = null;
+      }
+      if (single != null && plausible(single)) {
+        if (single.isWordSynced && wordByWord) {
+          _store(key, single);
+          return display(single);
+        }
+        if (single.isInstrumental && wantsAlt) {
+          _store(key, single);
+          return display(single);
+        }
+        preferredFallback = single;
+        onPartialResult?.call(display(single));
+      }
+    }
+
+    Future<void> drainRace(List<Future<LyricsResult?>> pending) async {
+      await for (final result in Stream.fromFutures(pending)) {
+        if (result == null || result.isEmpty) continue;
+        if (!plausible(result)) continue;
+        if (result.isInstrumental && !wantsAlt) continue;
+        final currentFallback = lineFallback;
+        if (currentFallback == null ||
+            isBetterCandidate(result, currentFallback,
+                queryTitle: title)) {
+          lineFallback = result;
+          onPartialResult?.call(display(result));
+        }
+      }
+    }
+
+    if (wordByWord) {
+      // Word race: fastest plausible word-sync wins; the first
+      // plausible line result streams as a partial under the deadline.
+      LyricsResult? raceWord;
+      final pending = <Future<LyricsResult?>>[
+        for (final id in const [
+          'lrc_red',
+          'apple_music',
+          'better_lyrics',
+          'kugou',
+          'simp_music',
+        ])
+          if (id != 'simp_music' || (videoId?.isNotEmpty ?? false))
+            attempt(id),
+      ];
+      Future<void> runRace() async {
+        await for (final result in Stream.fromFutures(pending)) {
+          if (result == null || result.isEmpty) continue;
+          if (raceWord != null) continue;
+          if (result.isWordSynced && plausible(result)) {
+            raceWord = result;
+            return;
+          }
+          if (!plausible(result)) continue;
+          if (result.isInstrumental && !wantsAlt) continue;
+          final currentFallback = lineFallback;
+          if (currentFallback == null ||
+              isBetterCandidate(result, currentFallback,
+                  queryTitle: title)) {
+            lineFallback = result;
+            onPartialResult?.call(display(result));
+          }
+        }
+      }
+
+      try {
+        await runRace().timeout(raceTotal);
+      } on TimeoutException {
+        // Collected partials still count below.
+      }
+      final won = raceWord;
+      if (won != null) {
+        _store(key, won);
+        return display(won);
+      }
+    } else {
+      // Line mode: Apple + LRCLIB race for line sources under the same
+      // deadline (pre-port behavior), with the explicit pick above
+      // outranking whatever they find.
+      final pending = <Future<LyricsResult?>>[attempt('apple_music')];
+      if (!lrclibAttempted) {
+        lrclibAttempted = true;
+        pending.add(attempt('lrclib'));
+      }
+      try {
+        await drainRace(pending).timeout(raceTotal);
+      } on TimeoutException {
+        // Collected partials still count below.
+      }
+    }
+
+    // Explicit choice outranks any other line-sync source.
+    final preferredSettled = preferredFallback;
+    if (preferredSettled != null) {
+      _store(key, preferredSettled);
+      return display(preferredSettled);
+    }
+    final lineSettled = lineFallback;
+    if (lineSettled != null) {
+      _store(key, lineSettled);
+      return display(lineSettled);
+    }
+    // Extra line-sync catalogue after the race.
+    final mxm = normalize(await attempt('musixmatch'));
+    if (mxm != null && plausible(mxm)) {
+      _store(key, mxm);
+      return display(mxm);
+    }
+
+    // LRCLIB line fallback (skipped when already tried as preferred).
+    if (!lrclibAttempted) {
+      final lrc = normalize(await attempt('lrclib'));
+      if (lrc != null) {
+        _store(key, lrc);
+        return display(lrc);
+      }
     }
     const empty = LyricsResult.empty();
     _store(key, empty);
     return empty;
+  }
+
+  /// Single-provider dispatch. Subclasses (tests) override this one seam
+  /// to stub providers without touching the network.
+  Future<LyricsResult?> fetchFromProvider(
+    String providerId, {
+    required String title,
+    required String artist,
+    String album = '',
+    int? durationSeconds,
+    String? videoId,
+  }) async {
+    try {
+      switch (providerId) {
+        case 'lrc_red':
+          return await fetchLrcRed(
+            _dio,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+          );
+        case 'apple_music':
+          return await _fetchAppleWordByWord(title, artist, album, durationSeconds);
+        case 'better_lyrics':
+          return await fetchBetterLyrics(
+            _dio,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+          );
+        case 'kugou':
+          return await fetchKugou(
+            _dio,
+            title: title,
+            artist: artist,
+            durationSeconds: durationSeconds,
+          );
+        case 'simp_music':
+          final fetched = await fetchSimpMusic(
+            _dio,
+            videoId: videoId,
+            durationSeconds: durationSeconds,
+          );
+          final lines = fetched?.lines;
+          if (lines == null || lines.isEmpty) return null;
+          if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
+          final wordSynced = fetched!.wordSynced;
+          return LyricsResult(
+            lines: lines,
+            isSynced: true,
+            isWordSynced: wordSynced,
+            plainLyrics: lines.map((l) => l.text).join('\n'),
+            source: wordSynced
+                ? 'Video-Match (Word-Sync)'
+                : 'Video-Match (Line-Sync)',
+          );
+        case 'musixmatch':
+          return await fetchMusixmatch(
+            _dio,
+            title: title,
+            artist: artist,
+            durationSeconds: durationSeconds,
+          );
+        case 'lrclib':
+          return await _fetchLrclib(title, artist, album, durationSeconds);
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
   }
 
   /// Compares two lyrics candidates to decide if [newRes] should supersede [current].
@@ -351,7 +604,13 @@ class LyricsRepository {
       if (!newMentions && curMentions) return false;
     }
 
-    // 5. Complete unsynced Apple text beats a shorter timed LRCLIB cut
+    // 5. Timed lyrics always beat static text: static lines can never
+    // highlight or follow, no matter how complete. Length/richness
+    // below only compare like with like.
+    if (newRes.isSynced && !current.isSynced) return true;
+    if (!newRes.isSynced && current.isSynced) return false;
+
+    // 6. Complete text beats a shorter cut of the same sync kind
     final newLen = lyricsBodyLength(newRes);
     final curLen = lyricsBodyLength(current);
     if (newLen >= (curLen * 1.25).round() && newLen - curLen >= 120) {
@@ -361,7 +620,7 @@ class LyricsRepository {
       return false;
     }
 
-    // 6. Unique-line richness beats a padded loop with the same raw count
+    // 7. Unique-line richness beats a padded loop with the same raw count
     final newUnique = lyricsUniqueLineCount(newRes);
     final curUnique = lyricsUniqueLineCount(current);
     if (newUnique >= (curUnique * 1.5).round() && newUnique - curUnique >= 4) {
@@ -370,10 +629,6 @@ class LyricsRepository {
     if (curUnique >= (newUnique * 1.5).round() && curUnique - newUnique >= 4) {
       return false;
     }
-
-    // 7. Synced always beats unsynced (after the text is known to be right)
-    if (newRes.isSynced && !current.isSynced) return true;
-    if (!newRes.isSynced && current.isSynced) return false;
 
     // 8. Official curated sources (Apple Music) beat crowdsourced
     // user submissions (lrclib)
@@ -802,153 +1057,6 @@ class LyricsRepository {
       source: 'Apple Music',
     );
   }
-
-  /// Parse TTML (`<p begin end>` lines, `<span begin end>` words).
-  static List<LyricLine> parseTtml(String ttml) {
-    final pTag = RegExp(
-        r'<p\s+([^>]*?)>(.*?)</p>',
-        dotAll: true);
-    final spanTag = RegExp(
-        r'<span\s+([^>]*?)>(.*?)</span>(\s*)',
-        dotAll: true);
-    final xmlTag = RegExp(r'<[^>]+>');
-    final lines = <LyricLine>[];
-
-    for (final p in pTag.allMatches(ttml)) {
-      final pAttrs = p.group(1) ?? '';
-      final inner = p.group(2) ?? '';
-      final pBeginMatch = RegExp(r'begin="([^"]+)"').firstMatch(pAttrs);
-      final pEndMatch = RegExp(r'end="([^"]+)"').firstMatch(pAttrs);
-      final start = _parseTtmlTime(pBeginMatch?.group(1) ?? '');
-      final end = _parseTtmlTime(pEndMatch?.group(1) ?? '');
-      final duration = (end - start).clamp(0, 1 << 31);
-      final spans = spanTag.allMatches(inner).toList();
-
-      if (spans.isEmpty) {
-        final text = _unescapeXml(inner.replaceAll(xmlTag, '').trim());
-        if (text.isEmpty) continue;
-        final syllables = interpolateLineSyllables(
-          text: text,
-          startTimeMs: start,
-          durationMs: duration > 0 ? duration : 4000,
-        );
-        lines.add(LyricLine(
-          timeMs: start,
-          durationMs: duration,
-          text: text,
-          syllables: syllables,
-        ));
-      } else {
-        final syllables = <LyricSyllable>[];
-        final buf = StringBuffer();
-        final hasExplicitInterTagSpaces =
-            RegExp(r'</span>\s+<span').hasMatch(inner);
-
-        for (var i = 0; i < spans.length; i++) {
-          final s = spans[i];
-          final isLast = i == spans.length - 1;
-          final attrs = s.group(1) ?? '';
-          final rawContent = s.group(2) ?? '';
-          final trailingSpace = s.group(3) ?? '';
-
-          final beginMatch = RegExp(r'begin="([^"]+)"').firstMatch(attrs);
-          final endMatch = RegExp(r'end="([^"]+)"').firstMatch(attrs);
-
-          if (beginMatch == null || endMatch == null) {
-            // Nested or container span (e.g. <span ttm:role="x-bg">)
-            final innerSpans = spanTag.allMatches(rawContent).toList();
-            final isBg = attrs.contains('role="x-bg"');
-            for (var j = 0; j < innerSpans.length; j++) {
-              final ispan = innerSpans[j];
-              final isInnerLast = isLast && j == innerSpans.length - 1;
-              final iattrs = ispan.group(1) ?? '';
-              final ibMatch = RegExp(r'begin="([^"]+)"').firstMatch(iattrs);
-              final ieMatch = RegExp(r'end="([^"]+)"').firstMatch(iattrs);
-              if (ibMatch == null || ieMatch == null) continue;
-              final ws = _parseTtmlTime(ibMatch.group(1) ?? '');
-              final we = _parseTtmlTime(ieMatch.group(1) ?? '');
-              final wt = _unescapeXml(ispan.group(2)?.replaceAll(xmlTag, '') ?? '');
-              final iTrailing = ispan.group(3) ?? '';
-              final addSpace = hasExplicitInterTagSpaces
-                  ? (wt.endsWith(' ') || iTrailing.isNotEmpty)
-                  : (!isInnerLast && !wt.endsWith(' '));
-              final sylText = addSpace ? '${wt.trimRight()} ' : wt;
-              syllables.add(LyricSyllable(
-                timeMs: ws,
-                durationMs: (we - ws).clamp(0, 1 << 31),
-                text: hasExplicitInterTagSpaces ? sylText : wt.trim(),
-                isBackground: isBg,
-              ));
-              buf.write(sylText);
-            }
-            continue;
-          }
-
-          final ws = _parseTtmlTime(beginMatch.group(1) ?? '');
-          final we = _parseTtmlTime(endMatch.group(1) ?? '');
-          final wt = _unescapeXml(rawContent.replaceAll(xmlTag, ''));
-          final isBg = attrs.contains('role="x-bg"');
-          final addSpace = hasExplicitInterTagSpaces
-              ? (wt.endsWith(' ') || trailingSpace.isNotEmpty)
-              : (!isLast && !wt.endsWith(' '));
-          final sylText = addSpace ? '${wt.trimRight()} ' : wt;
-          syllables.add(LyricSyllable(
-            timeMs: ws,
-            durationMs: (we - ws).clamp(0, 1 << 31),
-            text: hasExplicitInterTagSpaces ? sylText : wt.trim(),
-            isBackground: isBg,
-          ));
-          buf.write(sylText);
-        }
-
-        final text = buf.toString().trim();
-        if (text.isEmpty) continue;
-        lines.add(LyricLine(
-          timeMs: start,
-          durationMs: duration,
-          text: text,
-          syllables: syllables,
-        ));
-      }
-    }
-    lines.sort((a, b) => a.timeMs.compareTo(b.timeMs));
-    return lines;
-  }
-
-  static int _parseTtmlTime(String s) {
-    s = s.trim();
-    if (s.isEmpty) return 0;
-    try {
-      if (s.endsWith('ms')) {
-        return double.parse(s.substring(0, s.length - 2)).round();
-      }
-      if (s.endsWith('s')) {
-        return (double.parse(s.substring(0, s.length - 1)) * 1000).round();
-      }
-      if (s.contains(':')) {
-        final parts = s.split(':');
-        final nums = parts.map(double.parse).toList().reversed.toList();
-        var total = 0.0;
-        var mult = 1.0;
-        for (final n in nums) {
-          total += n * mult;
-          mult *= 60.0;
-        }
-        return (total * 1000).round();
-      }
-      return (double.parse(s) * 1000).round();
-    } catch (_) {
-      return 0;
-    }
-  }
-
-  static String _unescapeXml(String s) => s
-      .replaceAll('&amp;', '&')
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>')
-      .replaceAll('&quot;', '"')
-      .replaceAll('&apos;', "'")
-      .replaceAll('&#39;', "'");
 }
 
 final lyricsRepositoryProvider =

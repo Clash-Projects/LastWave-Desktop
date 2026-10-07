@@ -12,6 +12,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../../ui/components/buttons.dart' show LWTooltip;
+import '../../ui/components/menus.dart' show fastFlyoutTransition;
 import '../../ui/components/states.dart';
 import '../../ui/lyrics/lyrics_panel.dart';
 import '../../ui/theme/haze.dart';
@@ -20,6 +21,7 @@ import '../../ui/theme/wave_icons.dart';
 import '../player/playback_service.dart';
 import 'flutter_lyric_adapter.dart';
 import 'lyrics_models.dart';
+import 'lyrics_providers.dart';
 
 /// Provider for track-specific lyrics timing offset in milliseconds.
 final lyricsOffsetProvider = StateNotifierProvider.family<LyricsOffsetNotifier, int, String>(
@@ -761,6 +763,79 @@ class _KaraokeSyllableWidget extends StatelessWidget {
 
 
 /// Top toolbar with timing controls, transliteration toggle, and close button.
+/// Lyrics source switcher (Now Playing toolbar): Auto + every provider
+/// with the effective pick checked, plus `Try another source` which
+/// re-runs the race excluding the current provider.
+class _SourceMenu extends ConsumerWidget {
+  final PlayableTrack track;
+  final LyricsResult result;
+
+  const _SourceMenu({required this.track, required this.result});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final queueKey = track.queueKey;
+    final override = ref.watch(lyricsProviderOverrideProvider(queueKey));
+    final defaultId =
+        ref.watch(prefsProvider.select((p) => p.lyricsProviderId));
+    final effective = override ?? defaultId;
+    final currentId = lyricsSourceToProviderId(result.source);
+
+    void apply(String? pickedId) {
+      if (pickedId == null) {
+        ref
+            .read(lyricsExcludedProvidersProvider(queueKey).notifier)
+            .state = retryLyricsExcludingCurrent(
+          currentId: currentId,
+          excludes: ref.read(lyricsExcludedProvidersProvider(queueKey)),
+        );
+      } else {
+        final next = nextLyricsSelection(
+          pickedId: pickedId,
+          currentId: currentId,
+          currentExcludes:
+              ref.read(lyricsExcludedProvidersProvider(queueKey)),
+        );
+        ref.read(lyricsProviderOverrideProvider(queueKey).notifier).state =
+            next.override;
+        ref.read(lyricsExcludedProvidersProvider(queueKey).notifier).state =
+            next.excludes;
+      }
+      ref.invalidate(waveLyricsProvider(queueKey));
+    }
+
+    return LWTooltip(
+      message: result.source.isNotEmpty
+          ? 'Source: ${result.source} · Change'
+          : 'Change lyrics source',
+      child: DropDownButton(
+        placement: FlyoutPlacementMode.bottomRight,
+        transitionBuilder: fastFlyoutTransition,
+        items: [
+          for (final provider in LyricsProviderId.values)
+            MenuFlyoutItem(
+              leading: effective == provider.id
+                  ? const Icon(FluentIcons.check_mark, size: 13)
+                  : const SizedBox(width: 13),
+              text: Text(provider.title),
+              onPressed: () => apply(provider.id),
+            ),
+          const MenuFlyoutSeparator(),
+          MenuFlyoutItem(
+            leading: const Icon(FluentIcons.refresh, size: 13),
+            text: const Text('Try another source'),
+            onPressed: () => apply(null),
+          ),
+        ],
+        buttonBuilder: (context, onOpen) => _MiniIconButton(
+          icon: WaveIcons.lyrics,
+          onTap: () => onOpen?.call(),
+        ),
+      ),
+    );
+  }
+}
+
 class _KaraokeToolbar extends ConsumerWidget {
   final PlayableTrack track;
   final LyricsResult result;
@@ -834,6 +909,14 @@ class _KaraokeToolbar extends ConsumerWidget {
               ),
             ),
           ),
+          // Lyrics source switcher: pick a provider (tried first, the
+          // current one excluded from fallback) or retry with the best
+          // provider excluding the current one.
+          _SourceMenu(
+            track: track,
+            result: result,
+          ),
+          const SizedBox(width: 8),
           // Timing Offset Controls: [-] offset [+] [Reset]
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
