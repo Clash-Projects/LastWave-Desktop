@@ -14,6 +14,7 @@ import '../addons/addon_api.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/scrobble_repository.dart';
 import '../lossless/lossless_source.dart';
+import 'mpv_paths.dart';
 import 'player_state.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
@@ -235,6 +236,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         } catch (_) {}
         try {
           await dyn.setProperty('cache-on-disk', 'yes');
+        } catch (_) {}
+        try {
+          // mpv's default on-disk location fails to create here
+          // (`Failed to create file cache` on every open), so pin an
+          // explicit dir the app creates itself.
+          final cacheDir = mpvCacheDirPath();
+          await ensureDirExists(cacheDir);
+          await dyn.setProperty('cache-dir', cacheDir);
         } catch (_) {}
         try {
           await dyn.setProperty(
