@@ -1,4 +1,5 @@
 import 'package:desktop_webview_window/desktop_webview_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
@@ -7,6 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'app/window.dart';
 import 'core/artwork/artwork_resolver.dart';
 import 'core/artwork/official_artwork_service.dart';
+import 'core/error/fatal_crumbs.dart';
 import 'core/storage/app_database.dart';
 import 'core/storage/prefs.dart';
 import 'features/settings/app.dart';
@@ -14,6 +16,15 @@ import 'features/search/shared_providers.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Fatal breadcrumbs: log-and-continue-handling (return false) so the
+  // next fail-fast names its line in mpv-ops.log. Sync writes only.
+  FlutterError.onError = (details) {
+    writeFatalCrumb(fatalCrumb(details.exception, details.stack));
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    writeFatalCrumb(fatalCrumb(error, stack));
+    return false;
+  };
   // Keep decoded-image memory bounded on long sessions: Home/Discover
   // grids of 1400px covers fill the default 100MiB/1000-image cache
   // and decode bursts spike RSS to 500MiB. 50MiB/200 images is plenty
