@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../core/artwork/animated_artwork_session.dart';
 import '../core/storage/prefs.dart';
 import '../features/player/playback_service.dart';
 import '../features/presence/discord_presence_service.dart';
@@ -91,6 +92,7 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     }();
     if (toTray && !_quitting) {
       windowManager.hide().catchError((_) {});
+      _setWindowVisible(false);
       try {
         ref.read(trayHintProvider.notifier).state = true;
       } catch (_) {}
@@ -99,10 +101,33 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     unawaited(_quitApp());
   }
 
+  // Visibility (NOT focus) drives backgrounding: side-by-side work with
+  // another app focused keeps everything live — only truly invisible
+  // states (minimized, tray-hidden) sleep tickers and decode. Focus
+  // events are deliberately ignored here.
+  void _setWindowVisible(bool visible) {
+    try {
+      ref.read(windowVisibleProvider.notifier).state = visible;
+    } catch (_) {}
+    try {
+      ref.read(animatedArtworkSessionProvider).setBackgrounded(!visible);
+    } catch (_) {}
+  }
+
+  @override
+  void onWindowMinimize() => _setWindowVisible(false);
+
+  @override
+  void onWindowRestore() => _setWindowVisible(true);
+
+  @override
+  void onWindowMaximize() => _setWindowVisible(true);
+
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
       case 'show':
+        _setWindowVisible(true);
         windowManager.show().then((_) => windowManager.focus()).catchError((_) {});
       case 'toggle':
         ref.read(playbackServiceProvider.notifier).toggle();
@@ -117,6 +142,7 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
 
   @override
   void onTrayIconMouseDown() {
+    _setWindowVisible(true);
     windowManager.show().then((_) => windowManager.focus()).catchError((_) {});
   }
 
@@ -142,3 +168,12 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   @override
   Widget build(BuildContext context) => widget.child;
 }
+
+/// True while the OS window content is visible on screen. Karaoke tickers
+/// mute while minimized/tray-hidden via framework TickerMode (auto-resumes
+/// on restore, clock resyncs from the 10Hz snapshot), stopping the 30Hz
+/// clock and the lyric package's display-rate repaint storm. Merely
+/// unfocused (side-by-side with another app) stays live — focus events
+/// never touch this. Playback state always keeps flowing. Defaults true
+/// (window.dart shows at launch).
+final windowVisibleProvider = StateProvider<bool>((ref) => true);

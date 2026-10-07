@@ -1,4 +1,4 @@
-#include "smtc_channel.h"
+﻿#include "smtc_channel.h"
 
 #include "app_identity.h"
 
@@ -17,6 +17,7 @@
 #include <flutter/standard_method_codec.h>
 
 #include <cstdint>
+#include <cwchar>
 #include <memory>
 #include <string>
 
@@ -148,7 +149,7 @@ class SmtcChannel::Impl {
   void InitSystemMedia() {
     if (hwnd_ == nullptr) return;
     // main.cpp already did CoInitializeEx(APARTMENTTHREADED); RoInitialize
-    // with the same STA model returns S_FALSE and is a no-op — ignore
+    // with the same STA model returns S_FALSE and is a no-op - ignore
     // "already initialized" outcomes, fail open on anything else.
     const HRESULT roInit = RoInitialize(RO_INIT_SINGLETHREADED);
     if (FAILED(roInit) && roInit != RPC_E_CHANGED_MODE) return;
@@ -255,10 +256,23 @@ class SmtcChannel::Impl {
         updater;
     if (FAILED(smtc_->get_DisplayUpdater(&updater)) || !updater) return;
     updater->put_Type(ABI::Windows::Media::MediaPlaybackType_Music);
-    // Source label for the flyout/lock screen. Mirrors the process
-    // AppUserModelID set in main.cpp; without it the shell falls back
-    // to "Unknown app".
-    updater->put_AppMediaId(HStringReference(kLastWaveAppUserModelId).Get());
+    // Source label for the flyout/lock screen. Must equal the process
+    // AppUserModelID (main.cpp) + window ID (flutter_window.cpp) + the
+    // Start Menu shortcut's AppUserModelID (installer.iss). The shell
+    // looks up display name/icon via that shortcut; with no matching
+    // shortcut it falls back to "Unknown app" with no logo.
+    // Uses an owned HSTRING (not HStringReference) so the ID stays valid
+    // for the duration of the put_ call.
+    {
+      HSTRING appId = nullptr;
+      if (SUCCEEDED(WindowsCreateString(
+              kLastWaveAppUserModelId,
+              static_cast<UINT32>(wcslen(kLastWaveAppUserModelId)),
+              &appId))) {
+        updater->put_AppMediaId(appId);
+        WindowsDeleteString(appId);
+      }
+    }
 
     ComPtr<ABI::Windows::Media::IMusicDisplayProperties> music;
     if (SUCCEEDED(updater->get_MusicProperties(&music)) && music) {
@@ -282,7 +296,7 @@ class SmtcChannel::Impl {
       }
     }
 
-    // Thumbnails resolve lazily inside the shell from the URL — refresh
+    // Thumbnails resolve lazily inside the shell from the URL - refresh
     // only when the URL actually changed (Dart already dedupes; this is
     // the backstop for repeated position/metadata pushes).
     if (artUrl != lastArtUrl_) {
@@ -390,3 +404,4 @@ SmtcChannel::SmtcChannel(flutter::BinaryMessenger* messenger, HWND hwnd)
 SmtcChannel::~SmtcChannel() = default;
 
 }  // namespace lastwave
+

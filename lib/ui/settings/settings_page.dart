@@ -24,6 +24,7 @@ import '../../features/lastfm/auth_repository.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../../features/audio_output/output_path_sheet.dart';
+import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
 import '../../features/presence/discord_presence_service.dart';
@@ -737,11 +738,39 @@ class _Lyrics extends ConsumerWidget {
     return _Group(
       title: 'Timing',
       subtitle: 'Synced lyrics providers',
-      child: _SwitchRow(
-        value: prefs.wordByWord,
-        onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
-        title: 'Word-by-word lyrics',
-        subtitle: 'Karaoke word highlight. Off uses Apple Music line lyrics.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SwitchRow(
+            value: prefs.wordByWord,
+            onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
+            title: 'Word-by-word lyrics',
+            subtitle: 'Karaoke word highlight. Off uses Apple Music line lyrics.',
+          ),
+          const SizedBox(height: 10),
+          const Text('Primary provider', style: WaveType.trackTitle),
+          const SizedBox(height: 6),
+          ComboBox<String>(
+            value: LyricsProviderId.fromId(prefs.lyricsProviderId).id,
+            items: [
+              for (final provider in LyricsProviderId.values)
+                ComboBoxItem(
+                  value: provider.id,
+                  child: Text(provider.title),
+                ),
+            ],
+            onChanged: (v) {
+              if (v != null) {
+                onUpdate((p) => p.setLyricsProviderId(v));
+              }
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(
+            LyricsProviderId.fromId(prefs.lyricsProviderId).subtitle,
+            style: WaveType.meta,
+          ),
+        ],
       ),
     );
   }

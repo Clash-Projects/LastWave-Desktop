@@ -52,10 +52,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   // UI position emission gate: mpv fires time-pos per frame (60Hz+)
   // and every emission rebuilds all position watchers (dock bar,
   // karaoke, time labels, mini player). Karaoke interpolates
-  // wall-clock between updates and bars read smooth at 10Hz, so only
-  // the state snapshot is throttled — scrobble/prefetch below still
-  // see every raw event.
+  // wall-clock between updates and bars read smooth at 10Hz, so the
+  // state snapshot is throttled. Scrobble uses wall-clock deltas so
+  // 10Hz keeps identical accuracy; prefetch fires once per track.
   DateTime _lastPositionEmit = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastBufferedEmit = DateTime.fromMillisecondsSinceEpoch(0);
 
   // Scrobble bookkeeping (mirrors Android detector).
   int _scrobbleStartEpoch = 0;
@@ -300,20 +301,33 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         runGuarded('player.position', () {
           _maybeLogFirstAudio(v);
           if (_resolving || state.error != null) return;
-          _tickScrobble(v);
-          _maybePrefetchFromPosition(v);
           if (state.position == v) return;
           final now = DateTime.now();
           if (now.difference(_lastPositionEmit).inMilliseconds < 100) {
             return;
           }
           _lastPositionEmit = now;
+          // Gated to 10Hz: identical scrobble accuracy (wall-clock delta),
+          // prefetch is once-per-track. Saves 60Hz DateTime+prefs wakes.
+          _tickScrobble(v);
+          _maybePrefetchFromPosition(v);
           state = state.copyWith(position: v);
         });
       }),
       p.stream.buffer.listen((v) {
         runGuarded('player.buffer', () {
           if (_resolving || state.error != null) return;
+          if (state.buffered == v) return;
+          final now = DateTime.now();
+          // Always land the completed value so the buffered bar can never
+          // stick one gate behind at 100%; intermediate chunks stay 10Hz.
+          final complete =
+              state.duration > Duration.zero && v >= state.duration;
+          if (!complete &&
+              now.difference(_lastBufferedEmit).inMilliseconds < 100) {
+            return;
+          }
+          _lastBufferedEmit = now;
           state = state.copyWith(buffered: v);
         });
       }),
