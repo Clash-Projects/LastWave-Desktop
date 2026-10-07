@@ -9,6 +9,8 @@ library;
 
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
+
 /// Supported external playlist providers for the paste-a-link importer.
 enum PlaylistLinkSource {
   youtube('YouTube'),
@@ -374,6 +376,104 @@ String _cleanAppleTitle(String value) {
   final collapsed = noBidi.replaceAll(RegExp(r'\s+'), ' ').trim();
   final noSuffix = collapsed.replaceAll(_appleSuffixRegex, '').trim();
   return noSuffix.isEmpty ? _appleDefaultTitle : noSuffix;
+}
+
+// -- Fetchers ----------------------------------------------------------------
+// Keyless page downloads. Bad links fail fast with FormatException (no
+// HTTP); transport failures propagate for the dialog to report.
+
+const _spotifyEmbedBase = 'https://open.spotify.com/embed/playlist/';
+const _appleFallbackBase = 'https://music.apple.com/us/playlist/';
+const _desktopWindowsUa =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const _desktopMacUa =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+const _fetchTimeout = Duration(seconds: 20);
+
+/// Downloads a public Spotify playlist page and parses its track list.
+Future<PlaylistLinkPage> fetchSpotifyPlaylist(
+    Dio dio, String urlOrId) async {
+  final id =
+      extractPlaylistId(urlOrId, PlaylistLinkSource.spotify);
+  if (id == null || id.isEmpty) {
+    throw FormatException(
+        'That does not look like a Spotify playlist link.');
+  }
+  final res = await dio
+      .get<String>(
+        '$_spotifyEmbedBase$id',
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: {
+            'User-Agent': _desktopWindowsUa,
+            'Accept': 'text/html',
+          },
+        ),
+      )
+      .timeout(_fetchTimeout);
+  final body = res.data ?? '';
+  if (res.statusCode != 200 || body.trim().isEmpty) {
+    throw StateError(
+        'Spotify playlist page returned HTTP ${res.statusCode}.');
+  }
+  return parseSpotifyEmbed(body);
+}
+
+/// Downloads a public Apple Music playlist page and parses it.
+/// Accepts a full URL, a scheme-less host path, an id-bearing path, or
+/// a bare `pl.<id>` (fetched from the `us` storefront by id redirect).
+Future<PlaylistLinkPage> fetchApplePlaylist(
+    Dio dio, String urlOrId) async {
+  final input = urlOrId.trim();
+  final isUrl = input.toLowerCase().startsWith('http://') ||
+      input.toLowerCase().startsWith('https://');
+  final raw = !isUrl && input.toLowerCase().contains('music.apple.com')
+      ? 'https://$input'
+      : input;
+  final id =
+      extractPlaylistId(raw, PlaylistLinkSource.appleMusic);
+  final bareId =
+      input.toLowerCase().startsWith('pl.') ? input : null;
+  final String target;
+  if (isUrl) {
+    target = input;
+  } else if (id != null) {
+    target = '$_appleFallbackBase$id';
+  } else if (bareId != null) {
+    target = '$_appleFallbackBase$bareId';
+  } else {
+    throw FormatException(
+        'That does not look like an Apple Music playlist link.');
+  }
+  String? body;
+  try {
+    final res = await dio
+        .get<String>(
+          target,
+          options: Options(
+            responseType: ResponseType.plain,
+            headers: {
+              'User-Agent': _desktopMacUa,
+              'Accept':
+                  'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+            },
+          ),
+        )
+        .timeout(_fetchTimeout);
+    if (res.statusCode != null &&
+        res.statusCode! >= 200 &&
+        res.statusCode! < 300) {
+      body = res.data;
+    }
+  } catch (_) {
+    body = null;
+  }
+  if (body == null || body.trim().isEmpty) {
+    throw StateError(
+        'Could not load that Apple Music playlist. Check the link and try again.');
+  }
+  return parseApplePage(body);
 }
 
 

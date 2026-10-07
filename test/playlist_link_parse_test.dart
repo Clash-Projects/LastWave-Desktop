@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/library/playlist_link.dart';
 
@@ -54,5 +55,70 @@ void main() {
   test('Apple strips branding suffix and never throws', () {
     expect(parseApplePage('<html>nope</html>').rows, isEmpty);
     expect(parseApplePage('<html>nope</html>').title.isNotEmpty, isTrue);
+  });
+
+  test('fetchers serve fixtures through stub Dio', () async {
+    var requests = 0;
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests++;
+          final url = options.uri.toString();
+          if (url.contains('spotify.com/embed')) {
+            handler.resolve(Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: _fixture('spotify_embed_sample.html')));
+            return;
+          }
+          if (url.contains('music.apple.com')) {
+            handler.resolve(Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: _fixture('apple_playlist_sample.html')));
+            return;
+          }
+          handler.reject(DioException(
+              requestOptions: options, type: DioExceptionType.unknown));
+        },
+      ),
+    );
+    final spotify = await fetchSpotifyPlaylist(
+        dio, 'https://open.spotify.com/playlist/ABC123');
+    expect(spotify.title, 'Sample & Mix');
+    expect(spotify.rows.length, 2);
+    final apple = await fetchApplePlaylist(
+        dio, 'https://music.apple.com/us/playlist/sample/pl.abc123');
+    expect(apple.title, 'Sample Hits');
+    expect(apple.rows.length, 2);
+    expect(requests, 2);
+  });
+
+  test('fetchers reject garbage and mixes without HTTP', () async {
+    var requests = 0;
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests++;
+          handler.resolve(Response(
+              requestOptions: options, statusCode: 404, data: 'nope'));
+        },
+      ),
+    );
+    await expectLater(
+      fetchSpotifyPlaylist(dio, 'not a link'),
+      throwsA(isA<FormatException>()),
+    );
+    await expectLater(
+      fetchApplePlaylist(dio, 'RDxyz'),
+      throwsA(isA<FormatException>()),
+    );
+    await expectLater(
+      fetchSpotifyPlaylist(dio, 'https://open.spotify.com/playlist/NOPE'),
+      throwsA(isA<StateError>()),
+    );
+    expect(requests, 1); // only the 404 fetch hit the network
   });
 }
