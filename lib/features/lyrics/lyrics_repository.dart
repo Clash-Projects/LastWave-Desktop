@@ -297,16 +297,12 @@ class LyricsRepository {
         '${_key(title, artist, album)}|${durationSeconds ?? 0}|$wordByWord|${preferred.id}|${sortedExcludes.join(',')}';
     if (!forceRefresh) {
       final cached = _lookup(key);
-      // Any usable cached result is served: the key already encodes
-      // track + duration + display mode + provider + exclusions, and
-      // display() adapts word content to line mode. Falling through
-      // here re-fetches (and can overwrite the entry with empty).
+      // Empty results are never stored (see below), so any cache hit
+      // is usable: serve it. Falling through here would refetch on
+      // every rebuild and could overwrite a good entry with empty.
       if (cached != null) {
-        if (!cached.isEmpty) onPartialResult?.call(cached);
-        if (!cached.isEmpty) {
-          return lyricsForDisplayMode(cached, wordByWord: wordByWord);
-        }
-        return cached;
+        onPartialResult?.call(cached);
+        return lyricsForDisplayMode(cached, wordByWord: wordByWord);
       }
     }
 
@@ -509,9 +505,10 @@ class LyricsRepository {
         return display(lrc);
       }
     }
-    const empty = LyricsResult.empty();
-    _store(key, empty);
-    return empty;
+    // Nothing usable: return empty WITHOUT caching it, so a later
+    // retry (or the next rebuild) actually refetches instead of
+    // replaying this miss.
+    return const LyricsResult.empty();
   }
 
   /// Single-provider dispatch. Subclasses (tests) override this one seam
@@ -773,10 +770,14 @@ class LyricsRepository {
     if (synced.isNotEmpty) {
       final lines = parseLrc(synced);
       if (lines.isNotEmpty) {
+        // Word-sync only for real inline word stamps (enhanced LRC):
+        // parseLrc interpolates display syllables into every line,
+        // which must never count as word timing.
+        final wordSynced = parseEnhancedLrc(synced).isNotEmpty;
         parsed = LyricsResult(
           lines: lines,
           isSynced: true,
-          isWordSynced: false,
+          isWordSynced: wordSynced,
           plainLyrics: record['plainLyrics']?.toString() ?? '',
           source: 'lrclib',
         );
