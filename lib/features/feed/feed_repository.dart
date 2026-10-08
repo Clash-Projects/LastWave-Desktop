@@ -132,33 +132,46 @@ FeedEmptyReason resolveEmptyReason({
 int feedDaySeed(DateTime now) =>
     DateTime(now.year, now.month, now.day)
         .millisecondsSinceEpoch;
-
 /// Canonical artist key for taste math: lowercase, collapsed space,
-/// featured-credit suffixes stripped (`feat./ft./featuring/with` +
-/// parenthesised variants), junk mapped to ''. Pure — unit tested.
+/// featured-credit and collaboration suffixes stripped (`feat./ft./featuring/with/x/&/vs` +
+/// parenthesised variants), topic channels and junk mapped to ''. Pure — unit tested.
 ///
-/// Without this, "A feat. B", "a" and "A & C" split one artist's
+/// Without this, "A feat. B", "A x B", "A & C" split one artist's
 /// weight and junk keys leak into taste tags.
 String normalizeArtistKey(String artist) {
   var k = artist.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
   if (k.isEmpty ||
       k == 'unknown artist' ||
       k == 'various artists' ||
-      k == 'unknown') {
+      k == 'various' ||
+      k == 'unknown' ||
+      k == 'null' ||
+      k == 'n/a') {
     return '';
   }
-  // Parenthesised credits: "Song (feat. X)" on artist fields, "[ft. X]".
-  k = k
-      .replaceAll(RegExp(r'\s*[\(\[]\s*(feat\.?|ft\.?|featuring)\b[^\)\]]*[\)\]]'), '')
-      .trim();
-  // Trailing credits: "A feat. B", "A ft B", "A featuring B", "A with B".
+  // Strip YouTube "- Topic" channel tags
+  k = k.replaceAll(RegExp(r'\s*-\s*topic$'), '').trim();
+
+  // Parenthesised credits: "Artist (feat. X)", "[ft. X]", "(with X)"
   k = k
       .replaceAll(
-          RegExp(r'\s+(feat\.?|ft\.?|featuring|with)\s+.+$'), '')
+          RegExp(r'\s*[\(\[]\s*(feat\.?\vert{}ft\.?\vert{}featuring\vert{}with\vert{}prod\.?\vert{}produced by)\b[^\)\]]*[\)\]]'), '')
       .trim();
+
+  // Trailing collab & featured credits: "A feat. B", "A ft B", "A featuring B", "A with B", "A prod. B"
+  k = k
+      .replaceAll(
+          RegExp(r'\s+(feat\.?|ft\.?|featuring|with|prod\.?|produced by)\s+.+$'), '')
+      .trim();
+
+  // Collaboration separators: "A x B", "A X B", "A & B", "A vs B", "A vs. B"
+  // Keep primary artist A so taste affinity concentrates on the primary artist
+  k = k
+      .replaceAll(RegExp(r'\s+([x&]|vs\.?)\s+.+$'), '')
+      .trim();
+
   return k;
 }
-
 /// Drop banned tracks (exact `name|artist` key match). Pure — the
 /// caller loads the set once per feed via `AppDatabase.loadExclusionKeys`.
 List<GeneratedTrack> applyExclusions(
