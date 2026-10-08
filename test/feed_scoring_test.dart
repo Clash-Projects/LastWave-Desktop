@@ -140,7 +140,7 @@ void main() {
     });
   });
 
-  grougroup('normalizeArtistKey'p('rankNewReleases', () {
+  group('rankNewReleases', () {
     YouTubeMusicEntity album(String name, String artist) =>
         YouTubeMusicEntity(
             kind: YouTubeEntityKind.album,
