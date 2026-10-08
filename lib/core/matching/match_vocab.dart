@@ -29,7 +29,8 @@ class MatchVocab {
     'concert', 'vocals', 'vocal', 'acapella', 'acappella', 'backing',
     'stems', 'stem', 'reprise', 'remake', 'rework', 'reverb', 'lofi',
     'symphonic', 'part', 'pt', 'chapter', 'atmos', 'dolby', 'spatial',
-    'tribute',
+    'tribute', 'chopped', 'screwed', 'boosted', '8d', 'session',
+    'unreleased',
   };
 
   /// Label filler that never distinguishes recordings: parental tags,
