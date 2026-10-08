@@ -3304,10 +3304,16 @@ class InnerTubeMusicApi {
 
   // -- matching (mirror Android exactly) --------------------------------------------
 
-  static String normalize(String s) {
+static String normalize(String s) {
+    // Standardize unicode curly quotes, apostrophes, and hyphens/dashes
+    var v = s
+        .replaceAll(RegExp(r"[\u2018\u2019\u201A\u201B`]"), "'")
+        .replaceAll(RegExp(r"[\u201C\u201D\u201E\u201F]"), '"')
+        .replaceAll(RegExp(r"[\u2013\u2014\u2212]"), '-');
+
     // NFD first (like Android Normalizer.Form.NFD), so precomposed
     // characters decompose and diacritics can be stripped.
-    var v = unorm.nfd(s.toLowerCase());
+    v = unorm.nfd(v.toLowerCase());
     v = v.replaceAll(_diacritics, '');
     // Currency symbol '$' in artist/track names is universally stylized 's'
     // (e.g. KR$NA -> krsna, Ke$ha -> kesha, A$AP -> asap, Ty Dolla $ign -> ty dolla sign).

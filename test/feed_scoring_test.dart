@@ -109,12 +109,20 @@ void main() {
       expect(
           normalizeArtistKey('A FEATURING B'), 'a');
       expect(normalizeArtistKey('A with B'), 'a');
+      expect(normalizeArtistKey('Skrillex x Fred again..'), 'skrillex');
+      expect(normalizeArtistKey('Calvin Harris & Dua Lipa'), 'calvin harris');
+      expect(normalizeArtistKey('David Guetta vs Morten'), 'david guetta');
+      expect(normalizeArtistKey('Metro Boomin prod. Future'), 'metro boomin');
+      expect(normalizeArtistKey('The Weeknd - Topic'), 'the weeknd');
     });
 
     test('maps junk to empty', () {
       expect(normalizeArtistKey(''), '');
       expect(normalizeArtistKey('Unknown Artist'), '');
       expect(normalizeArtistKey('VARIOUS ARTISTS'), '');
+      expect(normalizeArtistKey('various'), '');
+      expect(normalizeArtistKey('null'), '');
+      expect(normalizeArtistKey('n/a'), '');
       expect(normalizeArtistKey('  '), '');
     });
   });

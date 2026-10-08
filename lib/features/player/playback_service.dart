@@ -252,6 +252,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
               'demuxer-max-back-bytes', '${4 * 1024 * 1024}');
         } catch (_) {}
         try {
+          await dyn.setProperty(
+              'demuxer-max-bytes', '${16 * 1024 * 1024}');
+        } catch (_) {}
+        try {
           await dyn.setProperty('vid', 'no');
         } catch (_) {}
         try {
