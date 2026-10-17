@@ -1043,90 +1043,6 @@ class _Ytm extends ConsumerWidget {
     );
   }
 
-  /// Connect with pasted YouTube Music session cookies (raw header, Netscape
-  /// cookies.txt, or JSON array). Normalizes and validates via InnerTubeMusicApi.
-  static Future<void> _ytConnectWithCookies(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final controller = TextEditingController();
-    String? errorText;
-
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => ContentDialog(
-          title: const Text('YouTube Music Cookie Login'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Paste your session cookies from music.youtube.com '
-                '(raw Cookie header, Netscape cookies.txt, or JSON array). '
-                'Must contain SAPISID or __Secure-3PAPISID.',
-                style: TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 12),
-              TextBox(
-                controller: controller,
-                placeholder: 'SID=...; __Secure-3PAPISID=...; SAPISID=...',
-                maxLines: 6,
-                minLines: 3,
-                autofocus: true,
-              ),
-              if (errorText != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  errorText!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.red,
-                  ),
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            Button(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final text = controller.text.trim();
-                if (text.isEmpty) {
-                  setState(() => errorText = 'Please enter cookie text.');
-                  return;
-                }
-                try {
-                  final normalized = InnerTubeMusicApi.normalizeCookies(text);
-                  Navigator.of(dialogContext).pop(normalized);
-                } catch (e) {
-                  setState(() {
-                    errorText = e is FormatException
-                        ? e.message
-                        : 'Invalid cookies. Make sure SAPISID is present.';
-                  });
-                }
-              },
-              child: const Text('Connect'),
-            ),
-          ],
-        ),
-      ),
-    );
-    controller.dispose();
-
-    if (result != null && result.isNotEmpty && context.mounted) {
-      await _ytConnectCaptured(
-        context,
-        ref,
-        header: result,
-        pageId: '',
-      );
-    }
-  }
 
   /// In-app Google sign-in: opens music.youtube.com in a system
   /// WebView, waits for login, captures cookies automatically, then
@@ -1553,6 +1469,91 @@ class _CardActions extends ConsumerWidget {
     }
     if (!context.mounted) return;
     await _ytConnectCaptured(context, ref, header: header, pageId: pageId);
+  }
+}
+
+/// Connect with pasted YouTube Music session cookies (raw header, Netscape
+/// cookies.txt, or JSON array). Normalizes and validates via InnerTubeMusicApi.
+Future<void> _ytConnectWithCookies(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final controller = TextEditingController();
+  String? errorText;
+
+  final result = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) => ContentDialog(
+        title: const Text('YouTube Music Cookie Login'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Paste your session cookies from music.youtube.com '
+              '(raw Cookie header, Netscape cookies.txt, or JSON array). '
+              'Must contain SAPISID or __Secure-3PAPISID.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextBox(
+              controller: controller,
+              placeholder: 'SID=...; __Secure-3PAPISID=...; SAPISID=...',
+              maxLines: 6,
+              minLines: 3,
+              autofocus: true,
+            ),
+            if (errorText != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                errorText!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.red,
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isEmpty) {
+                setState(() => errorText = 'Please enter cookie text.');
+                return;
+              }
+              try {
+                final normalized = InnerTubeMusicApi.normalizeCookies(text);
+                Navigator.of(dialogContext).pop(normalized);
+              } catch (e) {
+                setState(() {
+                  errorText = e is FormatException
+                      ? e.message
+                      : 'Invalid cookies. Make sure SAPISID is present.';
+                });
+              }
+            },
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    ),
+  );
+  controller.dispose();
+
+  if (result != null && result.isNotEmpty && context.mounted) {
+    await _ytConnectCaptured(
+      context,
+      ref,
+      header: result,
+      pageId: '',
+    );
   }
 }
 
