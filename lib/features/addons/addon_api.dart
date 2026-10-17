@@ -176,7 +176,7 @@ class AddonApi implements LosslessSource {
   /// invisible at the default tier 27). Tier fallback still happens at
   /// fetch time via [serverQualitiesForTier].
   Future<List<AddonTrack>> searchTracks(String query,
-      {int limit = 15, String quality = 'lossless'}) async {
+      {int limit = 15, String quality = 'lossless', bool atmos = false}) async {
     for (final root in bases) {
       try {
         final path = '${Uri.parse(root).path}search';
@@ -185,7 +185,7 @@ class AddonApi implements LosslessSource {
           queryParameters: {
             'q': query,
             'quality': quality,
-            'atmos': 'none',
+            'atmos': atmos ? 'auto' : 'none',
           },
           options: Options(headers: _signHeaders('GET', root, path)),
         ).timeout(const Duration(seconds: 12));
@@ -392,7 +392,9 @@ class AddonApi implements LosslessSource {
   /// anything else falls through to YouTube's match instead of playing
   /// the wrong recording in lossless.
   static bool isFaithfulVersion(String candidateTitle,
-      {required String title, required String artist}) {
+      {required String title,
+      required String artist,
+      bool allowAtmos = false}) {
     final artistTokens = _clean(artist)
         .split(' ')
         .where((t) => t.isNotEmpty)
@@ -400,9 +402,17 @@ class AddonApi implements LosslessSource {
     final wantDists = _titleForms(title)
         .map((f) => _distinguishingTokens(f, artistTokens))
         .toList();
+    const atmosTokens = {'atmos', 'dolby', 'spatial'};
     for (final cf in _titleForms(candidateTitle)) {
       final cd = _distinguishingTokens(cf, artistTokens);
-      if (wantDists.any((wd) => cd.difference(wd).isEmpty)) return true;
+      if (wantDists.any((wd) {
+        final diff = cd.difference(wd);
+        if (diff.isEmpty) return true;
+        if (allowAtmos && diff.difference(atmosTokens).isEmpty) return true;
+        return false;
+      })) {
+        return true;
+      }
     }
     return false;
   }
@@ -631,9 +641,14 @@ class AddonApi implements LosslessSource {
 
   // -- stream URL ------------------------------------------------------------------
 
-  /// Server quality knob per desktop tier (atmos never requested).
+  /// Server quality knob per desktop tier.
+  /// Tier 28 (Dolby Atmos) requests atmos first and steps down:
+  /// atmos -> hi_res -> lossless -> high (matches Android).
+  /// Stereo tiers (27, 7, 6, 5) never request atmos.
   static List<String> serverQualitiesForTier(int tier) {
     switch (tier) {
+      case 28:
+        return const ['atmos', 'hi_res', 'lossless', 'high'];
       case 27:
       case 7:
         return const ['hi_res', 'lossless', 'high'];
@@ -644,6 +659,39 @@ class AddonApi implements LosslessSource {
       default:
         return const ['hi_res', 'lossless', 'high'];
     }
+  }
+
+  /// True for E-AC-3 spatial codec labels. Pure; safe to unit-test.
+  static bool isAtmosCodec(String? codec) {
+    final c = (codec ?? '').trim().toLowerCase();
+    return c.startsWith('ec-3') ||
+        c.startsWith('eac3') ||
+        c.startsWith('ac-3') ||
+        c.contains('atmos');
+  }
+
+  /// True when the stream URL points to E-AC-3 spatial bytes.
+  static bool isAtmosStreamUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.contains('atmos') ||
+        lower.contains('eac3') ||
+        lower.contains('ec-3');
+  }
+
+  /// True for an Atmos/Spatial candidate track by backend flag, audio mode,
+  /// or title billing (mirrors mobile LosslessMusicApi.isAtmosCandidate).
+  static bool isAtmosCandidate(AddonTrack item) {
+    if (item.isDolbyAtmos) return true;
+    final modes = item.audioModes.map((m) => m.toLowerCase()).toList();
+    if (modes.any((m) =>
+        m.contains('360') ||
+        m.contains('spatial') ||
+        m.contains('atmos') ||
+        m.contains('dolby'))) {
+      return true;
+    }
+    final lowerTitle = item.title.toLowerCase();
+    return lowerTitle.contains('atmos') || lowerTitle.contains('dolby');
   }
 
   /// Server `sampleRate` is Hz (44100/48000/96000…); normalize to the
@@ -674,6 +722,8 @@ class AddonApi implements LosslessSource {
     String root,
     String trackId,
     String serverQuality, {
+    required bool wantAtmos,
+    required bool isAtmosPreferred,
     required String title,
     required String artist,
   }) async {
@@ -689,7 +739,7 @@ class AddonApi implements LosslessSource {
           '${root}stream/$trackId',
           queryParameters: {
             'quality': serverQuality,
-            'atmos': 'none',
+            'atmos': wantAtmos ? 'auto' : 'none',
           },
           options: Options(headers: _signHeaders('GET', root, path)),
         ).timeout(const Duration(seconds: 15));
@@ -721,6 +771,8 @@ class AddonApi implements LosslessSource {
       trackId,
       serverQuality,
       resolved,
+      wantAtmos: wantAtmos,
+      isAtmosPreferred: isAtmosPreferred,
       title: title,
       artist: artist,
     );
@@ -753,6 +805,8 @@ class AddonApi implements LosslessSource {
     String trackId,
     String serverQuality,
     Map<String, dynamic> data, {
+    required bool wantAtmos,
+    required bool isAtmosPreferred,
     required String title,
     required String artist,
   }) async {
@@ -794,21 +848,50 @@ class AddonApi implements LosslessSource {
       }
     } catch (_) {}
 
+    final isStreamAtmos = (data['atmos'] == true) ||
+        (data['audioMode']?.toString().toUpperCase().contains('ATMOS') == true) ||
+        (data['quality']?.toString().toUpperCase().contains('ATMOS') == true) ||
+        isAtmosCodec(data['codec']?.toString()) ||
+        urls.any(isAtmosStreamUrl);
+
+    // Atmos isolation: a hi-res/CD/320 request must never come home as Dolby
+    // (matches Android: "Atmos plays only when explicitly selected").
+    if (!isAtmosPreferred && isStreamAtmos) {
+      if (kDebugMode) {
+        debugPrint(
+            'LastWaveAddon: skipping spatial stream for track $trackId (stereo tier requested)');
+      }
+      return null;
+    }
+    if (!wantAtmos && urls.any(isAtmosStreamUrl)) {
+      return null;
+    }
+
     final hiRes = serverQuality == 'hi_res';
     final mp3 = serverQuality == 'high';
-    final bitDepth =
-        (data['bitDepth'] as num?)?.toInt() ?? (hiRes ? 24 : 16);
+    final bitDepth = isStreamAtmos
+        ? 16
+        : ((data['bitDepth'] as num?)?.toInt() ?? (hiRes ? 24 : 16));
     // Server speaks Hz (e.g. 48000); the model is kHz. Anything above
     // 1000 must be Hz — without this the sheet shows "48000.0 kHz"
     // and the bitrate explodes by the same 1000× (depth×rate×2).
-    final sampleRate =
-        khzFromServerSampleRate(data['sampleRate'], hiRes: hiRes);
-    final bitrateKbps = mp3
-        ? 320
-        : hiRes
-            ? (bitDepth * sampleRate * 2).toInt()
-            : 1411;
-    final codec = mp3 ? 'MP3 320k' : hiRes ? 'HI-RES FLAC' : 'LOSSLESS';
+    final sampleRate = isStreamAtmos
+        ? 48.0
+        : khzFromServerSampleRate(data['sampleRate'], hiRes: hiRes);
+    final bitrateKbps = isStreamAtmos
+        ? ((data['bitrate'] as num?)?.toInt() ?? 768)
+        : mp3
+            ? 320
+            : hiRes
+                ? (bitDepth * sampleRate * 2).toInt()
+                : 1411;
+    final codec = isStreamAtmos
+        ? 'DOLBY ATMOS'
+        : mp3
+            ? 'MP3 320k'
+            : hiRes
+                ? 'HI-RES FLAC'
+                : 'LOSSLESS';
     final host = Uri.tryParse(root)?.host ?? 'addon';
     final cacheKey = 'addon:$host:$trackId:$serverQuality';
     final expiresAt =
@@ -835,7 +918,7 @@ class AddonApi implements LosslessSource {
     // alongside a DASH manifest: native FLAC needs no transmux and
     // downloads land as `.flac` directly. Only for lossless tiers —
     // `high` (MP3) must never steal a FLAC URL meant for another tier.
-    if (!mp3) {
+    if (!mp3 && !isStreamAtmos) {
       for (final u in urls) {
         if (u.startsWith('data:')) continue;
         if (u.split('?').first.toLowerCase().endsWith('.flac')) {
@@ -913,7 +996,9 @@ class AddonApi implements LosslessSource {
         expiresAt: DateTime.now().add(const Duration(hours: 24)),
       );
     }
-    final mime = lower.endsWith('.mp3')
+    final mime = isStreamAtmos
+        ? 'audio/mp4'
+        : lower.endsWith('.mp3')
             ? 'audio/mpeg'
             : (lower.endsWith('.m4a') || lower.endsWith('.mp4'))
                 ? 'audio/mp4'
@@ -1051,8 +1136,11 @@ class AddonApi implements LosslessSource {
     var queriesOk = 0;
     // Search with the tier's primary knob (Android parity): entries
     // tagged only for other tiers are server-filtered otherwise.
-    final searchQuality =
-        serverQualitiesForTier(preferredQuality).first;
+    final isAtmosPreferred =
+        preferredQuality == AudioQualityTiers.dolbyAtmos;
+    final searchQuality = isAtmosPreferred
+        ? 'lossless'
+        : serverQualitiesForTier(preferredQuality).first;
     final searchSw = Stopwatch()..start();
     // Fan out all queries concurrently: sequential round-trips were the
     // whole first-play delay (~4s of search). Results merge in query
@@ -1063,8 +1151,10 @@ class AddonApi implements LosslessSource {
     final searched = await Future.wait(
       queryList.map((q) async {
         try {
-          final items =
-              await searchTracks(q, limit: 30, quality: searchQuality);
+          final items = await searchTracks(q,
+              limit: 30,
+              quality: searchQuality,
+              atmos: isAtmosPreferred);
           return (true, items);
         } on AddonQuotaException {
           rethrow;
@@ -1118,9 +1208,9 @@ class AddonApi implements LosslessSource {
     }
     final top = ranked.first;
     final matches = ranked
-        .where(
-            (c) => isFaithfulVersion(c.title, title: title, artist: artist))
-        .take(3)
+        .where((c) => isFaithfulVersion(c.title,
+            title: title, artist: artist, allowAtmos: isAtmosPreferred))
+        .take(isAtmosPreferred ? 4 : 3)
         .toList();
     if (matches.isEmpty) {
       if (kDebugMode) {
@@ -1135,10 +1225,32 @@ class AddonApi implements LosslessSource {
       debugPrint('LastWaveAddon stage=version-skip title="$title" '
           'top="${top.title}" kept=${matches.length}/${ranked.length}');
     }
+
+    // When Atmos is preferred, prioritize Atmos candidate tracks first;
+    // for stereo tiers, prioritize stereo candidate tracks first.
+    final orderedMatches = isAtmosPreferred
+        ? [
+            ...matches.where(isAtmosCandidate),
+            ...matches.where((m) => !isAtmosCandidate(m)),
+          ]
+        : [
+            ...matches.where((m) => !isAtmosCandidate(m)),
+            ...matches.where(isAtmosCandidate),
+          ];
+
     var fetchAttempts = 0;
     final fetchSw = Stopwatch()..start();
-    for (final match in matches) {
-      for (final serverQuality in serverQualitiesForTier(preferredQuality)) {
+    for (final serverQuality in serverQualitiesForTier(preferredQuality)) {
+      final wantAtmos = serverQuality == 'atmos';
+      final targetCandidates = wantAtmos
+          ? (orderedMatches.where(isAtmosCandidate).isNotEmpty
+              ? orderedMatches.where(isAtmosCandidate).toList()
+              : orderedMatches)
+          : (orderedMatches.where((m) => !isAtmosCandidate(m)).isNotEmpty
+              ? orderedMatches.where((m) => !isAtmosCandidate(m)).toList()
+              : orderedMatches);
+
+      for (final match in targetCandidates.take(wantAtmos ? 3 : 2)) {
         for (final root in bases) {
           try {
             fetchAttempts++;
@@ -1146,6 +1258,8 @@ class AddonApi implements LosslessSource {
               root,
               match.id,
               serverQuality,
+              wantAtmos: wantAtmos,
+              isAtmosPreferred: isAtmosPreferred,
               title: title,
               artist: artist,
             );
@@ -1169,8 +1283,8 @@ class AddonApi implements LosslessSource {
         // One entry's mint failed on every tier (e.g. HTTP 502 on a
         // `swap_` composite) — the loop tries the next entry of the
         // SAME version rather than degrading into a remix.
-        debugPrint('LastWaveAddon stage=fetch-fail id="${match.id}" '
-            'title="${match.title}" attempts=$fetchAttempts');
+        debugPrint('LastWaveAddon stage=fetch-fail '
+            'tier=$serverQuality attempts=$fetchAttempts');
       }
     }
     fetchSw.stop();
@@ -1225,6 +1339,10 @@ class AddonTrack {
   final int durationSeconds;
   final String format;
   final String audioQuality;
+  final bool atmos;
+  final String audioMode;
+  final List<String> audioModes;
+  final String quality;
 
   const AddonTrack({
     required this.id,
@@ -1234,10 +1352,15 @@ class AddonTrack {
     this.durationSeconds = 0,
     this.format = '',
     this.audioQuality = '',
+    this.atmos = false,
+    this.audioMode = '',
+    this.audioModes = const [],
+    this.quality = '',
   });
 
   factory AddonTrack.fromJson(Map<String, dynamic> json) {
     final duration = json['duration'];
+    final modes = json['audioModes'];
     return AddonTrack(
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
@@ -1245,12 +1368,31 @@ class AddonTrack {
       album: json['album']?.toString() ?? '',
       durationSeconds: duration is num
           ? duration.toInt()
-          : (double.tryParse(duration?.toString() ?? '') ?? 0)
-              .toInt(),
+          : (double.tryParse(duration?.toString() ?? '') ?? 0).toInt(),
       format: json['format']?.toString() ?? '',
-      audioQuality: json['audioQuality']?.toString() ?? '',
+      audioQuality: json['audioQuality']?.toString() ??
+          json['audio_quality']?.toString() ??
+          json['quality']?.toString() ??
+          '',
+      atmos: json['atmos'] == true,
+      audioMode: json['audioMode']?.toString() ?? '',
+      audioModes: modes is List
+          ? modes.map((e) => e.toString()).toList()
+          : const [],
+      quality: json['quality']?.toString() ?? '',
     );
   }
+
+  bool get isDolbyAtmos =>
+      atmos ||
+      audioMode.toUpperCase().contains('ATMOS') ||
+      audioMode.toUpperCase().contains('DOLBY') ||
+      audioModes.any((m) =>
+          m.toUpperCase().contains('ATMOS') ||
+          m.toUpperCase().contains('DOLBY')) ||
+      RegExp(r'atmos|dolby|eac3[_-]?joc|ec-?3', caseSensitive: false).hasMatch(
+        '$audioQuality $quality $format $audioMode ${audioModes.join(" ")}',
+      );
 }
 
 /// Quota snapshot from stream-response headers.

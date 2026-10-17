@@ -74,8 +74,8 @@ class Prefs {
 
   // -- Audio quality (mirrors Android quality tiers) ---------------------
   /// -1 = YouTube only, 5 = 320k MP3, 6 = 16/44.1 FLAC,
-  /// 7 = 24/96, 27 = 24/192.
-  static const allowedQualities = [-1, 5, 6, 7, 27];
+  /// 7 = 24/96, 27 = 24/192, 28 = Dolby Atmos.
+  static const allowedQualities = [-1, 5, 6, 7, 27, 28];
 
   bool get preferLossless =>
       _sp.getBool('lw_prefer_lossless_streaming') ?? true;
@@ -260,6 +260,16 @@ class Prefs {
 
   Future<void> setDisablePoToken(bool v) =>
       _sp.setBool('lw_disable_potoken', v);
+
+  // -- Global Live Map Telemetry ----------------------------------------------
+  /// Broadcast anonymous listening ticks to the LastWave Live Global Map
+  /// (telemetry.clashprojects.qd.je).
+  /// Matches mobile key `lw_live_telemetry_enabled`, default on (true).
+  bool get liveTelemetryEnabled =>
+      _sp.getBool('lw_live_telemetry_enabled') ?? true;
+
+  Future<void> setLiveTelemetryEnabled(bool v) =>
+      _sp.setBool('lw_live_telemetry_enabled', v);
 
   // -- Desktop-app Parity (Karaoke Lyrics & Visualizer & CD Mode) ------------
   int getLyricsOffset(String trackKey) =>

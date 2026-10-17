@@ -14,6 +14,7 @@ import '../addons/addon_api.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/scrobble_repository.dart';
 import '../lossless/lossless_source.dart';
+import '../telemetry/live_telemetry_service.dart';
 import 'mpv_paths.dart';
 import 'player_state.dart';
 import '../../core/storage/app_database.dart';
@@ -37,6 +38,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   final PrefsHandle _prefs;
   final SessionStore _sessions;
   final OfficialArtworkService _artworkService;
+  final LiveTelemetryService _telemetry;
 
   Player? _player;
   final List<StreamSubscription> _subs = [];
@@ -72,6 +74,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   bool _ytHistoryPushedThisWindow = false;
   // One client playback nonce per scrobble window.
   String _ytHistoryCpn = '';
+  int _lastTelemetryHeartbeatEpoch = 0;
   // Pre-signed watchtime bases by videoId (from the player response
   // that resolved the stream). Memory-only, capped: tokens are bound
   // to the live session.
@@ -206,7 +209,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     this._sessions, [
     OfficialArtworkService? artworkService,
     this._onAddonQuota,
+    LiveTelemetryService? telemetry,
   ])  : _artworkService = artworkService ?? OfficialArtworkService(),
+        _telemetry = telemetry ?? LiveTelemetryService(prefs: _prefs.rawPrefs),
         super(const PlayerSnapshot());
 
   Future<void> ensurePlayer() async {
@@ -1521,6 +1526,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       if (idx < 0) return;
 
       final cur = state.queue[idx];
+      final prevArtwork = cur.artworkUrl;
       final updated = cur.copyWith(
         artworkUrl: result.artworkUrl,
         album: cur.album.isEmpty && result.albumTitle.isNotEmpty
@@ -1534,6 +1540,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         queue: q,
         current: idx == state.currentIndex ? updated : state.current,
       );
+      if (state.isPlaying &&
+          idx == state.currentIndex &&
+          result.artworkUrl.isNotEmpty &&
+          result.artworkUrl != prevArtwork) {
+        _pingLiveTelemetry(updated, force: true);
+      }
       _schedulePersist();
     }, onError: (_) {}));
   }
@@ -1805,8 +1817,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _lastTick = playing ? DateTime.now() : null;
     if (!playing) {
       _schedulePersist();
-    } else if (state.current != null && !_nowPlayingSent) {
-      _sendNowPlaying(state.current!);
+    } else if (state.current != null) {
+      if (!_nowPlayingSent) {
+        _sendNowPlaying(state.current!);
+      }
+      _pingLiveTelemetry(state.current!);
     }
   }
 
@@ -1834,7 +1849,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _ytHistoryCpn = '';
     _nowPlayingSent = false;
     _lastTick = DateTime.now();
+    _lastTelemetryHeartbeatEpoch = DateTime.now().millisecondsSinceEpoch;
     _sendNowPlaying(track);
+    _pingLiveTelemetry(track, force: true);
+  }
+
+  void _pingLiveTelemetry(PlayableTrack track, {bool force = false}) {
+    unawaited(_telemetry.ping(
+      title: track.title,
+      artist: track.artist,
+      songId: track.videoId.isNotEmpty ? track.videoId : track.queueKey,
+      artworkUrl: track.artworkUrl,
+      force: force,
+    ));
   }
 
   void _sendNowPlaying(PlayableTrack track) {
@@ -1948,6 +1975,16 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           now.difference(last).inMilliseconds / 1000.0;
     }
     _lastTick = now;
+
+    // Periodic heartbeat every 45s while playing (backend RAM bucket expires in 60s)
+    if (state.isPlaying &&
+        now.millisecondsSinceEpoch - _lastTelemetryHeartbeatEpoch >= 45000) {
+      _lastTelemetryHeartbeatEpoch = now.millisecondsSinceEpoch;
+      final t = _scrobbleTrack ?? state.current;
+      if (t != null) {
+        _pingLiveTelemetry(t, force: true);
+      }
+    }
     // Eager scrobble at threshold so manual pause still appears in
     // history (Last.fm otherwise expires “Scrobbling now” on pause).
     if (_scrobbleStartEpoch != 0 &&
@@ -2113,6 +2150,8 @@ class PrefsHandle {
   int get scrobblePercent => _prefs.scrobblePercent;
   bool get scrobblerEnabled => _prefs.scrobblerEnabled;
   bool get syncYtHistory => _prefs.syncYtHistory;
+  bool get liveTelemetryEnabled => _prefs.liveTelemetryEnabled;
+  Prefs get rawPrefs => _prefs;
 }
 
 class SessionStore {
@@ -2141,6 +2180,7 @@ final playbackServiceProvider =
         ref.read(addonNoticeProvider.notifier).state = notice;
       } catch (_) {}
     },
+    ref.watch(liveTelemetryServiceProvider),
   );
   ref.onDispose(() {
     unawaited(service.disposePlayer());

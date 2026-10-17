@@ -1,14 +1,15 @@
 /// Shared audio/track models.
 ///
-/// Quality tier constants (YouTube / 320k / 16·44.1 / 24·96 / 24·192):
+/// Quality tier constants (YouTube / 320k / 16·44.1 / 24·96 / 24·192 / Dolby Atmos):
 /// -1 = YouTube only, 5 = 320k MP3, 6 = CD 16/44.1 FLAC,
-/// 7 = Hi-Res 24/96, 27 = Max Hi-Res 24/192.
+/// 7 = Hi-Res 24/96, 27 = Max Hi-Res 24/192, 28 = Dolby Atmos.
 class AudioQualityTiers {
   static const int youtubeOnly = -1;
   static const int mp3_320 = 5;
   static const int cdLossless = 6;
   static const int hiRes96 = 7;
   static const int maxHiRes = 27;
+  static const int dolbyAtmos = 28;
 
   static String label(int quality) {
     switch (quality) {
@@ -22,6 +23,8 @@ class AudioQualityTiers {
         return 'Hi-Res · 24/96';
       case maxHiRes:
         return 'Hi-Res · 24/192';
+      case dolbyAtmos:
+        return 'Dolby Atmos';
       default:
         return 'Auto';
     }
@@ -33,7 +36,9 @@ class AudioQualityTiers {
     required double samplingRateKhz,
     required String codec,
   }) {
-    if (!isLossless) return codec.toUpperCase();
+    final c = codec.toUpperCase();
+    if (c.contains('ATMOS') || c.contains('DOLBY')) return 'ATMOS';
+    if (!isLossless) return c;
     if (bitDepth >= 24 && samplingRateKhz >= 88) return 'HI-RES';
     if (bitDepth >= 24) return 'HI-RES';
     return 'LOSSLESS';
