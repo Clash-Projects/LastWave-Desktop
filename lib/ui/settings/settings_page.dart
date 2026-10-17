@@ -28,6 +28,7 @@ import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
 import '../../features/presence/discord_presence_service.dart';
+import '../../features/telemetry/live_telemetry_service.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
@@ -856,39 +857,111 @@ class _Ytm extends ConsumerWidget {
     final connection = ref.watch(ytConnectionProvider);
     final account = ref.watch(ytAccountProvider).valueOrNull;
     final prefs = ref.watch(prefsProvider);
-    return _Group(
-      title: 'YouTube Music',
-      subtitle: 'Personal library, history and uploads',
-      child: connection.connected
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _connectedRow(context, ref, connection, account),
-                const SizedBox(height: 8),
-                _SwitchRow(
-                  value: prefs.syncYtHistory,
-                  onChanged: (v) =>
-                      onUpdate((p) => p.setSyncYtHistory(v)),
-                  title: 'Sync listening history',
-                  subtitle:
-                      'Record plays to your YouTube Music history',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Group(
+          title: 'YouTube Music',
+          subtitle: 'Personal library, history and uploads',
+          child: connection.connected
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _connectedRow(context, ref, connection, account),
+                    const SizedBox(height: 8),
+                    _SwitchRow(
+                      value: prefs.syncYtHistory,
+                      onChanged: (v) =>
+                          onUpdate((p) => p.setSyncYtHistory(v)),
+                      title: 'Sync listening history',
+                      subtitle:
+                          'Record plays to your YouTube Music history',
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    const Icon(FluentIcons.video, size: 18),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text('Not connected', style: WaveType.trackTitle),
+                    ),
+                    Button(
+                      onPressed: () => _ytConnectWithCookies(context, ref),
+                      child: const Text('Cookie Login'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => _ytConnect(context, ref),
+                      child: const Text('Connect'),
+                    ),
+                  ],
                 ),
-              ],
-            )
-          : Row(
-              children: [
-                const Icon(FluentIcons.video, size: 18),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text('Not connected', style: WaveType.trackTitle),
-                ),
-                FilledButton(
-                  onPressed: () => _ytConnect(context, ref),
-                  child: const Text('Connect'),
-                ),
-              ],
-            ),
+        ),
+        const SizedBox(height: 16),
+        _Group(
+          title: 'Global Live Telemetry & Map',
+          subtitle:
+              'Anonymous real-time listening map at telemetry.clashprojects.qd.je',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _SwitchRow(
+                value: prefs.liveTelemetryEnabled,
+                onChanged: (v) =>
+                    onUpdate((p) => p.setLiveTelemetryEnabled(v)),
+                title: 'Global Live Map Telemetry',
+                subtitle: prefs.liveTelemetryEnabled
+                    ? 'On • Listening ticks broadcast anonymously to the live world map'
+                    : 'Off • Playback telemetry stays completely local',
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Open Global Live Map',
+                            style: WaveType.trackTitle),
+                        const SizedBox(height: 2),
+                        Text(
+                          'telemetry.clashprojects.qd.je • Real-time vector map of global listeners',
+                          style: WaveType.meta.copyWith(
+                            color: waveTextSecondary(context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton(
+                    onPressed: () async {
+                      final uri =
+                          Uri.parse(LiveTelemetryService.telemetryBaseUrl);
+                      try {
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri,
+                              mode: LaunchMode.externalApplication);
+                        }
+                      } catch (_) {}
+                    },
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.globe, size: 14),
+                        SizedBox(width: 6),
+                        Text('Open Live Map'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -968,6 +1041,91 @@ class _Ytm extends ConsumerWidget {
         const _CardActions(),
       ],
     );
+  }
+
+  /// Connect with pasted YouTube Music session cookies (raw header, Netscape
+  /// cookies.txt, or JSON array). Normalizes and validates via InnerTubeMusicApi.
+  static Future<void> _ytConnectWithCookies(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final controller = TextEditingController();
+    String? errorText;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => ContentDialog(
+          title: const Text('YouTube Music Cookie Login'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Paste your session cookies from music.youtube.com '
+                '(raw Cookie header, Netscape cookies.txt, or JSON array). '
+                'Must contain SAPISID or __Secure-3PAPISID.',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              TextBox(
+                controller: controller,
+                placeholder: 'SID=...; __Secure-3PAPISID=...; SAPISID=...',
+                maxLines: 6,
+                minLines: 3,
+                autofocus: true,
+              ),
+              if (errorText != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  errorText!,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.red,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            Button(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.isEmpty) {
+                  setState(() => errorText = 'Please enter cookie text.');
+                  return;
+                }
+                try {
+                  final normalized = InnerTubeMusicApi.normalizeCookies(text);
+                  Navigator.of(dialogContext).pop(normalized);
+                } catch (e) {
+                  setState(() {
+                    errorText = e is FormatException
+                        ? e.message
+                        : 'Invalid cookies. Make sure SAPISID is present.';
+                  });
+                }
+              },
+              child: const Text('Connect'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+
+    if (result != null && result.isNotEmpty && context.mounted) {
+      await _ytConnectCaptured(
+        context,
+        ref,
+        header: result,
+        pageId: '',
+      );
+    }
   }
 
   /// In-app Google sign-in: opens music.youtube.com in a system
@@ -1184,6 +1342,10 @@ class _CardActions extends ConsumerWidget {
             child: const Text('Cancel'),
           ),
           Button(
+            onPressed: () => Navigator.of(dialogContext).pop('cookie'),
+            child: const Text('Cookies'),
+          ),
+          Button(
             onPressed: () => Navigator.of(dialogContext).pop('channel'),
             child: const Text('Brand channel'),
           ),
@@ -1197,6 +1359,8 @@ class _CardActions extends ConsumerWidget {
     if (mode == null || !context.mounted) return;
     if (mode == 'account') {
       await _ytAddAccount(context, ref);
+    } else if (mode == 'cookie') {
+      await _ytConnectWithCookies(context, ref);
     } else {
       await _ytAddChannel(context, ref);
     }
@@ -1862,6 +2026,16 @@ class _General extends ConsumerWidget {
                 subtitle:
                     'Show the current track in your Discord status.',
               ),
+              const SizedBox(height: 8),
+              _SwitchRow(
+                value: prefs.liveTelemetryEnabled,
+                onChanged: (v) =>
+                    onUpdate((p) => p.setLiveTelemetryEnabled(v)),
+                title: 'Global Live Map Telemetry',
+                subtitle: prefs.liveTelemetryEnabled
+                    ? 'On • Listening ticks broadcast anonymously to the live world map'
+                    : 'Off • Playback telemetry stays completely local',
+              ),
             ],
           ),
         ),
@@ -2272,6 +2446,7 @@ class _QualityRow extends StatelessWidget {
         ComboBox<int>(
           value: value,
           items: const [
+            ComboBoxItem(value: 28, child: Text('Dolby Atmos')),
             ComboBoxItem(value: 27, child: Text('Hi-Res · 24/192')),
             ComboBoxItem(value: 7, child: Text('Hi-Res · 24/96')),
             ComboBoxItem(value: 6, child: Text('Lossless · 16/44.1')),

@@ -454,7 +454,10 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
                     ),
                     WaveMenuAction(
                       leading: const Icon(WaveIcons.mixes, size: 15),
-                      label: 'Bit depth · ${s.bitDepth}-bit',
+                      label: (s.qualityBadge == 'ATMOS' ||
+                              s.audioCodec.contains('ATMOS'))
+                          ? 'Spatial Audio · Dolby Atmos'
+                          : 'Bit depth · ${s.bitDepth}-bit',
                       onPressed: () {},
                     ),
                     if (s.bitrateKbps > 0)

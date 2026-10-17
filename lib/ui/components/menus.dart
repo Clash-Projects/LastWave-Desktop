@@ -174,12 +174,10 @@ List<WaveMenuEntry> waveTrackMenuItems({
         leading: const Icon(FluentIcons.list_mirrored, size: 15),
         label: 'Add to playlist',
         items: () => [
-          for (final p in playlists)
+          for (final p in playlists.where((p) => !p.isLikedSongs))
             WaveMenuAction(
-              leading: Icon(
-                p.isLikedSongs
-                    ? FluentIcons.heart
-                    : FluentIcons.list_mirrored,
+              leading: const Icon(
+                FluentIcons.list_mirrored,
                 size: 15,
               ),
               label: p.title,
@@ -740,14 +738,12 @@ Future<void> showWaveAddToPlaylist(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (final p in playlists)
+            for (final p in playlists.where((p) => !p.isLikedSongs))
               ListTile.selectable(
                 title: Text(p.title),
                 subtitle: Text('${p.tracks.length} tracks'),
-                leading: Icon(
-                  p.isLikedSongs
-                      ? FluentIcons.heart
-                      : FluentIcons.list_mirrored,
+                leading: const Icon(
+                  FluentIcons.list_mirrored,
                   size: 15,
                 ),
                 selectionMode: ListTileSelectionMode.single,

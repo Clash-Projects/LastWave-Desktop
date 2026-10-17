@@ -489,6 +489,11 @@ class InnerTubeMusicApi {
       'FEmusic_new_releases';
   static const String chartsBrowseId = 'FEmusic_charts';
 
+  static const String likeEndpoint = 'like/like';
+  static const String removeLikeEndpoint = 'like/removelike';
+  static Map<String, dynamic> likeTargetBody(String videoId) =>
+      {'videoId': videoId.trim()};
+
   static const String songsSearchFilter =
       'EgWKAQIIAWoKEAkQBRAKEAMQBA==';
   static const String artistSearchFilter =
@@ -1113,6 +1118,43 @@ class InnerTubeMusicApi {
     }
   }
 
+  /// Likes a video on the connected YouTube Music account (like/like endpoint).
+  Future<bool> likeVideo(String videoId) => _setVideoLiked(videoId, true);
+
+  /// Clears a like on YouTube Music (like/removelike endpoint).
+  Future<bool> removeVideoLike(String videoId) => _setVideoLiked(videoId, false);
+
+  Future<bool> _setVideoLiked(String videoId, bool liked) async {
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty || !_connection.connected) return false;
+    await _ensureConfig();
+    final endpoint = liked ? likeEndpoint : removeLikeEndpoint;
+    final url = '$musicApi/$endpoint?key=$_apiKey&prettyPrint=false';
+    try {
+      await _post(
+        url,
+        body: {
+          'context': _context(
+            'WEB_REMIX',
+            _clientVersion,
+            visitorData: _visitorData,
+          ),
+          'target': likeTargetBody(cleanId),
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+        authenticated: true,
+      );
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('YtMusic: $endpoint failed for $cleanId: $e');
+      }
+      return false;
+    }
+  }
+
   /// Account YouTube Music watch history, authenticated.
   Future<List<YouTubeMusicTrack>> fetchYtHistory(
       {int limit = 100}) async {
@@ -1391,7 +1433,10 @@ class InnerTubeMusicApi {
       final lists = _parsePlaylistRenderers(root)
           .where((p) =>
               !p.id.startsWith('UC') &&
-              !p.id.startsWith('MPRE'))
+              !p.id.startsWith('MPRE') &&
+              !isLikedMusicId(p.id) &&
+              p.title.toLowerCase() != 'liked music' &&
+              p.title.toLowerCase() != 'liked songs')
           .toList();
       if (kDebugMode) {
         debugPrint(
