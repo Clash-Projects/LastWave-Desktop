@@ -463,9 +463,32 @@ class _WaveArtworkState extends State<WaveArtwork> {
     final index = _chainIndex;
     final attempt = _attempt;
     final currentUrl = _chain[_chainIndex];
+    // Tiered, DPR-aware decode bucketing.
+    //
+    // Previously every tile larger than 220 logical px decoded at the
+    // CDN's native resolution — and official covers ship at 1400×1400
+    // (≈7.8 MB RGBA each), even though the largest tile in the app is a
+    // ~480px now-playing hero. That pinned the 128 MiB imageCache to a
+    // handful of entries and made scrolling re-decode constantly.
+    //
+    // Buckets snap UP to 320 / 640 / 1024 physical px so a given tier
+    // keeps one stable cache key regardless of the tile's exact size.
+    // Only tiles wanting >1024 physical px fall through to native.
     final double logicalExtent = widget.size;
-    final int? targetCacheWidth = logicalExtent <= 220 ? 320 : null;
-    final int diskCache = targetCacheWidth != null ? 512 : 1024;
+    final double dpr =
+        MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
+    final int targetPhysical = (logicalExtent * dpr).ceil();
+    final int? targetCacheWidth = targetPhysical <= 320
+        ? 320
+        : targetPhysical <= 640
+            ? 640
+            : targetPhysical <= 1024
+                ? 1024
+                : null;
+    // On-disk copy must never be smaller than the decode bucket, or the
+    // 640 tier would decode by upscaling a 512px file. Keeps the original
+    // 512/1024 split for every tier.
+    final int diskCache = targetPhysical <= 320 ? 512 : 1024;
     final isSmall = widget.size <= 56;
     final isResolved = _resolvedUrl != null;
     final image = RepaintBoundary(
