@@ -24,28 +24,22 @@ import '../ui/search/search_page.dart';
 import '../ui/settings/settings_page.dart';
 import '../ui/theme/tokens.dart';
 
-/// WinUI 3 page navigation — "Entrance" transition: full fade-in with a
-/// short upward drift, decelerating hard (easeOutCubic) over [WaveMotion.slow].
+/// High-refresh-rate navigation transition: crisp 110ms crossfade without
+/// matrix translation overhead for immediate, zero-jank page changes.
 Page<void> _page(Widget child) {
   return CustomTransitionPage(
     child: child,
     transitionsBuilder:
         (context, animation, secondaryAnimation, child) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: Curves.easeOutCubic,
-      );
       return FadeTransition(
-        opacity: Tween<double>(begin: 0, end: 1).animate(curved),
-        child: SlideTransition(
-          position: Tween<Offset>(
-                  begin: const Offset(0, 0.02), end: Offset.zero)
-              .animate(curved),
-          child: child,
+        opacity: CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
         ),
+        child: child,
       );
     },
-    transitionDuration: WaveMotion.slow,
+    transitionDuration: WaveMotion.fast,
   );
 }
 
