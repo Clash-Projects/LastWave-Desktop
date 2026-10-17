@@ -44,7 +44,7 @@ class WaveEntranceGroup extends StatefulWidget {
 class _WaveEntranceGroupState extends State<WaveEntranceGroup>
     with SingleTickerProviderStateMixin {
   /// Total window: must exceed max stagger + item duration.
-  static const _window = Duration(milliseconds: 1000);
+  static const _window = Duration(milliseconds: 260);
 
   late final AnimationController _controller;
   bool _started = false;
@@ -123,13 +123,13 @@ class WaveEntrance extends StatelessWidget {
   });
 
   /// Per-item stagger step.
-  static const stepMs = 40;
+  static const stepMs = 20;
 
   /// One item's fade/rise duration.
-  static const itemMs = 340;
+  static const itemMs = 180;
 
   /// Items past this index share the last stagger slot (grouped).
-  static const maxStagger = 14;
+  static const maxStagger = 6;
 
   /// Standalone mode animates only the first few rows (lazy-list safety).
   static const _standaloneCap = 6;
@@ -143,9 +143,10 @@ class WaveEntrance extends StatelessWidget {
   }
 
   Widget _groupDriven(AnimationController controller) {
-    final totalMs = controller.duration?.inMilliseconds ?? 1000;
+    if (controller.isCompleted) return child;
+    final totalMs = controller.duration?.inMilliseconds ?? 260;
     final slot = math.min(index, maxStagger);
-    final startMs = math.min(slot * stepMs, totalMs - itemMs - 40);
+    final startMs = math.min(slot * stepMs, totalMs - itemMs - 20);
     final begin = (startMs / totalMs).clamp(0.0, 0.97);
     final end = ((startMs + itemMs) / totalMs).clamp(begin + 0.01, 1.0);
     final curved = CurvedAnimation(
@@ -178,6 +179,13 @@ class WaveEntrance extends StatelessWidget {
   }
 
   Widget _paint(double t, Widget child) {
+    if (t >= 1.0) return child;
+    if (t <= 0.0) {
+      return Opacity(
+        opacity: 0.0,
+        child: child,
+      );
+    }
     return Opacity(
       opacity: t,
       child: Transform.translate(

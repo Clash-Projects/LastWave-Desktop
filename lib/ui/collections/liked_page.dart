@@ -47,13 +47,16 @@ class _WaveLikedPageState
     final liked =
         playlists.where((p) => p.isLikedSongs).firstOrNull;
     final all = liked?.tracks ?? const [];
-    var tracks = all
-        .where(
-          (t) => '${t.name} ${t.artist}'
-              .toLowerCase()
-              .contains(_q.toLowerCase()),
-        )
-        .toList();
+    final query = _q.trim().toLowerCase();
+    var tracks = query.isEmpty
+        ? List<PlaylistTrack>.from(all)
+        : all
+            .where(
+              (t) => '${t.name} ${t.artist}'
+                  .toLowerCase()
+                  .contains(query),
+            )
+            .toList();
     if (_sort == 'title') {
       tracks.sort((a, b) => a.name.compareTo(b.name));
     } else if (_sort == 'artist') {
@@ -65,13 +68,15 @@ class _WaveLikedPageState
     // Signed-in YouTube Music likes merge in, deduped (local wins).
     final ytLiked =
         ref.watch(ytLikedSongsProvider).value ?? const [];
-    final ytFiltered = ytLiked
-        .where(
-          (t) => '${t.title} ${t.artist}'
-              .toLowerCase()
-              .contains(_q.toLowerCase()),
-        )
-        .toList();
+    final ytFiltered = query.isEmpty
+        ? ytLiked
+        : ytLiked
+            .where(
+              (t) => '${t.title} ${t.artist}'
+                  .toLowerCase()
+                  .contains(query),
+            )
+            .toList();
     final localGenerated = tracks
         .map(
           (t) => GeneratedTrack(

@@ -26,4 +26,29 @@ void main() {
       ),
     );
   });
+
+  testWidgets(
+      'WaveScrollBehavior buildScrollbar wraps scroll view in WaveSmoothScroll',
+      (tester) async {
+    const behavior = WaveScrollBehavior();
+    final controller = ScrollController();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            final widget = behavior.buildScrollbar(
+              context,
+              const SizedBox.shrink(),
+              ScrollableDetails(
+                direction: AxisDirection.down,
+                controller: controller,
+              ),
+            );
+            expect(widget, isA<WaveSmoothScroll>());
+            return widget;
+          },
+        ),
+      ),
+    );
+  });
 }

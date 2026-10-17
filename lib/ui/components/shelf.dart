@@ -1,4 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'ambient.dart';
@@ -166,19 +168,42 @@ class WaveShelf extends StatelessWidget {
         const SizedBox(height: WaveSpacing.x8),
         SizedBox(
           height: height,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: children.length,
-            separatorBuilder: (_, _) =>
-                const SizedBox(width: WaveSpacing.x8),
-            // Staggered entrance per card (group-gated when the page
-            // provides a WaveEntranceGroup).
-            itemBuilder: (context, i) => WaveEntrance(
-              index: i,
-              rise: 10,
-              child: SizedBox(
-                width: cardWidth,
-                child: children[i],
+          child: Listener(
+            onPointerSignal: (event) {
+              if (event is PointerScrollEvent &&
+                  event.scrollDelta.dy != 0 &&
+                  event.scrollDelta.dx == 0 &&
+                  !HardwareKeyboard.instance.isShiftPressed) {
+                GestureBinding.instance.pointerSignalResolver
+                    .register(event, (resolved) {
+                  final scrollable = Scrollable.maybeOf(context);
+                  if (scrollable != null) {
+                    scrollable.position.pointerScroll(
+                        (resolved as PointerScrollEvent).scrollDelta.dy);
+                  } else {
+                    final primary = PrimaryScrollController.maybeOf(context);
+                    if (primary != null && primary.hasClients) {
+                      primary.position.pointerScroll(
+                          (resolved as PointerScrollEvent).scrollDelta.dy);
+                    }
+                  }
+                });
+              }
+            },
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: children.length,
+              separatorBuilder: (_, _) =>
+                  const SizedBox(width: WaveSpacing.x8),
+              // Staggered entrance per card (group-gated when the page
+              // provides a WaveEntranceGroup).
+              itemBuilder: (context, i) => WaveEntrance(
+                index: i,
+                rise: 10,
+                child: SizedBox(
+                  width: cardWidth,
+                  child: children[i],
+                ),
               ),
             ),
           ),

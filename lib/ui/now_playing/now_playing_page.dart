@@ -579,23 +579,16 @@ class _DesktopDualPane extends StatelessWidget {
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(16),
                             ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              // Offstage skips paint/raster + _VisibleTicker
-                              // mutes the 30Hz karaoke ticker while hidden
-                              // at width 0 / opacity 0 or while the window
-                              // is minimized. No visual change.
-                              child: Offstage(
-                                offstage: !lyricsVisible,
-                                child: _VisibleTicker(
-                                  enabled: lyricsVisible,
-                                  child: RepaintBoundary(
-                                    child: WaveKaraokeLyricsView(
-                                      track: track,
-                                      compact: false,
-                                      showHeaderControls: true,
-                                      fontSize: 36.0,
-                                    ),
+                            child: Offstage(
+                              offstage: !lyricsVisible,
+                              child: _VisibleTicker(
+                                enabled: lyricsVisible,
+                                child: RepaintBoundary(
+                                  child: WaveKaraokeLyricsView(
+                                    track: track,
+                                    compact: false,
+                                    showHeaderControls: true,
+                                    fontSize: 36.0,
                                   ),
                                 ),
                               ),

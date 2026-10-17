@@ -73,134 +73,170 @@ GoRouter buildRouter({required AuthGate gate}) {
         pageBuilder: (c, s) =>
             _page(const WaveWelcomePage()),
       ),
-      ShellRoute(
-        builder: (context, state, child) => WaveShell(
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) => WaveShell(
           location: state.uri.hasQuery
               ? '${state.uri.path}?${state.uri.query}'
               : state.uri.path,
-          child: child,
+          child: navigationShell,
         ),
-        routes: [
-          GoRoute(
-            path: '/home',
-            pageBuilder: (c, s) =>
-                _page(const WaveHomePage()),
-          ),
-          GoRoute(
-            path: '/discover',
-            pageBuilder: (c, s) =>
-                _page(const WaveDiscoverPage()),
-          ),
-          GoRoute(
-            path: '/search',
-            pageBuilder: (c, s) => _page(WaveSearchPage(
-              initialQuery:
-                  s.uri.queryParameters['q'] ?? '',
-            )),
-          ),
-          GoRoute(
-            path: '/liked',
-            pageBuilder: (c, s) =>
-                _page(const WaveLikedPage()),
-          ),
-          GoRoute(
-            path: '/albums',
-            pageBuilder: (c, s) =>
-                _page(const WaveAlbumsPage()),
-          ),
-          GoRoute(
-            path: '/album/:id',
-            pageBuilder: (c, s) => _page(
-              WaveAlbumPage(
-                browseId: Uri.decodeComponent(
-                    s.pathParameters['id'] ?? ''),
-              ),
-            ),
-          ),
-          GoRoute(
-            path: '/artists',
-            pageBuilder: (c, s) =>
-                _page(const WaveArtistsPage()),
-          ),
-          GoRoute(
-            path: '/artist/:name',
-            pageBuilder: (c, s) => _page(
-              WaveArtistPage(
-                name: Uri.decodeComponent(
-                    s.pathParameters['name'] ?? ''),
-              ),
-            ),
-          ),
-          GoRoute(
-            path: '/playlists',
-            pageBuilder: (c, s) =>
-                _page(const WavePlaylistsPage()),
+        branches: [
+          StatefulShellBranch(
             routes: [
               GoRoute(
-                path: ':id',
+                path: '/home',
+                pageBuilder: (c, s) =>
+                    _page(const WaveHomePage()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/discover',
+                pageBuilder: (c, s) =>
+                    _page(const WaveDiscoverPage()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/search',
+                pageBuilder: (c, s) => _page(WaveSearchPage(
+                  initialQuery:
+                      s.uri.queryParameters['q'] ?? '',
+                )),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/liked',
+                pageBuilder: (c, s) =>
+                    _page(const WaveLikedPage()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/albums',
+                pageBuilder: (c, s) =>
+                    _page(const WaveAlbumsPage()),
+              ),
+              GoRoute(
+                path: '/album/:id',
                 pageBuilder: (c, s) => _page(
-                  WavePlaylistDetailPage(
-                    id: int.tryParse(
-                            s.pathParameters['id'] ?? '') ??
-                        0,
+                  WaveAlbumPage(
+                    browseId: Uri.decodeComponent(
+                        s.pathParameters['id'] ?? ''),
                   ),
                 ),
               ),
             ],
           ),
-          GoRoute(
-            path: '/ytplaylist/:id',
-            pageBuilder: (c, s) => _page(
-              WaveYtPlaylistDetailPage(
-                playlistId:
-                    s.pathParameters['id'] ?? '',
-                title: s.uri.queryParameters['title'] ??
-                    '',
-                artworkUrl:
-                    s.uri.queryParameters['art'] ?? '',
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/artists',
+                pageBuilder: (c, s) =>
+                    _page(const WaveArtistsPage()),
               ),
-            ),
+              GoRoute(
+                path: '/artist/:name',
+                pageBuilder: (c, s) => _page(
+                  WaveArtistPage(
+                    name: Uri.decodeComponent(
+                        s.pathParameters['name'] ?? ''),
+                  ),
+                ),
+              ),
+            ],
           ),
-          GoRoute(
-            path: '/mixes',
-            pageBuilder: (c, s) =>
-                _page(const WaveMixLabPage()),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/playlists',
+                pageBuilder: (c, s) =>
+                    _page(const WavePlaylistsPage()),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    pageBuilder: (c, s) => _page(
+                      WavePlaylistDetailPage(
+                        id: int.tryParse(
+                                s.pathParameters['id'] ?? '') ??
+                            0,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              GoRoute(
+                path: '/ytplaylist/:id',
+                pageBuilder: (c, s) => _page(
+                  WaveYtPlaylistDetailPage(
+                    playlistId:
+                        s.pathParameters['id'] ?? '',
+                    title: s.uri.queryParameters['title'] ??
+                        '',
+                    artworkUrl:
+                        s.uri.queryParameters['art'] ?? '',
+                  ),
+                ),
+              ),
+            ],
           ),
-          GoRoute(
-            path: '/downloads',
-            pageBuilder: (c, s) =>
-                _page(const WaveDownloadsPage()),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/downloads',
+                pageBuilder: (c, s) =>
+                    _page(const WaveDownloadsPage()),
+              ),
+            ],
           ),
-          GoRoute(
-            path: '/history',
-            pageBuilder: (c, s) =>
-                _page(const WaveHistoryPage()),
-          ),
-          GoRoute(
-            path: '/now',
-            pageBuilder: (c, s) =>
-                _page(const WaveNowPlayingPage()),
-          ),
-          GoRoute(
-            path: '/lyrics',
-            pageBuilder: (c, s) =>
-                _page(const WaveLyricsScreen()),
-          ),
-          GoRoute(
-            path: '/friends',
-            pageBuilder: (c, s) =>
-                _page(const WaveFriendsPage()),
-          ),
-          GoRoute(
-            path: '/profile',
-            pageBuilder: (c, s) =>
-                _page(const WaveProfilePage()),
-          ),
-          GoRoute(
-            path: '/settings',
-            pageBuilder: (c, s) => _page(WaveSettingsPage(
-              initialSection: s.uri.queryParameters['section'],
-            )),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/mixes',
+                pageBuilder: (c, s) =>
+                    _page(const WaveMixLabPage()),
+              ),
+              GoRoute(
+                path: '/history',
+                pageBuilder: (c, s) =>
+                    _page(const WaveHistoryPage()),
+              ),
+              GoRoute(
+                path: '/now',
+                pageBuilder: (c, s) =>
+                    _page(const WaveNowPlayingPage()),
+              ),
+              GoRoute(
+                path: '/lyrics',
+                pageBuilder: (c, s) =>
+                    _page(const WaveLyricsScreen()),
+              ),
+              GoRoute(
+                path: '/friends',
+                pageBuilder: (c, s) =>
+                    _page(const WaveFriendsPage()),
+              ),
+              GoRoute(
+                path: '/profile',
+                pageBuilder: (c, s) =>
+                    _page(const WaveProfilePage()),
+              ),
+              GoRoute(
+                path: '/settings',
+                pageBuilder: (c, s) => _page(WaveSettingsPage(
+                  initialSection: s.uri.queryParameters['section'],
+                )),
+              ),
+            ],
           ),
         ],
       ),

@@ -207,7 +207,6 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       final currentMs =
           _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
       _interpolatedPositionMs.value = currentMs;
-      _lyricController.setProgress(Duration(milliseconds: math.max(0, currentMs)));
       if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
         final lineIndex = activeLyricLineIndex(_currentResult!.lines, currentMs);
         if (_activeLineIndex.value != lineIndex) {
@@ -401,34 +400,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                   },
                 ),
               Expanded(
-                child: (wordByWord && result.isSynced)
-                    ? Stack(
-                        children: [
-                          Positioned.fill(
-                            child: MouseRegion(
-                              cursor: SystemMouseCursors.click,
-                              child: RepaintBoundary(
-                                child: LyricView(
-                                  controller: _lyricController,
-                                  style: _cachedStyle!,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (!_following)
-                            Positioned(
-                              right: 16,
-                              bottom: 16,
-                              child: _ReturnToCurrentPill(
-                                onTap: () {
-                                  _lyricController.stopSelection();
-                                  setState(() => _following = true);
-                                },
-                              ),
-                            ),
-                        ],
-                      )
-                    : RepaintBoundary(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: RepaintBoundary(
                         child: _AppleLineLyricsView(
                           result: result,
                           activeLineListenable: _activeLineIndex,
@@ -441,7 +416,6 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                             if (_following) setState(() => _following = false);
                           },
                           onResume: () {
-                            _lyricController.stopSelection();
                             setState(() => _following = true);
                           },
                           onSeekLineMs: (lineMs) {
@@ -453,6 +427,19 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                           },
                         ),
                       ),
+                    ),
+                    if (!_following)
+                      Positioned(
+                        right: 16,
+                        bottom: 16,
+                        child: _ReturnToCurrentPill(
+                          onTap: () {
+                            setState(() => _following = true);
+                          },
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -771,6 +758,11 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
 
   void _onPositionTick() {
     final pos = widget.positionListenable!.value;
+    final endMs =
+        widget.syllable.timeMs + math.max(1, widget.syllable.durationMs);
+    if (_progress >= 1.0 && pos >= endMs) return;
+    if (_progress <= 0.0 && pos < widget.syllable.timeMs) return;
+
     final newProgress = calculateSyllableProgress(widget.syllable, pos);
     if (_progress != newProgress) {
       final wasActive = _progress > 0.0 && _progress < 1.0;

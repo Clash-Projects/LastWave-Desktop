@@ -137,7 +137,7 @@ class LwHaze extends StatelessWidget {
     final reduceT =
         MediaQuery.maybeOf(context)?.highContrast ?? false;
     final useBlur =
-        enableBlur && !reduceT && spec.blurSigma > 0 && level != LwHazeLevel.l0;
+        enableBlur && !reduceT && spec.blurSigma > 0 && level != LwHazeLevel.l0 && level != LwHazeLevel.l1;
     final content = Container(
       decoration: BoxDecoration(
         color: fill,
