@@ -6,6 +6,7 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../core/artwork/animated_artwork_session.dart';
+import '../core/network/network_monitor.dart';
 import '../core/storage/prefs.dart';
 import '../features/player/playback_service.dart';
 import '../features/presence/discord_presence_service.dart';
@@ -111,6 +112,12 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     } catch (_) {}
     try {
       ref.read(animatedArtworkSessionProvider).setBackgrounded(!visible);
+    } catch (_) {}
+    try {
+      // Back the connectivity probe cadence off while minimized /
+      // tray-hidden (and re-probe immediately on restore). Playback is
+      // unaffected — stream failures are handled by mpv, not this flag.
+      ref.read(networkMonitorProvider.notifier).setVisible(visible);
     } catch (_) {}
   }
 
