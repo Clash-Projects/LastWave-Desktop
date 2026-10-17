@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import '../../core/audio/stream_models.dart';
+import '../../core/diagnostics/memory_probe.dart';
 import '../../core/matching/match_vocab.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/network/lastfm_crypto.dart';
@@ -689,6 +690,9 @@ class InnerTubeMusicApi {
   static const int _maxStreamCacheEntries = 256;
   static const int _streamTtlMs = 4 * 60 * 60 * 1000;
   static const int _maxMatchCacheEntries = 1024;
+  // Memo of the last successful resolve per video. Was unbounded: a long
+  // session (radio / endless play) grew it one entry per track forever.
+  static const int _maxLastResolvedEntries = 256;
   static const int _urlExpiryMarginMs = 2 * 60 * 1000;
   static const int _unknownExpiryTtlMs = 5 * 60 * 1000;
   // Limusic fast path: one preferred direct-URL client first,
@@ -726,7 +730,17 @@ class InnerTubeMusicApi {
   InnerTubeMusicApi(this._dio, this._secure,
       [this._poTokens]) {
     _decipher = SignatureDecipher(_dio);
+    MemoryProbe.register('yt', () => debugGauge);
   }
+
+  /// Long-lived InnerTube memo residency. Every one of these is capped
+  /// ([_maxStreamCacheEntries], [_maxMatchCacheEntries],
+  /// [_maxLastResolvedEntries], [_maxCooldowns]); this gauge is here to
+  /// prove the caps hold over a long listening session rather than to
+  /// find a leak.
+  String get debugGauge => 'stream=${_streamCache.length} '
+      'inflight=${_inflight.length} match=${_matchCache.length} '
+      'resolved=${_lastResolved.length} cooled=${_failedClientsUntil.length}';
 
   /// Attach the persistent disk cache (call once from the provider).
   /// Loads up to 256 recent stream entries + prunes expired rows.
@@ -3682,6 +3696,10 @@ static String normalize(String s) {
       // v2 re-validates rows written by the old scorer: a cached remix
       // for a non-remix request is dropped and re-resolved below.
       if (_cachedRowStillFaithful(cached, title, cleanArtist)) {
+        // Touch for LRU: re-insert so [_trimOldest] evicts the coldest
+        // row, not the hottest.
+        _matchCache.remove(cacheKey);
+        _matchCache[cacheKey] = cached;
         return cached;
       }
       _matchCache.remove(cacheKey);
@@ -3755,9 +3773,10 @@ static String normalize(String s) {
       throw NoReliableMatchException(
           'No reliable YouTube Music match found for $title by $artist');
     }
-    if (_matchCache.length > _maxMatchCacheEntries) {
-      _matchCache.clear();
-    }
+    // FIFO trim, not a wipe: `clear()` threw away the entire hot working
+    // set (recently played tracks are exactly what gets re-resolved on
+    // repeat/skip-back), forcing a burst of fresh YTM searches.
+    _trimOldest(_matchCache, _maxMatchCacheEntries);
     _matchCache[cacheKey] = best;
     // Persist for instant reuse (disk cache).
     try {
@@ -4070,6 +4089,7 @@ static String normalize(String s) {
               videoId, candidate, client.key, authScope, DateTime.now());
           _lastResolved[videoId] =
               _ResolvedRef(client.key, authScope);
+          _trimOldest(_lastResolved, _maxLastResolvedEntries);
           _logStream('resolved',
               videoId: videoId,
               client: client.key,
@@ -4080,10 +4100,7 @@ static String normalize(String s) {
           return candidate.stream;
         }
       } catch (e) {
-        _failedClientsUntil[
-                '$videoId|${client.key}|$authScope'] =
-            DateTime.now()
-                .add(Duration(milliseconds: _clientCooldownMs));
+        _coolClient(videoId, client.key, authScope);
         _logStream('client-resolve-failed',
             videoId: videoId,
             client: client.key,
@@ -4586,9 +4603,18 @@ static String normalize(String s) {
     return cooling;
   }
 
-  void _coolClient(String videoId, String clientKey) {
-    _failedClientsUntil['$videoId|$clientKey|${_playbackAuthScope()}'] =
+  void _coolClient(String videoId, String clientKey, [String? authScope]) {
+    _failedClientsUntil[
+            '$videoId|$clientKey|${authScope ?? _playbackAuthScope()}'] =
         DateTime.now().add(Duration(milliseconds: _clientCooldownMs));
+    // Cooldowns are only 60s but the memo was never swept globally — only
+    // the videos being queried right now got their expired rows dropped.
+    // Long sessions accumulated a row per failed client per track forever.
+    if (_failedClientsUntil.length > 128) {
+      final now = DateTime.now();
+      _failedClientsUntil.removeWhere((_, until) => !now.isBefore(until));
+      _trimOldest(_failedClientsUntil, 128);
+    }
   }
 
   void reportPlaybackFailure(String videoId) {
@@ -4598,9 +4624,7 @@ static String normalize(String s) {
     } catch (_) {}
     final ref = _lastResolved.remove(videoId);
     if (ref != null) {
-      _failedClientsUntil[
-              '$videoId|${ref.clientProfile}|${ref.authScope}'] =
-          DateTime.now().add(Duration(milliseconds: _clientCooldownMs));
+      _coolClient(videoId, ref.clientProfile, ref.authScope);
       _logStream('report-failure',
           videoId: videoId, client: ref.clientProfile);
     } else {
@@ -4608,6 +4632,18 @@ static String normalize(String s) {
         _coolClient(videoId, c.key);
       }
       _logStream('report-failure', videoId: videoId);
+    }
+  }
+
+  /// FIFO trim for the plain insertion-ordered caches: drop the oldest
+  /// entries until [max] remain. Cheaper and far less disruptive than
+  /// `clear()`, which dropped the whole hot working set.
+  static void _trimOldest<K, V>(Map<K, V> cache, int max) {
+    if (cache.length <= max) return;
+    final doomed =
+        cache.keys.take(cache.length - max).toList(growable: false);
+    for (final k in doomed) {
+      cache.remove(k);
     }
   }
 
