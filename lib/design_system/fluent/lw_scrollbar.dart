@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../ui/theme/tokens.dart';
@@ -37,11 +39,27 @@ class WaveThinScrollbar extends StatelessWidget {
   }
 }
 
-/// Global scroll behaviour: thin Fluent bars, no ugly horizontal browser
-/// bars below artwork carousels. Horizontal strips scroll via wheel/
+/// Global scroll behaviour: thin Fluent bars, smooth inertia scroll physics,
+/// and support for mouse and trackpad dragging. Horizontal strips scroll via wheel/
 /// trackpad/drag; the bar only appears while interacting.
 class WaveScrollBehavior extends FluentScrollBehavior {
   const WaveScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+        PointerDeviceKind.invertedStylus,
+      };
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(
+      parent: AlwaysScrollableScrollPhysics(),
+    );
+  }
 
   @override
   Widget buildScrollbar(

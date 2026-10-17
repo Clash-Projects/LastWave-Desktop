@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
@@ -558,7 +557,6 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
-    final reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
 
     final baseFontSize = widget.fontSize ?? (widget.compact ? 28.0 : 36.0);
 
