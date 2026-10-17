@@ -25,11 +25,11 @@ Future<void> main(List<String> args) async {
     writeFatalCrumb(fatalCrumb(error, stack));
     return false;
   };
-  // High-performance desktop image cache budget: 384 MiB / 1,000 images
-  // prevents texture thrashing, frame drops, and repeat decoding while scrolling.
+  // High-performance desktop image cache budget: 128 MiB / 1,000 images
+  // with two-tier decode bucketing (320px thumbnails / full-res hero art).
   PaintingBinding.instance.imageCache.maximumSize = 1000;
   PaintingBinding.instance.imageCache.maximumSizeBytes =
-      384 << 20; // 384 MiB
+      128 << 20; // 128 MiB
   if (runWebViewTitleBarWidget(args)) return;
   // Single persistent media_kit/libmpv backend (Limusic parity is
   // configured Dart-side in PlaybackService.ensurePlayer: audio-only

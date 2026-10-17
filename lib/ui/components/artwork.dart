@@ -463,15 +463,9 @@ class _WaveArtworkState extends State<WaveArtwork> {
     final index = _chainIndex;
     final attempt = _attempt;
     final currentUrl = _chain[_chainIndex];
-    final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
-    final pixels = (widget.size * dpr).clamp(64, 1024).toInt();
-    // Rows ≈96 backing px, grids ≈300–450, Now Playing ≈640–900.
-    // Disk tiers track backing pixels without 4x overfetch.
-    final diskCache = pixels <= 128
-        ? 256
-        : pixels <= 320
-            ? 512
-            : 1024;
+    final double logicalExtent = widget.size;
+    final int? targetCacheWidth = logicalExtent <= 220 ? 320 : null;
+    final int diskCache = targetCacheWidth != null ? 512 : 1024;
     final isSmall = widget.size <= 56;
     final isResolved = _resolvedUrl != null;
     final image = RepaintBoundary(
@@ -480,8 +474,8 @@ class _WaveArtworkState extends State<WaveArtwork> {
         imageUrl: currentUrl,
         width: widget.size,
         height: widget.size,
-        memCacheWidth: pixels,
-        memCacheHeight: pixels,
+        memCacheWidth: targetCacheWidth,
+        memCacheHeight: targetCacheWidth,
         maxWidthDiskCache: diskCache,
         maxHeightDiskCache: diskCache,
         fit: BoxFit.cover,
