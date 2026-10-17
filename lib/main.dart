@@ -9,12 +9,19 @@ import 'app/window.dart';
 import 'core/artwork/artwork_resolver.dart';
 import 'core/artwork/official_artwork_service.dart';
 import 'core/error/fatal_crumbs.dart';
+import 'core/diagnostics/memory_probe.dart';
+import 'core/platform/allocator_tuning.dart';
 import 'core/storage/app_database.dart';
 import 'core/storage/prefs.dart';
 import 'features/settings/app.dart';
 import 'features/search/shared_providers.dart';
 
 Future<void> main(List<String> args) async {
+  // Freeze glibc's dynamic mmap/trim thresholds before anything large is
+  // allocated: without this, libmpv's per-track multi-MB buffers end up
+  // on a heap that never gives the pages back (+80 MB of RSS per track
+  // change, measured). See lib/core/platform/allocator_tuning.dart.
+  applyAllocatorTuning();
   WidgetsFlutterBinding.ensureInitialized();
   // Fatal breadcrumbs: log-and-continue-handling (return false) so the
   // next fail-fast names its line in mpv-ops.log. Sync writes only.
@@ -25,12 +32,29 @@ Future<void> main(List<String> args) async {
     writeFatalCrumb(fatalCrumb(error, stack));
     return false;
   };
-  // High-performance desktop image cache budget: 128 MiB / 1,000 images
-  // with two-tier decode bucketing (320px thumbnails / full-res hero art).
-  PaintingBinding.instance.imageCache.maximumSize = 1000;
+  // Desktop image cache budget: 64 MiB / 500 images.
+  //
+  // The previous 128 MiB was chosen when oversized tiles decoded at
+  // native size; after the DPR-aware bucketing (320 / 640 / 1024) a long
+  // session was observed filling that ceiling at roughly 5 MiB per
+  // track, i.e. up to 128 MiB of pure decoded-artwork residency that
+  // only ever ratchets. 64 MiB still holds ~150 320px tiles or ~39 640px
+  // tiles, so it comfortably covers a visible grid; the cost of going
+  // below that is re-decodes while scrolling large collections.
+  PaintingBinding.instance.imageCache.maximumSize = 500;
   PaintingBinding.instance.imageCache.maximumSizeBytes =
-      128 << 20; // 128 MiB
+      64 << 20; // 64 MiB
+  // Debug-only residency printer: [mem] rss=… img[…imgs/…MiB live=…] with
+  // a one-line gauge per cache owner (art/motion/yt/player/palette). Off
+  // in release builds. See lib/core/diagnostics/memory_probe.dart.
+  //
+  // Started *after* the title-bar early-return on purpose: the hidden
+  // poToken WebView window re-enters `main()`, so starting the probe up
+  // here gave that second isolate its own baseline and its own 30s
+  // `[mem]` stream interleaved with the real one (its own `_baselineRss`
+  // and `_last` statics), which made every log ambiguous.
   if (runWebViewTitleBarWidget(args)) return;
+  MemoryProbe.start();
   // Single persistent media_kit/libmpv backend (Limusic parity is
   // configured Dart-side in PlaybackService.ensurePlayer: audio-only
   // vo=null, 32MiB demuxer cache, on-disk cache, gapless-audio).
@@ -44,15 +68,27 @@ Future<void> main(List<String> args) async {
   databaseFactory = databaseFactoryFfi;
 
   // Secrets are compiled in (obfuscated) via `dart tool/obfuscate_secrets.dart`.
-  final prefs = await Prefs.load();
-  final database = await AppDatabase.open();
+  //
+  // These three are independent — prefs (a JSON read), the SQLite cache
+  // open (PRAGMA + additive migrations) and the native window bring-up
+  // (Mica/title bar/tray/hotkeys). Serializing them made cold start pay
+  // the SUM; starting all three up front makes it pay the MAX. Nothing
+  // in `setupWindow` reads prefs or the database, so the window can be
+  // brought up while they load.
+  final prefsFuture = Prefs.load();
+  final databaseFuture = AppDatabase.open();
+  final windowFuture = setupWindow();
+  final prefs = await prefsFuture;
+  final database = await databaseFuture;
   OfficialArtworkService.instance.init(db: database);
+  await windowFuture;
 
-  await setupWindow();
-
-  // Cap the on-disk image cache that backs CachedNetworkImage (default
-  // keeps 200+ files / 30 days → 759 CacheObjects in the heap dump).
-  // Bounded disk cache also keeps decoded-image re-creation cheap.
+  // Disk-side artwork cache bound. NOTE: this is currently a documented
+  // no-op — the 759 heap "CacheObjects" were tiny metadata (~60 KB total),
+  // so the RSS win already comes from the imageCache ceiling above, and
+  // disk eviction stays with flutter_cache_manager's own 200-object /
+  // 30-day LRU (an aggressive `emptyCache()` here would thrash). Kept as
+  // the single call site if a real policy is ever added.
   ArtworkResolver.trimDiskCacheIfNeeded();
 
   runApp(
