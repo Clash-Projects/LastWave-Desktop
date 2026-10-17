@@ -25,13 +25,11 @@ Future<void> main(List<String> args) async {
     writeFatalCrumb(fatalCrumb(error, stack));
     return false;
   };
-  // Keep decoded-image memory bounded on long sessions: Home/Discover
-  // grids of 1400px covers fill the default 100MiB/1000-image cache
-  // and decode bursts spike RSS to 500MiB. 50MiB/200 images is plenty
-  // for visible tiles; offscreen tiles re-decode from disk cache.
-  PaintingBinding.instance.imageCache.maximumSize = 200;
+  // High-performance desktop image cache budget: 384 MiB / 1,000 images
+  // prevents texture thrashing, frame drops, and repeat decoding while scrolling.
+  PaintingBinding.instance.imageCache.maximumSize = 1000;
   PaintingBinding.instance.imageCache.maximumSizeBytes =
-      50 << 20; // 50 MiB
+      384 << 20; // 384 MiB
   if (runWebViewTitleBarWidget(args)) return;
   // Single persistent media_kit/libmpv backend (Limusic parity is
   // configured Dart-side in PlaybackService.ensurePlayer: audio-only
