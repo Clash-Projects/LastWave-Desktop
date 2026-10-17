@@ -73,11 +73,15 @@ const _waveTooltipTheme = TooltipThemeData(
 FluentThemeData buildWaveFluentTheme({
   required Color accent,
   required bool isLight,
+  bool amoled = false,
 }) {
   final safeAccent =
       accent.a == 0 ? WaveColors.defaultAccent : accent;
   final accentColor = _accentFrom(safeAccent);
   final buttonTheme = _waveButtonTheme();
+  // AMOLED only ever collapses the *dark* base — light ignores it.
+  final surfaces =
+      (!isLight && amoled) ? WaveSurfaces.amoled : WaveSurfaces.graphite;
   if (isLight) {
     return FluentThemeData(
       brightness: Brightness.light,
@@ -97,16 +101,17 @@ FluentThemeData buildWaveFluentTheme({
       dialogTheme:
           _waveDialogTheme(surface: WaveColors.lightSurface),
       tooltipTheme: _waveTooltipTheme,
+      extensions: const [WaveSurfaces.graphite],
     );
   }
   return FluentThemeData(
     brightness: Brightness.dark,
     accentColor: accentColor,
-    scaffoldBackgroundColor: WaveColors.background,
-    micaBackgroundColor: WaveColors.background,
-    acrylicBackgroundColor: WaveColors.panelTranslucent,
-    cardColor: WaveColors.surface,
-    menuColor: WaveColors.surfaceRaised,
+    scaffoldBackgroundColor: surfaces.background,
+    micaBackgroundColor: surfaces.background,
+    acrylicBackgroundColor: surfaces.panelTranslucent,
+    cardColor: surfaces.surface,
+    menuColor: surfaces.surfaceRaised,
     activeColor: WaveColors.textPrimary,
     inactiveColor: WaveColors.textSecondary,
     selectionColor: safeAccent.withValues(alpha: 0.3),
@@ -115,7 +120,8 @@ FluentThemeData buildWaveFluentTheme({
       glowFactor: 2.0,
     ),
     buttonTheme: buttonTheme,
-    dialogTheme: _waveDialogTheme(surface: WaveColors.surfaceRaised),
+    dialogTheme: _waveDialogTheme(surface: surfaces.surfaceRaised),
     tooltipTheme: _waveTooltipTheme,
+    extensions: [surfaces],
   );
 }

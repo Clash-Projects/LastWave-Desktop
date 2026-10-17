@@ -66,7 +66,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
       width: 320,
       height: 72,
       decoration: BoxDecoration(
-        color: dark ? WaveColors.surfaceRaised : WaveColors.lightSurface,
+        color: dark ? waveSurfaceRaised(context) : WaveColors.lightSurface,
         borderRadius: BorderRadius.circular(WaveRadius.menu),
         border: Border.all(color: waveDivider(context)),
         boxShadow: [

@@ -62,6 +62,112 @@ class WaveColors {
   static const lightTextPrimary = Color(0xFF1B1A19);
   static const lightTextSecondary = Color(0xFF605E5C);
   static const lightTextTertiary = Color(0xFF8A8886);
+
+  // AMOLED — pure-black Midnight variant (user pref `lw_amoled`). Only
+  // the base/shell surfaces collapse to black; text, outline and accent
+  // tokens are shared with the graphite theme so contrast is unchanged.
+  static const amoledBackground = Color(0xFF000000);
+  static const amoledSurface = Color(0xFF0A0A0A);
+  static const amoledSurfaceRaised = Color(0xFF111111);
+  static const amoledPanelTranslucent = Color(0xE6000000);
+  static const amoledDockTranslucent = Color(0xF2000000);
+  static const amoledRailTranslucent = Color(0xE6000000);
+}
+
+/// Resolved base-surface palette for the active dark theme.
+///
+/// Published through [FluentThemeData.extensions] by
+/// [buildWaveFluentTheme] so AMOLED black reaches the shell chrome
+/// (rail, dock, title bar, panels) without every widget branching on
+/// prefs. Read it through [waveBackground] / [waveRailTranslucent] / ….
+/// Light themes never consult this — they use the `light*` constants.
+@immutable
+class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
+  final Color background;
+  final Color surface;
+  final Color surfaceRaised;
+  final Color panelTranslucent;
+  final Color dockTranslucent;
+  final Color railTranslucent;
+
+  const WaveSurfaces({
+    required this.background,
+    required this.surface,
+    required this.surfaceRaised,
+    required this.panelTranslucent,
+    required this.dockTranslucent,
+    required this.railTranslucent,
+  });
+
+  /// Default graphite Midnight palette.
+  static const graphite = WaveSurfaces(
+    background: WaveColors.background,
+    surface: WaveColors.surface,
+    surfaceRaised: WaveColors.surfaceRaised,
+    panelTranslucent: WaveColors.panelTranslucent,
+    dockTranslucent: WaveColors.dockTranslucent,
+    railTranslucent: WaveColors.railTranslucent,
+  );
+
+  /// Pure-black AMOLED palette.
+  static const amoled = WaveSurfaces(
+    background: WaveColors.amoledBackground,
+    surface: WaveColors.amoledSurface,
+    surfaceRaised: WaveColors.amoledSurfaceRaised,
+    panelTranslucent: WaveColors.amoledPanelTranslucent,
+    dockTranslucent: WaveColors.amoledDockTranslucent,
+    railTranslucent: WaveColors.amoledRailTranslucent,
+  );
+
+  @override
+  WaveSurfaces copyWith({
+    Color? background,
+    Color? surface,
+    Color? surfaceRaised,
+    Color? panelTranslucent,
+    Color? dockTranslucent,
+    Color? railTranslucent,
+  }) {
+    return WaveSurfaces(
+      background: background ?? this.background,
+      surface: surface ?? this.surface,
+      surfaceRaised: surfaceRaised ?? this.surfaceRaised,
+      panelTranslucent: panelTranslucent ?? this.panelTranslucent,
+      dockTranslucent: dockTranslucent ?? this.dockTranslucent,
+      railTranslucent: railTranslucent ?? this.railTranslucent,
+    );
+  }
+
+  @override
+  WaveSurfaces lerp(ThemeExtension<WaveSurfaces>? other, double t) {
+    if (other is! WaveSurfaces) return this;
+    return WaveSurfaces(
+      background: Color.lerp(background, other.background, t)!,
+      surface: Color.lerp(surface, other.surface, t)!,
+      surfaceRaised: Color.lerp(surfaceRaised, other.surfaceRaised, t)!,
+      panelTranslucent:
+          Color.lerp(panelTranslucent, other.panelTranslucent, t)!,
+      dockTranslucent:
+          Color.lerp(dockTranslucent, other.dockTranslucent, t)!,
+      railTranslucent:
+          Color.lerp(railTranslucent, other.railTranslucent, t)!,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is WaveSurfaces &&
+          other.background == background &&
+          other.surface == surface &&
+          other.surfaceRaised == surfaceRaised &&
+          other.panelTranslucent == panelTranslucent &&
+          other.dockTranslucent == dockTranslucent &&
+          other.railTranslucent == railTranslucent);
+
+  @override
+  int get hashCode => Object.hash(background, surface, surfaceRaised,
+      panelTranslucent, dockTranslucent, railTranslucent);
 }
 
 /// Spacing scale (px): 4 / 8 / 12 / 16 / 20 / 24 / 32 / 40.
@@ -254,8 +360,37 @@ Color waveTextTertiary(BuildContext context) => waveIsDark(context)
     ? WaveColors.textTertiary
     : WaveColors.lightTextTertiary;
 
-Color waveSurface(BuildContext context) =>
-    waveIsDark(context) ? WaveColors.surface : WaveColors.lightSurface;
+/// Active dark base-surface palette (graphite or AMOLED). Falls back to
+/// graphite when no theme extension is published (e.g. a widget rendered
+/// outside [FluentApp] in a test).
+WaveSurfaces waveSurfaces(BuildContext context) =>
+    FluentTheme.of(context).extension<WaveSurfaces>() ??
+    WaveSurfaces.graphite;
+
+/// Page/scaffold background. AMOLED-aware.
+Color waveBackground(BuildContext context) => waveIsDark(context)
+    ? waveSurfaces(context).background
+    : WaveColors.lightBackground;
+
+Color waveSurface(BuildContext context) => waveIsDark(context)
+    ? waveSurfaces(context).surface
+    : WaveColors.lightSurface;
+
+Color waveSurfaceRaised(BuildContext context) => waveIsDark(context)
+    ? waveSurfaces(context).surfaceRaised
+    : WaveColors.lightSurfaceRaised;
+
+Color wavePanelTranslucent(BuildContext context) => waveIsDark(context)
+    ? waveSurfaces(context).panelTranslucent
+    : WaveColors.lightSurface;
+
+Color waveDockTranslucent(BuildContext context) => waveIsDark(context)
+    ? waveSurfaces(context).dockTranslucent
+    : WaveColors.lightSurface;
+
+Color waveRailTranslucent(BuildContext context) => waveIsDark(context)
+    ? waveSurfaces(context).railTranslucent
+    : WaveColors.lightNavBackground;
 
 Color waveDivider(BuildContext context) => waveIsDark(context)
     ? WaveColors.outlineSoft

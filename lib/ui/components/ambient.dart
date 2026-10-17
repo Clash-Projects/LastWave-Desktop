@@ -120,10 +120,7 @@ class _StageScrim extends StatelessWidget {
           colors: [
             (isDark ? Colors.black : Colors.white)
                 .withValues(alpha: topAlpha),
-            (isDark
-                    ? WaveColors.background
-                    : WaveColors.lightBackground)
-                .withValues(alpha: bottomAlpha),
+            waveBackground(context).withValues(alpha: bottomAlpha),
           ],
         ),
       ),
@@ -484,6 +481,7 @@ class WaveAmbientMesh extends ConsumerWidget {
     final palette = paletteAsync.valueOrNull ?? ArtworkPalette.fallback;
 
     final isDark = waveIsDark(context);
+    final darkBase = waveBackground(context);
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
 
     // Toggle is a hard show/hide: no fade animation, no retained layers.
@@ -558,6 +556,7 @@ class WaveAmbientMesh extends ConsumerWidget {
         painter: _AmbientMeshPainter(
           palette: palette,
           isDark: isDark,
+          darkBase: darkBase,
           opacity: opacity,
         ),
       );
@@ -725,11 +724,13 @@ class _AuraPainter extends CustomPainter {
 class _AmbientMeshPainter extends CustomPainter {
   final ArtworkPalette palette;
   final bool isDark;
+  final Color darkBase;
   final double opacity;
 
   _AmbientMeshPainter({
     required this.palette,
     required this.isDark,
+    required this.darkBase,
     required this.opacity,
   });
 
@@ -794,8 +795,7 @@ class _AmbientMeshPainter extends CustomPainter {
         colors: [
           (isDark ? Colors.black : Colors.white)
               .withValues(alpha: isDark ? 0.35 : 0.40),
-          (isDark ? WaveColors.background : WaveColors.lightBackground)
-              .withValues(alpha: isDark ? 0.55 : 0.60),
+          darkBase.withValues(alpha: isDark ? 0.55 : 0.60),
         ],
       ).createShader(rect);
     canvas.drawRect(rect, scrimPaint);
@@ -805,6 +805,7 @@ class _AmbientMeshPainter extends CustomPainter {
   bool shouldRepaint(covariant _AmbientMeshPainter old) {
     return old.palette != palette ||
         old.isDark != isDark ||
+        old.darkBase != darkBase ||
         old.opacity != opacity;
   }
 }

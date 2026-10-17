@@ -220,7 +220,6 @@ class _Shell extends StatelessWidget {
   const _Shell({required this.onClose, required this.child, this.embedded = false});
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
     // Haze Level 2 — contextual panel translucency; rows stay crisp
     // (no per-row blur, bounded 360px region only).
     final body = Column(
@@ -239,7 +238,7 @@ class _Shell extends StatelessWidget {
     if (embedded) return body;
     return WaveHaze(
       level: LwHazeLevel.l2,
-      base: dark ? WaveColors.background : WaveColors.lightBackground,
+      base: waveBackground(context),
       border: Border(left: BorderSide(color: waveDivider(context))),
       shadow: const [
         BoxShadow(

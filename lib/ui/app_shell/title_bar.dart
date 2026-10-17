@@ -51,7 +51,7 @@ class WaveTitleBar extends ConsumerWidget {
       level: LwHazeLevel.l1,
       enableBlur: false,
       base: dark
-          ? WaveColors.background.withValues(alpha: 0.85)
+          ? waveBackground(context).withValues(alpha: 0.85)
           : WaveColors.lightBackground.withValues(alpha: 0.9),
       border: Border(
         bottom: BorderSide(color: waveDivider(context)),

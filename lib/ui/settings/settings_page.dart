@@ -573,7 +573,10 @@ class _Appearance extends ConsumerWidget {
                         await ref
                             .read(themeControllerProvider.notifier)
                             .setThemeMode(false);
-                        await applyWindowMaterial(isLight: false);
+                        await applyWindowMaterial(
+                          isLight: false,
+                          amoled: prefs.amoled,
+                        );
                       },
                       child: const Text('Midnight'),
                     ),
@@ -712,8 +715,10 @@ class _Appearance extends ConsumerWidget {
             children: [
               _SwitchRow(
                 value: prefs.amoled,
+                enabled: !theme.isLight,
                 onChanged: (v) => onUpdate((p) => p.setAmoled(v)),
                 title: 'AMOLED black',
+                subtitle: 'Pure-black surfaces · Midnight only',
               ),
               _SwitchRow(
                 value: prefs.dynamicNowPlaying,
@@ -2465,6 +2470,7 @@ class _QualityRow extends StatelessWidget {
 
 class _SwitchRow extends StatelessWidget {
   final bool value;
+  final bool enabled;
   final ValueChanged<bool> onChanged;
   final String title;
   final String? subtitle;
@@ -2473,6 +2479,7 @@ class _SwitchRow extends StatelessWidget {
     required this.onChanged,
     required this.title,
     this.subtitle,
+    this.enabled = true,
   });
 
   @override
@@ -2497,7 +2504,10 @@ class _SwitchRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          ToggleSwitch(checked: value, onChanged: onChanged),
+          ToggleSwitch(
+            checked: value,
+            onChanged: enabled ? onChanged : null,
+          ),
         ],
       ),
     );

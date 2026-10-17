@@ -71,7 +71,7 @@ class WavePlayerDock extends ConsumerWidget {
 
     final targetBase = () {
       final baseColor = dark
-          ? WaveColors.dockTranslucent
+          ? waveDockTranslucent(context)
           : WaveColors.lightSurface.withValues(alpha: 0.97);
       if (dockTint != null && dark) {
         return Color.lerp(baseColor, dockTint, 0.05) ?? baseColor;

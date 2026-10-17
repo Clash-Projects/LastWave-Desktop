@@ -543,7 +543,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
     final width = MediaQuery.sizeOf(context).width;
     final active = waveActivePath(widget.location);
     final hasTrack = ref.watch(
@@ -568,8 +567,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     // wave_hotkeys.dart), which runs before focus dispatch and works from
     // anywhere. Enter is deliberately left to focused controls.
     return Mica(
-          backgroundColor:
-              dark ? WaveColors.background : WaveColors.lightBackground,
+          backgroundColor: waveBackground(context),
           child: Column(
             children: [
               _titleBarFor(
