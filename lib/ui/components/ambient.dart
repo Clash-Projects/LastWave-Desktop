@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -9,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:palette_generator/palette_generator.dart';
 
+import '../../core/diagnostics/memory_probe.dart';
 import '../../core/storage/prefs.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -367,13 +369,295 @@ Future<ArtworkPalette> _extractPalette(_PaletteJob job) async {
 
 final _paletteLruCache = <String, ArtworkPalette>{};
 
+/// Cumulative LRU misses. Diagnostic only (see [_PalettePool.debugGauge]).
+int _paletteMisses = 0;
+
+/// Cumulative extraction failures + the last error's type. Distinguishes
+/// "the quantizer is broken" from "the 192px decode never arrives" —
+/// both used to end in the same silent fallback.
+int _paletteFailures = 0;
+String _paletteLastError = '';
+
+/// How long a resolved palette provider stays alive with no listeners.
+///
+/// The palette cache itself is bounded ([_paletteLruCache], 500 entries),
+/// but `keepAlive()` is not: an `autoDispose` *family* keeps one element
+/// per distinct artwork URL for the rest of the process, and an endless
+/// radio queue mints a new URL every few minutes. Holding the element
+/// until the LRU needs the slot is the intent; holding it forever is a
+/// slow leak. So the link is released on a timer — long enough that
+/// navigating back to a page re-reads the cached palette instead of
+/// re-extracting it, short enough that a long session's element count
+/// stays proportional to what's on screen.
+const _paletteKeepAlive = Duration(minutes: 5);
+
+void _keepPaletteAlive(Ref ref) {
+  final link = ref.keepAlive();
+  final timer = Timer(_paletteKeepAlive, link.close);
+  ref.onDispose(timer.cancel);
+}
+
+// ── Palette worker pool ───────────────────────────────────────────────
+//
+// Extraction used to go through `compute()`, which spawns AND tears down a
+// fresh isolate per call. A cold Home requests a palette for every shelf
+// card at once (`artworkSeedProvider` watchers in `shelf.dart`, one per
+// card), so a first paint spawned dozens of short-lived isolates — an RSS
+// spike plus a spawn/teardown per card. A small warm pool keeps
+// [_PalettePool._maxWorkers] isolates alive for the life of the process
+// and caps concurrency, so a cold page costs zero spawns after the first.
+
+class _PaletteRequest {
+  final int id;
+  final Uint8List bytes;
+  final int width;
+  final int height;
+  const _PaletteRequest(this.id, this.bytes, this.width, this.height);
+}
+
+class _PaletteReply {
+  final int id;
+  final ArtworkPalette? palette;
+  final String? error;
+  const _PaletteReply(this.id, {this.palette, this.error});
+}
+
+/// Worker entry point — one long-lived isolate per pool slot.
+void _paletteWorkerMain(SendPort reply) {
+  final inbox = ReceivePort();
+  reply.send(inbox.sendPort);
+  inbox.listen((Object? message) async {
+    if (message is! _PaletteRequest) return;
+    try {
+      final palette = await _extractPalette(
+        _PaletteJob(message.bytes, message.width, message.height),
+      );
+      reply.send(_PaletteReply(message.id, palette: palette));
+    } catch (e) {
+      reply.send(_PaletteReply(message.id, error: e.toString()));
+    }
+  });
+}
+
+/// One warm isolate. Self-healing: if the isolate dies or a job wedges,
+/// the affected job falls back to the one-shot `compute()` path and the
+/// slot respawns on the next request — a broken worker can never take the
+/// ambient stage (or the caller) down with it.
+class _PaletteWorker {
+  static const Duration _jobTimeout = Duration(seconds: 20);
+  static const Duration _handshakeTimeout = Duration(seconds: 10);
+
+  /// Times a job had to fall back to the one-shot `compute()` path, i.e.
+  /// the warm isolate was unusable. This is the number that must stay 0:
+  /// every count here is an extra isolate spawn **per palette request**.
+  static int _fallbacks = 0;
+
+  Isolate? _isolate;
+  ReceivePort? _replies;
+  SendPort? _send;
+  Future<void>? _starting;
+  Completer<SendPort>? _handshake;
+  int _nextId = 0;
+  final Map<int, Completer<ArtworkPalette>> _pending = {};
+
+  Future<ArtworkPalette> extract(_PaletteJob job) async {
+    try {
+      final send = await _sendPort();
+      final id = _nextId++;
+      final completer = Completer<ArtworkPalette>();
+      _pending[id] = completer;
+      send.send(_PaletteRequest(id, job.bytes, job.width, job.height));
+      return await completer.future.timeout(_jobTimeout);
+    } catch (_) {
+      _teardown(killIsolate: true);
+      _fallbacks++;
+      return compute(_extractPalette, job);
+    }
+  }
+
+  Future<SendPort> _sendPort() async {
+    final ready = _send;
+    if (ready != null) return ready;
+    final start = _starting ??= _start();
+    try {
+      await start;
+    } finally {
+      _starting = null;
+    }
+    final send = _send;
+    if (send == null) throw StateError('palette worker unavailable');
+    return send;
+  }
+
+  Future<void> _start() async {
+    final replies = ReceivePort();
+    final handshake = Completer<SendPort>();
+    // Pre-attach a handler: a teardown landing before `_start` reaches the
+    // await below would otherwise report as an unhandled completer error.
+    unawaited(handshake.future.then((_) {}, onError: (Object _) {}));
+    _replies = replies;
+    _handshake = handshake;
+    replies.listen(
+      (Object? message) {
+        if (message is SendPort) {
+          if (!handshake.isCompleted) handshake.complete(message);
+          return;
+        }
+        if (message is! _PaletteReply) return;
+        final completer = _pending.remove(message.id);
+        if (completer == null || completer.isCompleted) return;
+        final palette = message.palette;
+        if (palette != null) {
+          completer.complete(palette);
+        } else {
+          completer.completeError(
+              StateError(message.error ?? 'palette worker failed'));
+        }
+      },
+      onDone: () => _teardown(),
+      onError: (Object _) => _teardown(),
+      cancelOnError: true,
+    );
+    try {
+      _isolate = await Isolate.spawn(
+        _paletteWorkerMain,
+        replies.sendPort,
+        debugName: 'lastwave-palette',
+        errorsAreFatal: false,
+      );
+      // The worker's first message is its own SendPort. THIS assignment is
+      // what makes the worker usable: `_sendPort()` reads `_send`, so
+      // without it every request threw 'palette worker unavailable' and
+      // fell through to the one-shot `compute()` path — spawning a second
+      // isolate per palette (and killing this one) forever. The pool was
+      // warm in name only; the churn it exists to remove was still there.
+      _send = await handshake.future.timeout(_handshakeTimeout);
+    } catch (_) {
+      _teardown(killIsolate: true);
+      rethrow;
+    }
+  }
+
+  /// Drops this slot's state, failing anything still in flight so callers
+  /// fall back to `compute()` instead of hanging.
+  void _teardown({bool killIsolate = false}) {
+    if (killIsolate) {
+      try {
+        _isolate?.kill(priority: Isolate.immediate);
+      } catch (_) {}
+    }
+    _isolate = null;
+    _send = null;
+    _starting = null;
+    final handshake = _handshake;
+    _handshake = null;
+    if (handshake != null && !handshake.isCompleted) {
+      handshake.completeError(StateError('palette worker stopped'));
+    }
+    final replies = _replies;
+    _replies = null;
+    if (replies != null) {
+      try {
+        replies.close();
+      } catch (_) {}
+    }
+    if (_pending.isNotEmpty) {
+      final stalled = _pending.values.toList(growable: false);
+      _pending.clear();
+      for (final completer in stalled) {
+        if (!completer.isCompleted) {
+          completer.completeError(StateError('palette worker stopped'));
+        }
+      }
+    }
+  }
+}
+
+class _PaletteTask {
+  final _PaletteJob job;
+  final Completer<ArtworkPalette> completer = Completer<ArtworkPalette>();
+  _PaletteTask(this.job);
+}
+
+/// Fixed-size pool over [_PaletteWorker]s with a FIFO queue.
+class _PalettePool {
+  static const int _maxWorkers = 4;
+
+  _PalettePool() {
+    MemoryProbe.register('palette', () => debugGauge);
+  }
+
+  /// `misses` is cumulative and only rises on an LRU miss, so a curve
+  /// that tracks RSS growth means per-artwork retention (elements or
+  /// decoded pixels), not the pool. `spawns` counts how many times a
+  /// worker had to fall back to the one-shot `compute()` path — it must
+  /// stay at 0 once a worker is warm.
+  String get debugGauge => 'lru=${_paletteLruCache.length} '
+      'misses=$_paletteMisses failed=$_paletteFailures '
+      'err=${_paletteLastError.isEmpty ? '-' : _paletteLastError} '
+      'workers=${_workers.length} spawns=${_PaletteWorker._fallbacks} '
+      'queued=${_queue.length} running=$_running';
+
+  final List<_PaletteWorker> _workers = [];
+  final List<_PaletteTask> _queue = [];
+  int _running = 0;
+  int _cursor = 0;
+
+  Future<ArtworkPalette> extract(_PaletteJob job) {
+    final task = _PaletteTask(job);
+    _queue.add(task);
+    _pump();
+    return task.completer.future;
+  }
+
+  void _pump() {
+    while (_running < _maxWorkers && _queue.isNotEmpty) {
+      final task = _queue.removeAt(0);
+      while (_workers.length < _maxWorkers) {
+        _workers.add(_PaletteWorker());
+      }
+      // Round-robin keeps one job in flight per worker while `_running`
+      // is capped, so the pool never oversubscribes an isolate.
+      final worker = _workers[_cursor++ % _maxWorkers];
+      _running++;
+      worker.extract(task.job).then(
+        task.completer.complete,
+        onError: (Object error, StackTrace stack) {
+          if (!task.completer.isCompleted) {
+            task.completer.completeError(error, stack);
+          }
+        },
+      ).whenComplete(() {
+        _running--;
+        _pump();
+      });
+    }
+  }
+}
+
+final _palettePool = _PalettePool();
+
+/// Test seam: drives the real pool with synthetic RGBA so the warm-isolate
+/// path is exercised end to end (see `test/palette_pool_test.dart`).
+@visibleForTesting
+Future<ArtworkPalette> extractPaletteForTest(
+        List<int> rgba, int width, int height) =>
+    _palettePool
+        .extract(_PaletteJob(Uint8List.fromList(rgba), width, height));
+
+/// Test seam: `compute()` fallbacks so far. Must stay 0 — every count is
+/// an extra isolate spawned *and killed* per palette request.
+@visibleForTesting
+int get palettePoolFallbacks => _PaletteWorker._fallbacks;
+
 /// Shared artwork-derived multi-color palette, cached by image identity with LRU retention.
 final artworkPaletteProvider =
     FutureProvider.autoDispose.family<ArtworkPalette, String>((ref, url) async {
   if (url.isEmpty) return ArtworkPalette.fallback;
   final cached = _paletteLruCache[url];
   if (cached != null) return cached;
-  ref.keepAlive();
+  _paletteMisses++;
+  _keepPaletteAlive(ref);
   ui.Image? image;
   try {
     image = await _decodeArtwork(url);
@@ -387,13 +671,17 @@ final artworkPaletteProvider =
     );
     image.dispose();
     image = null;
-    final palette = await compute(_extractPalette, job);
+    final palette = await _palettePool.extract(job);
     if (_paletteLruCache.length >= 500) {
       _paletteLruCache.remove(_paletteLruCache.keys.first);
     }
     _paletteLruCache[url] = palette;
     return palette;
-  } catch (_) {
+  } catch (e) {
+    // Type only — CachedNetworkImageProvider errors embed the URL and the
+    // residency log must never carry one.
+    _paletteFailures++;
+    _paletteLastError = e.runtimeType.toString();
     return ArtworkPalette.fallback;
   } finally {
     image?.dispose();
@@ -404,7 +692,7 @@ final artworkPaletteProvider =
 final artworkSeedProvider =
     FutureProvider.autoDispose.family<Color, String>((ref, url) async {
   if (url.isEmpty) return const Color(0xFF232838);
-  ref.keepAlive();
+  _keepPaletteAlive(ref);
   final pal = await ref.watch(artworkPaletteProvider(url).future);
   return pal.primary;
 });
