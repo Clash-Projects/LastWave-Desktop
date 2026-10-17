@@ -4,8 +4,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 ///
 /// `lib/ui/theme/tokens.dart` is the single source of truth for the
 /// LastWave "Wave" design system. The legacy `lib/design_system/tokens.dart`
-/// (`LwColors` / `LwRadius` — ice-blue accent, 12–24px radii) is retired:
-/// do not import it from new code, do not copy values out of it.
+/// (`LwColors` / `LwRadius` — ice-blue accent, 12–24px radii) was retired
+/// and DELETED (with `components.dart` / `icons.dart` and the orphaned
+/// `features/lyrics/lyrics_view.dart` that was their only importer):
+/// do not recreate it, and do not copy values out of it.
 ///
 /// Wave direction:
 /// - Neutral graphite base (#0E0E0E / #161616 / #1E1E1E), off-white text.
