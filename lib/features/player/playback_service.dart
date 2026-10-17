@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
+import '../../core/diagnostics/memory_probe.dart';
 import '../audio_output/pcm_format.dart';
 import '../audio_output/wasapi_engine.dart';
 import '../downloads/download_manager.dart';
@@ -212,7 +213,18 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     LiveTelemetryService? telemetry,
   ])  : _artworkService = artworkService ?? OfficialArtworkService(),
         _telemetry = telemetry ?? LiveTelemetryService(prefs: _prefs.rawPrefs),
-        super(const PlayerSnapshot());
+        super(const PlayerSnapshot()) {
+    MemoryProbe.register('player', () => debugGauge);
+  }
+
+  /// Playback residency that is NOT the libmpv player: the queue (grows
+  /// with endless radio, by design), the per-failure memo sets (they
+  /// only clear on stop) and the subscription list (a second entry here
+  /// after a restart would mean a leaked listener).
+  String get debugGauge => 'queue=${state.queue.length} '
+      'unavailable=${_unavailable.length} bypass=${_losslessBypass.length} '
+      'seeds=${_radioSeeds.length} prefetching=${_prefetchInflight.length} '
+      'watchtime=${_watchtimeUrls.length} subs=${_subs.length}';
 
   Future<void> ensurePlayer() async {
     if (_player != null) return;
