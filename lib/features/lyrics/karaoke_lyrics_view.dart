@@ -99,6 +99,7 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
   final VoidCallback? onClose;
   final double? fontSize;
   final bool fillRemainingSpace;
+  final bool isActive;
 
   const WaveKaraokeLyricsView({
     super.key,
@@ -108,6 +109,7 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
     this.onClose,
     this.fontSize,
     this.fillRemainingSpace = true,
+    this.isActive = true,
   });
 
   @override
@@ -187,6 +189,18 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   }
 
   @override
+  void didUpdateWidget(WaveKaraokeLyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) {
+      if (!widget.isActive && _ticker.isActive) {
+        _ticker.stop();
+      } else if (widget.isActive && _isPlaying && !_ticker.isActive) {
+        _ticker.start();
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _posSub?.close();
     _playingSub?.close();
@@ -201,7 +215,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
 
   void _onTick(Duration _) {
     runGuarded('karaoke.tick', () {
-      if (!_isPlaying) return;
+      if (!widget.isActive || !_isPlaying) return;
       final wall = DateTime.now();
       final elapsed = wall.difference(_lastSyncTime).inMilliseconds;
       final currentMs =
@@ -257,9 +271,9 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       }
     }
 
-    if (_isPlaying && !_ticker.isActive) {
+    if (widget.isActive && _isPlaying && !_ticker.isActive) {
       _ticker.start();
-    } else if (!_isPlaying && _ticker.isActive) {
+    } else if ((!widget.isActive || !_isPlaying) && _ticker.isActive) {
       _ticker.stop();
     }
   }
