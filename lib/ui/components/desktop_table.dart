@@ -1084,13 +1084,34 @@ class WaveEqDots extends StatefulWidget {
 class _WaveEqDotsState extends State<WaveEqDots>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
+
   @override
   void initState() {
     super.initState();
     _c = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 840),
-    )..repeat(reverse: true);
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncTickerState();
+  }
+
+  void _syncTickerState() {
+    final active = (ModalRoute.of(context)?.isCurrent ?? true) &&
+        TickerMode.valuesOf(context).enabled;
+    if (active) {
+      if (!_c.isAnimating) {
+        _c.repeat(reverse: true);
+      }
+    } else {
+      if (_c.isAnimating) {
+        _c.stop();
+      }
+    }
   }
 
   @override
@@ -1103,30 +1124,32 @@ class _WaveEqDotsState extends State<WaveEqDots>
   Widget build(BuildContext context) {
     final color =
         widget.light ? Colors.white : waveAccent(context);
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, _) {
-        double h(int i) {
-          final phase = (_c.value * 2 * math.pi) + (i * 1.85);
-          final norm = (math.sin(phase) + 1.0) / 2.0;
-          return 3.0 + norm * 9.0;
-        }
-        return SizedBox(
-          width: 22,
-          height: 12,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              for (var i = 0; i < 3; i++) ...[
-                Container(width: 2.5, height: h(i), color: color),
-                if (i < 2) const SizedBox(width: 2),
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          double h(int i) {
+            final phase = (_c.value * 2 * math.pi) + (i * 1.85);
+            final norm = (math.sin(phase) + 1.0) / 2.0;
+            return 3.0 + norm * 9.0;
+          }
+          return SizedBox(
+            width: 22,
+            height: 12,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (var i = 0; i < 3; i++) ...[
+                  Container(width: 2.5, height: h(i), color: color),
+                  if (i < 2) const SizedBox(width: 2),
+                ],
               ],
-            ],
-          ),
-        );
-      },
+            ),
+          );
+        },
+      ),
     );
   }
 }

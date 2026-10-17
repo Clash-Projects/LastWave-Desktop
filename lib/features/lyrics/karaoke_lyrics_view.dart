@@ -188,15 +188,33 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     }
   }
 
+  bool get _isEffectivelyActive {
+    if (!mounted || !widget.isActive) return false;
+    final routeCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    final tickerEnabled = TickerMode.valuesOf(context).enabled;
+    return routeCurrent && tickerEnabled;
+  }
+
+  void _updateTickerState() {
+    final shouldRun = _isEffectivelyActive && _isPlaying;
+    if (shouldRun && !_ticker.isActive) {
+      _ticker.start();
+    } else if (!shouldRun && _ticker.isActive) {
+      _ticker.stop();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _updateTickerState();
+  }
+
   @override
   void didUpdateWidget(WaveKaraokeLyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isActive != widget.isActive) {
-      if (!widget.isActive && _ticker.isActive) {
-        _ticker.stop();
-      } else if (widget.isActive && _isPlaying && !_ticker.isActive) {
-        _ticker.start();
-      }
+      _updateTickerState();
     }
   }
 
@@ -215,7 +233,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
 
   void _onTick(Duration _) {
     runGuarded('karaoke.tick', () {
-      if (!widget.isActive || !_isPlaying) return;
+      if (!_isEffectivelyActive || !_isPlaying) return;
       final wall = DateTime.now();
       final elapsed = wall.difference(_lastSyncTime).inMilliseconds;
       final currentMs =
@@ -268,11 +286,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       }
     }
 
-    if (widget.isActive && _isPlaying && !_ticker.isActive) {
-      _ticker.start();
-    } else if ((!widget.isActive || !_isPlaying) && _ticker.isActive) {
-      _ticker.stop();
-    }
+    _updateTickerState();
   }
 
   @override
@@ -822,9 +836,52 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
     }
   }
 
+  TextPainter? _idlePainter;
+  TextPainter? _activePainter;
+  String? _cachedText;
+  TextStyle? _cachedIdleStyle;
+  TextStyle? _cachedActiveStyle;
+  TextScaler? _cachedScaler;
+
+  void _ensurePainters(BuildContext context) {
+    final text = widget.syllable.text.trimRight();
+    final scaler = MediaQuery.textScalerOf(context);
+    final textDirection = widget.isRtl ? TextDirection.rtl : TextDirection.ltr;
+
+    if (_idlePainter == null ||
+        _cachedText != text ||
+        _cachedIdleStyle != widget.idleStyle ||
+        _cachedScaler != scaler) {
+      _cachedText = text;
+      _cachedIdleStyle = widget.idleStyle;
+      _cachedScaler = scaler;
+      _idlePainter?.dispose();
+      _idlePainter = TextPainter(
+        text: TextSpan(text: text, style: widget.idleStyle),
+        textDirection: textDirection,
+        textScaler: scaler,
+      )..layout();
+    }
+
+    if (_activePainter == null ||
+        _cachedText != text ||
+        _cachedActiveStyle != widget.activeStyle ||
+        _cachedScaler != scaler) {
+      _cachedActiveStyle = widget.activeStyle;
+      _activePainter?.dispose();
+      _activePainter = TextPainter(
+        text: TextSpan(text: text, style: widget.activeStyle),
+        textDirection: textDirection,
+        textScaler: scaler,
+      )..layout();
+    }
+  }
+
   @override
   void dispose() {
     _stopListening();
+    _idlePainter?.dispose();
+    _activePainter?.dispose();
     super.dispose();
   }
 
@@ -868,41 +925,77 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
     final text = widget.syllable.text.trimRight();
     if (text.isEmpty) return const SizedBox.shrink();
 
-    // Fast-path 1: Completed syllable -> Plain Text with active style (zero ShaderMask, zero saveLayer)
+    // Fast-path 1: Completed syllable -> Plain Text with active style (zero canvas overhead)
     if (_progress >= 1.0) {
       return Text(text, style: widget.activeStyle);
     }
 
-    // Fast-path 2: Future syllable -> Plain Text with idle style (zero ShaderMask, zero saveLayer)
+    // Fast-path 2: Future syllable -> Plain Text with idle style (zero canvas overhead)
     if (_progress <= 0.0) {
       return Text(text, style: widget.idleStyle);
     }
 
-    // Active syllable (0.0 < progress < 1.0): Only the currently sung syllable gets ShaderMask wipe
-    final activeColor = widget.activeStyle.color ?? Colors.white;
-    final idleColor = widget.idleStyle.color ?? const Color(0x61FFFFFF);
+    // Active syllable (0.0 < progress < 1.0): Zero-allocation direct canvas clip (eliminates ShaderMask & saveLayer)
+    _ensurePainters(context);
+    final size = Size(_idlePainter!.width, _idlePainter!.height);
 
-    const feather = 0.035;
-    final stop1 = (_progress - feather).clamp(0.0, 1.0);
-    final stop2 = (_progress + feather).clamp(0.0, 1.0);
-
-    return ShaderMask(
-      blendMode: BlendMode.srcIn,
-      shaderCallback: (bounds) {
-        return LinearGradient(
-          begin: widget.isRtl ? Alignment.centerRight : Alignment.centerLeft,
-          end: widget.isRtl ? Alignment.centerLeft : Alignment.centerRight,
-          colors: [
-            activeColor,
-            activeColor,
-            idleColor,
-            idleColor,
-          ],
-          stops: [0.0, stop1, stop2, 1.0],
-        ).createShader(bounds);
-      },
-      child: Text(text, style: widget.activeStyle),
+    return RepaintBoundary(
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: CustomPaint(
+          size: size,
+          painter: _KaraokeSyllablePainter(
+            idlePainter: _idlePainter!,
+            activePainter: _activePainter!,
+            progress: _progress,
+            isRtl: widget.isRtl,
+          ),
+        ),
+      ),
     );
+  }
+}
+
+/// Zero-allocation canvas clip painter for syllable wipe (replaces ShaderMask / saveLayer).
+class _KaraokeSyllablePainter extends CustomPainter {
+  final TextPainter idlePainter;
+  final TextPainter activePainter;
+  final double progress;
+  final bool isRtl;
+
+  const _KaraokeSyllablePainter({
+    required this.idlePainter,
+    required this.activePainter,
+    required this.progress,
+    required this.isRtl,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 1. Draw base idle text
+    idlePainter.paint(canvas, Offset.zero);
+
+    if (progress <= 0.0) return;
+
+    // 2. Direct canvas clip for active text wipe (zero-allocation, eliminates saveLayer churn)
+    final clipWidth = size.width * progress.clamp(0.0, 1.0);
+    final clipRect = isRtl
+        ? Rect.fromLTWH(size.width - clipWidth, 0, clipWidth, size.height)
+        : Rect.fromLTWH(0, 0, clipWidth, size.height);
+
+    canvas.save();
+    canvas.clipRect(clipRect);
+    activePainter.paint(canvas, Offset.zero);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_KaraokeSyllablePainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.idlePainter != idlePainter ||
+        oldDelegate.activePainter != activePainter ||
+        oldDelegate.isRtl != isRtl;
   }
 }
 
