@@ -573,29 +573,20 @@ class _DesktopDualPane extends StatelessWidget {
                         excluding: !lyricsVisible,
                         child: IgnorePointer(
                           ignoring: !lyricsVisible,
-                          child: Container(
+                          child: SizedBox(
                             height: maxHeight,
                             width: lyricsWidth,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              // Offstage skips paint/raster + _VisibleTicker
-                              // mutes the 30Hz karaoke ticker while hidden
-                              // at width 0 / opacity 0 or while the window
-                              // is minimized. No visual change.
-                              child: Offstage(
-                                offstage: !lyricsVisible,
-                                child: _VisibleTicker(
-                                  enabled: lyricsVisible,
-                                  child: RepaintBoundary(
-                                    child: WaveKaraokeLyricsView(
-                                      track: track,
-                                      compact: false,
-                                      showHeaderControls: true,
-                                      fontSize: 36.0,
-                                    ),
+                            child: Offstage(
+                              offstage: !lyricsVisible,
+                              child: _VisibleTicker(
+                                enabled: lyricsVisible,
+                                child: RepaintBoundary(
+                                  child: WaveKaraokeLyricsView(
+                                    track: track,
+                                    compact: false,
+                                    showHeaderControls: true,
+                                    fontSize: 36.0,
+                                    isActive: lyricsVisible,
                                   ),
                                 ),
                               ),
@@ -627,25 +618,7 @@ class _NarrowCenteredPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (lyricsVisible) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        // No Offstage here (unmounted when hidden); minimize mute only,
-        // for minimized narrow windows. No visual change.
-        child: _VisibleTicker(
-          enabled: true,
-          child: RepaintBoundary(
-            child: WaveKaraokeLyricsView(
-              track: track,
-              compact: true,
-              showHeaderControls: true,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return SingleChildScrollView(
+    final coverArtSubtree = SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Center(
@@ -673,6 +646,29 @@ class _NarrowCenteredPane extends StatelessWidget {
           ),
         ),
       ),
+    );
+
+    final lyricsSubtree = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: _VisibleTicker(
+        enabled: lyricsVisible,
+        child: RepaintBoundary(
+          child: WaveKaraokeLyricsView(
+            track: track,
+            compact: true,
+            showHeaderControls: true,
+            isActive: lyricsVisible,
+          ),
+        ),
+      ),
+    );
+
+    return IndexedStack(
+      index: lyricsVisible ? 1 : 0,
+      children: [
+        coverArtSubtree,
+        lyricsSubtree,
+      ],
     );
   }
 }

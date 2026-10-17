@@ -102,6 +102,14 @@ class OfficialArtworkService {
     return _cache[_trackCacheKey(artist, title)];
   }
 
+  OfficialArtworkResult? peekAlbum({
+    required String album,
+    required String artist,
+  }) {
+    if (normalizeForSearch(album).isEmpty) return null;
+    return _cache[_albumCacheKey(artist, album)];
+  }
+
   Future<T> _throttle<T>(Future<T> Function() task, {bool priority = false}) {
     final completer = Completer<T>();
     void run() {

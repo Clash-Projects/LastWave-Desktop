@@ -197,7 +197,17 @@ int activeLyricLineIndex(List<LyricLine> lines, int positionMs) {
   return active;
 }
 
+double calculateSyllableProgress(LyricSyllable syl, int posMs) {
+  final startMs = syl.timeMs;
+  final durMs = math.max(1, syl.durationMs);
+  final endMs = startMs + durMs;
+  if (posMs <= startMs) return 0.0;
+  if (posMs >= endMs) return 1.0;
+  return (posMs - startMs) / durMs;
+}
+
 /// Viewport alignment for follow-scroll. Opening lines stay at the
+
 /// top; only later lines pin to the Apple ~34% karaoke anchor.
 double lyricFollowAlignment(int activeIndex, {required bool compact}) {
   if (activeIndex <= 0) return 0;

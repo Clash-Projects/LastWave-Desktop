@@ -406,6 +406,19 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     }
   }
 
+  int? _branchForPath(String path) {
+    final clean = path.split('?').first;
+    if (clean == '/home' || clean.startsWith('/home/')) return 0;
+    if (clean == '/discover' || clean.startsWith('/discover/')) return 1;
+    if (clean == '/search' || clean.startsWith('/search/')) return 2;
+    if (clean == '/liked' || clean.startsWith('/liked/')) return 3;
+    if (clean == '/albums' || clean.startsWith('/albums/') || clean.startsWith('/album/')) return 4;
+    if (clean == '/artists' || clean.startsWith('/artists/') || clean.startsWith('/artist/')) return 5;
+    if (clean == '/playlists' || clean.startsWith('/playlists/') || clean.startsWith('/ytplaylist/')) return 6;
+    if (clean == '/downloads' || clean.startsWith('/downloads/')) return 7;
+    return null;
+  }
+
   void _applyRoute(String path) {
     setState(() {
       _queueOpen = false;
@@ -413,6 +426,15 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     });
     if (path == widget.location) {
       _historyLocked = false;
+      return;
+    }
+    final branchIndex = _branchForPath(path);
+    if (branchIndex != null && widget.child is StatefulNavigationShell) {
+      final shell = widget.child as StatefulNavigationShell;
+      shell.goBranch(
+        branchIndex,
+        initialLocation: branchIndex == shell.currentIndex,
+      );
       return;
     }
     context.go(path);

@@ -1006,12 +1006,35 @@ class LwSkeleton extends StatefulWidget {
 class _LwSkeletonState extends State<LwSkeleton>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
+
   @override
   void initState() {
     super.initState();
     _c = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1400))
-      ..repeat();
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncTickerState();
+  }
+
+  void _syncTickerState() {
+    final active = (ModalRoute.of(context)?.isCurrent ?? true) &&
+        TickerMode.valuesOf(context).enabled &&
+        LwMotionScope.motionOK(context);
+    if (active) {
+      if (!_c.isAnimating) {
+        _c.repeat();
+      }
+    } else {
+      if (_c.isAnimating) {
+        _c.stop();
+      }
+    }
   }
 
   @override
@@ -1036,28 +1059,30 @@ class _LwSkeletonState extends State<LwSkeleton>
         ),
       );
     }
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, _) => Container(
-        width: widget.width,
-        height: widget.height,
-        decoration: BoxDecoration(
-          borderRadius:
-              BorderRadius.circular(widget.radius),
-          gradient: LinearGradient(
-            begin: Alignment(-1 - _c.value, 0),
-            end: Alignment(1 - _c.value, 0),
-            colors: dark
-                ? const [
-                    LwColors.surfaceOverlay,
-                    LwColors.surfaceRaised,
-                    LwColors.surfaceOverlay,
-                  ]
-                : const [
-                    LwColors.lightSurfaceOverlay,
-                    LwColors.lightSurface,
-                    LwColors.lightSurfaceOverlay,
-                  ],
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) => Container(
+          width: widget.width,
+          height: widget.height,
+          decoration: BoxDecoration(
+            borderRadius:
+                BorderRadius.circular(widget.radius),
+            gradient: LinearGradient(
+              begin: Alignment(-1 - _c.value, 0),
+              end: Alignment(1 - _c.value, 0),
+              colors: dark
+                  ? const [
+                      LwColors.surfaceOverlay,
+                      LwColors.surfaceRaised,
+                      LwColors.surfaceOverlay,
+                    ]
+                  : const [
+                      LwColors.lightSurfaceOverlay,
+                      LwColors.lightSurface,
+                      LwColors.lightSurfaceOverlay,
+                    ],
+            ),
           ),
         ),
       ),

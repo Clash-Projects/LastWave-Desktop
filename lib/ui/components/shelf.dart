@@ -168,11 +168,14 @@ class WaveShelf extends StatelessWidget {
           height: height,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: children.length,
-            separatorBuilder: (_, _) =>
-                const SizedBox(width: WaveSpacing.x8),
-            // Staggered entrance per card (group-gated when the page
-            // provides a WaveEntranceGroup).
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
+              itemCount: children.length,
+              separatorBuilder: (_, _) =>
+                  const SizedBox(width: WaveSpacing.x8),
+              // Staggered entrance per card (group-gated when the page
+              // provides a WaveEntranceGroup).
             itemBuilder: (context, i) => WaveEntrance(
               index: i,
               rise: 10,
@@ -222,9 +225,10 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
-    final seedColor =
-        ref.watch(artworkSeedProvider(widget.artworkUrl)).valueOrNull ??
-            const Color(0xFF232838);
+    final seedColor = _hover
+        ? (ref.watch(artworkSeedProvider(widget.artworkUrl)).valueOrNull ??
+            const Color(0xFF232838))
+        : const Color(0xFF232838);
     return WaveContextMenu(
       items: widget.artist.isEmpty && widget.videoId.isEmpty
           ? () => const []

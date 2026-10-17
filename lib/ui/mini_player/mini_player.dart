@@ -142,7 +142,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
                 ),
               ),
             ),
-            const _MiniProgress(),
+            const RepaintBoundary(child: _MiniProgress()),
           ],
         ),
       ),
@@ -215,16 +215,18 @@ class _MiniProgress extends ConsumerWidget {
                 clock.duration.inMilliseconds)
             .clamp(0.0, 1.0)
         : 0.0;
-    return Container(
-      height: 2,
-      alignment: Alignment.centerLeft,
-      color:
-          (dark ? Colors.white : Colors.black).withValues(alpha: 0.1),
-      child: FractionallySizedBox(
+    return RepaintBoundary(
+      child: Container(
+        height: 2,
         alignment: Alignment.centerLeft,
-        widthFactor: progress,
-        child: Container(
-          color: dark ? Colors.white : Colors.black,
+        color:
+            (dark ? Colors.white : Colors.black).withValues(alpha: 0.1),
+        child: FractionallySizedBox(
+          alignment: Alignment.centerLeft,
+          widthFactor: progress,
+          child: Container(
+            color: dark ? Colors.white : Colors.black,
+          ),
         ),
       ),
     );
