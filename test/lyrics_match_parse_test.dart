@@ -81,4 +81,30 @@ void main() {
     // Unknown duration always passes.
     expect(lyricsPlausibleDuration(long, null), isTrue);
   });
+
+  test('calculateSyllableProgress handles continuous vsync interpolation', () {
+    const syl = LyricSyllable(timeMs: 1000, durationMs: 200, text: 'test');
+    expect(calculateSyllableProgress(syl, 999), 0.0);
+    expect(calculateSyllableProgress(syl, 1000), 0.0);
+    // 144Hz step: ~7ms increments
+    expect(calculateSyllableProgress(syl, 1050), closeTo(0.25, 0.001));
+    expect(calculateSyllableProgress(syl, 1100), closeTo(0.50, 0.001));
+    expect(calculateSyllableProgress(syl, 1150), closeTo(0.75, 0.001));
+    expect(calculateSyllableProgress(syl, 1200), 1.0);
+    expect(calculateSyllableProgress(syl, 1207), 1.0);
+  });
+
+  test('activeLyricLineIndex resolves line index correctly across micro-ticks', () {
+    final lines = [
+      const LyricLine(timeMs: 0, durationMs: 1000, text: 'line 1'),
+      const LyricLine(timeMs: 1000, durationMs: 1500, text: 'line 2'),
+      const LyricLine(timeMs: 2500, durationMs: 1000, text: 'line 3'),
+    ];
+    expect(activeLyricLineIndex(lines, 0), 0);
+    expect(activeLyricLineIndex(lines, 500), 0);
+    expect(activeLyricLineIndex(lines, 1000), 1);
+    expect(activeLyricLineIndex(lines, 2499), 1);
+    expect(activeLyricLineIndex(lines, 2500), 2);
+  });
 }
+
