@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../../ui/theme/tokens.dart';
 
@@ -99,8 +100,8 @@ class WaveScrollBehavior extends FluentScrollBehavior {
 }
 
 /// Intercepts desktop mouse wheel [PointerScrollEvent]s to interpolate
-/// target scroll offsets smoothly over time (180ms easeOutCubic)
-/// instead of discrete single-frame pixel jumps.
+/// target scroll offsets smoothly over time (160ms easeOutCubic)
+/// via a high-refresh-rate [Ticker] instead of discrete single-frame pixel jumps.
 class WaveSmoothScroll extends StatefulWidget {
   final Widget child;
   final ScrollController? controller;
@@ -113,7 +114,7 @@ class WaveSmoothScroll extends StatefulWidget {
     required this.child,
     this.controller,
     this.direction = AxisDirection.down,
-    this.duration = const Duration(milliseconds: 180),
+    this.duration = const Duration(milliseconds: 160),
     this.curve = Curves.easeOutCubic,
   });
 
@@ -121,8 +122,70 @@ class WaveSmoothScroll extends StatefulWidget {
   State<WaveSmoothScroll> createState() => _WaveSmoothScrollState();
 }
 
-class _WaveSmoothScrollState extends State<WaveSmoothScroll> {
-  double? _targetOffset;
+class _WaveSmoothScrollState extends State<WaveSmoothScroll>
+    with SingleTickerProviderStateMixin {
+  late final Ticker _ticker;
+  double? _targetPixels;
+  double _startPixels = 0.0;
+  Duration _animationStart = Duration.zero;
+  Duration _lastTickElapsed = Duration.zero;
+  ScrollPosition? _activePosition;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = createTicker(_onTick);
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  void _onTick(Duration elapsed) {
+    _lastTickElapsed = elapsed;
+    final position = _activePosition ?? _resolvePosition();
+    if (position == null || !position.hasPixels || _targetPixels == null) {
+      _stopGliding();
+      return;
+    }
+
+    final totalDurationMs = widget.duration.inMilliseconds.toDouble();
+    if (totalDurationMs <= 0) {
+      position.jumpTo(_targetPixels!);
+      _stopGliding();
+      return;
+    }
+
+    final progressMs =
+        (elapsed - _animationStart).inMicroseconds / 1000.0;
+    final t = (progressMs / totalDurationMs).clamp(0.0, 1.0);
+    final curveValue = widget.curve.transform(t);
+
+    final currentPixels =
+        _startPixels + (_targetPixels! - _startPixels) * curveValue;
+    final clamped = currentPixels.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    position.jumpTo(clamped);
+
+    if (t >= 1.0 || (clamped - _targetPixels!).abs() < 0.25) {
+      position.jumpTo(_targetPixels!);
+      _stopGliding();
+    }
+  }
+
+  void _stopGliding() {
+    if (_ticker.isActive) {
+      _ticker.stop();
+    }
+    _targetPixels = null;
+    _activePosition = null;
+    _animationStart = Duration.zero;
+    _lastTickElapsed = Duration.zero;
+  }
 
   ScrollPosition? _resolvePosition() {
     if (widget.controller?.hasClients == true) {
@@ -131,6 +194,10 @@ class _WaveSmoothScrollState extends State<WaveSmoothScroll> {
     final primary = PrimaryScrollController.maybeOf(context);
     if (primary?.hasClients == true) {
       return primary!.position;
+    }
+    final scrollable = Scrollable.maybeOf(context);
+    if (scrollable?.position.hasPixels == true) {
+      return scrollable!.position;
     }
     return null;
   }
@@ -143,41 +210,61 @@ class _WaveSmoothScrollState extends State<WaveSmoothScroll> {
     final delta = isVertical ? event.scrollDelta.dy : event.scrollDelta.dx;
     if (delta == 0) return;
 
+    // Distinguish physical notched mouse wheel from trackpad:
+    // Physical mouse wheel events on Windows/desktop have event.kind == PointerDeviceKind.mouse
+    // and discrete delta magnitude >= 20.0 (typically 40, 100, or 120 per notch).
+    // Trackpads emit continuous micro-deltas or PointerDeviceKind.trackpad.
+    final isNotchedMouseWheel =
+        event.kind == PointerDeviceKind.mouse && delta.abs() >= 20.0;
+    if (!isNotchedMouseWheel) {
+      // Trackpads use standard fluid platform handling
+      return;
+    }
+
     final position = _resolvePosition();
     if (position == null || !position.hasPixels) return;
 
+    // Register with pointerSignalResolver so Flutter's default stepped pointerScroll does NOT fire
     GestureBinding.instance.pointerSignalResolver.register(event, (resolved) {
       if (!mounted) return;
       final scrollEvent = resolved as PointerScrollEvent;
-      final d = isVertical ? scrollEvent.scrollDelta.dy : scrollEvent.scrollDelta.dx;
+      final d =
+          isVertical ? scrollEvent.scrollDelta.dy : scrollEvent.scrollDelta.dx;
       if (d == 0) return;
 
       final current = position.pixels;
-      final base = (_targetOffset != null && (_targetOffset! - current).abs() < 800)
-          ? _targetOffset!
-          : current;
-
       final min = position.minScrollExtent;
       final max = position.maxScrollExtent;
-      final newTarget = (base + d).clamp(min, max);
-      _targetOffset = newTarget;
 
-      position.animateTo(
-        newTarget,
-        duration: widget.duration,
-        curve: widget.curve,
-      ).whenComplete(() {
-        if (_targetOffset == newTarget) {
-          _targetOffset = null;
-        }
-      });
+      // Accumulate target offset so fast consecutive spins glide continuously
+      final base = (_targetPixels != null) ? _targetPixels! : current;
+      final newTarget = (base + d).clamp(min, max);
+
+      _activePosition = position;
+      _startPixels = current;
+      _targetPixels = newTarget;
+
+      if (!_ticker.isActive) {
+        _animationStart = Duration.zero;
+        _lastTickElapsed = Duration.zero;
+        _ticker.start();
+      } else {
+        // Reset animation start point from current position to target
+        _animationStart = _lastTickElapsed;
+      }
     });
+  }
+
+  void _onPointerDown(PointerDownEvent _) {
+    // Immediately cancel wheel interpolation if user touches/clicks/drags
+    _stopGliding();
   }
 
   @override
   Widget build(BuildContext context) {
     return Listener(
       onPointerSignal: _onPointerSignal,
+      onPointerDown: _onPointerDown,
       child: widget.child,
     );
   }

@@ -168,30 +168,11 @@ class WaveShelf extends StatelessWidget {
         const SizedBox(height: WaveSpacing.x8),
         SizedBox(
           height: height,
-          child: Listener(
-            onPointerSignal: (event) {
-              if (event is PointerScrollEvent &&
-                  event.scrollDelta.dy != 0 &&
-                  event.scrollDelta.dx == 0 &&
-                  !HardwareKeyboard.instance.isShiftPressed) {
-                GestureBinding.instance.pointerSignalResolver
-                    .register(event, (resolved) {
-                  final scrollable = Scrollable.maybeOf(context);
-                  if (scrollable != null) {
-                    scrollable.position.pointerScroll(
-                        (resolved as PointerScrollEvent).scrollDelta.dy);
-                  } else {
-                    final primary = PrimaryScrollController.maybeOf(context);
-                    if (primary != null && primary.hasClients) {
-                      primary.position.pointerScroll(
-                          (resolved as PointerScrollEvent).scrollDelta.dy);
-                    }
-                  }
-                });
-              }
-            },
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
               itemCount: children.length,
               separatorBuilder: (_, _) =>
                   const SizedBox(width: WaveSpacing.x8),
