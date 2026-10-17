@@ -291,7 +291,12 @@ class AnimatedArtworkSession extends ChangeNotifier {
       configuration: const PlayerConfiguration(
         muted: true,
         title: 'LastWave Artwork',
-        bufferSize: 8 * 1024 * 1024,
+        // Apple motion clips are a few seconds of ~768px H.264 (≈1–2 MB
+        // for the whole loop). The old 8 MiB forward buffer was sized for
+        // a full-length video; 2 MiB still holds an entire loop while
+        // shaving the floor off a SECOND libmpv instance that lives for
+        // the whole app run.
+        bufferSize: 2 * 1024 * 1024,
       ),
     );
     _player = player;
