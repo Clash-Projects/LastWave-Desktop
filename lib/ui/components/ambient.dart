@@ -368,12 +368,15 @@ Future<ArtworkPalette> _extractPalette(_PaletteJob job) async {
   );
 }
 
-/// Shared artwork-derived multi-color palette, cached by image identity.
-/// No keepAlive: entries auto-dispose when no widget watches them, so
-/// skipping tracks releases the decoded image instead of accumulating.
+final _paletteLruCache = <String, ArtworkPalette>{};
+
+/// Shared artwork-derived multi-color palette, cached by image identity with LRU retention.
 final artworkPaletteProvider =
     FutureProvider.autoDispose.family<ArtworkPalette, String>((ref, url) async {
   if (url.isEmpty) return ArtworkPalette.fallback;
+  final cached = _paletteLruCache[url];
+  if (cached != null) return cached;
+  ref.keepAlive();
   ui.Image? image;
   try {
     image = await _decodeArtwork(url);
@@ -387,7 +390,12 @@ final artworkPaletteProvider =
     );
     image.dispose();
     image = null;
-    return await compute(_extractPalette, job);
+    final palette = await compute(_extractPalette, job);
+    if (_paletteLruCache.length >= 500) {
+      _paletteLruCache.remove(_paletteLruCache.keys.first);
+    }
+    _paletteLruCache[url] = palette;
+    return palette;
   } catch (_) {
     return ArtworkPalette.fallback;
   } finally {
@@ -399,6 +407,7 @@ final artworkPaletteProvider =
 final artworkSeedProvider =
     FutureProvider.autoDispose.family<Color, String>((ref, url) async {
   if (url.isEmpty) return const Color(0xFF232838);
+  ref.keepAlive();
   final pal = await ref.watch(artworkPaletteProvider(url).future);
   return pal.primary;
 });

@@ -222,9 +222,10 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
-    final seedColor =
-        ref.watch(artworkSeedProvider(widget.artworkUrl)).valueOrNull ??
-            const Color(0xFF232838);
+    final seedColor = _hover
+        ? (ref.watch(artworkSeedProvider(widget.artworkUrl)).valueOrNull ??
+            const Color(0xFF232838))
+        : const Color(0xFF232838);
     return WaveContextMenu(
       items: widget.artist.isEmpty && widget.videoId.isEmpty
           ? () => const []
