@@ -244,7 +244,6 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       _lastSyncTime = DateTime.now();
       final effectiveMs = audioMs - _offsetMs;
       _interpolatedPositionMs.value = effectiveMs;
-      _lyricController.setProgress(Duration(milliseconds: math.max(0, effectiveMs)));
       if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
         final lineIndex = activeLyricLineIndex(_currentResult!.lines, effectiveMs);
         if (_activeLineIndex.value != lineIndex) {
@@ -260,8 +259,6 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         _lastSyncTime = DateTime.now();
         final effectiveMs = audioMs - _offsetMs;
         _interpolatedPositionMs.value = effectiveMs;
-        _lyricController.setProgress(
-            Duration(milliseconds: math.max(0, effectiveMs)));
         if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
           final lineIndex = activeLyricLineIndex(_currentResult!.lines, effectiveMs);
           if (_activeLineIndex.value != lineIndex) {
@@ -553,6 +550,39 @@ class WaveKaraokeLyricLine extends StatefulWidget {
 
 class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
   bool _isHovered = false;
+  int _lastPos = 0;
+  int _seekGen = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastPos = widget.positionListenable?.value ?? 0;
+    widget.positionListenable?.addListener(_onLineTick);
+  }
+
+  @override
+  void didUpdateWidget(covariant WaveKaraokeLyricLine oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.positionListenable != widget.positionListenable) {
+      oldWidget.positionListenable?.removeListener(_onLineTick);
+      _lastPos = widget.positionListenable?.value ?? 0;
+      widget.positionListenable?.addListener(_onLineTick);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.positionListenable?.removeListener(_onLineTick);
+    super.dispose();
+  }
+
+  void _onLineTick() {
+    final pos = widget.positionListenable?.value ?? 0;
+    if (pos < _lastPos - 200) {
+      setState(() => _seekGen++);
+    }
+    _lastPos = pos;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -633,6 +663,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
               children: [
                 for (final syl in word.syllables)
                   _KaraokeSyllableWidget(
+                    key: ValueKey('syl_${syl.timeMs}_$_seekGen'),
                     syllable: syl,
                     positionListenable: widget.positionListenable,
                     initialPosMs: widget.positionMs,
@@ -726,6 +757,7 @@ class _KaraokeSyllableWidget extends StatefulWidget {
   final bool isRtl;
 
   const _KaraokeSyllableWidget({
+    super.key,
     required this.syllable,
     this.positionListenable,
     this.initialPosMs = 0,
@@ -741,53 +773,93 @@ class _KaraokeSyllableWidget extends StatefulWidget {
 
 class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
   late double _progress;
+  bool _isListening = false;
+
+  int get _startMs => widget.syllable.timeMs;
+  int get _endMs =>
+      widget.syllable.timeMs + math.max(1, widget.syllable.durationMs);
+
+  void _startListening() {
+    if (_isListening || widget.positionListenable == null) return;
+    widget.positionListenable!.addListener(_onPositionTick);
+    _isListening = true;
+  }
+
+  void _stopListening() {
+    if (!_isListening || widget.positionListenable == null) return;
+    widget.positionListenable!.removeListener(_onPositionTick);
+    _isListening = false;
+  }
 
   @override
   void initState() {
     super.initState();
     final pos = widget.positionListenable?.value ?? widget.initialPosMs;
     _progress = calculateSyllableProgress(widget.syllable, pos);
-    widget.positionListenable?.addListener(_onPositionTick);
+    // If initialPosMs >= endMs: The syllable is already sung.
+    // Do NOT call widget.positionListenable.addListener(_onPositionTick).
+    // Render a plain Text(widget.syllable.text, style: activeStyle) with zero ShaderMask.
+    if (pos < _endMs) {
+      _startListening();
+    }
   }
 
   @override
   void didUpdateWidget(covariant _KaraokeSyllableWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.positionListenable != widget.positionListenable) {
-      oldWidget.positionListenable?.removeListener(_onPositionTick);
-      widget.positionListenable?.addListener(_onPositionTick);
+      if (_isListening) {
+        oldWidget.positionListenable?.removeListener(_onPositionTick);
+        _isListening = false;
+      }
     }
-    if (oldWidget.syllable != widget.syllable ||
-        oldWidget.positionListenable != widget.positionListenable) {
-      final pos = widget.positionListenable?.value ?? widget.initialPosMs;
-      _progress = calculateSyllableProgress(widget.syllable, pos);
+    final pos = widget.positionListenable?.value ?? widget.initialPosMs;
+    _progress = calculateSyllableProgress(widget.syllable, pos);
+    if (pos < _endMs) {
+      _startListening();
+    } else {
+      _stopListening();
     }
   }
 
   @override
   void dispose() {
-    widget.positionListenable?.removeListener(_onPositionTick);
+    _stopListening();
     super.dispose();
   }
 
   void _onPositionTick() {
-    final pos = widget.positionListenable!.value;
-    final endMs =
-        widget.syllable.timeMs + math.max(1, widget.syllable.durationMs);
-    if (_progress >= 1.0 && pos >= endMs) return;
-    if (_progress <= 0.0 && pos < widget.syllable.timeMs) return;
+    final listenable = widget.positionListenable;
+    if (listenable == null) return;
+    final pos = listenable.value;
+    final startMs = _startMs;
+    final endMs = _endMs;
 
-    final newProgress = calculateSyllableProgress(widget.syllable, pos);
-    if (_progress != newProgress) {
-      final wasActive = _progress > 0.0 && _progress < 1.0;
-      final isActive = newProgress > 0.0 && newProgress < 1.0;
-      final stateChanged = (_progress >= 1.0) != (newProgress >= 1.0) ||
-          (_progress <= 0.0) != (newProgress <= 0.0);
-      if (wasActive || isActive || stateChanged) {
-        setState(() {
-          _progress = newProgress;
-        });
+    // While pos < startMs: Keep _progress = 0.0 and do NOT call setState() on intermediate ticks
+    if (pos < startMs) {
+      if (_progress != 0.0) {
+        setState(() => _progress = 0.0);
       }
+      return;
+    }
+
+    // When pos >= endMs: Immediately call removeListener inside _onPositionTick,
+    // set _progress = 1.0, call setState once, and permanently go dormant.
+    if (pos >= endMs) {
+      _stopListening();
+      if (_progress != 1.0) {
+        setState(() => _progress = 1.0);
+      }
+      return;
+    }
+
+    // Only when startMs <= pos < endMs (0.0 < _progress < 1.0) should setState() fire at 144Hz
+    final duration = math.max(1, widget.syllable.durationMs);
+    final newProgress = ((pos - startMs) / duration).clamp(0.0, 1.0);
+    if ((_progress - newProgress).abs() > 0.001) {
+      setState(() {
+        _progress = newProgress;
+      });
     }
   }
 
