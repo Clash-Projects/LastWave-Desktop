@@ -176,7 +176,11 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       playbackServiceProvider.select((s) => s.speed),
       (_, _) => _syncPlaybackClock(),
     );
-    _syncPlaybackClock();
+    // NOTE: deliberately NOT calling _syncPlaybackClock() here. It reads
+    // ModalRoute.of(context) / TickerMode.valuesOf(context) via
+    // _isEffectivelyActive — inherited-widget lookups are illegal before
+    // initState completes (FlutterError → debugger stop). The initial
+    // sync runs in didChangeDependencies below (and again in build).
   }
 
   void _onSelectingChanged() {
@@ -207,7 +211,9 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _updateTickerState();
+    // Inherited lookups (ModalRoute/TickerMode) are only legal from here
+    // on, so this is the first place the ticker state can be evaluated.
+    _syncPlaybackClock();
   }
 
   @override
