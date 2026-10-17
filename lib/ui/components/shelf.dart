@@ -1,6 +1,4 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/gestures.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'ambient.dart';
@@ -178,13 +176,12 @@ class WaveShelf extends StatelessWidget {
                   const SizedBox(width: WaveSpacing.x8),
               // Staggered entrance per card (group-gated when the page
               // provides a WaveEntranceGroup).
-              itemBuilder: (context, i) => WaveEntrance(
-                index: i,
-                rise: 10,
-                child: SizedBox(
-                  width: cardWidth,
-                  child: children[i],
-                ),
+            itemBuilder: (context, i) => WaveEntrance(
+              index: i,
+              rise: 10,
+              child: SizedBox(
+                width: cardWidth,
+                child: children[i],
               ),
             ),
           ),
