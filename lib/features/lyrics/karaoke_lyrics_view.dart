@@ -629,12 +629,18 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     );
 
     // Style for unsung words on the ACTIVE line: identical font metrics to prevent character jitter!
+    // shadows must be explicit: [Text] merges the ambient DefaultTextStyle
+    // (AnimatedDefaultTextStyle above, = activeStyle WITH its glow) into its
+    // style, while the wipe's raw TextPainter never sees the ambient. With
+    // shadows left null the resting word carried the glow and dropped it the
+    // frame the wipe front arrived — a visible dark flash per word.
     final activeUnsungStyle = TextStyle(
       fontSize: baseFontSize,
       fontWeight: FontWeight.w700,
       color: activeTextColor.withValues(alpha: 0.38),
       height: 1.42,
       letterSpacing: -0.3,
+      shadows: const [],
     );
 
     final idleStyle = TextStyle(
@@ -760,6 +766,9 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
   }
 }
 
+/// Bands used to feather the karaoke wipe edge (alpha steps of 1/N).
+const _wipeFeatherBands = 5;
+
 /// Progressive fill / wipe for an individual syllable with soft anti-aliased edge.
 class _KaraokeSyllableWidget extends StatefulWidget {
   final LyricSyllable syllable;
@@ -838,10 +847,56 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
 
   TextPainter? _idlePainter;
   TextPainter? _activePainter;
+  List<TextPainter> _featherPainters = const [];
   String? _cachedText;
+  String? _cachedActiveText;
   TextStyle? _cachedIdleStyle;
   TextStyle? _cachedActiveStyle;
   TextScaler? _cachedScaler;
+  TextScaler? _cachedActiveScaler;
+
+  /// Copy of the active style at `cover` opacity — used for the feather
+  /// bands so glyphs and their glow both fade toward the unsung state.
+  TextStyle _featherStyle(double cover) {
+    final base = widget.activeStyle;
+    final color = base.color;
+    final shadows = base.shadows;
+    return base.copyWith(
+      color: color?.withValues(alpha: color.a * cover),
+      shadows: shadows == null
+          ? null
+          : [
+              for (final s in shadows)
+                Shadow(
+                  color: s.color.withValues(alpha: s.color.a * cover),
+                  blurRadius: s.blurRadius,
+                  offset: s.offset,
+                ),
+            ],
+    );
+  }
+
+  void _rebuildFeatherPainters(
+    String text,
+    TextScaler scaler,
+    TextDirection textDirection,
+  ) {
+    for (final p in _featherPainters) {
+      p.dispose();
+    }
+    _featherPainters = [
+      // cover 1 - 1/N down to 1/N; the final band (cover 0) is the bare base.
+      for (var i = 1; i < _wipeFeatherBands; i++)
+        TextPainter(
+          text: TextSpan(
+            text: text,
+            style: _featherStyle(1.0 - i / _wipeFeatherBands),
+          ),
+          textDirection: textDirection,
+          textScaler: scaler,
+        )..layout(),
+    ];
+  }
 
   void _ensurePainters(BuildContext context) {
     final text = widget.syllable.text.trimRight();
@@ -863,17 +918,23 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
       )..layout();
     }
 
+    // Separate text cache keys: the idle branch used to consume
+    // `_cachedText` first, so a text change skipped the active/feather
+    // rebuild below (stale glyphs in the wipe layer).
     if (_activePainter == null ||
-        _cachedText != text ||
+        _cachedActiveText != text ||
         _cachedActiveStyle != widget.activeStyle ||
-        _cachedScaler != scaler) {
+        _cachedActiveScaler != scaler) {
+      _cachedActiveText = text;
       _cachedActiveStyle = widget.activeStyle;
+      _cachedActiveScaler = scaler;
       _activePainter?.dispose();
       _activePainter = TextPainter(
         text: TextSpan(text: text, style: widget.activeStyle),
         textDirection: textDirection,
         textScaler: scaler,
       )..layout();
+      _rebuildFeatherPainters(text, scaler, textDirection);
     }
   }
 
@@ -882,6 +943,9 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
     _stopListening();
     _idlePainter?.dispose();
     _activePainter?.dispose();
+    for (final p in _featherPainters) {
+      p.dispose();
+    }
     super.dispose();
   }
 
@@ -948,6 +1012,7 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
           painter: _KaraokeSyllablePainter(
             idlePainter: _idlePainter!,
             activePainter: _activePainter!,
+            featherPainters: _featherPainters,
             progress: _progress,
             isRtl: widget.isRtl,
           ),
@@ -958,15 +1023,23 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
 }
 
 /// Zero-allocation canvas clip painter for syllable wipe (replaces ShaderMask / saveLayer).
+///
+/// The leading edge is feathered with a staircase of alpha-stepped copies of
+/// the active text: `Canvas.drawParagraph` takes no paint, so paragraph alpha
+/// only exists in the style — saveLayer/ShaderMask would reintroduce the
+/// offscreen cost this painter exists to avoid. Bands are cached by the
+/// syllable widget and disposed with it.
 class _KaraokeSyllablePainter extends CustomPainter {
   final TextPainter idlePainter;
   final TextPainter activePainter;
+  final List<TextPainter> featherPainters;
   final double progress;
   final bool isRtl;
 
   const _KaraokeSyllablePainter({
     required this.idlePainter,
     required this.activePainter,
+    required this.featherPainters,
     required this.progress,
     required this.isRtl,
   });
@@ -978,16 +1051,41 @@ class _KaraokeSyllablePainter extends CustomPainter {
 
     if (progress <= 0.0) return;
 
-    // 2. Direct canvas clip for active text wipe (zero-allocation, eliminates saveLayer churn)
-    final clipWidth = size.width * progress.clamp(0.0, 1.0);
-    final clipRect = isRtl
-        ? Rect.fromLTWH(size.width - clipWidth, 0, clipWidth, size.height)
-        : Rect.fromLTWH(0, 0, clipWidth, size.height);
+    // 2. Wipe: hard-clipped active text, then alpha-stepped bands feathering
+    // the leading edge so the fill does not cut a hard line across glyphs.
+    // `s` is distance travelled along the wipe direction (0 = start edge).
+    final width = size.width;
+    final front = width * progress.clamp(0.0, 1.0);
+    final feather = math.min(width * 0.08, front * 0.8).clamp(0.0, 18.0);
+    final inner = front - feather;
 
-    canvas.save();
-    canvas.clipRect(clipRect);
-    activePainter.paint(canvas, Offset.zero);
-    canvas.restore();
+    Rect dirRect(double s0, double s1) {
+      if (s1 - s0 < 0.05) return Rect.zero;
+      return isRtl
+          ? Rect.fromLTRB(width - s1, 0, width - s0, size.height)
+          : Rect.fromLTRB(s0, 0, s1, size.height);
+    }
+
+    if (inner > 0.05) {
+      canvas.save();
+      canvas.clipRect(dirRect(0, inner));
+      activePainter.paint(canvas, Offset.zero);
+      canvas.restore();
+    }
+
+    if (feather > 0.05 && featherPainters.isNotEmpty) {
+      final step = feather / _wipeFeatherBands;
+      for (var j = 0; j < featherPainters.length; j++) {
+        final s0 = (inner + j * step).clamp(0.0, front);
+        final s1 = (inner + (j + 1) * step).clamp(0.0, front);
+        final rect = dirRect(s0, s1);
+        if (rect == Rect.zero) continue;
+        canvas.save();
+        canvas.clipRect(rect);
+        featherPainters[j].paint(canvas, Offset.zero);
+        canvas.restore();
+      }
+    }
   }
 
   @override
@@ -995,6 +1093,7 @@ class _KaraokeSyllablePainter extends CustomPainter {
     return oldDelegate.progress != progress ||
         oldDelegate.idlePainter != idlePainter ||
         oldDelegate.activePainter != activePainter ||
+        oldDelegate.featherPainters != featherPainters ||
         oldDelegate.isRtl != isRtl;
   }
 }
