@@ -68,6 +68,7 @@ class WaveHaze extends StatelessWidget {
   final BorderRadiusGeometry borderRadius;
   final BoxBorder? border;
   final List<BoxShadow>? shadow;
+  final bool? enableBlur;
 
   const WaveHaze({
     super.key,
@@ -78,6 +79,7 @@ class WaveHaze extends StatelessWidget {
     this.borderRadius = BorderRadius.zero,
     this.border,
     this.shadow,
+    this.enableBlur,
   });
 
   const WaveHaze.chrome({
@@ -87,6 +89,7 @@ class WaveHaze extends StatelessWidget {
     this.artworkTint,
     this.border,
     this.shadow,
+    this.enableBlur,
   })  : level = LwHazeLevel.l1,
         borderRadius = BorderRadius.zero;
 
@@ -97,6 +100,7 @@ class WaveHaze extends StatelessWidget {
     this.artworkTint,
     this.border,
     this.shadow,
+    this.enableBlur,
   })  : level = LwHazeLevel.l2,
         borderRadius = BorderRadius.zero;
 
@@ -107,6 +111,7 @@ class WaveHaze extends StatelessWidget {
     this.artworkTint,
     this.border,
     this.shadow,
+    this.enableBlur,
   })  : level = LwHazeLevel.l3,
         borderRadius = const BorderRadius.all(Radius.circular(7));
 
@@ -119,7 +124,7 @@ class WaveHaze extends StatelessWidget {
       borderRadius: borderRadius,
       border: border,
       shadow: shadow,
-      enableBlur: WaveHazeScope.blurEnabled(context),
+      enableBlur: enableBlur ?? WaveHazeScope.blurEnabled(context),
       child: child,
     );
   }

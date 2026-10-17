@@ -70,6 +70,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
     // Haze Level 1 — subtle tonal navigation material, never a solid slab.
     return WaveHaze(
       level: LwHazeLevel.l1,
+      enableBlur: false,
       base: dark
           ? WaveColors.railTranslucent
           : WaveColors.lightNavBackground.withValues(alpha: 0.92),

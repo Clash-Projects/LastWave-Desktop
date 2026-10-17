@@ -86,6 +86,7 @@ class WavePlayerDock extends ConsumerWidget {
       builder: (context, animatedBase, child) {
         return WaveHaze(
           level: LwHazeLevel.l1,
+          enableBlur: false,
           base: animatedBase ?? targetBase,
           border: Border(
             top: BorderSide(color: waveDivider(context)),

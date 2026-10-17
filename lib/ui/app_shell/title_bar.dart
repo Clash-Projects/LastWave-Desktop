@@ -49,6 +49,7 @@ class WaveTitleBar extends ConsumerWidget {
     final auth = ref.watch(authRepositoryProvider);
     return WaveHaze(
       level: LwHazeLevel.l1,
+      enableBlur: false,
       base: dark
           ? WaveColors.background.withValues(alpha: 0.85)
           : WaveColors.lightBackground.withValues(alpha: 0.9),
