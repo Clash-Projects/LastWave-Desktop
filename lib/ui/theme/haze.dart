@@ -176,14 +176,16 @@ class WaveGlass extends StatelessWidget {
     );
 
     if (!blurOn) return content;
-    return ClipRRect(
-      borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: 18 * WaveHazeScope.blurScale(context),
-          sigmaY: 18 * WaveHazeScope.blurScale(context),
+    return RepaintBoundary(
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(
+            sigmaX: 18 * WaveHazeScope.blurScale(context),
+            sigmaY: 18 * WaveHazeScope.blurScale(context),
+          ),
+          child: content,
         ),
-        child: content,
       ),
     );
   }

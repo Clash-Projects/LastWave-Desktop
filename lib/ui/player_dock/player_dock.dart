@@ -256,7 +256,9 @@ class WavePlayerDock extends ConsumerWidget {
                               ],
                             ),
                             const SizedBox(height: 1),
-                            _DockProgress(compact: narrow),
+                            RepaintBoundary(
+                              child: _DockProgress(compact: narrow),
+                            ),
                           ],
                         ),
                       ),

@@ -35,6 +35,14 @@ class _WaveLikedPageState
   String _q = '';
   String _sort = 'default';
 
+  List<StoredTrack>? _lastAll;
+  List<dynamic>? _lastYtLiked;
+  String _lastQ = '';
+  String _lastSort = '';
+  List<GeneratedTrack>? _cachedMerged;
+  int _cachedTotal = 0;
+  String _cachedCover = '';
+
   @override
   void dispose() {
     _filter.dispose();
@@ -48,58 +56,17 @@ class _WaveLikedPageState
         playlists.where((p) => p.isLikedSongs).firstOrNull;
     final all = liked?.tracks ?? const [];
     final query = _q.trim().toLowerCase();
-    var tracks = query.isEmpty
-        ? List<PlaylistTrack>.from(all)
-        : all
-            .where(
-              (t) => '${t.name} ${t.artist}'
-                  .toLowerCase()
-                  .contains(query),
-            )
-            .toList();
-    if (_sort == 'title') {
-      tracks.sort((a, b) => a.name.compareTo(b.name));
-    } else if (_sort == 'artist') {
-      tracks.sort((a, b) => a.artist.compareTo(b.artist));
-    }
-    final playingKey = ref.watch(
-      playbackServiceProvider.select((s) => s.current?.queueKey),
-    );
-    // Signed-in YouTube Music likes merge in, deduped (local wins).
     final ytLiked =
         ref.watch(ytLikedSongsProvider).value ?? const [];
-    final ytFiltered = query.isEmpty
-        ? ytLiked
-        : ytLiked
-            .where(
-              (t) => '${t.title} ${t.artist}'
-                  .toLowerCase()
-                  .contains(query),
-            )
-            .toList();
-    final localGenerated = tracks
-        .map(
-          (t) => GeneratedTrack(
-            name: t.name,
-            artist: t.artist,
-            artworkUrl: t.artworkUrl,
-            videoId: t.videoId,
-          ),
-        )
-        .toList();
-    final mergedGenerated = mergeYtTracks(localGenerated, ytFiltered);
-    List<GeneratedTrack> asGenerated() => mergedGenerated;
-    String cover = '';
-    for (final t in all) {
-      if (t.artworkUrl.isNotEmpty) {
-        cover = t.artworkUrl;
-        break;
-      }
-    }
-    // Unfiltered total including YouTube Music likes (for counts +
-    // the empty state); asGenerated() is the query-filtered view.
-    final mergedTotal = mergeYtTracks(
-      all
+
+    final bool tracksChanged = !identical(all, _lastAll) || all != _lastAll;
+    final bool ytChanged = !identical(ytLiked, _lastYtLiked) || ytLiked != _lastYtLiked;
+    final bool filterChanged = query != _lastQ || _sort != _lastSort;
+
+    if (tracksChanged || ytChanged || _lastAll == null) {
+      _lastAll = all;
+      _lastYtLiked = ytLiked;
+      final allGen = all
           .map(
             (t) => GeneratedTrack(
               name: t.name,
@@ -108,9 +75,65 @@ class _WaveLikedPageState
               videoId: t.videoId,
             ),
           )
-          .toList(),
-      ytLiked,
-    ).length;
+          .toList();
+      _cachedTotal = mergeYtTracks(allGen, ytLiked).length;
+      String cover = '';
+      for (final t in all) {
+        if (t.artworkUrl.isNotEmpty) {
+          cover = t.artworkUrl;
+          break;
+        }
+      }
+      _cachedCover = cover;
+    }
+
+    if (tracksChanged || ytChanged || filterChanged || _cachedMerged == null) {
+      _lastQ = query;
+      _lastSort = _sort;
+      var tracks = query.isEmpty
+          ? List<StoredTrack>.from(all)
+          : all
+              .where(
+                (t) => '${t.name} ${t.artist}'
+                    .toLowerCase()
+                    .contains(query),
+              )
+              .toList();
+      if (_sort == 'title') {
+        tracks.sort((a, b) => a.name.compareTo(b.name));
+      } else if (_sort == 'artist') {
+        tracks.sort((a, b) => a.artist.compareTo(b.artist));
+      }
+
+      final ytFiltered = query.isEmpty
+          ? ytLiked
+          : ytLiked
+              .where(
+                (t) => '${t.title} ${t.artist}'
+                    .toLowerCase()
+                    .contains(query),
+              )
+              .toList();
+      final localGenerated = tracks
+          .map(
+            (t) => GeneratedTrack(
+              name: t.name,
+              artist: t.artist,
+              artworkUrl: t.artworkUrl,
+              videoId: t.videoId,
+            ),
+          )
+          .toList();
+      _cachedMerged = mergeYtTracks(localGenerated, ytFiltered);
+    }
+
+    final playingKey = ref.watch(
+      playbackServiceProvider.select((s) => s.current?.queueKey),
+    );
+    final mergedGenerated = _cachedMerged!;
+    List<GeneratedTrack> asGenerated() => mergedGenerated;
+    final cover = _cachedCover;
+    final mergedTotal = _cachedTotal;
     // Empty: ONE compact state only — simple text header, no artwork hero
     // plus a second giant icon.
     if (mergedTotal == 0) {
