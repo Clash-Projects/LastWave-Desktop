@@ -329,22 +329,57 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         ),
       ),
       data: (result) {
+        // Header controls (the source switcher + close) must survive the
+        // no-lyrics states. Switching source can legitimately land on a
+        // provider with no match, and dropping the switcher then strands
+        // the user on "Try again" against the same provider — with no way
+        // back to another one. So the empty states render the toolbar too.
+        Widget withHeader(Widget body) {
+          if (!widget.showHeaderControls) return body;
+          return RepaintBoundary(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _KaraokeToolbar(
+                  track: widget.track,
+                  result: result,
+                  offsetMs: offsetMs,
+                  showTransliteration: showTransliteration,
+                  following: _following,
+                  compact: widget.compact,
+                  wordByWord: wordByWord,
+                  onClose: widget.onClose,
+                  onToggleFollowing: () {
+                    if (!_following) {
+                      _lyricController.stopSelection();
+                      setState(() => _following = true);
+                    } else {
+                      setState(() => _following = false);
+                    }
+                  },
+                ),
+                Expanded(child: body),
+              ],
+            ),
+          );
+        }
+
         if (result.isInstrumental) {
-          return const WaveEmpty(
+          return withHeader(const WaveEmpty(
             icon: FluentIcons.music_note,
             title: 'Instrumental',
             subtitle: 'No lyrics for this track.',
-          );
+          ));
         }
         if (result.isEmpty) {
-          return WaveEmpty(
+          return withHeader(WaveEmpty(
             icon: FluentIcons.microphone,
             title: 'No lyrics found',
-            subtitle: 'Try another track or check back later.',
+            subtitle: 'Pick another source, or check back later.',
             actionLabel: 'Try again',
             onAction: () =>
                 ref.invalidate(waveLyricsProvider(widget.track.queueKey)),
-          );
+          ));
         }
         if (!result.isSynced && result.lines.length < 2) {
           return _KaraokePlainLyrics(
@@ -1213,6 +1248,10 @@ class _KaraokeToolbar extends ConsumerWidget {
         ref.read(lyricsTransliterationProvider.notifier);
 
     final offsetDisplay = formatOffsetDisplay(offsetMs);
+    // Offset / transliteration / follow all act on lyric content. With no
+    // lyrics (empty or instrumental) they are dead controls, but the
+    // source switcher must stay: a miss is exactly when it is needed.
+    final hasLyrics = !result.isEmpty && !result.isInstrumental;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -1262,7 +1301,7 @@ class _KaraokeToolbar extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           // Timing Offset Controls: [-] offset [+] [Reset]
-          Container(
+          if (hasLyrics) Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             decoration: BoxDecoration(
               color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.10),
@@ -1316,9 +1355,9 @@ class _KaraokeToolbar extends ConsumerWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          if (hasLyrics) const SizedBox(width: 8),
           // Transliteration / Romaji Toggle
-          LWTooltip(
+          if (hasLyrics) LWTooltip(
             message: showTransliteration
                 ? 'Transliteration enabled'
                 : 'Enable transliteration',
@@ -1328,8 +1367,8 @@ class _KaraokeToolbar extends ConsumerWidget {
               onTap: transliterationNotifier.toggle,
             ),
           ),
-          const SizedBox(width: 4),
-          LWTooltip(
+          if (hasLyrics) const SizedBox(width: 4),
+          if (hasLyrics) LWTooltip(
             message: following
                 ? 'Pause automatic scrolling'
                 : 'Return to the line being sung',
