@@ -222,6 +222,82 @@ class WaveLink extends StatelessWidget {
       );
 }
 
+/// The hero's primary action: accent pill, contrast glyph, pressed dip.
+///
+/// Accent fill with a contrast glyph (`onAccentFor` — the accent can be
+/// off-white, so a hardcoded white or black glyph would vanish on it), hover
+/// 93%, pressed 82%. Home and Discover lead with the same pill.
+class WavePlayPill extends StatefulWidget {
+  final VoidCallback onTap;
+  final String label;
+  const WavePlayPill({super.key, required this.onTap, this.label = 'Play'});
+
+  @override
+  State<WavePlayPill> createState() => _WavePlayPillState();
+}
+
+class _WavePlayPillState extends State<WavePlayPill> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final accent = waveAccent(context);
+    final onAccent = onAccentFor(accent);
+    final bg = _pressed
+        ? accent.withValues(alpha: 0.82)
+        : _hover
+            ? accent.withValues(alpha: 0.93)
+            : accent;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _pressed ? 0.96 : 1.0,
+          duration: WaveMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: WaveMotion.fast,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(999),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black
+                      .withValues(alpha: dark ? 0.45 : 0.18),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(WaveIcons.play, size: 14, color: onAccent),
+                const SizedBox(width: 8),
+                Text(widget.label,
+                    style: WaveType.label.copyWith(color: onAccent)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Large circular transport button (play/pause only).
 class WavePlayButton extends StatefulWidget {
   final bool playing;

@@ -9,8 +9,10 @@ import '../../features/feed/feed_repository.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../components/artwork.dart';
+import '../components/buttons.dart';
 import '../components/hero.dart';
 import '../components/menus.dart';
+import '../components/shelf.dart';
 import '../components/select.dart';
 import '../components/states.dart';
 import '../theme/motion.dart';
@@ -399,36 +401,10 @@ class _SpotlightHero extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
+                    WavePlayPill(
                       onTap: () => playGenerated(ref, context, track,
                           sourceLabel: 'Discover spotlight'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 9),
-                        decoration: BoxDecoration(
-                          color: dark ? Colors.white : Colors.black,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(WaveIcons.play,
-                                size: 13,
-                                color: dark
-                                    ? Colors.black
-                                    : Colors.white),
-                            const SizedBox(width: 7),
-                            Text('Play',
-                                style: WaveType.label.copyWith(
-                                    color: dark
-                                        ? Colors.black
-                                        : Colors.white)),
-                          ],
-                        ),
-                      ),
-                    )),
+                    ),
                     const SizedBox(width: 12),
                     MouseRegion(
                       cursor: SystemMouseCursors.click,
@@ -1160,76 +1136,142 @@ class _PopularShelves extends ConsumerWidget {
           ),
           ),
           const SizedBox(height: 10),
-          SizedBox(
+          WaveRail(
             height: 178,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: artists.length,
-              separatorBuilder: (_, _) =>
-                  const SizedBox(width: 16),
-              itemBuilder: (context, i) {
-                final a = artists[i];
-                return WaveEntrance(
-                  index: i,
-                  rise: 10,
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                  onTap: () => context.go(
-                      '/artist/${Uri.encodeComponent(a.name)}'),
-                  child: SizedBox(
-                    width: 120,
-                    child: Column(
-                      children: [
-                        Stack(
-                          children: [
-                            WaveArtwork.circle(
-                                url: a.artwork,
-                                size: 120,
-                                label: a.name,
-                                title: a.name,
-                                artist: a.name),
-                            Positioned(
-                              left: 0,
-                              top: 0,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 7,
-                                    vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: Colors.black
-                                      .withValues(alpha: 0.7),
-                                  borderRadius:
-                                      BorderRadius.circular(
-                                          999),
-                                ),
-                                child: Text('${a.rank}',
-                                    style: WaveType.label
-                                        .copyWith(
-                                      fontSize: 11,
-                                      color: Colors.white,
-                                    )),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(a.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: WaveType.trackTitle
-                                .copyWith(fontSize: 12.5)),
-                      ],
-                    ),
-                  ),
-                )),
-                );
-              },
+            itemCount: artists.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 16),
+            itemBuilder: (context, i) => WaveEntrance(
+              index: i,
+              rise: 10,
+              child: _ArtistRailCard(artist: artists[i]),
             ),
           ),
         ],
       ],
+    );
+  }
+}
+
+/// Ranked artist tile for the Popular Artists rail.
+///
+/// The rest shape is a circle (radius = half the cover); hover relaxes it
+/// into a rounded square ([WaveRadius.floating]) with the app's ×1.03 lift
+/// and a drop shadow — the same shape language as the artist cells on Home
+/// and the Artists page. The rank chip sits outside the clip so the circle's
+/// corner never shaves it, and the rail is a [WaveRail] so the lift is not
+/// cut off along the rail's top edge.
+class _ArtistRailCard extends StatefulWidget {
+  final ({String name, String artwork, int rank}) artist;
+  const _ArtistRailCard({required this.artist});
+  @override
+  State<_ArtistRailCard> createState() => _ArtistRailCardState();
+}
+
+class _ArtistRailCardState extends State<_ArtistRailCard> {
+  /// Cover edge; the resting radius is half of it (a circle).
+  static const double _size = 120;
+
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final radius = BorderRadius.circular(
+      _hover ? WaveRadius.floating : _size / 2,
+    );
+    final a = widget.artist;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: () => context.go('/artist/${Uri.encodeComponent(a.name)}'),
+        child: SizedBox(
+          width: _size,
+          child: Column(
+            children: [
+              AnimatedScale(
+                scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+                duration: WaveMotion.fast,
+                curve: Curves.easeOutCubic,
+                child: Stack(
+                  // The lift, the shadow and the rank chip all paint
+                  // outside the cover, so nothing here may clip.
+                  clipBehavior: Clip.none,
+                  children: [
+                    AnimatedContainer(
+                      duration: WaveMotion.normal,
+                      curve: Curves.easeOutCubic,
+                      // The clip is what animates the shape, so the
+                      // artwork renders square and lets this own it.
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        borderRadius: radius,
+                        boxShadow: [
+                          if (_hover)
+                            BoxShadow(
+                              color: Colors.black
+                                  .withValues(alpha: dark ? 0.45 : 0.18),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                        ],
+                      ),
+                      // Hairline as a *foreground* decoration: a plain
+                      // `border` would inset the cover by 1px, while this
+                      // keeps the ring exactly on the clip edge for both
+                      // shapes.
+                      foregroundDecoration: BoxDecoration(
+                        borderRadius: radius,
+                        border: Border.all(color: waveDivider(context)),
+                      ),
+                      child: WaveArtwork(
+                        url: a.artwork,
+                        size: _size,
+                        radius: WaveRadius.structural,
+                        kind: ArtworkKind.artist,
+                        label: a.name,
+                        title: a.name,
+                        artist: a.name,
+                      ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text('${a.rank}',
+                            style: WaveType.label.copyWith(
+                              fontSize: 11,
+                              color: Colors.white,
+                            )),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(a.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: WaveType.trackTitle.copyWith(fontSize: 12.5)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
