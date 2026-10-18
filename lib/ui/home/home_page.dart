@@ -998,7 +998,7 @@ class _FeaturedHero extends ConsumerWidget {
                     },
                   ),
                   const SizedBox(width: 12),
-                  GestureDetector(
+                  _RadioPill(
                     onTap: () async {
                       await ref
                           .read(playbackServiceProvider.notifier)
@@ -1007,19 +1007,6 @@ class _FeaturedHero extends ConsumerWidget {
                               sourceLabel: 'For you radio',
                               endlessRadio: true);
                     },
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(WaveIcons.radio,
-                            size: 14,
-                            color: waveTextSecondary(context)),
-                        const SizedBox(width: 6),
-                        Text('Radio',
-                            style: WaveType.label.copyWith(
-                                color:
-                                    waveTextSecondary(context))),
-                      ],
-                    ),
                   ),
                 ],
               ),
@@ -1179,34 +1166,115 @@ class _PlayPill extends StatefulWidget {
 
 class _PlayPillState extends State<_PlayPill> {
   bool _hover = false;
+  bool _pressed = false;
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    // Same accent language as the dock's transport disc: accent fill,
+    // contrast glyph (`onAccentFor` — the accent can be off-white, so a
+    // hardcoded black/white glyph would vanish), hover 93%, pressed 82%.
+    final accent = waveAccent(context);
+    final onAccent = onAccentFor(accent);
+    final bg = _pressed
+        ? accent.withValues(alpha: 0.82)
+        : _hover
+            ? accent.withValues(alpha: 0.93)
+            : accent;
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
       child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _pressed ? 0.96 : 1.0,
+          duration: WaveMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: WaveMotion.fast,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(999),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black
+                      .withValues(alpha: dark ? 0.45 : 0.18),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(WaveIcons.play, size: 14, color: onAccent),
+                const SizedBox(width: 8),
+                Text('Play',
+                    style: WaveType.label.copyWith(color: onAccent)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Outlined companion to [_PlayPill]: same pill geometry, hairline border
+/// instead of an accent fill, so the hero's two actions read as one pair
+/// (primary accent + secondary outline) rather than a pill and bare text.
+class _RadioPill extends StatefulWidget {
+  final VoidCallback onTap;
+  const _RadioPill({required this.onTap});
+  @override
+  State<_RadioPill> createState() => _RadioPillState();
+}
+
+class _RadioPillState extends State<_RadioPill> {
+  bool _hover = false;
+  bool _pressed = false;
+  @override
+  Widget build(BuildContext context) {
+    final fg = waveTextSecondary(context);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: WaveMotion.fast,
           padding:
               const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
           decoration: BoxDecoration(
-            color: _hover
-                ? (dark ? Colors.white : Colors.black)
-                    .withValues(alpha: 0.85)
-                : (dark ? Colors.white : Colors.black),
+            color: _pressed
+                ? wavePressedWash(context)
+                : _hover
+                    ? waveHoverWash(context)
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: waveDivider(context)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(WaveIcons.play,
-                  size: 14, color: dark ? Colors.black : Colors.white),
+              Icon(WaveIcons.radio, size: 14, color: fg),
               const SizedBox(width: 8),
-              Text('Play',
-                  style: WaveType.label.copyWith(
-                      color: dark ? Colors.black : Colors.white)),
+              Text('Radio', style: WaveType.label.copyWith(color: fg)),
             ],
           ),
         ),
