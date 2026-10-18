@@ -12,6 +12,7 @@ import '../components/buttons.dart' show LWTooltip, WaveGhostButton, WavePrimary
 import '../components/desktop_table.dart';
 import '../components/hero.dart';
 import '../components/menus.dart';
+import '../components/select.dart';
 import '../components/states.dart';
 import 'playlist_dialogs.dart'
     show
@@ -229,38 +230,15 @@ class _WavePlaylistDetailPageState
                         '${tracks.length} tracks',
                     sortSlot: LWTooltip(
                       message: 'Sort (also sortable via table headers)',
-                      child: DropDownButton(
-                        transitionBuilder: fastFlyoutTransition,
-                        title: Text(
-                          _sort == 'default'
-                              ? 'Default order'
-                              : (_sort == 'title'
-                                  ? 'Title A–Z'
-                                  : 'Artist A–Z'),
-                        ),
-                        items: [
-                          MenuFlyoutItem(
-                            text:
-                                const Text('Default order'),
-                            onPressed: () => setState(
-                              () => _sort = 'default',
-                            ),
-                          ),
-                          MenuFlyoutItem(
-                            text:
-                                const Text('Title A–Z'),
-                            onPressed: () => setState(
-                              () => _sort = 'title',
-                            ),
-                          ),
-                          MenuFlyoutItem(
-                            text:
-                                const Text('Artist A–Z'),
-                            onPressed: () => setState(
-                              () => _sort = 'artist',
-                            ),
-                          ),
+                      child: WaveSelect<String>(
+                        value: _sort,
+                        options: const [
+                          WaveSelectOption(
+                              value: 'default', label: 'Default order'),
+                          WaveSelectOption(value: 'title', label: 'Title A–Z'),
+                          WaveSelectOption(value: 'artist', label: 'Artist A–Z'),
                         ],
+                        onChanged: (v) => setState(() => _sort = v),
                       ),
                     ),
                   ),

@@ -18,6 +18,7 @@ import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/innertube/yt_web_login.dart';
 import '../components/artwork.dart';
+import '../components/select.dart';
 import 'yt_profile_chooser.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
@@ -766,18 +767,14 @@ class _Appearance extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ComboBox<String>(
+              WaveSelect<String>(
                 value: theme.hazeMaterial,
-                items: const [
-                  ComboBoxItem(value: 'automatic', child: Text('Automatic')),
-                  ComboBoxItem(value: 'haze', child: Text('Haze')),
-                  ComboBoxItem(value: 'solid', child: Text('Solid')),
+                options: const [
+                  WaveSelectOption(value: 'automatic', label: 'Automatic'),
+                  WaveSelectOption(value: 'haze', label: 'Haze'),
+                  WaveSelectOption(value: 'solid', label: 'Solid'),
                 ],
-                onChanged: (v) {
-                  if (v != null) {
-                    onUpdate((p) => p.setHazeMaterial(v));
-                  }
-                },
+                onChanged: (v) => onUpdate((p) => p.setHazeMaterial(v)),
               ),
               const SizedBox(height: 10),
               const Text('Haze intensity', style: WaveType.trackTitle),
@@ -850,20 +847,16 @@ class _Lyrics extends ConsumerWidget {
           const SizedBox(height: 10),
           const Text('Primary provider', style: WaveType.trackTitle),
           const SizedBox(height: 6),
-          ComboBox<String>(
+          WaveSelect<String>(
             value: LyricsProviderId.fromId(prefs.lyricsProviderId).id,
-            items: [
+            options: [
               for (final provider in LyricsProviderId.values)
-                ComboBoxItem(
+                WaveSelectOption(
                   value: provider.id,
-                  child: Text(provider.title),
+                  label: provider.title,
                 ),
             ],
-            onChanged: (v) {
-              if (v != null) {
-                onUpdate((p) => p.setLyricsProviderId(v));
-              }
-            },
+            onChanged: (v) => onUpdate((p) => p.setLyricsProviderId(v)),
           ),
           const SizedBox(height: 4),
           Text(
@@ -2530,23 +2523,19 @@ class _WasapiOutputSettings extends ConsumerWidget {
       children: [
         const Text('Device', style: WaveType.trackTitle),
         const SizedBox(height: 6),
-        ComboBox<String>(
-          isExpanded: true,
+        WaveSelect<String>(
+          expanded: true,
           value: devices.any((d) => d.id == selected) ? selected : '',
-          items: [
-            const ComboBoxItem(value: '', child: Text('System Default')),
+          options: [
+            const WaveSelectOption(value: '', label: 'System Default'),
             for (final d in devices)
-              ComboBoxItem(
+              WaveSelectOption(
                 value: d.id,
-                child: Text(
-                  d.isDefault ? '${d.displayName} (default)' : d.displayName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                label: d.displayName,
+                hint: d.isDefault ? 'default' : null,
               ),
           ],
           onChanged: (v) async {
-            if (v == null) return;
             await notifier.selectDevice(v);
             await onUpdate((_) async {});
           },
@@ -2603,19 +2592,17 @@ class _QualityRow extends StatelessWidget {
             ],
           ),
         ),
-        ComboBox<int>(
+        WaveSelect<int>(
           value: value,
-          items: const [
-            ComboBoxItem(value: 28, child: Text('Dolby Atmos')),
-            ComboBoxItem(value: 27, child: Text('Hi-Res · 24/192')),
-            ComboBoxItem(value: 7, child: Text('Hi-Res · 24/96')),
-            ComboBoxItem(value: 6, child: Text('Lossless · 16/44.1')),
-            ComboBoxItem(value: 5, child: Text('320k MP3')),
-            ComboBoxItem(value: -1, child: Text('Opus · YouTube')),
+          options: const [
+            WaveSelectOption(value: 28, label: 'Dolby Atmos'),
+            WaveSelectOption(value: 27, label: 'Hi-Res · 24/192'),
+            WaveSelectOption(value: 7, label: 'Hi-Res · 24/96'),
+            WaveSelectOption(value: 6, label: 'Lossless · 16/44.1'),
+            WaveSelectOption(value: 5, label: '320k MP3'),
+            WaveSelectOption(value: -1, label: 'Opus · YouTube'),
           ],
-          onChanged: (v) {
-            if (v != null) onChanged(v);
-          },
+          onChanged: onChanged,
         ),
       ],
     );

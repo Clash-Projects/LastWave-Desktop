@@ -11,6 +11,7 @@ import '../../features/innertube/innertube_api.dart';
 import '../components/artwork.dart';
 import '../components/hero.dart';
 import '../components/menus.dart';
+import '../components/select.dart';
 import '../components/states.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -868,17 +869,12 @@ class _NewReleasesExplorer extends StatelessWidget {
               onChanged: onQuery,
               hint: 'Filter new releases…',
               countLabel: '${shown.length} of ${list.length}',
-              sortSlot: ComboBox<String>(
+              sortSlot: WaveSelect<String>(
                 value: sort,
-                items: const [
-                  ComboBoxItem(
-                      value: 'featured',
-                      child: Text('Featured')),
-                  ComboBoxItem(
-                      value: 'az', child: Text('Title A–Z')),
-                  ComboBoxItem(
-                      value: 'artist',
-                      child: Text('Artist A–Z')),
+                options: const [
+                  WaveSelectOption(value: 'featured', label: 'Featured'),
+                  WaveSelectOption(value: 'az', label: 'Title A–Z'),
+                  WaveSelectOption(value: 'artist', label: 'Artist A–Z'),
                 ],
                 onChanged: onSort,
               ),
