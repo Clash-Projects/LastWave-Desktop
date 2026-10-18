@@ -160,8 +160,11 @@ class WaveGlass extends StatelessWidget {
     final dark = waveIsDark(context);
     final reduceT = MediaQuery.maybeOf(context)?.highContrast ?? false;
     final blurOn = blur && WaveHazeScope.blurEnabled(context) && !reduceT;
-    final fill = (dark ? const Color(0xFF121212) : const Color(0xFFF4F4F4))
-        .withValues(alpha: blurOn ? 0.46 : 0.78);
+    // Haze fill rides the surface ladder, so AMOLED collapses it with the
+    // rest of the chrome (it used to be a fixed #121212 / #F4F4F4, which
+    // sat *above* the AMOLED base instead of lifting from it).
+    final base = dark ? waveSurface(context) : WaveColors.lightBackground;
+    final fill = base.withValues(alpha: blurOn ? 0.46 : 0.78);
     final edge = (dark ? Colors.white : Colors.black)
         .withValues(alpha: dark ? 0.16 : 0.10);
 

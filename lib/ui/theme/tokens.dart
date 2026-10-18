@@ -35,17 +35,19 @@ class WaveColors {
   static const outline = Color(0xFF2B2B2B);
   static const outlineSoft = Color(0xFF1F1F1F);
 
-  /// Soft hairline / wash surface (#1F1F1F). Alias of [outlineSoft].
-  static const soft = outlineSoft;
-
   static const textPrimary = Color(0xFFF5F4F0);
   static const textSecondary = Color(0xFFA8A6A0);
-  static const textTertiary = Color(0xFF6E6C66);
+
+  /// Meta tier (timestamps, captions, column sub-headers).
+  ///
+  /// Sits at 4.7:1 on the raised surface — it used to be `#6E6C66` (3.2:1
+  /// raised, 2.9:1 overlay), which is squinty for 11–12px text. Still
+  /// clearly quieter than [textSecondary].
+  static const textTertiary = Color(0xFF8A8880);
 
   // Neutral accent — off-white. Play / progress / selected use this
   // by default; artwork tint may override sparingly at runtime.
   static const defaultAccent = Color(0xFFF5F4F0);
-  static const accentDim = Color(0xFF3A3A38);
   static const success = Color(0xFF7BE3A8);
   static const warn = Color(0xFFE0A030);
   static const danger = Color(0xFFE0506A);
@@ -63,7 +65,9 @@ class WaveColors {
   static const lightOutlineSoft = Color(0xFFEDEBE9);
   static const lightTextPrimary = Color(0xFF1B1A19);
   static const lightTextSecondary = Color(0xFF605E5C);
-  static const lightTextTertiary = Color(0xFF8A8886);
+
+  /// Meta tier — 4.8:1 on white (was `#8A8886`, 3.5:1). See [textTertiary].
+  static const lightTextTertiary = Color(0xFF74726F);
 
   // AMOLED — pure-black Midnight variant (user pref `lw_amoled`). Only
   // the base/shell surfaces collapse to black; text, outline and accent

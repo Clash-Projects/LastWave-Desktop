@@ -6,6 +6,8 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../ui/theme/tokens.dart';
+
 /// Desktop platform integration: native Mica/acrylic materials,
 /// custom window chrome, tray, global hotkeys.
 ///
@@ -27,9 +29,9 @@ Future<void> setupWindow() async {
       center: true,
       title: 'LastWave',
       titleBarStyle: TitleBarStyle.hidden,
-      // Neutral graphite — matches WaveColors.background so first frame
-      // never flashes navy in either theme.
-      backgroundColor: Color(0xFF0E0E0E),
+      // Neutral graphite — the Wave token, so first frame never flashes
+      // a different base in either theme.
+      backgroundColor: WaveColors.background,
     );
     await windowManager.waitUntilReadyToShow(options, () async {
       await windowManager.show();
@@ -69,8 +71,8 @@ Future<void> applyWindowMaterial({
     );
     await windowManager.setBackgroundColor(
       isLight
-          ? const Color(0xFFF3F3F3)
-          : (amoled ? const Color(0xFF000000) : const Color(0xFF0E0E0E)),
+          ? WaveColors.lightBackground
+          : (amoled ? WaveColors.amoledBackground : WaveColors.background),
     );
   } catch (_) {}
 }

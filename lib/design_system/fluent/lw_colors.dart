@@ -17,10 +17,11 @@ import '../../../ui/theme/tokens.dart';
 /// - surfaceElevated  → player dock / raised controls
 /// - surfaceFlyout    → MenuFlyout / ContentDialog / popover (Haze L3)
 /// - surfacePlayer    → persistent player dock (Haze L1 + hairline)
-/// - surfaceSelection → selected row wash (accent 10%)
 ///
 /// Text + interaction tokens mirror WinUI rest visuals:
-/// hover 7% wash · pressed 12% · selected accent wash · focus 2px ring.
+/// hover 7% wash · pressed 12% · selected accent wash · focus 2px ring
+/// ([waveFocusRing], the accent — a fixed dark grey was invisible on the
+/// graphite base).
 class LwColors {
   LwColors._();
 
@@ -35,7 +36,6 @@ class LwColors {
   static const surfaceElevated = WaveColors.surfaceOverlay; // #262626
   static const surfaceFlyout = WaveColors.surfaceRaised; // #1E1E1E
   static const surfacePlayer = WaveColors.dockTranslucent; // 0xF2141414
-  static const surfaceSelection = WaveColors.accentDim; // ring + wash base
 
   static const textPrimary = WaveColors.textPrimary;
   static const textSecondary = WaveColors.textSecondary;
