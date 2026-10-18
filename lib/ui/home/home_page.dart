@@ -729,27 +729,23 @@ class _YtShelfRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return WaveRail(
       height: 216,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        itemCount: entities.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 12),
-        itemBuilder: (context, i) {
-          final e = entities[i];
-          return SizedBox(
-            width: 160,
-            child: WaveMediaCard(
-              title: e.name,
-              subtitle: e.subtitle,
-              titleFallback: e.name,
-              artworkUrl: e.artworkUrl,
-              onTap: () => _open(context, e),
-            ),
-          );
-        },
-      ),
+      itemCount: entities.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 12),
+      itemBuilder: (context, i) {
+        final e = entities[i];
+        return SizedBox(
+          width: 160,
+          child: WaveMediaCard(
+            title: e.name,
+            subtitle: e.subtitle,
+            titleFallback: e.name,
+            artworkUrl: e.artworkUrl,
+            onTap: () => _open(context, e),
+          ),
+        );
+      },
     );
   }
 }
@@ -778,30 +774,26 @@ class _YtSongCardRow extends ConsumerWidget {
           tracks[i],
           sourceLabel: sourceLabel,
         );
-    return SizedBox(
+    return WaveRail(
       height: 216,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        itemCount: tracks.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 12),
-        itemBuilder: (context, i) {
-          final t = tracks[i];
-          return SizedBox(
-            width: 160,
-            child: WaveMediaCard(
-              title: t.name,
-              subtitle: t.artist,
-              titleFallback: t.name,
-              artist: t.artist,
-              videoId: t.videoId,
-              artworkUrl: t.artworkUrl,
-              onTap: () => play(i),
-              onPlay: () => play(i),
-            ),
-          );
-        },
-      ),
+      itemCount: tracks.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 12),
+      itemBuilder: (context, i) {
+        final t = tracks[i];
+        return SizedBox(
+          width: 160,
+          child: WaveMediaCard(
+            title: t.name,
+            subtitle: t.artist,
+            titleFallback: t.name,
+            artist: t.artist,
+            videoId: t.videoId,
+            artworkUrl: t.artworkUrl,
+            onTap: () => play(i),
+            onPlay: () => play(i),
+          ),
+        );
+      },
     );
   }
 }
@@ -1347,20 +1339,17 @@ class _CoverShelf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return WaveRail(
       height: 208,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: side),
-        itemCount: tracks.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, i) => WaveEntrance(
-          index: i,
-          rise: 10,
-          child: _CoverCard(
-            track: tracks[i],
-            source: source,
-          ),
+      padding: EdgeInsets.symmetric(horizontal: side),
+      itemCount: tracks.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 14),
+      itemBuilder: (context, i) => WaveEntrance(
+        index: i,
+        rise: 10,
+        child: _CoverCard(
+          track: tracks[i],
+          source: source,
         ),
       ),
     );
@@ -1536,27 +1525,24 @@ class _MixShelf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return WaveRail(
       height: 296,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: side),
-        itemCount: tracks.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, i) {
-          final t = tracks[i];
-          return WaveEntrance(
-            index: i,
-            rise: 10,
-            child: _MixCard(
-              track: t,
-              title: _titles[i % _titles.length],
-              blurb: _blurs[i % _blurs.length],
-              badge: 'MIX 0${i + 1}',
-            ),
-          );
-        },
-      ),
+      padding: EdgeInsets.symmetric(horizontal: side),
+      itemCount: tracks.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 14),
+      itemBuilder: (context, i) {
+        final t = tracks[i];
+        return WaveEntrance(
+          index: i,
+          rise: 10,
+          child: _MixCard(
+            track: t,
+            title: _titles[i % _titles.length],
+            blurb: _blurs[i % _blurs.length],
+            badge: 'MIX 0${i + 1}',
+          ),
+        );
+      },
     );
   }
 }
@@ -1774,20 +1760,17 @@ class _AlbumShelf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return WaveRail(
       height: 214,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: side),
-        itemCount: tracks.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, i) => WaveEntrance(
-          index: i,
-          rise: 10,
-          child: _AlbumCard(
-            track: tracks[i],
-            source: source,
-          ),
+      padding: EdgeInsets.symmetric(horizontal: side),
+      itemCount: tracks.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 14),
+      itemBuilder: (context, i) => WaveEntrance(
+        index: i,
+        rise: 10,
+        child: _AlbumCard(
+          track: tracks[i],
+          source: source,
         ),
       ),
     );
@@ -2161,18 +2144,15 @@ class _ArtistShelf extends StatelessWidget {
   const _ArtistShelf({required this.tracks, required this.side});
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return WaveRail(
       height: 168,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: side),
-        itemCount: tracks.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 16),
-        itemBuilder: (context, i) {
-          final t = tracks[i];
-          return WaveEntrance(index: i, rise: 10, child: _ArtistTile(track: t));
-        },
-      ),
+      padding: EdgeInsets.symmetric(horizontal: side),
+      itemCount: tracks.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 16),
+      itemBuilder: (context, i) {
+        final t = tracks[i];
+        return WaveEntrance(index: i, rise: 10, child: _ArtistTile(track: t));
+      },
     );
   }
 }

@@ -15,6 +15,7 @@ import '../../../features/search/shared_providers.dart'
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, WaveChip, WaveGhostButton, WavePrimaryButton;
 import '../components/desktop_table.dart';
+import '../components/shelf.dart';
 import '../components/states.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -437,31 +438,28 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                     Text('Albums',
                         style: WaveType.sectionTitle),
                     const SizedBox(height: 10),
-                    SizedBox(
+                    WaveRail(
                       height: 196,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: d.albums.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(width: 12),
-                        itemBuilder: (context, i) {
-                          final a = d.albums[i];
-                          return WaveEntrance(
-                            index: i,
-                            rise: 10,
-                            child: _ArtistAlbumCard(
-                              artworkUrl: a.artworkUrl,
-                              title: a.name,
-                              subtitle: a.subtitle,
-                              width: 136,
-                              artSize: 136,
-                              artist: d.name,
-                              onTap: () => context.go(
-                                  '/album/${Uri.encodeComponent(a.browseId)}'),
-                            ),
-                          );
-                        },
-                      ),
+                      itemCount: d.albums.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(width: 12),
+                      itemBuilder: (context, i) {
+                        final a = d.albums[i];
+                        return WaveEntrance(
+                          index: i,
+                          rise: 10,
+                          child: _ArtistAlbumCard(
+                            artworkUrl: a.artworkUrl,
+                            title: a.name,
+                            subtitle: a.subtitle,
+                            width: 136,
+                            artSize: 136,
+                            artist: d.name,
+                            onTap: () => context.go(
+                                '/album/${Uri.encodeComponent(a.browseId)}'),
+                          ),
+                        );
+                      },
                     ),
                   ],
                   if (d.singles.isNotEmpty) ...[
@@ -469,32 +467,29 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                     Text('Singles & EPs',
                         style: WaveType.sectionTitle),
                     const SizedBox(height: 10),
-                    SizedBox(
+                    WaveRail(
                       height: 168,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: d.singles.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(width: 12),
-                        itemBuilder: (context, i) {
-                          final a = d.singles[i];
-                          return WaveEntrance(
-                            index: i,
-                            rise: 10,
-                            child: _ArtistAlbumCard(
-                              artworkUrl: a.artworkUrl,
-                              title: a.name,
-                              subtitle: '',
-                              width: 118,
-                              artSize: 118,
-                              titleSize: 12,
-                              artist: d.name,
-                              onTap: () => context.go(
-                                  '/album/${Uri.encodeComponent(a.browseId)}'),
-                            ),
-                          );
-                        },
-                      ),
+                      itemCount: d.singles.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(width: 12),
+                      itemBuilder: (context, i) {
+                        final a = d.singles[i];
+                        return WaveEntrance(
+                          index: i,
+                          rise: 10,
+                          child: _ArtistAlbumCard(
+                            artworkUrl: a.artworkUrl,
+                            title: a.name,
+                            subtitle: '',
+                            width: 118,
+                            artSize: 118,
+                            titleSize: 12,
+                            artist: d.name,
+                            onTap: () => context.go(
+                                '/album/${Uri.encodeComponent(a.browseId)}'),
+                          ),
+                        );
+                      },
                     ),
                   ],
                   if (d.related.isNotEmpty) ...[

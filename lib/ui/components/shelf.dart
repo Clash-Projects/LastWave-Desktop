@@ -96,6 +96,88 @@ class LWSectionHeader extends StatelessWidget {
 ///
 /// Structurally different from the old uniform boxed rails: header owns
 /// hierarchy, cards are artwork-led with hover play affordances.
+/// Single-row horizontal carousel that lets its tiles lift on hover.
+///
+/// The lift is a ×1.03 scale plus a drop shadow reaching ~10px above the
+/// cover (see [WaveMediaCard]). A plain `ListView` clips to its own
+/// viewport, whose height *is* the tile height — so the tile sits flush
+/// against the top edge and the whole lift gets shaved off along the
+/// rail's top the moment the pointer enters. The cover then reads as
+/// "cut off at the top" and the shadow plate as unrounded, worse on the
+/// first rail of a page where there is nothing above to hide it.
+///
+/// This is `SizedBox(height:) > ListView.separated` with one change: the
+/// clip keeps only the leading/trailing edges (off-screen tiles still
+/// disappear) and leaves the vertical axis alone, so the lift survives.
+/// It costs no layout: the overflow lands in the gap the section spacing
+/// above the rail already leaves.
+class WaveRail extends StatelessWidget {
+  final double height;
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+  final IndexedWidgetBuilder? separatorBuilder;
+  final EdgeInsetsGeometry padding;
+  final ScrollPhysics? physics;
+
+  const WaveRail({
+    super.key,
+    required this.height,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.separatorBuilder,
+    this.padding = EdgeInsets.zero,
+    this.physics,
+  });
+
+  /// Kept outside the rail's left/right edges so the first and last
+  /// tile's ×1.03 scale is not shaved either.
+  static const _sideSlack = 6.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final list = separatorBuilder == null
+        ? ListView.builder(
+            scrollDirection: Axis.horizontal,
+            clipBehavior: Clip.none,
+            padding: padding,
+            physics: physics,
+            itemCount: itemCount,
+            itemBuilder: itemBuilder,
+          )
+        : ListView.separated(
+            scrollDirection: Axis.horizontal,
+            clipBehavior: Clip.none,
+            padding: padding,
+            physics: physics,
+            itemCount: itemCount,
+            itemBuilder: itemBuilder,
+            separatorBuilder: separatorBuilder!,
+          );
+    return SizedBox(
+      height: height,
+      child: ClipRect(clipper: const _RailClip(), child: list),
+    );
+  }
+}
+
+/// Clips [WaveRail] horizontally, but leaves a tile height of slack above
+/// and below so the hover lift is never cut (finite, so the rect stays
+/// safe for the engine's clip layer).
+class _RailClip extends CustomClipper<Rect> {
+  const _RailClip();
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(
+        -WaveRail._sideSlack,
+        -size.height,
+        size.width + WaveRail._sideSlack,
+        size.height * 2,
+      );
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Rect> oldClipper) => false;
+}
+
 class WaveShelf extends StatelessWidget {
   final String title;
   final String? subtitle;
@@ -164,25 +246,22 @@ class WaveShelf extends StatelessWidget {
           ],
         ),
         const SizedBox(height: WaveSpacing.x8),
-        SizedBox(
+        WaveRail(
           height: height,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(
-              parent: AlwaysScrollableScrollPhysics(),
-            ),
-              itemCount: children.length,
-              separatorBuilder: (_, _) =>
-                  const SizedBox(width: WaveSpacing.x8),
-              // Staggered entrance per card (group-gated when the page
-              // provides a WaveEntranceGroup).
-            itemBuilder: (context, i) => WaveEntrance(
-              index: i,
-              rise: 10,
-              child: SizedBox(
-                width: cardWidth,
-                child: children[i],
-              ),
+          itemCount: children.length,
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
+          ),
+          separatorBuilder: (_, _) =>
+              const SizedBox(width: WaveSpacing.x8),
+          // Staggered entrance per card (group-gated when the page
+          // provides a WaveEntranceGroup).
+          itemBuilder: (context, i) => WaveEntrance(
+            index: i,
+            rise: 10,
+            child: SizedBox(
+              width: cardWidth,
+              child: children[i],
             ),
           ),
         ),
