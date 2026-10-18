@@ -340,13 +340,15 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
             suffix: widget.controller.text.isNotEmpty
                 ? Padding(
                     padding: const EdgeInsets.only(right: 4),
-                    child: IconButton(
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: IconButton(
                       icon: const Icon(FluentIcons.chrome_close, size: 10),
                       onPressed: () {
                         widget.controller.clear();
                         setState(() {});
                       },
-                    ),
+                    )),
                   )
                 : Padding(
                     padding: const EdgeInsets.only(right: 8),

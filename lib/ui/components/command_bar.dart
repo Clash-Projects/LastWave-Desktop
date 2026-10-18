@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../theme/tokens.dart';
-import 'buttons.dart' show LWTooltip, WaveGhostButton, WavePrimaryButton;
+import 'buttons.dart' show LWTooltip, WaveButton, WaveGhostButton, WavePrimaryButton;
 import 'menus.dart';
 
 /// WinUI-inspired command surface for music collections.
@@ -71,7 +71,7 @@ class WaveCommandBar extends StatelessWidget {
               height: 32,
               child: WaveMenuButton(
                 entries: overflowItems,
-                buttonBuilder: (context, onOpen) => Button(
+                buttonBuilder: (context, onOpen) => WaveButton(
                   onPressed: onOpen,
                   child: const Icon(FluentIcons.more, size: 14),
                 ),

@@ -85,7 +85,7 @@ class WaveDownloadsPage extends ConsumerWidget {
                             '${failed.length} download${failed.length == 1 ? '' : 's'} failed'),
                         content: Text(failed.first.error ??
                             'Check connection and retry.'),
-                        action: Button(
+                        action: WaveButton(
                           onPressed: () {
                             final m = ref.read(
                                 downloadManagerProvider
@@ -187,13 +187,13 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
             ),
           ),
         ),
-        Button(
+        WaveButton(
           onPressed: _pick,
           child: const Text('Change folder'),
         ),
         if (custom.isNotEmpty) ...[
           const SizedBox(width: 8),
-          Button(
+          WaveButton(
             onPressed: _reset,
             child: const Text('Reset'),
           ),

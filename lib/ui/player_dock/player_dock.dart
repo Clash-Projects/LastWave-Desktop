@@ -13,7 +13,7 @@ import '../../features/player/playback_service.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../components/ambient.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip, LWVolumeSlider;
+import '../components/buttons.dart' show LWTooltip, LWVolumeSlider, WaveLink;
 import '../components/menus.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -1255,7 +1255,7 @@ class _VolumeFlyoutGlyphState extends ConsumerState<_VolumeFlyoutGlyph> {
                         onChanged: widget.onVolume,
                       ),
                       const SizedBox(height: 4),
-                      HyperlinkButton(
+                      WaveLink(
                         onPressed: () {
                           widget.onMute();
                           _controller.close();

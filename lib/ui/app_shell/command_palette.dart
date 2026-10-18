@@ -1,3 +1,4 @@
+import '../components/buttons.dart';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -418,7 +419,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
           ),
         ),
         actions: [
-          Button(
+          WaveButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Close'),
           ),

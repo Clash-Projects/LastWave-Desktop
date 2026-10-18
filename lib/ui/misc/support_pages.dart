@@ -149,7 +149,7 @@ class _WaveProfilePageState
               ),
               if (viewing != null) ...[
                 const SizedBox(height: 8),
-                Button(
+                WaveButton(
                   onPressed: () => ref
                       .read(viewingProfileProvider.notifier)
                       .clear(),
@@ -448,7 +448,7 @@ class WaveFriendsPage extends ConsumerWidget {
                       ? f.realName
                       : f.name,
                 ),
-                trailing: Button(
+                trailing: WaveButton(
                   onPressed: () {
                     ref
                         .read(

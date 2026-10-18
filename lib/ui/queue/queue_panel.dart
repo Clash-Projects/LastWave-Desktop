@@ -8,7 +8,7 @@ import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip;
+import '../components/buttons.dart' show LWTooltip, WaveButton, WaveFilledButton, WaveLink;
 import '../components/menus.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -98,7 +98,7 @@ class WaveQueuePanel extends ConsumerWidget {
                   message: upcoming.isEmpty
                       ? 'Nothing to clear'
                       : 'Clear up next',
-                  child: HyperlinkButton(
+                  child: WaveLink(
                     onPressed: upcoming.isEmpty
                         ? null
                         : notifier.clearUpcoming,
@@ -202,7 +202,7 @@ class WaveQueueEmpty extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
-            FilledButton(
+            WaveFilledButton(
               onPressed: onBrowse,
               child: const Text('Browse music'),
             ),
@@ -541,7 +541,7 @@ Future<void> showWaveQueueSheet(BuildContext context) {
           child: WaveQueuePanel(onClose: () => Navigator.of(context).pop()),
         ),
         actions: [
-          Button(
+          WaveButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Close'),
           ),

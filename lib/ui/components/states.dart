@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../theme/tokens.dart';
+import 'buttons.dart';
 
 /// Loading / empty / error states shared by every collection page.
 ///
@@ -123,7 +124,7 @@ class WaveEmpty extends StatelessWidget {
               ),
               if (actionLabel != null) ...[
                 const SizedBox(height: WaveSpacing.x8),
-                FilledButton(
+                WaveFilledButton(
                   onPressed: onAction,
                   child: Text(actionLabel!),
                 ),
@@ -157,7 +158,7 @@ class WaveError extends StatelessWidget {
         severity: InfoBarSeverity.error,
         action: onRetry == null
             ? null
-            : Button(
+            : WaveButton(
                 onPressed: onRetry,
                 child: const Text('Retry'),
               ),

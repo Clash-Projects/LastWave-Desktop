@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/innertube/innertube_api.dart';
 import '../components/artwork.dart';
+import '../components/buttons.dart';
 import '../theme/tokens.dart';
 
 /// Channel selection result: roster profile email + channel page ID
@@ -201,7 +202,7 @@ class _ChooserDialogState
         ),
       ),
       actions: [
-        Button(
+        WaveButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
@@ -241,7 +242,7 @@ Widget _row(BuildContext dialogContext, _LiveRow r) {
   ].join(' · ');
   return Padding(
     padding: const EdgeInsets.only(bottom: 4),
-    child: Button(
+    child: WaveButton(
       onPressed: () => Navigator.of(dialogContext).pop((
         email: r.email,
         pageId: r.channel.pageId,

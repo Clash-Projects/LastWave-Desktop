@@ -1,3 +1,4 @@
+import '../components/buttons.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -407,7 +408,7 @@ class _Account extends ConsumerWidget {
                 ),
               ),
               signedIn
-                  ? Button(
+                  ? WaveButton(
                       onPressed: () => signOutEverywhere(ref),
                       child: const Text('Sign out'),
                     )
@@ -498,7 +499,7 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
           ),
           const SizedBox(height: 8),
         ],
-        FilledButton(
+        WaveFilledButton(
           onPressed: _busy || !configured ? null : _begin,
           child: _busy && _handshake == null
               ? const Row(
@@ -529,7 +530,7 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
         ],
         if (_handshake != null) ...[
           const SizedBox(height: 8),
-          Button(
+          WaveButton(
             onPressed: _busy ? null : _finish,
             child: _busy
                 ? const Row(
@@ -1032,12 +1033,12 @@ class _Ytm extends ConsumerWidget {
                     const Expanded(
                       child: Text('Not connected', style: WaveType.trackTitle),
                     ),
-                    Button(
+                    WaveButton(
                       onPressed: () => _ytConnectWithCookies(context, ref),
                       child: const Text('Cookie Login'),
                     ),
                     const SizedBox(width: 8),
-                    FilledButton(
+                    WaveFilledButton(
                       onPressed: () => _ytConnect(context, ref),
                       child: const Text('Connect'),
                     ),
@@ -1081,7 +1082,7 @@ class _Ytm extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  FilledButton(
+                  WaveFilledButton(
                     onPressed: () async {
                       final uri =
                           Uri.parse(LiveTelemetryService.telemetryBaseUrl);
@@ -1250,13 +1251,13 @@ class _Ytm extends ConsumerWidget {
               ],
             ),
             actions: [
-              Button(
+              WaveButton(
                 onPressed: () {
                   YtWebLogin.reloadLoginPage();
                 },
                 child: const Text('Reload'),
               ),
-              Button(
+              WaveButton(
                 onPressed: () {
                   cancelled = true;
                   Navigator.of(dialogContext).pop();
@@ -1301,7 +1302,7 @@ class _Ytm extends ConsumerWidget {
               'complete the sign-in fully before closing the window.',
             ),
             actions: [
-              FilledButton(
+              WaveFilledButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('OK'),
               ),
@@ -1339,19 +1340,19 @@ class _CardActions extends ConsumerWidget {
         if (channels >= 2)
           Padding(
             padding: const EdgeInsets.only(right: 8),
-            child: Button(
+            child: WaveButton(
               onPressed: () => _ytSwitch(context, ref),
               child: const Text('Switch'),
             ),
           ),
         Padding(
           padding: const EdgeInsets.only(right: 8),
-          child: Button(
+          child: WaveButton(
             onPressed: () => _ytAddMenu(context, ref),
             child: const Text('Add'),
           ),
         ),
-        Button(
+        WaveButton(
           onPressed: () async {
             final tube = ref.read(innerTubeProvider);
             await tube.signOut();
@@ -1414,19 +1415,19 @@ class _CardActions extends ConsumerWidget {
           style: TextStyle(fontSize: 12),
         ),
         actions: [
-          Button(
+          WaveButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
-          Button(
+          WaveButton(
             onPressed: () => Navigator.of(dialogContext).pop('cookie'),
             child: const Text('Cookies'),
           ),
-          Button(
+          WaveButton(
             onPressed: () => Navigator.of(dialogContext).pop('channel'),
             child: const Text('Brand channel'),
           ),
-          FilledButton(
+          WaveFilledButton(
             onPressed: () => Navigator.of(dialogContext).pop('account'),
             child: const Text('Google account'),
           ),
@@ -1483,13 +1484,13 @@ class _CardActions extends ConsumerWidget {
               ],
             ),
             actions: [
-              Button(
+              WaveButton(
                 onPressed: () {
                   YtWebLogin.reloadLoginPage();
                 },
                 child: const Text('Reload'),
               ),
-              Button(
+              WaveButton(
                 onPressed: () {
                   cancelled = true;
                   Navigator.of(dialogContext).pop();
@@ -1571,14 +1572,14 @@ class _CardActions extends ConsumerWidget {
               ],
             ),
             actions: [
-              Button(
+              WaveButton(
                 onPressed: () {
                   cancelled = true;
                   Navigator.of(dialogContext).pop();
                 },
                 child: const Text('Cancel'),
               ),
-              FilledButton(
+              WaveFilledButton(
                 onPressed: () {
                   done = true;
                   Navigator.of(dialogContext).pop();
@@ -1678,11 +1679,11 @@ Future<void> _ytConnectWithCookies(
           ],
         ),
         actions: [
-          Button(
+          WaveButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          WaveFilledButton(
             onPressed: () {
               final text = controller.text.trim();
               if (text.isEmpty) {
@@ -1832,7 +1833,7 @@ Future<void> _showYtOk(BuildContext context, String title, String message) {
       title: Text(title),
       content: Text(message),
       actions: [
-        FilledButton(
+        WaveFilledButton(
           onPressed: () => Navigator.of(dialogContext).pop(),
           child: const Text('OK'),
         ),
@@ -1848,7 +1849,7 @@ Future<void> _showYtFail(BuildContext context, Object e) {
       title: const Text('Connection failed'),
       content: Text('$e'),
       actions: [
-        FilledButton(
+        WaveFilledButton(
           onPressed: () => Navigator.of(dialogContext).pop(),
           child: const Text('OK'),
         ),
@@ -1909,7 +1910,7 @@ class _Sources extends ConsumerWidget {
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,
-            child: FilledButton(
+            child: WaveFilledButton(
               onPressed: () => _addAddonDialog(context, ref, urls, onUpdate),
               child: const Text('Add addon'),
             ),
@@ -1942,11 +1943,11 @@ class _Sources extends ConsumerWidget {
           maxLines: 2,
         ),
         actions: [
-          Button(
+          WaveButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          WaveFilledButton(
             onPressed: () => Navigator.of(context).pop(controller.text.trim()),
             child: const Text('Add'),
           ),
@@ -1967,7 +1968,7 @@ class _Sources extends ConsumerWidget {
               'Expected something like https://host/a/<token>/ or https://host/.',
             ),
             actions: [
-              FilledButton(
+              WaveFilledButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('OK'),
               ),
@@ -1994,7 +1995,7 @@ class _Sources extends ConsumerWidget {
             'or wrong URL. Nothing was saved.',
           ),
           actions: [
-            FilledButton(
+            WaveFilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('OK'),
             ),
@@ -2053,7 +2054,7 @@ class _AddonRow extends ConsumerWidget {
               ],
             ),
           ),
-          Button(onPressed: () => onRemove(), child: const Text('Remove')),
+          WaveButton(onPressed: () => onRemove(), child: const Text('Remove')),
         ],
       ),
     );
@@ -2086,7 +2087,7 @@ class _About extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              Button(
+              WaveButton(
                 onPressed: () =>
                     _open('https://github.com/Clash-Projects/LastWave-Desktop'),
                 child: const Row(
@@ -2098,7 +2099,7 @@ class _About extends StatelessWidget {
                   ],
                 ),
               ),
-              Button(
+              WaveButton(
                 onPressed: () => _open(
                   'https://github.com/Clash-Projects/LastWave-Desktop/issues',
                 ),
@@ -2111,7 +2112,7 @@ class _About extends StatelessWidget {
                   ],
                 ),
               ),
-              Button(
+              WaveButton(
                 onPressed: () =>
                     _open('https://github.com/Clash-Projects/LastWave-Desktop'),
                 child: const Row(
@@ -2123,7 +2124,7 @@ class _About extends StatelessWidget {
                   ],
                 ),
               ),
-              Button(
+              WaveButton(
                 onPressed: () =>
                     _open('https://t.me/clashprojects'),
                 child: const Row(
@@ -2135,7 +2136,7 @@ class _About extends StatelessWidget {
                   ],
                 ),
               ),
-              Button(
+              WaveButton(
                 onPressed: () => _open(
                   'https://discord.com/invite/TMCEPSUNk2',
                 ),
@@ -2335,13 +2336,13 @@ class _Downloads extends ConsumerWidget {
                   ],
                 ),
               ),
-              Button(
+              WaveButton(
                 onPressed: () => _pickDir(ref),
                 child: const Text('Change'),
               ),
               if (custom.isNotEmpty) ...[
                 const SizedBox(width: 8),
-                Button(
+                WaveButton(
                   onPressed: () =>
                       onUpdate((p) => p.resetDownloadDir()),
                   child: const Text('Reset'),
@@ -2471,7 +2472,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
                 ),
               ),
               if (configured)
-                Button(
+                WaveButton(
                   onPressed: _busy ? null : _clear,
                   child: const Text('Clear'),
                 ),
@@ -2500,7 +2501,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
             ),
           ],
           const SizedBox(height: 10),
-          FilledButton(
+          WaveFilledButton(
             onPressed: _busy ? null : _save,
             child: _busy
                 ? const Row(
@@ -2698,10 +2699,12 @@ class _SwitchRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          ToggleSwitch(
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: ToggleSwitch(
             checked: value,
             onChanged: enabled ? onChanged : null,
-          ),
+          )),
         ],
       ),
     );

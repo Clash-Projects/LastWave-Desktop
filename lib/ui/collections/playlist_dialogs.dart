@@ -7,6 +7,7 @@ import '../../features/innertube/innertube_api.dart';
 import '../../features/library/playlist_import.dart';
 import '../../features/library/playlist_link.dart';
 import '../../features/library/playlists.dart';
+import '../components/buttons.dart';
 
 /// Shared playlist dialogs (create / rename / delete), used by the
 /// playlists browser and the local playlist detail page.
@@ -27,11 +28,11 @@ Future<void> showWaveCreatePlaylist(
             Navigator.of(context).pop(v.trim()),
       ),
       actions: [
-        Button(
+        WaveButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        WaveFilledButton(
           onPressed: () => Navigator.of(context)
               .pop(controller.text.trim()),
           child: const Text('Create'),
@@ -68,11 +69,11 @@ Future<void> showWaveRenamePlaylist(
             Navigator.of(context).pop(v.trim()),
       ),
       actions: [
-        Button(
+        WaveButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        WaveFilledButton(
           onPressed: () => Navigator.of(context)
               .pop(controller.text.trim()),
           child: const Text('Save'),
@@ -101,12 +102,12 @@ Future<void> showWaveDeletePlaylist(
         '"${playlist.title}" will be removed from your library.',
       ),
       actions: [
-        Button(
+        WaveButton(
           onPressed: () =>
               Navigator.of(context).pop(false),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        WaveFilledButton(
           onPressed: () =>
               Navigator.of(context).pop(true),
           child: const Text('Delete'),
@@ -257,11 +258,11 @@ Future<void> showWaveImportPlaylist(
             ],
           ),
           actions: [
-            Button(
+            WaveButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('Cancel'),
             ),
-            FilledButton(
+            WaveFilledButton(
               onPressed:
                   busy ? null : (ready != null ? doImport : fetch),
               child: Text(ready != null ? 'Import' : 'Fetch'),

@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'buttons.dart';
 import 'ambient.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -78,7 +79,7 @@ class LWSectionHeader extends StatelessWidget {
           ),
         ),
         if (actionLabel != null && onAction != null)
-          HyperlinkButton(
+          WaveLink(
             onPressed: onAction,
             child: Text(
               actionLabel!,
@@ -235,7 +236,7 @@ class WaveShelf extends StatelessWidget {
               ),
             if (onPlayAll != null) ...[
               const SizedBox(width: WaveSpacing.x8),
-              HyperlinkButton(
+              WaveLink(
                 onPressed: onPlayAll,
                 child: Text(
                   'Play all',

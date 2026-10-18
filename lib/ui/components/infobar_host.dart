@@ -7,6 +7,7 @@ import '../../features/addons/addon_api.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../theme/tokens.dart';
+import 'buttons.dart';
 
 /// Global Fluent InfoBar host — non-blocking feedback docked above content.
 ///
@@ -70,7 +71,7 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
         content: const Text('Connect to keep scrobbling and picks.'),
         severity: InfoBarSeverity.warning,
         isLong: false,
-        action: HyperlinkButton(
+        action: WaveLink(
           onPressed: () => context.go('/welcome'),
           child: const Text('Connect'),
         ),
@@ -113,7 +114,7 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
             ? InfoBarSeverity.success
             : InfoBarSeverity.error,
         isLong: false,
-        action: HyperlinkButton(
+        action: WaveLink(
           onPressed: () => context.go('/downloads'),
           child: const Text('Open'),
         ),

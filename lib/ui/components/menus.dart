@@ -14,7 +14,7 @@ import '../../features/player/playback_service.dart';
 import '../../features/search/shared_providers.dart';
 import '../app_shell/wave_hotkeys.dart';
 import '../theme/tokens.dart';
-import 'buttons.dart' show LWTooltip;
+import 'buttons.dart' show LWTooltip, WaveButton, WaveFilledButton;
 
 /// Snappy flyout entrance shared by every DropDownButton/menu in the
 /// app. Same slide-from-edge language as fluent's default, compressed
@@ -276,7 +276,7 @@ Future<void> showWaveTrackProperties(
         ),
       ),
       actions: [
-        FilledButton(
+        WaveFilledButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
         ),
@@ -812,7 +812,9 @@ class WaveOverflowButton extends StatelessWidget {
         buttonBuilder: (context, onOpen) => SizedBox(
           width: WaveDensity.hitArea,
           height: WaveDensity.hitArea,
-          child: IconButton(
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: IconButton(
             icon: Icon(
               icon,
               size: 15,
@@ -821,7 +823,7 @@ class WaveOverflowButton extends StatelessWidget {
                   : WaveColors.lightTextSecondary,
             ),
             onPressed: onOpen,
-          ),
+          )),
         ),
       ),
     );
@@ -869,7 +871,7 @@ Future<void> showWaveAddToPlaylist(
         ),
       ),
       actions: [
-        Button(
+        WaveButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),

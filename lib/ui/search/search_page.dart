@@ -5,7 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../components/buttons.dart' show LWTooltip;
+import '../components/buttons.dart' show LWTooltip, WaveLink;
 import '../theme/wave_icons.dart';
 
 import '../../app/track_actions.dart'
@@ -436,7 +436,7 @@ class _RecentlySearched extends StatelessWidget {
           children: [
             Text('Recently Searched', style: WaveType.sectionTitle),
             const Spacer(),
-            HyperlinkButton(
+            WaveLink(
               onPressed: onClear,
               child: Text('Clear',
                   style: WaveType.label.copyWith(color: WaveColors.danger)),
@@ -595,11 +595,13 @@ class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
                 if (_hover)
                   LWTooltip(
                     message: 'Remove',
-                    child: IconButton(
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: IconButton(
                       icon: Icon(WaveIcons.close,
                           size: 12, color: waveTextTertiary(context)),
                       onPressed: widget.onRemove,
-                    ),
+                    )),
                   ),
               ],
             ),

@@ -12,7 +12,7 @@ import '../../../features/feed/feed_repository.dart';
 import '../../../features/innertube/innertube_api.dart';
 import '../../../features/player/playback_service.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show WaveChip;
+import '../components/buttons.dart';
 import '../components/command_bar.dart';
 import '../components/desktop_table.dart';
 import '../components/menus.dart';
@@ -141,7 +141,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                             style: WaveType.pageTitle
                                 .copyWith(fontSize: 28)),
                         const SizedBox(height: 4),
-                        HyperlinkButton(
+                        WaveLink(
                           onPressed: () => context.go(
                               '/search?q=${Uri.encodeComponent(d.artist)}'),
                           child: Text(d.artist,

@@ -112,6 +112,116 @@ class _WaveIconButtonState extends State<WaveIconButton> {
   }
 }
 
+/// Fluent's own push buttons resolve `MouseCursor.defer`, so they paint the
+/// plain arrow — every Wave control sets the click cursor by hand, which made
+/// "hover shows the pointer" true of some buttons and not others. These three
+/// wrappers are that single rule for the plugin's buttons: use them instead of
+/// a raw `Button` / `FilledButton` / `HyperlinkButton`. A disabled control
+/// keeps the arrow, since there is nothing to click.
+class WaveButton extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onPressed;
+  final VoidCallback? onLongPress;
+  final ButtonStyle? style;
+  final bool autofocus;
+  final FocusNode? focusNode;
+
+  const WaveButton({
+    super.key,
+    required this.child,
+    required this.onPressed,
+    this.onLongPress,
+    this.style,
+    this.autofocus = false,
+    this.focusNode,
+  });
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        cursor: onPressed == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
+        child: Button(
+          onPressed: onPressed,
+          onLongPress: onLongPress,
+          style: style,
+          autofocus: autofocus,
+          focusNode: focusNode,
+          child: child,
+        ),
+      );
+}
+
+/// See [WaveButton] — the accent-filled variant.
+class WaveFilledButton extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onPressed;
+  final VoidCallback? onLongPress;
+  final ButtonStyle? style;
+  final bool autofocus;
+  final FocusNode? focusNode;
+
+  const WaveFilledButton({
+    super.key,
+    required this.child,
+    required this.onPressed,
+    this.onLongPress,
+    this.style,
+    this.autofocus = false,
+    this.focusNode,
+  });
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        cursor: onPressed == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
+        child: FilledButton(
+          onPressed: onPressed,
+          onLongPress: onLongPress,
+          style: style,
+          autofocus: autofocus,
+          focusNode: focusNode,
+          child: child,
+        ),
+      );
+}
+
+/// See [WaveButton] — the borderless text-link variant.
+class WaveLink extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onPressed;
+  final VoidCallback? onLongPress;
+  final ButtonStyle? style;
+  final bool autofocus;
+  final FocusNode? focusNode;
+
+  const WaveLink({
+    super.key,
+    required this.child,
+    required this.onPressed,
+    this.onLongPress,
+    this.style,
+    this.autofocus = false,
+    this.focusNode,
+  });
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        cursor: onPressed == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
+        child: HyperlinkButton(
+          onPressed: onPressed,
+          onLongPress: onLongPress,
+          style: style,
+          autofocus: autofocus,
+          focusNode: focusNode,
+          child: child,
+        ),
+      );
+}
+
 /// Large circular transport button (play/pause only).
 class WavePlayButton extends StatefulWidget {
   final bool playing;
@@ -243,7 +353,7 @@ class WavePrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton(
+    return WaveFilledButton(
       onPressed: onPressed,
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -272,7 +382,7 @@ class WaveGhostButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Button(
+    return WaveButton(
       onPressed: onPressed,
       child: Row(
         mainAxisSize: MainAxisSize.min,

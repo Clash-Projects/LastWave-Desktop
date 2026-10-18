@@ -13,7 +13,7 @@ import '../../../features/player/playback_service.dart';
 import '../../../features/search/shared_providers.dart'
     show prefsApiKeyProvider;
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip, WaveChip, WaveGhostButton, WavePrimaryButton;
+import '../components/buttons.dart' show LWTooltip, WaveChip, WaveGhostButton, WaveLink, WavePrimaryButton;
 import '../components/desktop_table.dart';
 import '../components/shelf.dart';
 import '../components/states.dart';
@@ -384,7 +384,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                             style: WaveType.sectionTitle),
                         const Spacer(),
                         if (d.popular.length > 5)
-                          HyperlinkButton(
+                          WaveLink(
                             onPressed: () => setState(() =>
                                 _showAllPopular =
                                     !_showAllPopular),
@@ -757,7 +757,7 @@ class _ExpandableBio extends StatelessWidget {
           if (overflows)
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: HyperlinkButton(
+              child: WaveLink(
                 onPressed: onToggle,
                 child: Text(
                   expanded ? 'Show less' : 'Read more',

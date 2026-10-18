@@ -6,7 +6,7 @@ import '../../app/window_lifecycle.dart';
 import '../../design_system/fluent/lw_viewport.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip;
+import '../components/buttons.dart' show LWTooltip, WaveLink;
 import '../components/states.dart';
 import 'lyrics_panel.dart';
 import '../theme/tokens.dart';
@@ -65,10 +65,12 @@ class _WaveLyricsScreenState extends ConsumerState<WaveLyricsScreen> {
                   children: [
                     LWTooltip(
                       message: 'Back to Now Playing',
-                      child: IconButton(
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: IconButton(
                         onPressed: () => context.go('/now'),
                         icon: const Icon(WaveIcons.back, size: 18),
-                      ),
+                      )),
                     ),
                     const SizedBox(width: 10),
                     if (_artwork && !_focus &&
@@ -176,7 +178,7 @@ class _WaveLyricsScreenState extends ConsumerState<WaveLyricsScreen> {
                                       )),
                                 ],
                                 const SizedBox(height: 20),
-                                HyperlinkButton(
+                                WaveLink(
                                   onPressed: () => context.go('/now'),
                                   child: const Text('Open Now Playing'),
                                 ),
@@ -218,11 +220,13 @@ class _ModeGlyph extends StatelessWidget {
   Widget build(BuildContext context) {
     return LWTooltip(
       message: tooltip,
-      child: IconButton(
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: IconButton(
         onPressed: onTap,
         icon: Icon(icon, size: 18,
             color: active ? waveAccent(context) : waveTextSecondary(context)),
-      ),
+      )),
     );
   }
 }
