@@ -113,7 +113,7 @@ class WaveHaze extends StatelessWidget {
     this.shadow,
     this.enableBlur,
   })  : level = LwHazeLevel.l3,
-        borderRadius = const BorderRadius.all(Radius.circular(7));
+        borderRadius = const BorderRadius.all(Radius.circular(WaveRadius.menu));
 
   @override
   Widget build(BuildContext context) {
@@ -150,7 +150,7 @@ class WaveGlass extends StatelessWidget {
   const WaveGlass({
     super.key,
     required this.child,
-    this.borderRadius = const BorderRadius.all(Radius.circular(7)),
+    this.borderRadius = const BorderRadius.all(Radius.circular(WaveRadius.menu)),
     this.padding,
     this.blur = true,
   });

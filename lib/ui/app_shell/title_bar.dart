@@ -347,7 +347,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                           color: dark
                               ? WaveColors.surfaceRaised
                               : WaveColors.lightOverlay,
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: WaveRadius.tinyRadius,
                           border: Border.all(
                             color: waveDivider(context).withValues(alpha: 0.5),
                           ),

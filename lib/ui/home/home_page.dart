@@ -919,7 +919,7 @@ class _FeaturedHero extends ConsumerWidget {
       children: [
         Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: WaveRadius.artworkRadius,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.4),
@@ -932,7 +932,7 @@ class _FeaturedHero extends ConsumerWidget {
             url: track.artworkUrl,
             videoId: track.videoId,
             size: artSize,
-            radius: 8,
+            radius: WaveRadius.artwork,
             title: track.name,
             artist: track.artist,
             label: track.name,
@@ -1042,7 +1042,7 @@ class _FeaturedHero extends ConsumerWidget {
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: wash,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: WaveRadius.floatingRadius,
         ),
         child: left,
       );
@@ -1053,7 +1053,7 @@ class _FeaturedHero extends ConsumerWidget {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: wash,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: WaveRadius.floatingRadius,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -1122,7 +1122,7 @@ class _HeroCompanionState extends ConsumerState<_HeroCompanion> {
                 ? (dark ? Colors.white : Colors.black)
                     .withValues(alpha: 0.05)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: WaveRadius.artworkRadius,
           ),
           child: Row(
             children: [
@@ -1132,7 +1132,7 @@ class _HeroCompanionState extends ConsumerState<_HeroCompanion> {
                     url: widget.track.artworkUrl,
                     videoId: widget.track.videoId,
                     size: 44,
-                    radius: 6,
+                    radius: WaveRadius.artwork,
                     title: widget.track.name,
                     artist: widget.track.artist,
                     label: widget.track.name,
@@ -1142,7 +1142,7 @@ class _HeroCompanionState extends ConsumerState<_HeroCompanion> {
                       child: Container(
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.55),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: WaveRadius.artworkRadius,
                         ),
                         child: const Icon(WaveIcons.play,
                             size: 15, color: Colors.white),
@@ -1264,7 +1264,7 @@ class _QuickTileState extends ConsumerState<_QuickTile> {
                     ? (dark ? Colors.white : Colors.black)
                         .withValues(alpha: 0.05)
                     : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: WaveRadius.artworkRadius,
           ),
           child: Row(
             children: [
@@ -1274,7 +1274,7 @@ class _QuickTileState extends ConsumerState<_QuickTile> {
                     url: widget.track.artworkUrl,
                     videoId: widget.track.videoId,
                     size: 48,
-                    radius: 6,
+                    radius: WaveRadius.artwork,
                     title: widget.track.name,
                     artist: widget.track.artist,
                     label: widget.track.name,
@@ -1284,7 +1284,7 @@ class _QuickTileState extends ConsumerState<_QuickTile> {
                       child: Container(
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.55),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: WaveRadius.artworkRadius,
                         ),
                         child: Icon(
                           playing
@@ -1419,7 +1419,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                     duration: WaveMotion.normal,
                     curve: Curves.easeOutCubic,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: WaveRadius.artworkRadius,
                       boxShadow: [
                         if (_hover)
                           BoxShadow(
@@ -1435,7 +1435,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                         WaveArtwork(
                           url: widget.track.artworkUrl,
                           size: 140,
-                          radius: 6,
+                          radius: WaveRadius.artwork,
                           title: widget.track.name,
                           artist: widget.track.artist,
                           label: widget.track.name,
@@ -1447,7 +1447,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                             child: Container(
                               decoration: BoxDecoration(
                                 borderRadius:
-                                    BorderRadius.circular(6),
+                                    WaveRadius.artworkRadius,
                                 gradient: LinearGradient(
                                   begin: Alignment.topCenter,
                                   end: Alignment.bottomCenter,
@@ -1618,7 +1618,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                     duration: WaveMotion.normal,
                     curve: Curves.easeOutCubic,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: WaveRadius.artworkRadius,
                       boxShadow: [
                         if (_hover)
                           BoxShadow(
@@ -1636,7 +1636,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                           url: widget.track.artworkUrl,
                           videoId: widget.track.videoId,
                           size: 220,
-                          radius: 8,
+                          radius: WaveRadius.artwork,
                           title: widget.track.name,
                           artist: widget.track.artist,
                           label: widget.track.name,
@@ -1644,7 +1644,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                         Positioned.fill(
                           child: Container(
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: WaveRadius.artworkRadius,
                               gradient: LinearGradient(
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
@@ -1696,7 +1696,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                                     Colors.black.withValues(alpha: 0.55),
                                   ],
                                 ),
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: WaveRadius.artworkRadius,
                               ),
                               child: Center(
                                 child: AnimatedScale(
@@ -1838,7 +1838,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                   duration: WaveMotion.normal,
                   curve: Curves.easeOutCubic,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: WaveRadius.artworkRadius,
                     boxShadow: [
                       if (_hover)
                         BoxShadow(
@@ -1856,7 +1856,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                         url: widget.track.artworkUrl,
                         videoId: widget.track.videoId,
                         size: 152,
-                        radius: 6,
+                        radius: WaveRadius.artwork,
                         title: widget.track.name,
                         artist: widget.track.artist,
                         label: widget.track.name,
@@ -1875,7 +1875,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                                   Colors.black.withValues(alpha: 0.55),
                                 ],
                               ),
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: WaveRadius.artworkRadius,
                             ),
                             child: Center(
                               child: AnimatedScale(
@@ -2009,7 +2009,7 @@ class _ChartRow extends ConsumerWidget {
                 url: track.artworkUrl,
                 videoId: track.videoId,
                 size: 42,
-                radius: 6,
+                radius: WaveRadius.artwork,
                 title: track.name,
                 artist: track.artist,
                 label: track.name,
@@ -2094,7 +2094,7 @@ class _FreshRowState extends ConsumerState<_FreshRow> {
                       url: track.artworkUrl,
                       videoId: track.videoId,
                       size: 40,
-                      radius: 6,
+                      radius: WaveRadius.artwork,
                       title: track.name,
                       artist: track.artist,
                       label: track.name,
@@ -2108,7 +2108,7 @@ class _FreshRowState extends ConsumerState<_FreshRow> {
                             color: Colors.black
                                 .withValues(alpha: 0.55),
                             borderRadius:
-                                BorderRadius.circular(6),
+                                WaveRadius.artworkRadius,
                           ),
                           child: GestureDetector(
                             onTap: play,
@@ -2332,14 +2332,14 @@ class _HomeSkeleton extends StatelessWidget {
             height: 240,
             decoration: BoxDecoration(
                 color: bar,
-                borderRadius: BorderRadius.circular(10))),
+                borderRadius: WaveRadius.floatingRadius)),
         const SizedBox(height: 26),
         Container(
             width: 180,
             height: 14,
             decoration: BoxDecoration(
                 color: bar,
-                borderRadius: BorderRadius.circular(4))),
+                borderRadius: WaveRadius.tinyRadius)),
         const SizedBox(height: 10),
         for (var i = 0; i < 6; i++)
           Padding(
@@ -2351,7 +2351,7 @@ class _HomeSkeleton extends StatelessWidget {
                     height: 48,
                     decoration: BoxDecoration(
                         color: bar,
-                        borderRadius: BorderRadius.circular(6))),
+                        borderRadius: WaveRadius.artworkRadius)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -2363,7 +2363,7 @@ class _HomeSkeleton extends StatelessWidget {
                           decoration: BoxDecoration(
                               color: bar,
                               borderRadius:
-                                  BorderRadius.circular(4))),
+                                  WaveRadius.tinyRadius)),
                       const SizedBox(height: 6),
                       Container(
                           height: 10,
@@ -2371,7 +2371,7 @@ class _HomeSkeleton extends StatelessWidget {
                           decoration: BoxDecoration(
                               color: bar,
                               borderRadius:
-                                  BorderRadius.circular(4))),
+                                  WaveRadius.tinyRadius)),
                     ],
                   ),
                 ),
@@ -2383,7 +2383,7 @@ class _HomeSkeleton extends StatelessWidget {
             height: 140,
             decoration: BoxDecoration(
                 color: bar,
-                borderRadius: BorderRadius.circular(8))),
+                borderRadius: WaveRadius.artworkRadius)),
       ],
     );
   }

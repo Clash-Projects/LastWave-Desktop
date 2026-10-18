@@ -262,6 +262,7 @@ class _YtCardState extends ConsumerState<_YtCard> {
             duration: WaveMotion.normal,
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
+              borderRadius: WaveRadius.artworkRadius,
               boxShadow: [
                 if (_hover)
                   BoxShadow(
@@ -280,7 +281,7 @@ class _YtCardState extends ConsumerState<_YtCard> {
                     WaveArtwork(
                         url: p.artworkUrl,
                         size: widget.artSize,
-                        radius: 6,
+                        radius: WaveRadius.artwork,
                         label: p.title),
                     Positioned.fill(
                       child: AnimatedOpacity(
@@ -296,7 +297,7 @@ class _YtCardState extends ConsumerState<_YtCard> {
                                 Colors.black.withValues(alpha: 0.55),
                               ],
                             ),
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: WaveRadius.artworkRadius,
                           ),
                           child: Center(
                             child: AnimatedScale(
@@ -437,7 +438,7 @@ class _PlaylistCardState
                             : Colors.black)
                         .withValues(alpha: 0.05)
                     : Colors.transparent,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: WaveRadius.artworkRadius,
                 boxShadow: [
                   if (_hover)
                     BoxShadow(
@@ -457,7 +458,7 @@ class _PlaylistCardState
                       WaveArtwork(
                           url: cover ?? '',
                           size: widget.artSize,
-                          radius: 6,
+                          radius: WaveRadius.artwork,
                           label: p.title),
                       if (p.isPinned)
                         Positioned(
@@ -498,7 +499,7 @@ class _PlaylistCardState
                                   Colors.black.withValues(alpha: 0.55),
                                 ],
                               ),
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: WaveRadius.artworkRadius,
                             ),
                             child: Center(
                               child: AnimatedScale(

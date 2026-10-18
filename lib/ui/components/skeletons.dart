@@ -3,7 +3,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../theme/tokens.dart';
 
 /// Thin Wave skeleton primitives: static ledger shapes, no shimmer
-/// (reduced-motion safe). Radii follow [WaveRadius]; no radius >= 16.
+/// (reduced-motion safe). Radii follow [WaveRadius]; the default matches
+/// the artwork tile it stands in for.
 class SkeletonBox extends StatelessWidget {
   final double width;
   final double height;
@@ -48,7 +49,7 @@ class SkeletonRow extends StatelessWidget {
               SizedBox(
                 width: 28,
                 child: SkeletonBox(
-                    width: 16, height: 12, radius: 4),
+                    width: 16, height: 12, radius: WaveRadius.tiny),
               ),
               SkeletonBox(width: 40, height: 40),
               SizedBox(width: WaveSpacing.x4),

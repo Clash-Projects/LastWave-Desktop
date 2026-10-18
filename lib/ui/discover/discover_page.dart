@@ -347,7 +347,7 @@ class _SpotlightHero extends ConsumerWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: wash,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: WaveRadius.floatingRadius,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -355,7 +355,7 @@ class _SpotlightHero extends ConsumerWidget {
           WaveArtwork(
               url: track.artworkUrl,
               size: artSize,
-              radius: 6,
+              radius: WaveRadius.artwork,
               title: track.name,
               artist: track.artist),
           const SizedBox(width: 18),
@@ -503,7 +503,7 @@ class _TrendCell extends ConsumerWidget {
               WaveArtwork(
                   url: track.artworkUrl,
                   size: 42,
-                  radius: 6,
+                  radius: WaveRadius.artwork,
                   title: track.name,
                   artist: track.artist),
               const SizedBox(width: 10),
@@ -658,7 +658,7 @@ class _GenreTileState extends State<_GenreTile> {
             duration: WaveMotion.normal,
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: WaveRadius.artworkRadius,
               boxShadow: [
                 if (_hover)
                   BoxShadow(
@@ -670,7 +670,7 @@ class _GenreTileState extends State<_GenreTile> {
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: WaveRadius.artworkRadius,
               child: SizedBox(
                 height: height,
                 child: Stack(
@@ -914,7 +914,7 @@ class _NewReleasesExplorer extends StatelessWidget {
                             WaveArtwork(
                                 url: a.artworkUrl,
                                 size: 136,
-                                radius: 6,
+                                radius: WaveRadius.artwork,
                                 title: a.name,
                                 artist: a.artist.isNotEmpty
                                     ? a.artist
@@ -1052,7 +1052,7 @@ class _PopularShelves extends ConsumerWidget {
                         WaveArtwork(
                             url: a.artworkUrl,
                             size: 136,
-                            radius: 6,
+                            radius: WaveRadius.artwork,
                             title: a.name,
                             artist: a.artist.isNotEmpty
                                 ? a.artist
@@ -1117,7 +1117,7 @@ class _PopularShelves extends ConsumerWidget {
                         WaveArtwork(
                             url: t.artworkUrl,
                             size: 152,
-                            radius: 6,
+                            radius: WaveRadius.artwork,
                             title: t.name,
                             artist: t.artist),
                         const SizedBox(height: 6),
@@ -1236,14 +1236,14 @@ class _DiscoverSkeleton extends StatelessWidget {
             height: 200,
             decoration: BoxDecoration(
                 color: bar,
-                borderRadius: BorderRadius.circular(10))),
+                borderRadius: WaveRadius.floatingRadius)),
         const SizedBox(height: 26),
         Container(
             width: 180,
             height: 14,
             decoration: BoxDecoration(
                 color: bar,
-                borderRadius: BorderRadius.circular(4))),
+                borderRadius: WaveRadius.tinyRadius)),
         const SizedBox(height: 10),
         Row(
           children: [
@@ -1253,7 +1253,7 @@ class _DiscoverSkeleton extends StatelessWidget {
                     decoration: BoxDecoration(
                         color: bar,
                         borderRadius:
-                            BorderRadius.circular(10)))),
+                            WaveRadius.floatingRadius))),
             const SizedBox(width: 10),
             Expanded(
                 child: Container(
@@ -1261,7 +1261,7 @@ class _DiscoverSkeleton extends StatelessWidget {
                     decoration: BoxDecoration(
                         color: bar,
                         borderRadius:
-                            BorderRadius.circular(10)))),
+                            WaveRadius.floatingRadius))),
           ],
         ),
         const SizedBox(height: 10),
@@ -1272,7 +1272,7 @@ class _DiscoverSkeleton extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                     color: bar,
-                    borderRadius: BorderRadius.circular(6))),
+                    borderRadius: WaveRadius.artworkRadius)),
           ),
       ],
     );

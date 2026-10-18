@@ -151,7 +151,10 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
             duration: WaveMotion.fast,
             height: WaveDensity.trackRow,
             padding: const EdgeInsets.symmetric(horizontal: 8),
-            color: bg,
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: WaveRadius.artworkRadius,
+            ),
             child: Row(
               children: [
                 // Gutter: number → play on hover, equalizer when playing.
@@ -194,7 +197,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
                   url: widget.artworkUrl,
                   videoId: widget.videoId,
                   size: WaveDensity.trackArt,
-                  radius: 6,
+                  radius: WaveRadius.artwork,
                   title: widget.title,
                   artist: widget.artist,
                   label: widget.title,

@@ -285,7 +285,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                   ? (waveIsDark(context) ? Colors.white : Colors.black)
                       .withValues(alpha: 0.05)
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: WaveRadius.artworkRadius,
               boxShadow: [
                 if (_hover)
                   BoxShadow(
@@ -305,7 +305,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                     WaveArtwork(
                         url: a.artwork,
                         size: 160,
-                        radius: 6,
+                        radius: WaveRadius.artwork,
                         label: a.title,
                         title: a.title,
                         artist: a.artist,
@@ -324,7 +324,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                                 Colors.black.withValues(alpha: 0.55),
                               ],
                             ),
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: WaveRadius.artworkRadius,
                           ),
                           child: Center(
                             child: AnimatedScale(

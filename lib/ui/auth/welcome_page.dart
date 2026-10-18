@@ -353,7 +353,7 @@ class _BrandVisual extends StatelessWidget {
               width: 56,
               height: 56,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: WaveRadius.artworkRadius,
                 color: accent.withValues(alpha: 0.14),
                 border: Border.all(
                   color: accent.withValues(alpha: 0.4),
@@ -435,7 +435,7 @@ class _BrandVisualCompact extends StatelessWidget {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: WaveRadius.artworkRadius,
             color: accent.withValues(alpha: 0.14),
             border: Border.all(
               color: accent.withValues(alpha: 0.4),
@@ -487,7 +487,7 @@ class _WelcomeFeature extends StatelessWidget {
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(7),
+            borderRadius: WaveRadius.artworkRadius,
             color: accent.withValues(alpha: 0.12),
             border: Border.all(
               color: waveDivider(context),
@@ -543,7 +543,7 @@ class _EqualizerRow extends StatelessWidget {
               height: heights[i],
               margin: const EdgeInsets.only(right: 7),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(3),
+                borderRadius: WaveRadius.tinyRadius,
                 color: i % 5 == 2
                     ? accent
                     : accent.withValues(
@@ -845,7 +845,7 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
       return Container(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: WaveRadius.floatingRadius,
           border: Border.all(color: waveDivider(context)),
         ),
         child: Row(
@@ -865,7 +865,7 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: WaveRadius.floatingRadius,
         border: Border.all(color: waveDivider(context)),
       ),
       child: Column(
@@ -956,7 +956,7 @@ class _WelcomeMosaic extends StatelessWidget {
             child: AspectRatio(
               aspectRatio: 1,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: WaveRadius.artworkRadius,
                 child: CachedNetworkImage(
                   imageUrl:
                       'https://picsum.photos/seed/${_seeds[i]}/160/160',

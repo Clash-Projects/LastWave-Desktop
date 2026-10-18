@@ -179,7 +179,7 @@ class _PanelBody extends ConsumerWidget {
                   url: track.artworkUrl,
                   videoId: track.videoId,
                   size: 32,
-                  radius: 6,
+                  radius: WaveRadius.artwork,
                   label: track.title,
                 ),
                 const SizedBox(width: 10),
@@ -228,7 +228,7 @@ class _PanelBody extends ConsumerWidget {
                       height: 30,
                       decoration: BoxDecoration(
                         color: Colors.transparent,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: WaveRadius.controlsRadius,
                       ),
                       child: Center(
                         child: Icon(

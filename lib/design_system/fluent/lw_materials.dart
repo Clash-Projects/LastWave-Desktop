@@ -118,7 +118,7 @@ class LwHaze extends StatelessWidget {
     this.shadow,
     this.enableBlur = true,
   })  : level = LwHazeLevel.l3,
-        borderRadius = const BorderRadius.all(Radius.circular(7)),
+        borderRadius = const BorderRadius.all(Radius.circular(WaveRadius.menu)),
         alignment = Alignment.center;
 
   @override

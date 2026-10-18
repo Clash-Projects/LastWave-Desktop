@@ -196,7 +196,7 @@ class _ArtistCellState extends State<_ArtistCell> {
                 ? (dark ? Colors.white : Colors.black)
                     .withValues(alpha: 0.05)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: WaveRadius.artworkRadius,
           ),
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Column(

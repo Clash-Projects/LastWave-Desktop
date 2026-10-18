@@ -142,6 +142,9 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                     const SizedBox(height: 12),
                     for (final s in _waveSettingsSections)
                       ListTile.selectable(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: WaveRadius.controlsRadius,
+                        ),
                         selected: _section == s.$1,
                         selectionMode: ListTileSelectionMode.single,
                         leading: Icon(s.$3, size: 15),
@@ -277,7 +280,7 @@ class _Group extends StatelessWidget {
           decoration: BoxDecoration(
             color: theme.resources.cardBackgroundFillColorDefault,
             border: Border.all(color: stroke),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(WaveRadius.floating)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,7 +307,7 @@ class _Group extends StatelessWidget {
               bottom: BorderSide(color: stroke),
             ),
             borderRadius: const BorderRadius.vertical(
-              bottom: Radius.circular(6),
+              bottom: Radius.circular(WaveRadius.floating),
             ),
           ),
           child: child,

@@ -452,7 +452,7 @@ class _FsIconButtonState extends State<_FsIconButton> {
                 : _hover
                     ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.10)
                     : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: WaveRadius.controlsRadius,
             border: Border.all(
               color: widget.active
                   ? accent.withValues(alpha: 0.35)
@@ -785,7 +785,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
           url: track.artworkUrl,
           videoId: track.videoId,
           size: size,
-          radius: 18,
+          radius: WaveRadius.hero,
           label: track.title,
           title: track.title,
           artist: track.artist,
@@ -795,7 +795,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: WaveRadius.heroRadius,
         // Kept shallow on purpose: large blurs over a full-window ambient
         // stage retain big GPU surfaces on Windows ANGLE.
         boxShadow: [
@@ -817,7 +817,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       // switch every video frame cost milliseconds on weak raster.
       child: RepaintBoundary(
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: WaveRadius.heroRadius,
           clipBehavior: Clip.antiAlias,
           child: Stack(
             fit: StackFit.expand,

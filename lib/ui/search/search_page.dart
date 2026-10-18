@@ -1163,7 +1163,7 @@ class _SkeletonRows extends StatelessWidget {
                           decoration: BoxDecoration(
                               color: wash,
                               borderRadius:
-                                  BorderRadius.circular(3))),
+                                  WaveRadius.tinyRadius)),
                       const SizedBox(height: 6),
                       Container(
                           height: 9,
@@ -1171,7 +1171,7 @@ class _SkeletonRows extends StatelessWidget {
                           decoration: BoxDecoration(
                               color: wash,
                               borderRadius:
-                                  BorderRadius.circular(3))),
+                                  WaveRadius.tinyRadius)),
                     ],
                   ),
                 ),
@@ -1223,7 +1223,7 @@ class _SkeletonCards extends StatelessWidget {
                 decoration: BoxDecoration(
                     color: wash,
                     borderRadius:
-                        BorderRadius.circular(3))),
+                        WaveRadius.tinyRadius)),
           ],
         ),
       ),

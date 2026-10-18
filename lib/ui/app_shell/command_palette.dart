@@ -469,6 +469,9 @@ class _PaletteRow extends StatelessWidget {
               ))
         : Icon(r.icon, size: 15);
     return ListTile.selectable(
+      shape: RoundedRectangleBorder(
+        borderRadius: WaveRadius.controlsRadius,
+      ),
       selected: selected,
       selectionMode: ListTileSelectionMode.single,
       leading: SizedBox(width: 28, height: 28, child: leading),

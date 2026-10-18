@@ -413,7 +413,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
               width: widget.size * 0.22,
               height: 2,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(1),
+                borderRadius: WaveRadius.tinyRadius,
                 color: (dark ? Colors.white : Colors.black)
                     .withValues(alpha: 0.35),
               ),

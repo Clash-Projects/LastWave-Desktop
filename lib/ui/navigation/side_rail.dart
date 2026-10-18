@@ -237,7 +237,7 @@ class _RailItemState extends State<_RailItem> {
             padding: EdgeInsets.zero,
             decoration: BoxDecoration(
               color: bg,
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: WaveRadius.controlsRadius,
               border: hasFocus
                   ? Border.all(
                       color: accent.withValues(alpha: 0.6), width: 1)
@@ -259,7 +259,7 @@ class _RailItemState extends State<_RailItem> {
                       width: 3,
                       decoration: BoxDecoration(
                         color: accent,
-                        borderRadius: BorderRadius.circular(1.5),
+                        borderRadius: WaveRadius.tinyRadius,
                       ),
                     ),
                   ),

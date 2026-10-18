@@ -1307,7 +1307,7 @@ class _KaraokeToolbar extends ConsumerWidget {
       ),
       child: WaveGlass(
         blur: false,
-        borderRadius: WaveRadius.floatingRadius,
+        borderRadius: WaveRadius.menuRadius,
         padding: EdgeInsets.symmetric(
           horizontal: compact ? 10 : 14,
           vertical: 6,
@@ -1483,7 +1483,7 @@ class _MiniIconButtonState extends State<_MiniIconButton> {
             color: _hover
                 ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.08)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: WaveRadius.controlsRadius,
           ),
           child: Center(
             child: Icon(widget.icon, size: 13, color: color),
@@ -1508,7 +1508,7 @@ class _ReturnToCurrentPill extends StatelessWidget {
       level: LwHazeLevel.l2,
       base: (dark ? WaveColors.surfaceRaised : WaveColors.lightSurfaceRaised)
           .withValues(alpha: 0.85),
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: WaveRadius.heroRadius,
       border: Border.all(color: waveDivider(context)),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,

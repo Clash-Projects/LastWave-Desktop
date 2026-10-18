@@ -288,7 +288,7 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
                     WaveArtwork(
                         url: art,
                         size: 40,
-                        radius: 6,
+                        radius: WaveRadius.artwork,
                         label: e.title,
                         title: e.title,
                         artist: e.artist),
@@ -299,7 +299,7 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
                             color:
                                 Colors.black.withValues(alpha: 0.45),
                             borderRadius:
-                                BorderRadius.circular(6),
+                                WaveRadius.artworkRadius,
                           ),
                           child: const Center(
                             child: SizedBox(

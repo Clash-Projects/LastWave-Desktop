@@ -453,7 +453,7 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
     final panel = Container(
       decoration: BoxDecoration(
         color: theme.menuColor,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: WaveRadius.menuRadius,
         boxShadow: const [
           BoxShadow(
             color: Color(0x21000000),
@@ -740,6 +740,9 @@ Future<void> showWaveAddToPlaylist(
           children: [
             for (final p in playlists.where((p) => !p.isLikedSongs))
               ListTile.selectable(
+                shape: RoundedRectangleBorder(
+                  borderRadius: WaveRadius.controlsRadius,
+                ),
                 title: Text(p.title),
                 subtitle: Text('${p.tracks.length} tracks'),
                 leading: const Icon(

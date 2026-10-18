@@ -936,7 +936,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                                     ? WaveColors.outline
                                     : WaveColors.lightOutline,
                               ),
-                              borderRadius: BorderRadius.circular(5),
+                              borderRadius: WaveRadius.controlsRadius,
                             ),
                             child: Text(
                               quality,
@@ -1042,7 +1042,7 @@ class _ArtPlay extends StatelessWidget {
           WaveArtwork(
             url: url,
             size: WaveDensity.trackArt,
-            radius: 4,
+            radius: WaveRadius.artwork,
             title: title,
             artist: artist,
             label: title,
@@ -1056,7 +1056,7 @@ class _ArtPlay extends StatelessWidget {
                   color: Colors.black.withValues(
                     alpha: playing ? 0.35 : 0.5,
                   ),
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: WaveRadius.artworkRadius,
                 ),
                 child: playing
                     ? const Center(child: WaveEqDots.light())
