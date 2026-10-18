@@ -800,9 +800,7 @@ class _Appearance extends ConsumerWidget {
                             ? Icon(
                                 FluentIcons.check_mark,
                                 size: 14,
-                                color: c.computeLuminance() > 0.5
-                                    ? Colors.black
-                                    : Colors.white,
+                                color: onAccentFor(c),
                               )
                             : null,
                       ),

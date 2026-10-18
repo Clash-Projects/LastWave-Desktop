@@ -494,8 +494,7 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
                   horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
                 color: _hover
-                    ? (dark ? Colors.white : Colors.black)
-                        .withValues(alpha: WaveState.hoverAlpha)
+                    ? waveHoverWash(context)
                     : Colors.transparent,
                 border: Border.all(
                   color: dark
@@ -720,8 +719,7 @@ class _PlayGlyphState extends State<_PlayGlyph> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
-    final onAccent =
-        accent.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+    final onAccent = onAccentFor(accent);
     Color bg;
     if (!widget.enabled) {
       bg = accent.withValues(alpha: 0.35);

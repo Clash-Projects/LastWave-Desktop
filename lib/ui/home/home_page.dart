@@ -1469,10 +1469,10 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                                           ),
                                         ],
                                       ),
-                                      child: const Icon(
+                                      child: Icon(
                                           WaveIcons.play,
                                           size: 18,
-                                          color: Colors.white),
+                                          color: waveOnAccent(context)),
                                     ),
                                   ),
                                 ),
@@ -1706,10 +1706,10 @@ class _MixCardState extends ConsumerState<_MixCard> {
                                           ),
                                         ],
                                       ),
-                                      child: const Icon(
+                                      child: Icon(
                                         WaveIcons.play,
                                         size: 18,
-                                        color: Colors.white,
+                                        color: onAccentFor(accent),
                                       ),
                                     ),
                                   ),
@@ -1882,10 +1882,10 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                                         ),
                                       ],
                                     ),
-                                    child: const Icon(
+                                    child: Icon(
                                       WaveIcons.play,
                                       size: 18,
-                                      color: Colors.white,
+                                      color: waveOnAccent(context),
                                     ),
                                   ),
                                 ),

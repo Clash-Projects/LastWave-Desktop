@@ -417,11 +417,9 @@ class _BarBtnState extends State<_BarBtn> {
             height: WaveDensity.hitArea,
             decoration: BoxDecoration(
               color: _pressed
-                  ? (dark ? Colors.white : Colors.black)
-                      .withValues(alpha: WaveState.pressedAlpha)
+                  ? wavePressedWash(context)
                   : _hover
-                      ? (dark ? Colors.white : Colors.black)
-                          .withValues(alpha: WaveState.hoverAlpha)
+                      ? waveHoverWash(context)
                       : Colors.transparent,
               borderRadius:
                   BorderRadius.circular(WaveRadius.controls),
@@ -614,11 +612,7 @@ class _WinBtnState extends State<_WinBtn> {
             color: _hover
                 ? (widget.danger
                     ? WaveColors.danger
-                    : (dark
-                        ? Colors.white.withValues(
-                            alpha: WaveState.hoverAlpha)
-                        : Colors.black.withValues(
-                            alpha: WaveState.hoverAlpha)))
+                    : waveHoverWash(context))
                 : Colors.transparent,
             child: Icon(
               widget.icon,

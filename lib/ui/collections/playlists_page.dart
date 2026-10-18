@@ -320,10 +320,10 @@ class _YtCardState extends ConsumerState<_YtCard> {
                                       ),
                                     ],
                                   ),
-                                  child: const Icon(
+                                  child: Icon(
                                       WaveIcons.play,
                                       size: 18,
-                                      color: Colors.white),
+                                      color: waveOnAccent(context)),
                                 ),
                               ),
                             ),
@@ -522,10 +522,10 @@ class _PlaylistCardState
                                         ),
                                       ],
                                     ),
-                                    child: const Icon(
+                                    child: Icon(
                                         WaveIcons.play,
                                         size: 18,
-                                        color: Colors.white),
+                                        color: waveOnAccent(context)),
                                   ),
                                 ),
                               ),

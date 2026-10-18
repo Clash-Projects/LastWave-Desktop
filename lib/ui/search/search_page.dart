@@ -346,7 +346,6 @@ class _SuggestionRowState extends State<_SuggestionRow> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
     final active = widget.highlighted || _hover;
     final s = widget.suggestion;
     final isArtist = s.tab == SearchTab.artists;
@@ -363,8 +362,7 @@ class _SuggestionRowState extends State<_SuggestionRow> {
               horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: active
-                ? (dark ? Colors.white : Colors.black)
-                    .withValues(alpha: WaveState.hoverAlpha)
+                ? waveHoverWash(context)
                 : Colors.transparent,
             borderRadius:
                 BorderRadius.circular(WaveRadius.controls),

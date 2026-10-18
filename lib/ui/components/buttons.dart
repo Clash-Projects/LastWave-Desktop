@@ -49,12 +49,10 @@ class _WaveIconButtonState extends State<WaveIconButton> {
           return accent.withValues(alpha: 0.22);
         }
         if (states.isPressed) {
-          return (dark ? Colors.white : Colors.black)
-              .withValues(alpha: WaveState.pressedAlpha);
+          return wavePressedWash(context);
         }
         if (states.isHovered) {
-          return (dark ? Colors.white : Colors.black)
-              .withValues(alpha: WaveState.hoverAlpha);
+          return waveHoverWash(context);
         }
         if (widget.selected) return accent.withValues(alpha: 0.14);
         return Colors.transparent;
@@ -143,8 +141,7 @@ class _WavePlayButtonState extends State<WavePlayButton> {
     final accent = waveAccent(context);
     final dark = waveIsDark(context);
     // Black glyph on light (off-white) accents, white on dark ones.
-    final onAccent =
-        accent.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+    final onAccent = onAccentFor(accent);
     final size = widget.large ? 48.0 : 40.0;
     final glyphSize = widget.large ? 22.0 : 19.0;
     final disabled = widget.onPressed == null;

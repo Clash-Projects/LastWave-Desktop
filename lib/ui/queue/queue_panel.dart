@@ -286,10 +286,7 @@ class _CloseGlyphState extends State<_CloseGlyph> {
             height: 32,
             decoration: BoxDecoration(
               color: _hover
-                  ? (waveIsDark(context)
-                          ? const Color(0xFFFFFFFF)
-                          : const Color(0xFF000000))
-                      .withValues(alpha: WaveState.hoverAlpha)
+                  ? waveHoverWash(context)
                   : Colors.transparent,
               borderRadius:
                   BorderRadius.circular(WaveRadius.controls),
@@ -440,10 +437,12 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
           constraints: const BoxConstraints(minHeight: 48),
           padding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          color: _hover
-              ? (dark ? Colors.white : Colors.black)
-                  .withValues(alpha: WaveState.hoverAlpha)
-              : Colors.transparent,
+          decoration: BoxDecoration(
+            color: _hover
+                ? waveHoverWash(context)
+                : Colors.transparent,
+            borderRadius: WaveRadius.artworkRadius,
+          ),
           child: Row(
             children: [
               // Drag handle: low-opacity idle (still visible/keyboard

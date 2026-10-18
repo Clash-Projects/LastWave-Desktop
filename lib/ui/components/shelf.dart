@@ -409,10 +409,10 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
                                         ),
                                       ],
                                     ),
-                                    child: const Icon(
+                                    child: Icon(
                                       WaveIcons.play,
                                       size: 18,
-                                      color: Colors.white,
+                                      color: onAccentFor(accent),
                                     ),
                                   ),
                                 ),
@@ -602,12 +602,11 @@ class _WaveQuickTileState extends ConsumerState<WaveQuickTile> {
               color: widget.playing
                   ? accent.withValues(alpha: 0.14)
                   : _hover
-                      ? (dark ? Colors.white : Colors.black)
-                          .withValues(alpha: WaveState.hoverAlpha)
+                      ? waveHoverWash(context)
                       : (dark
                           ? WaveColors.surface
                           : WaveColors.lightSurface),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: WaveRadius.artworkRadius,
               border: Border.all(
                 color: widget.playing
                     ? accent.withValues(alpha: 0.5)

@@ -267,7 +267,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
   }
 }
 
-/// 32px off-white disc + black glyph (dock parity, scaled down).
+/// 32px accent disc + on-accent glyph (dock parity, scaled down).
 class _MiniPlay extends StatelessWidget {
   final bool playing;
   final bool buffering;
@@ -278,6 +278,11 @@ class _MiniPlay extends StatelessWidget {
       required this.onTap});
   @override
   Widget build(BuildContext context) {
+    // The dock renders the accent with a luminance-derived glyph; the mini
+    // player used to hardcode off-white + black, which broke under the
+    // off-white "LastWave neutral" accent and under light accents.
+    final accent = waveAccent(context);
+    final onAccent = onAccentFor(accent);
     return LWTooltip(
       message: playing ? 'Pause' : 'Play',
       child: MouseRegion(
@@ -287,19 +292,19 @@ class _MiniPlay extends StatelessWidget {
           child: Container(
             width: 32,
             height: 32,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: WaveColors.defaultAccent,
+              color: accent,
             ),
             child: Center(
               child: buffering
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 14,
                       height: 14,
                       child: ProgressRing(
                         strokeWidth: 2.5,
-                        activeColor: Colors.black,
-                        backgroundColor: Color(0x40000000),
+                        activeColor: onAccent,
+                        backgroundColor: onAccent.withValues(alpha: 0.25),
                       ),
                     )
                   : Icon(
@@ -307,7 +312,7 @@ class _MiniPlay extends StatelessWidget {
                           ? WaveIcons.pause
                           : WaveIcons.play,
                       size: 14,
-                      color: Colors.black,
+                      color: onAccent,
                     ),
             ),
           ),

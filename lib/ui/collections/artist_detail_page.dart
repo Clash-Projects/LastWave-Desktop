@@ -633,7 +633,7 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
                       BorderRadius.circular(WaveRadius.artwork),
                   border: _focus.hasFocus
                       ? Border.all(
-                          color: WaveColors.accentDim,
+                          color: waveFocusRing(context),
                           width: WaveState.focusRing)
                       : Border.all(color: Colors.transparent),
                   boxShadow: [
@@ -697,10 +697,10 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
                                           ),
                                         ],
                                       ),
-                                      child: const Icon(
+                                      child: Icon(
                                           WaveIcons.play,
                                           size: 18,
-                                          color: Colors.white),
+                                          color: waveOnAccent(context)),
                                     ),
                                   ),
                                 ),

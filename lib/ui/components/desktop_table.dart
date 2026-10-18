@@ -829,10 +829,10 @@ class _TableRow<T extends Object> extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
               color: bg,
-              borderRadius: BorderRadius.circular(WaveRadius.tiny),
+              borderRadius: WaveRadius.artworkRadius,
               border: focused
                   ? Border.all(
-                      color: WaveColors.accentDim, width: WaveState.focusRing)
+                      color: waveFocusRing(context), width: WaveState.focusRing)
                   : selected
                       ? Border.all(
                           color: accent.withValues(alpha: 0.35), width: 1)

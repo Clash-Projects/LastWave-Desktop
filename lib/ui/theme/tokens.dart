@@ -316,9 +316,11 @@ class WaveMotion {
 
 /// Hover / focus / cursor contract.
 ///
-/// - hover: 7% white wash (`0.07`) over [WaveMotion.fast] (~120ms).
-/// - pressed: 12% wash (`0.12`).
-/// - focus: 2px [WaveColors.accentDim] outline (see Fluent `focusTheme`).
+/// - hover: 7% wash (`0.07`) over [WaveMotion.fast] (~120ms) — use
+///   [waveHoverWash] so the wash flips with the theme.
+/// - pressed: 12% wash (`0.12`) — [wavePressedWash].
+/// - focus: 2px [waveFocusRing] outline (see Fluent `focusTheme`).
+/// - on-accent glyphs: [waveOnAccent] (never a hardcoded white).
 /// - cursor: clickable targets wrap in `MouseRegion(cursor:
 ///   SystemMouseCursors.click)`.
 /// - tooltip: 400ms wait (see [WaveState.tooltipDelay], `LWTooltip`,
@@ -332,7 +334,7 @@ class WaveState {
   /// Wash alpha for pressed fills (12%).
   static const double pressedAlpha = 0.12;
 
-  /// Focus ring width (2px, [WaveColors.accentDim]).
+  /// Focus ring width (2px, [waveFocusRing]).
   static const double focusRing = 2;
 
   /// Tooltip hover delay (400ms).
@@ -356,6 +358,41 @@ bool waveIsDark(BuildContext context) =>
 
 Color waveAccent(BuildContext context) =>
     FluentTheme.of(context).accentColor.normal;
+
+/// Foreground for a glyph sitting on accent-filled chrome.
+///
+/// The accent is user-chosen — brand red, the off-white "LastWave
+/// neutral" source, a pale artwork tint — so an on-accent glyph can never
+/// be a hardcoded white: with the off-white accent the play glyphs used to
+/// disappear into their own disc.
+Color onAccentFor(Color accent) =>
+    accent.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+
+/// [onAccentFor] for the current theme accent.
+Color waveOnAccent(BuildContext context) => onAccentFor(waveAccent(context));
+
+/// Wash base: white on dark chrome, black on pearl. Every hover / pressed
+/// fill goes through [waveWash], so a hardcoded white wash (invisible in
+/// light mode) can't creep back in.
+Color waveWash(BuildContext context, double alpha) =>
+    (waveIsDark(context) ? Colors.white : Colors.black)
+        .withValues(alpha: alpha);
+
+/// Hover fill over a neutral surface (7%, [WaveState.hoverAlpha]).
+Color waveHoverWash(BuildContext context) =>
+    waveWash(context, WaveState.hoverAlpha);
+
+/// Pressed fill over a neutral surface (12%, [WaveState.pressedAlpha]).
+Color wavePressedWash(BuildContext context) =>
+    waveWash(context, WaveState.pressedAlpha);
+
+/// Focus ring colour (2px, [WaveState.focusRing]).
+///
+/// The accent at near-full strength: the fixed dark grey it used to be
+/// was invisible against the graphite base, and the accent already means
+/// "this is the thing you selected" everywhere else.
+Color waveFocusRing(BuildContext context) =>
+    waveAccent(context).withValues(alpha: 0.85);
 
 Color waveTextPrimary(BuildContext context) => waveIsDark(context)
     ? WaveColors.textPrimary

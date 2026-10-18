@@ -6,6 +6,10 @@ import '../../../ui/theme/tokens.dart';
 ///
 /// hover 7% wash over 110ms · pressed 12% · focus 2px ring ·
 /// clickable targets use click cursor · tooltip 400ms wait.
+///
+/// The washes delegate to the canonical [waveHoverWash] / [wavePressedWash]
+/// (theme-aware: white on dark chrome, black on pearl) so this bridge and
+/// every hand-written hover fill can never drift apart.
 class LwInteraction {
   LwInteraction._();
 
@@ -14,15 +18,7 @@ class LwInteraction {
   static const double focusRing = WaveState.focusRing; // 2
   static const Duration tooltipDelay = WaveState.tooltipDelay; // 400ms
 
-  static Color hoverWash(BuildContext context) {
-    final dark = waveIsDark(context);
-    return (dark ? Colors.white : Colors.black)
-        .withValues(alpha: hoverAlpha);
-  }
+  static Color hoverWash(BuildContext context) => waveHoverWash(context);
 
-  static Color pressedWash(BuildContext context) {
-    final dark = waveIsDark(context);
-    return (dark ? Colors.white : Colors.black)
-        .withValues(alpha: pressedAlpha);
-  }
+  static Color pressedWash(BuildContext context) => wavePressedWash(context);
 }

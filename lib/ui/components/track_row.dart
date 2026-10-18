@@ -116,8 +116,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
     final bg = widget.isCurrent
         ? accent.withValues(alpha: 0.0)
         : _hover
-            ? (dark ? Colors.white : Colors.black)
-                .withValues(alpha: WaveState.hoverAlpha)
+            ? waveHoverWash(context)
             : Colors.transparent;
 
     final row = Focus(
