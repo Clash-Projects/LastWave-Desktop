@@ -376,6 +376,7 @@ class _RowGlyphState extends State<_RowGlyph> {
         child: WaveMenuButton(
           entries: widget.menuItems!,
           buttonBuilder: (context, onOpen) => MouseRegion(
+            cursor: SystemMouseCursors.click,
             onEnter: (_) => setState(() => _hover = true),
             onExit: (_) => setState(() => _hover = false),
             child: GestureDetector(
@@ -399,6 +400,7 @@ class _RowGlyphState extends State<_RowGlyph> {
     return LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(

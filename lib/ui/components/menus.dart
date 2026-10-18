@@ -658,6 +658,7 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
     return FlyoutTarget(
       controller: _controller,
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) {
           _hoverTimer?.cancel();
           _hoverTimer = Timer(

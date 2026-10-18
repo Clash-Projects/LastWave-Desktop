@@ -672,7 +672,9 @@ class _Header extends StatelessWidget {
           ),
         ),
         if (!signedIn)
-          GestureDetector(
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
             onTap: () => context.go('/settings?section=lastfm'),
             child: Container(
               padding:
@@ -689,7 +691,7 @@ class _Header extends StatelessWidget {
                 ),
               ),
             ),
-          ),
+          )),
       ],
     );
   }
@@ -849,7 +851,9 @@ class _SectionHead extends StatelessWidget {
           ),
         ),
         if (actionLabel != null && actionPath != null)
-          GestureDetector(
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
             onTap: () => context.go(actionPath!),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -869,7 +873,7 @@ class _SectionHead extends StatelessWidget {
                 ),
               ],
             ),
-          ),
+          )),
       ],
     );
   }
@@ -1089,6 +1093,7 @@ class _HeroCompanionState extends ConsumerState<_HeroCompanion> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
@@ -1304,6 +1309,7 @@ class _QuickTileState extends ConsumerState<_QuickTile> {
     ) == widget.track.key;
 
     final tile = MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       // Grid tiles play just the tapped song — radio picks what
@@ -2033,7 +2039,9 @@ class _ChartRow extends ConsumerWidget {
         artworkUrl: track.artworkUrl,
         videoId: track.videoId,
       ),
-      child: GestureDetector(
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
         onTap: () => playGenerated(ref, context, track,
             sourceLabel: 'Trending',
             queueAll: queueAll,
@@ -2088,7 +2096,7 @@ class _ChartRow extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -2358,7 +2366,9 @@ class _FriendRow extends ConsumerWidget {
         : t.artworkUrl;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: GestureDetector(
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
         onTap: () => playGenerated(
           ref,
           context,
@@ -2405,7 +2415,7 @@ class _FriendRow extends ConsumerWidget {
                           waveTextTertiary(context))),
           ],
         ),
-      ),
+      )),
     );
   }
 }

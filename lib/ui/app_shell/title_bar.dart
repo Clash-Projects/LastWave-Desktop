@@ -131,7 +131,9 @@ class WaveTitleBar extends ConsumerWidget {
                 const _CommunityBtns(),
                 const SizedBox(width: 6),
                 // Profile / account — tiny, no giant buttons.
-                GestureDetector(
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
                   onTap: () {
                     // Your avatar always means your profile: drop any
                     // stale friend view, otherwise /profile would show
@@ -170,7 +172,7 @@ class WaveTitleBar extends ConsumerWidget {
                       ),
                     ),
                   ),
-                ),
+                )),
                 const SizedBox(width: 6),
                 _AppMenu(),
                 const SizedBox(width: 6),
@@ -348,7 +350,9 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                   )
                 : Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
                       onTap: widget.onPalette,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -373,7 +377,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                           ),
                         ),
                       ),
-                    ),
+                    )),
                   ),
             onChanged: (_) => setState(() {}),
             onSubmitted: (v) {
@@ -411,6 +415,7 @@ class _BarBtnState extends State<_BarBtn> {
     return LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() {
           _hover = false;
@@ -613,6 +618,7 @@ class _WinBtnState extends State<_WinBtn> {
     return LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(

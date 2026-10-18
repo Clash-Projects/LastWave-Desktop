@@ -809,6 +809,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
     }
 
     final row = MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => onHover(true),
       onExit: (_) => onHover(false),
       child: GestureDetector(
@@ -1214,6 +1215,7 @@ class _HoverGlyphState extends State<_HoverGlyph> {
       ),
     );
     final hovered = MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: glyph,

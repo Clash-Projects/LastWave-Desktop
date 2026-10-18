@@ -291,6 +291,7 @@ class _ChromeBtnState extends State<_ChromeBtn> {
     return LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(

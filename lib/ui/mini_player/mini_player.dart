@@ -162,14 +162,17 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
                   ),
                 ),
                 // Artwork
-                GestureDetector(
-                  onTap: widget.onExpand,
-                  child: WaveArtwork(
-                    url: current.artworkUrl,
-                    videoId: current.videoId,
-                    size: 46,
-                    radius: WaveRadius.artwork,
-                    label: current.title,
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: widget.onExpand,
+                    child: WaveArtwork(
+                      url: current.artworkUrl,
+                      videoId: current.videoId,
+                      size: 46,
+                      radius: WaveRadius.artwork,
+                      label: current.title,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),

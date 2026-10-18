@@ -350,6 +350,7 @@ class _SuggestionRowState extends State<_SuggestionRow> {
     final s = widget.suggestion;
     final isArtist = s.tab == SearchTab.artists;
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) {
         setState(() => _hover = true);
         widget.onHover();
@@ -1026,7 +1027,9 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                   return WaveEntrance(
                     index: i,
                     rise: 10,
-                    child: GestureDetector(
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
                     onTap: () => context.go(
                         '/artist/${Uri.encodeComponent(a.name)}'),
                     child: SizedBox(
@@ -1050,7 +1053,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                         ],
                       ),
                     ),
-                  ),
+                  )),
                   );
                 },
               ),
@@ -1252,7 +1255,9 @@ class _TopResult extends StatelessWidget {
     if (hero == null) return const SizedBox.shrink();
     final isArtist = hero == artist;
     final playable = hero.videoId.isNotEmpty;
-    return GestureDetector(
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
       onTap: () => onPrimary(hero),
       child: Container(
         height: 64,
@@ -1312,7 +1317,9 @@ class _TopResult extends StatelessWidget {
               ),
             ),
             if (playable)
-              GestureDetector(
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
                 onTap: () => onPlay(hero),
                 child: Container(
                   width: 36,
@@ -1325,14 +1332,14 @@ class _TopResult extends StatelessWidget {
                       size: 15,
                       color: dark ? Colors.black : Colors.white),
                 ),
-              )
+              ))
             else
               Icon(WaveIcons.chevronRight,
                   size: 16, color: waveTextTertiary(context)),
           ],
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -1388,7 +1395,9 @@ class _CoverCard extends StatelessWidget {
       required this.onTap});
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
       onTap: onTap,
       child: SizedBox(
         width: size,
@@ -1413,7 +1422,7 @@ class _CoverCard extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ));
   }
 }
 

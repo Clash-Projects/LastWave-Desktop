@@ -399,7 +399,9 @@ class _SpotlightHero extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    GestureDetector(
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
                       onTap: () => playGenerated(ref, context, track,
                           sourceLabel: 'Discover spotlight'),
                       child: Container(
@@ -426,9 +428,11 @@ class _SpotlightHero extends ConsumerWidget {
                           ],
                         ),
                       ),
-                    ),
+                    )),
                     const SizedBox(width: 12),
-                    GestureDetector(
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
                       onTap: () => playGenerated(ref, context, track,
                           sourceLabel: 'Discover spotlight',
                           queueAll: [track]),
@@ -439,7 +443,7 @@ class _SpotlightHero extends ConsumerWidget {
                           color: waveTextTertiary(context),
                         ),
                       ),
-                    ),
+                    )),
                   ],
                 ),
               ],
@@ -477,7 +481,9 @@ class _TrendCell extends ConsumerWidget {
         artworkUrl: track.artworkUrl,
         videoId: track.videoId,
       ),
-      child: GestureDetector(
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
         onTap: () => playGenerated(ref, context, track,
             sourceLabel: 'Trending',
             queueAll: queueAll,
@@ -528,7 +534,7 @@ class _TrendCell extends ConsumerWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -894,7 +900,9 @@ class _NewReleasesExplorer extends StatelessWidget {
                       const SizedBox(width: 12),
                   itemBuilder: (context, i) {
                     final a = shown[i];
-                    return GestureDetector(
+                    return MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
                       onTap: () {
                         if (a.browseId.isNotEmpty) {
                           context.go(
@@ -936,7 +944,7 @@ class _NewReleasesExplorer extends StatelessWidget {
                           ],
                         ),
                       ),
-                    );
+                    ));
                   },
                 ),
               ),
@@ -1032,7 +1040,9 @@ class _PopularShelves extends ConsumerWidget {
                 return WaveEntrance(
                   index: i,
                   rise: 10,
-                  child: GestureDetector(
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
                   onTap: () {
                     if (a.browseId.isNotEmpty) {
                       context.go(
@@ -1071,7 +1081,7 @@ class _PopularShelves extends ConsumerWidget {
                       ],
                     ),
                   ),
-                ),
+                )),
                 );
               },
             ),
@@ -1101,7 +1111,9 @@ class _PopularShelves extends ConsumerWidget {
                 return WaveEntrance(
                   index: i,
                   rise: 10,
-                  child: GestureDetector(
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
                   onTap: () => playGenerated(ref, context, t,
                       sourceLabel: 'Popular right now'),
                   child: SizedBox(
@@ -1130,7 +1142,7 @@ class _PopularShelves extends ConsumerWidget {
                       ],
                     ),
                   ),
-                ),
+                )),
                 );
               },
             ),
@@ -1160,7 +1172,9 @@ class _PopularShelves extends ConsumerWidget {
                 return WaveEntrance(
                   index: i,
                   rise: 10,
-                  child: GestureDetector(
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
                   onTap: () => context.go(
                       '/artist/${Uri.encodeComponent(a.name)}'),
                   child: SizedBox(
@@ -1209,7 +1223,7 @@ class _PopularShelves extends ConsumerWidget {
                       ],
                     ),
                   ),
-                ),
+                )),
                 );
               },
             ),

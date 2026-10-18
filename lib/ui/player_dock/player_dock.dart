@@ -128,7 +128,9 @@ class WavePlayerDock extends ConsumerWidget {
                               key: ValueKey(current.queueKey),
                               child: Row(
                                 children: [
-                                  GestureDetector(
+                                  MouseRegion(
+                                    cursor: SystemMouseCursors.click,
+                                    child: GestureDetector(
                                     onTap: onExpand,
                                     child: LWTooltip(
                                       message: 'Open Now Playing',
@@ -142,10 +144,12 @@ class WavePlayerDock extends ConsumerWidget {
                                         artist: current.artist,
                                       ),
                                     ),
-                                  ),
+                                  )),
                                   const SizedBox(width: 10),
                                   Expanded(
-                                    child: GestureDetector(
+                                    child: MouseRegion(
+                                      cursor: SystemMouseCursors.click,
+                                      child: GestureDetector(
                                       onTap: onExpand,
                                       child: Column(
                                         mainAxisAlignment:
@@ -177,7 +181,7 @@ class WavePlayerDock extends ConsumerWidget {
                                           ),
                                         ],
                                       ),
-                                    ),
+                                    )),
                                   ),
                                   _LikeGlyph(track: current),
                                   if (!narrow)

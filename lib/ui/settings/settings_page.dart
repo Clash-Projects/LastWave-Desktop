@@ -775,7 +775,9 @@ class _Appearance extends ConsumerWidget {
                     const Color(0xFFE0A030),
                     const Color(0xFFE0507A),
                   ])
-                    GestureDetector(
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
                       // Picking a swatch implies "custom colour": without
                       // this the swatches look inert while another accent
                       // source is active.
@@ -804,7 +806,7 @@ class _Appearance extends ConsumerWidget {
                               )
                             : null,
                       ),
-                    ),
+                    )),
                 ],
               ),
             ],
