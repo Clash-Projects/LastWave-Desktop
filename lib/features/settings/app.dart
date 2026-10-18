@@ -17,6 +17,7 @@ import '../innertube/innertube_api.dart';
 import '../mpris/mpris_service.dart';
 import '../smtc/smtc_service.dart';
 import '../presence/discord_presence_service.dart';
+import 'accent.dart';
 import 'theme_controller.dart';
 
 /// LastWave desktop application root.
@@ -106,14 +107,18 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
             a.status == AuthStatus.guest),
         (_, inside) => _gate.update(inside));
     final theme = ref.watch(themeControllerProvider);
+    // Accent source (custom / LastWave neutral / system / artwork) is
+    // resolved in one place; anything that can't answer falls back to the
+    // custom pick there.
+    final accent = ref.watch(accentResolutionProvider).color;
 
     final darkTheme = buildWaveFluentTheme(
-      accent: theme.accent,
+      accent: accent,
       isLight: false,
       amoled: theme.amoled,
     );
     final lightTheme = buildWaveFluentTheme(
-      accent: theme.accent,
+      accent: accent,
       isLight: true,
     );
 

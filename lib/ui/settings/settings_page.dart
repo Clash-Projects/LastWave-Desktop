@@ -22,6 +22,7 @@ import '../components/select.dart';
 import 'yt_profile_chooser.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
+import '../../features/settings/accent.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../../features/audio_output/output_path_sheet.dart';
@@ -255,6 +256,53 @@ class _SectionSwap extends StatelessWidget {
             FadeTransition(opacity: animation, child: child),
         child: child,
       ),
+    );
+  }
+}
+
+/// Live read of the resolved accent: swatch + where it came from.
+///
+/// Makes a source that cannot answer visible instead of silent — "system"
+/// on a desktop that exposes no accent, or an artwork tint on a cover with
+/// no hue, both keep the custom colour and say so here.
+class _AccentPreview extends StatelessWidget {
+  final AccentResolution resolution;
+  const _AccentPreview({required this.resolution});
+
+  @override
+  Widget build(BuildContext context) {
+    final argb = resolution.color.toARGB32();
+    final hex =
+        '#${argb.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+    final text = switch (resolution.source) {
+      AccentSource.custom => 'Custom colour · $hex',
+      AccentSource.lastwave => 'LastWave neutral · $hex',
+      AccentSource.system => resolution.resolved
+          ? 'Desktop accent · $hex'
+          : 'This desktop exposes no accent — using custom colour',
+      AccentSource.artwork => resolution.resolved
+          ? 'Tinted from the current cover · $hex'
+          : 'No cover hue to tint from — using custom colour',
+    };
+    return Row(
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: resolution.color,
+            borderRadius: BorderRadius.circular(WaveRadius.tiny),
+            border: Border.all(color: waveDivider(context)),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -694,23 +742,23 @@ class _Appearance extends ConsumerWidget {
               const SizedBox(height: 12),
               const Text('Accent source', style: WaveType.trackTitle),
               const SizedBox(height: 6),
-              ComboBox<String>(
-                value: theme.accentSource,
-                items: const [
-                  ComboBoxItem(value: 'custom', child: Text('Custom colour')),
-                  ComboBoxItem(
-                    value: 'lastwave',
-                    child: Text('LastWave neutral'),
-                  ),
-                  ComboBoxItem(value: 'system', child: Text('System accent')),
-                  ComboBoxItem(value: 'artwork', child: Text('Artwork tint')),
+              WaveSelect<AccentSource>(
+                value: AccentSource.fromId(theme.accentSource),
+                options: [
+                  for (final source in AccentSource.values)
+                    WaveSelectOption(value: source, label: source.label),
                 ],
                 onChanged: (v) {
-                  if (v != null) {
-                    onUpdate((p) => p.setAccentSource(v));
+                  // Re-probe the desktop accent on every re-selection: the
+                  // user may have just changed it in their OS settings.
+                  if (v == AccentSource.system) {
+                    ref.invalidate(systemAccentProvider);
                   }
+                  onUpdate((p) => p.setAccentSource(v.id));
                 },
               ),
+              const SizedBox(height: 8),
+              _AccentPreview(resolution: ref.watch(accentResolutionProvider)),
               const SizedBox(height: 10),
               const Text('Accent colour', style: WaveType.trackTitle),
               const SizedBox(height: 6),
@@ -728,8 +776,13 @@ class _Appearance extends ConsumerWidget {
                     const Color(0xFFE0507A),
                   ])
                     GestureDetector(
-                      onTap: () =>
-                          onUpdate((p) => p.setAccentColor(c.toARGB32())),
+                      // Picking a swatch implies "custom colour": without
+                      // this the swatches look inert while another accent
+                      // source is active.
+                      onTap: () => onUpdate((p) async {
+                        await p.setAccentColor(c.toARGB32());
+                        await p.setAccentSource(AccentSource.custom.id);
+                      }),
                       child: Container(
                         width: 28,
                         height: 28,
