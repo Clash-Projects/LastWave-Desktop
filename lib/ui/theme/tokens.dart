@@ -11,9 +11,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 ///
 /// Wave direction:
 /// - Neutral graphite base (#0E0E0E / #161616 / #1E1E1E), off-white text.
-/// - NO blue/navy theme, NO 20–30px radii, NO giant pills (pill shapes are
-///   allowed ONLY for [WaveChip]-style chips and circular transport
-///   buttons).
+/// - NO blue/navy theme, NO giant pills (pill shapes are allowed ONLY for
+///   [WaveChip]-style chips and circular transport buttons). Radii come
+///   from the [WaveRadius] ladder — never a loose numeric literal.
 /// - The base stays neutral; artwork drives personality. The off-white
 ///   accent is used sparingly (play affordance, progress fill, selection),
 ///   never as large tinted surfaces.
@@ -187,36 +187,43 @@ class WaveSpacing {
   static const double x32 = 40;
 }
 
-/// Radii (px) — sharp system.
+/// Radii (px) — one step per surface class, monotonic ladder.
 ///
-/// - tiny 3: hairline chips, thumbs, dividers that need a cap.
-/// - controls 5: buttons, text fields, icon-button hover wells.
-/// - menu 7: menus, popovers, flyouts, tooltips.
-/// - artwork 6: cover art, tiles.
-/// - floating 10: MAX for floating surfaces (dialogs, cards, shelves).
-/// - structural 0: rails, docks, title bars, page scaffolds.
+/// - tiny 6: hairline chips, skeleton bars, status badges, indicator bars.
+/// - controls 10: buttons, text fields, nav items, icon-button hover wells.
+/// - artwork 12: cover art, thumbs, plus the scrims/overlays that wrap them.
+/// - menu 14: menus, popovers, flyouts, tooltips.
+/// - floating 20: dialogs, cards, panels, shelves.
+/// - hero 24: large cinematic covers and lyric pills.
+/// - structural 0: rails, docks, title bars, page scaffolds stay square.
 ///
-/// Do NOT use radii >= 16 anywhere. No 20–30px "soft" cards, no giant
-/// pills — pill/circle shapes are reserved for meta chips and the
-/// circular transport (play) button only.
+/// The ladder is deliberately monotonic (6 → 10 → 12 → 14 → 20 → 24) so a
+/// surface's radius reads as its "size class". Pill/circle shapes (`999`)
+/// are still reserved for meta chips and the circular transport (play)
+/// button — never for cards or controls.
+///
+/// Rule of thumb: a container that tightly wraps artwork shares the
+/// artwork radius, so covers and their hover scrims never mismatch.
 class WaveRadius {
   WaveRadius._();
-  static const double tiny = 3;
-  static const double controls = 5;
-  static const double menu = 7;
-  static const double artwork = 6;
-  static const double floating = 10;
+  static const double tiny = 6;
+  static const double controls = 10;
+  static const double artwork = 12;
+  static const double menu = 14;
+  static const double floating = 20;
+  static const double hero = 24;
   static const double structural = 0;
 
   static BorderRadius get tinyRadius =>
       BorderRadius.circular(tiny);
   static BorderRadius get controlsRadius =>
       BorderRadius.circular(controls);
-  static BorderRadius get menuRadius => BorderRadius.circular(menu);
   static BorderRadius get artworkRadius =>
       BorderRadius.circular(artwork);
+  static BorderRadius get menuRadius => BorderRadius.circular(menu);
   static BorderRadius get floatingRadius =>
       BorderRadius.circular(floating);
+  static BorderRadius get heroRadius => BorderRadius.circular(hero);
 }
 
 /// Compact density — real desktop music player zones.
