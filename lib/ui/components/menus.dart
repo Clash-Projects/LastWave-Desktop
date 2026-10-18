@@ -294,8 +294,11 @@ Future<void> showWaveTrackProperties(
 /// profiles) plus an Acrylic/PhysicalModel shell. This panel sizes by
 /// top-down constraints instead (stretch inside a fixed max width: O(n),
 /// cached, nothing to measure) with an opaque surface + cacheable
-/// BoxShadows. Rows are the theme's own [FlyoutListTile], so item
-/// visuals (hover fill, typography, trailing style) are pixel-identical.
+/// BoxShadows. Rows are [WaveMenuRow], which keeps the plugin's item
+/// metrics (14px label, 16px leading, muted 12px trailing note) but derives
+/// its radius from the panel corner, so hover/selected fills stay
+/// concentric with the rounded surface instead of reading as square plates
+/// cut against it ([FlyoutListTile] hard-codes a 4px radius).
 class WaveFlyoutPanel extends StatefulWidget {
   final List<WaveMenuEntry>? entries;
   final Widget? child;
@@ -420,10 +423,8 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
           ));
         } else if (entry is WaveMenuAction) {
           final onPressed = entry.onPressed;
-          rows.add(FlyoutListTile(
-            margin: EdgeInsetsDirectional.zero,
+          rows.add(WaveMenuRow(
             selected: i == _highlight,
-            showSelectedIndicator: false,
             icon: entry.leading,
             text: Text(
               entry.label,
@@ -470,8 +471,9 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: widget.maxWidth),
         child: Padding(
-          padding:
-              const EdgeInsetsDirectional.symmetric(vertical: 2, horizontal: 4),
+          // [WaveMenuRow.inset]: keeps row fills clear of the panel's
+          // rounded edge, and is what the row radius is measured against.
+          padding: const EdgeInsetsDirectional.all(WaveMenuRow.inset),
           child: body,
         ),
       ),
@@ -492,7 +494,117 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
   }
 }
 
-/// Cascading submenu row: same [FlyoutListTile] visuals as actions, opens
+/// One tappable menu row, drawn by the app instead of the plugin's
+/// [FlyoutListTile].
+///
+/// WHY: [FlyoutListTile] hard-codes `BorderRadius.circular(4)` for its
+/// hover/selected fill and its focus ring. Inside a panel whose own corner
+/// is `WaveRadius.menu`, the first and last rows then read as square plates
+/// cut against the rounded surface. This row keeps the plugin's metrics
+/// (14px label, 16px leading, muted 12px trailing note) and derives its
+/// radius from [inset] — `WaveRadius.menu` − 4 = [WaveRadius.controls] — so
+/// the highlight stays concentric with the panel.
+class WaveMenuRow extends StatelessWidget {
+  /// Gap the panel keeps around its rows ([WaveFlyoutPanel] padding). Row
+  /// radius = panel radius − this, which is what keeps them concentric.
+  static const double inset = 4;
+
+  final Widget text;
+  final Widget? icon;
+  final Widget? trailing;
+  final VoidCallback? onPressed;
+
+  /// Renders the hovered fill (keyboard highlight / current selection).
+  final bool selected;
+
+  const WaveMenuRow({
+    super.key,
+    required this.text,
+    this.icon,
+    this.trailing,
+    this.onPressed,
+    this.selected = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    assert(debugCheckHasFluentTheme(context));
+    return HoverButton(
+      onPressed: onPressed,
+      builder: (context, states) {
+        final theme = FluentTheme.of(context);
+        // Selected rows wear the hover fill, like the plugin's.
+        final effective = selected ? {WidgetState.hovered} : states;
+        final foreground = ButtonThemeData.buttonForegroundColor(
+          context,
+          effective,
+        );
+        return FocusBorder(
+          focused: states.isFocused,
+          renderOutside: true,
+          style: FocusThemeData(borderRadius: WaveRadius.controlsRadius),
+          child: Container(
+            decoration: BoxDecoration(
+              color: ButtonThemeData.uncheckedInputColor(
+                theme,
+                effective,
+                transparentWhenNone: true,
+              ),
+              borderRadius: WaveRadius.controlsRadius,
+            ),
+            padding: const EdgeInsetsDirectional.only(
+              top: 6,
+              bottom: 6,
+              start: 12,
+              end: 10,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null)
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 10),
+                    child: IconTheme.merge(
+                      data: IconThemeData(size: 16, color: foreground),
+                      child: icon!,
+                    ),
+                  ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 10),
+                    child: DefaultTextStyle.merge(
+                      style: TextStyle(
+                        fontSize: 14,
+                        letterSpacing: -0.15,
+                        color: foreground,
+                      ),
+                      child: text,
+                    ),
+                  ),
+                ),
+                if (trailing != null)
+                  DefaultTextStyle.merge(
+                    style: TextStyle(
+                      fontSize: 12,
+                      // Meta tier, not `controlStrokeColorDefault`: that's a
+                      // *border* colour (~1.1:1 on the menu surface), which
+                      // made shortcut hints like "Ctrl+K" nearly invisible.
+                      // `textTertiary` is the app's 4.8:1 meta token.
+                      color: waveTextTertiary(context),
+                      height: 0.7,
+                    ),
+                    child: trailing!,
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Cascading submenu row: same [WaveMenuRow] visuals as actions, opens
 /// a nested [WaveFlyoutPanel] on hover (250ms) or tap/click/Enter.
 class _WaveSubmenuRow extends StatefulWidget {
   final WaveMenuSubmenu entry;
@@ -554,10 +666,8 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
           );
         },
         onExit: (_) => _hoverTimer?.cancel(),
-        child: FlyoutListTile(
-          margin: EdgeInsetsDirectional.zero,
+        child: WaveMenuRow(
           selected: widget.highlighted,
-          showSelectedIndicator: false,
           icon: widget.entry.leading,
           text: Text(
             widget.entry.label,
