@@ -48,6 +48,10 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   DateTime _lastHoverAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastArmAt = DateTime.fromMillisecondsSinceEpoch(0);
   String _preloadedKey = '';
+  // Separate arming key for the motion-art lookup: it is gated on the
+  // visualizer toggle (the only thing that renders a clip), so flipping
+  // the toggle on must re-arm for the current track.
+  String _prefetchedMotionKey = '';
   // Memoized in-page queue drawer: without this every page build
   // reconstructs the full row list (menus, tooltips, flyout targets).
   // Same instance across builds => element update short-circuits.
@@ -150,20 +154,35 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
         if (warm.isNotEmpty) {
           ArtworkResolver.preload(context, warm, targetPx: 640);
         }
-        final anim = ref.read(animatedArtworkServiceProvider);
-        anim.prefetch(AnimatedArtworkQuery(
-          artist: current.artist,
-          album: current.album,
-          title: current.title,
-        ));
-        for (final track in upcoming) {
-          anim.prefetch(AnimatedArtworkQuery(
-            artist: track.artist,
-            album: track.album,
-            title: track.title,
-          ));
-        }
       });
+    }
+
+    // Motion-art lookup is the expensive half (iTunes/Deezer search plus a
+    // possible YTM album backfill) and is only ever rendered while the
+    // visualizer is on, so nothing prefetches it while this page is closed
+    // and nothing looks it up when the toggle is off. Re-arms on the toggle
+    // so flipping it on warms the current track instead of waiting for the
+    // first fade.
+    if (visualizerEnabled && current.queueKey != _prefetchedMotionKey) {
+      _prefetchedMotionKey = current.queueKey;
+      final snap = ref.read(playbackServiceProvider);
+      final q = snap.queue;
+      final i = snap.currentIndex;
+      final anim = ref.read(animatedArtworkServiceProvider);
+      anim.prefetch(AnimatedArtworkQuery(
+        artist: current.artist,
+        album: current.album,
+        title: current.title,
+      ));
+      for (final offset in [1, 2]) {
+        if (i + offset >= q.length) continue;
+        final track = q[i + offset];
+        anim.prefetch(AnimatedArtworkQuery(
+          artist: track.artist,
+          album: track.album,
+          title: track.title,
+        ));
+      }
     }
 
     return CallbackShortcuts(

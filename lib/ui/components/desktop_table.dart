@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../../features/player/playback_service.dart';
 import '../app_shell/wave_hotkeys.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -1073,17 +1074,18 @@ class _ArtPlay extends StatelessWidget {
 }
 
 /// Animated 3-bar playing indicator in the accent colour.
-class WaveEqDots extends StatefulWidget {
+class WaveEqDots extends ConsumerStatefulWidget {
   final bool light;
   const WaveEqDots({super.key}) : light = false;
   const WaveEqDots.light({super.key}) : light = true;
   @override
-  State<WaveEqDots> createState() => _WaveEqDotsState();
+  ConsumerState<WaveEqDots> createState() => _WaveEqDotsState();
 }
 
-class _WaveEqDotsState extends State<WaveEqDots>
+class _WaveEqDotsState extends ConsumerState<WaveEqDots>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
+  bool _tickerActive = false;
 
   @override
   void initState() {
@@ -1094,24 +1096,29 @@ class _WaveEqDotsState extends State<WaveEqDots>
     );
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _syncTickerState();
-  }
-
-  void _syncTickerState() {
-    final active = (ModalRoute.of(context)?.isCurrent ?? true) &&
-        TickerMode.valuesOf(context).enabled;
-    if (active) {
-      if (!_c.isAnimating) {
-        _c.repeat(reverse: true);
-      }
-    } else {
-      if (_c.isAnimating) {
+  /// Drives the repeating ticker from the *live* gate: playing AND the
+  /// route current AND the ticker enabled.
+  ///
+  /// This widget sits in the now-playing row of every list, so an
+  /// unconditional `repeat()` used to hold the engine scheduling frames
+  /// at 60 Hz for the whole session — including while playback was
+  /// paused. Gating on `isPlaying` lets a paused app drop to zero frames;
+  /// the bars stay drawn (frozen) so the row still reads as the current
+  /// track.
+  void _syncTickerState(bool active) {
+    if (active == _tickerActive) return;
+    _tickerActive = active;
+    // Ticker start/stop is not a widget-tree mutation, but it can notify
+    // the AnimatedBuilder below — never run it mid-build. Deferred, so a
+    // rapid toggle coalesces to the last state (FIFO post-frame order).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (active) {
+        if (!_c.isAnimating) _c.repeat(reverse: true);
+      } else if (_c.isAnimating) {
         _c.stop();
       }
-    }
+    });
   }
 
   @override
@@ -1122,6 +1129,14 @@ class _WaveEqDotsState extends State<WaveEqDots>
 
   @override
   Widget build(BuildContext context) {
+    final playing = ref.watch(
+      playbackServiceProvider.select((s) => s.isPlaying),
+    );
+    _syncTickerState(
+      playing &&
+          (ModalRoute.of(context)?.isCurrent ?? true) &&
+          TickerMode.valuesOf(context).enabled,
+    );
     final color =
         widget.light ? Colors.white : waveAccent(context);
     return RepaintBoundary(
