@@ -9,7 +9,12 @@ import '../../features/lastfm/home_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/menus.dart'
-    show fastFlyoutTransition, WaveFlyoutPanel, WaveMenuAction, WaveMenuSeparator;
+    show
+        fastFlyoutTransition,
+        WaveFlyoutPanel,
+        WaveMenuAction,
+        WaveMenuButton,
+        WaveMenuSeparator;
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
@@ -458,35 +463,36 @@ class _AppMenu extends StatelessWidget {
   const _AppMenu();
   @override
   Widget build(BuildContext context) {
-    return DropDownButton(
+    return WaveMenuButton(
       placement: FlyoutPlacementMode.bottomRight,
-      transitionBuilder: fastFlyoutTransition,
-      items: [
-        MenuFlyoutItem(
+      entries: [
+        WaveMenuAction(
           leading: const Icon(WaveIcons.search, size: 15),
-          text: const Text('Search  (Ctrl+K)'),
+          label: 'Search',
+          hint: 'Ctrl+K',
           onPressed: () => context.go('/search'),
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.lyrics, size: 15),
-          text: const Text('Lyrics  (Ctrl+L)'),
+          label: 'Lyrics',
+          hint: 'Ctrl+L',
           onPressed: () => context.go('/lyrics'),
         ),
-        const MenuFlyoutSeparator(),
-        MenuFlyoutItem(
+        const WaveMenuSeparator(),
+        WaveMenuAction(
           leading: const Icon(WaveIcons.history, size: 15),
-          text: const Text('History'),
+          label: 'History',
           onPressed: () => context.go('/history'),
         ),
-        MenuFlyoutItem(
+        WaveMenuAction(
           leading: const Icon(WaveIcons.mixes, size: 15),
-          text: const Text('Mix Lab'),
+          label: 'Mix Lab',
           onPressed: () => context.go('/mixes'),
         ),
-        const MenuFlyoutSeparator(),
-        MenuFlyoutItem(
+        const WaveMenuSeparator(),
+        WaveMenuAction(
           leading: const Icon(WaveIcons.settings, size: 15),
-          text: const Text('Settings'),
+          label: 'Settings',
           onPressed: () => context.go('/settings'),
         ),
       ],

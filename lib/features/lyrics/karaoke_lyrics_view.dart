@@ -12,7 +12,8 @@ import '../../core/audio/stream_models.dart';
 import '../../core/error/fatal_crumbs.dart';
 import '../../core/storage/prefs.dart';
 import '../../ui/components/buttons.dart' show LWTooltip;
-import '../../ui/components/menus.dart' show fastFlyoutTransition;
+import '../../ui/components/menus.dart'
+    show WaveMenuAction, WaveMenuButton, WaveMenuSeparator;
 import '../../ui/components/states.dart';
 import '../../ui/lyrics/lyrics_panel.dart';
 import '../../ui/theme/haze.dart';
@@ -1232,28 +1233,27 @@ class _SourceMenu extends ConsumerWidget {
       message: result.source.isNotEmpty
           ? 'Source: ${result.source} · Change'
           : 'Change lyrics source',
-      child: DropDownButton(
+      child: WaveMenuButton(
         placement: FlyoutPlacementMode.bottomRight,
-        transitionBuilder: fastFlyoutTransition,
-        items: [
+        entries: [
           for (final provider in LyricsProviderId.values)
-            MenuFlyoutItem(
+            WaveMenuAction(
               leading: effective == provider.id
                   ? const Icon(FluentIcons.check_mark, size: 13)
                   : const SizedBox(width: 13),
-              text: Text(provider.title),
+              label: provider.title,
               onPressed: () => apply(provider.id),
             ),
-          const MenuFlyoutSeparator(),
-          MenuFlyoutItem(
+          const WaveMenuSeparator(),
+          WaveMenuAction(
             leading: const Icon(FluentIcons.refresh, size: 13),
-            text: const Text('Try another source'),
+            label: 'Try another source',
             onPressed: () => apply(null),
           ),
         ],
         buttonBuilder: (context, onOpen) => _MiniIconButton(
           icon: WaveIcons.lyrics,
-          onTap: () => onOpen?.call(),
+          onTap: onOpen,
         ),
       ),
     );
