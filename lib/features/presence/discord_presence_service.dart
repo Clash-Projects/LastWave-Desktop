@@ -11,10 +11,12 @@ import 'discord_ipc.dart';
 /// Discord Rich Presence ("Listening to LastWave") over local IPC.
 ///
 /// Setup: create an application at https://discord.com/developers/
-/// applications and paste its ID into [discordApplicationId] below. Under
-/// Rich Presence > Art Assets you may upload `logo`, `play` and `pause`
-/// icons; until then the track's own artwork URL is used as the large
-/// image and missing keys are simply omitted by Discord.
+/// applications and paste its ID into [discordApplicationId] below. No Art
+/// Assets upload is required — both artwork slots are fed external https
+/// URLs ([discordLogoAsset] for the brand badge, the track's cover for the
+/// large image). Uploading `logo`/`play`/`pause` as Rich Presence assets in
+/// the portal and pointing at those keys instead is the offline-safe
+/// alternative, for a Discord that cannot reach the URLs.
 ///
 /// Transport is a hand-rolled IPC client ([DiscordIpc]): Windows named
 /// pipes (win32/ffi) or Unix domain sockets (dart:io) — no third-party
@@ -23,15 +25,35 @@ import 'discord_ipc.dart';
 /// Behaviour: pushes on track/play-state change (throttled), silent when
 /// Discord is closed, pipe missing, or rate-limited. Progress-bar
 /// refreshes are throttled (track/play-state change or 15s elapsed) so
-/// position ticks don't spam the IPC socket.
+/// position ticks don't spam the IPC socket. The activity is CLEARED as
+/// soon as playback is not running (paused, stopped, or finished): a
+/// lingering activity carries a `start` timestamp, so Discord keeps
+/// counting elapsed time up and a song that ended hours ago still reads
+/// as "now playing".
 class DiscordPresenceService {
   /// Application ID from the Discord Developer Portal (General Information).
   /// Public by design — safe to ship in source (it is not a secret; only
   /// the Client Secret / bot token must stay private).
   static const discordApplicationId = '1552563991426105414';
 
+  /// Brand mark for the card's small badge (and the fallback large image).
+  ///
+  /// Discord resolves `assets.large_image` / `assets.small_image` from a
+  /// registered Rich Presence asset key OR from a plain https URL, and the
+  /// track artwork already rides the URL path — so pointing the badge at the
+  /// repo's logo PNG makes the branding show up with zero manual setup.
+  /// Swap this for the asset key `logo` if the portal assets are ever
+  /// uploaded instead.
+  static const discordLogoAsset =
+      'https://raw.githubusercontent.com/Clash-Projects/LastWave-Desktop/'
+      'main/lastwave-logo.png';
+
   static const _maxField = 120;
   static const _pushInterval = Duration(seconds: 15);
+  /// Grace period before clearing a non-playing activity. Every track EOF
+  /// dips `isPlaying` to false while the next track resolves, so an
+  /// immediate clear would blink the presence off between songs.
+  static const _clearDelay = Duration(seconds: 5);
   // While music plays, a missing connection is retried at most this often:
   // a closed Discord costs ~10 fast-failed pipe opens (sub-millisecond),
   // so retrying eagerly is cheap and keeps worst-case invisibility tiny.
@@ -46,6 +68,8 @@ class DiscordPresenceService {
   String _lastKey = '';
   DateTime _lastPush = DateTime.fromMillisecondsSinceEpoch(0);
   PlayerSnapshot? _lastSnap;
+  /// Pending "not playing" clear (see [_scheduleClear]).
+  Timer? _clearTimer;
 
   DiscordPresenceService(this._ref) {
     // Self-heal: re-evaluates on a slow tick so presence can never go
@@ -105,6 +129,17 @@ class DiscordPresenceService {
       await _clearQuiet();
       return;
     }
+    if (!snap.isPlaying) {
+      // Paused / stopped / finished: the profile must not keep the track.
+      // Pushing it as "Paused" is not enough — the activity (and its
+      // `start` timestamp) stays on the profile and Discord counts elapsed
+      // time up, so a song that ended while the app stayed open reads as
+      // "still playing" for as long as the app runs.
+      _scheduleClear();
+      return;
+    }
+    _clearTimer?.cancel();
+    _clearTimer = null;
     final key =
         '${track.queueKey}|playing=${snap.isPlaying}|dur=${snap.duration.inSeconds}|br=${snap.bitrateKbps}';
     final now = DateTime.now();
@@ -132,7 +167,9 @@ class DiscordPresenceService {
     }
   }
 
-  /// Activity payload for SET_ACTIVITY (type 2 = listening).
+  /// Activity payload for SET_ACTIVITY (type 2 = listening). Only built
+  /// while playback is running — [_evaluate] clears instead of publishing a
+  /// paused activity.
   Map<String, Object?> _build(
       PlayableTrack track, PlayerSnapshot snap, DateTime now) {
     final title = _clip(track.title);
@@ -140,7 +177,7 @@ class DiscordPresenceService {
         ? (track.album.trim().isEmpty ? 'LastWave' : _clip(track.album))
         : _clip(track.artist);
     Map<String, Object?>? ts;
-    if (snap.isPlaying && snap.duration > Duration.zero) {
+    if (snap.duration > Duration.zero) {
       final pos =
           snap.position > snap.duration ? snap.duration : snap.position;
       final end = now.add(snap.duration - pos);
@@ -151,9 +188,6 @@ class DiscordPresenceService {
       };
     }
     final quality = _qualityLine(snap);
-    final rawState = quality.isEmpty ? artist : '$artist\n · $quality';
-    final state =
-        rawState.length > 125 ? '${rawState.substring(0, 124)}...' : rawState;
     final art = track.artworkUrl.trim();
     // External assets need http(s) — local file paths can't load in
     // Discord, so those fall back to the uploaded `logo` key.
@@ -166,17 +200,31 @@ class DiscordPresenceService {
     final vid = track.videoId.trim();
     return {
       'type': 2,
+      // Card layout: `name` stays the app, so the profile popout header
+      // reads "Listening to LastWave"; the track is `details` (the large
+      // line) and the artist is `state` (the subtitle).
+      //
+      // `status_display_type` selects what the compact line under the
+      // username shows: 0 = name, 1 = state, 2 = details. Discord defaults
+      // to 0, so DETAILS is what makes the member-list card show the song
+      // instead of "LastWave" — the usual split of name/detail rows.
       'name': 'LastWave',
       'details': title,
-      'state': state,
+      'state': artist,
+      'status_display_type': 2,
       'timestamps': ?ts,
       'assets': {
         if (artIsUrl) 'large_image': art,
-        if (!artIsUrl) 'large_image': 'logo',
+        if (!artIsUrl) 'large_image': discordLogoAsset,
         'large_text':
             track.album.trim().isEmpty ? title : _clip(track.album),
-        'small_image': snap.isPlaying ? 'play' : 'pause',
-        'small_text': snap.isPlaying ? 'Playing' : 'Paused',
+        // Brand badge. Discord draws `small_image` as the little overlay in
+        // the card's corner, so the logo rides along with whatever artwork
+        // the track supplied; its tooltip is where the audio-format line
+        // went once the subtitle became the artist.
+        'small_image': discordLogoAsset,
+        'small_text': _clip(
+            quality.isEmpty ? 'LastWave' : 'LastWave · $quality'),
       },
       'buttons': [
         {
@@ -259,10 +307,24 @@ class DiscordPresenceService {
     }
   }
 
+  /// Defers the "not playing" clear by [_clearDelay] so the `isPlaying` dip
+  /// at every track EOF does not blink the presence off. No-op once clear:
+  /// the 15s heartbeat re-runs [_evaluate] for the whole paused period.
+  void _scheduleClear() {
+    if (_clearTimer != null || _lastKey.isEmpty) return;
+    _clearTimer = Timer(_clearDelay, () {
+      _clearTimer = null;
+      unawaited(_clearQuiet());
+    });
+  }
+
   Future<void> _clearQuiet() async {
+    final had = _lastKey.isNotEmpty;
     _lastKey = '';
     final ipc = _ipc;
-    if (ipc == null) return;
+    // Nothing was ever pushed (startup, or an earlier clear): skip the
+    // round-trip and its reply drain.
+    if (ipc == null || !had) return;
     try {
       ipc.clearActivity();
     } catch (_) {}
@@ -276,6 +338,10 @@ class DiscordPresenceService {
       _heartbeat?.cancel();
     } catch (_) {}
     _heartbeat = null;
+    try {
+      _clearTimer?.cancel();
+    } catch (_) {}
+    _clearTimer = null;
     try {
       await _clearQuiet();
     } catch (_) {}
