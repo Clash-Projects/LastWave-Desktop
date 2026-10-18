@@ -239,7 +239,6 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
     final manager = ref.read(downloadManagerProvider.notifier);
     final downloading = e.status == DownloadStatus.downloading;
     final queued = e.status == DownloadStatus.queued;
-    final dark = waveIsDark(context);
     return WaveContextMenu(
       items: () => [
         if (e.status == DownloadStatus.done)
@@ -273,11 +272,12 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
             duration: WaveMotion.fast,
             curve: Curves.easeOutCubic,
             height: 54,
+            // Inset the content, not the fill: the 6px hover plate keeps its
+            // full width while the artwork clears its rounded edge (same
+            // 8px row inset as the track rows).
+            padding: const EdgeInsetsDirectional.only(start: 8),
             decoration: BoxDecoration(
-              color: _hover
-                  ? (dark ? Colors.white : Colors.black)
-                      .withValues(alpha: 0.07)
-                  : Colors.transparent,
+              color: _hover ? waveHoverWash(context) : Colors.transparent,
               borderRadius:
                   BorderRadius.circular(WaveRadius.tiny),
             ),
