@@ -364,6 +364,7 @@ class _TopActionsBar extends StatelessWidget {
             borderRadius: WaveRadius.menuRadius,
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             child: Row(
+              spacing: 5,
               mainAxisSize: MainAxisSize.min,
               children: [
                 LWTooltip(
