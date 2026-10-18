@@ -966,6 +966,22 @@ class _Ytm extends ConsumerWidget {
             ],
           ),
         ),
+        const SizedBox(height: 16),
+        _Group(
+          title: 'Discord',
+          subtitle: 'Show what you are listening to on your Discord profile',
+          child: _SwitchRow(
+            value: prefs.discordRichPresence,
+            onChanged: (v) async {
+              await onUpdate((p) => p.setDiscordRichPresence(v));
+              try {
+                ref.read(discordPresenceProvider).refresh();
+              } catch (_) {}
+            },
+            title: 'Discord Rich Presence',
+            subtitle: 'Uses the local Discord client · no bot or login',
+          ),
+        ),
       ],
     );
   }
@@ -2018,29 +2034,6 @@ class _General extends ConsumerWidget {
                 title: 'Close button minimize to tray.',
                 subtitle:
                     'Keep the player running in the background when closed.',
-              ),
-              const SizedBox(height: 8),
-              _SwitchRow(
-                value: prefs.discordRichPresence,
-                onChanged: (v) async {
-                  await onUpdate((p) => p.setDiscordRichPresence(v));
-                  try {
-                    ref.read(discordPresenceProvider).refresh();
-                  } catch (_) {}
-                },
-                title: 'Discord Rich Presence',
-                subtitle:
-                    'Show the current track in your Discord status.',
-              ),
-              const SizedBox(height: 8),
-              _SwitchRow(
-                value: prefs.liveTelemetryEnabled,
-                onChanged: (v) =>
-                    onUpdate((p) => p.setLiveTelemetryEnabled(v)),
-                title: 'Global Live Map Telemetry',
-                subtitle: prefs.liveTelemetryEnabled
-                    ? 'On • Listening ticks broadcast anonymously to the live world map'
-                    : 'Off • Playback telemetry stays completely local',
               ),
             ],
           ),
