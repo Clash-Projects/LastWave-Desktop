@@ -287,6 +287,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
 
   Future<void> _ensurePlayer() async {
     if (_player != null && _controller != null) return;
+    // Defensive + idempotent: media_kit's libmpv dlopen normally comes from
+    // PlaybackService.ensurePlayer, but this session owns its own Player()
+    // and must not depend on that having run first.
+    MediaKit.ensureInitialized();
     final player = Player(
       configuration: const PlayerConfiguration(
         muted: true,

@@ -228,10 +228,16 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   Future<void> ensurePlayer() async {
     if (_player != null) return;
-    // Limusic parity (Dart side): one persistent audio-only libmpv
-    // instance with on-disk demuxer cache + gapless. media_kit already
-    // defaults to vo=null (audio-only) + 32MiB buffer; we set the rest
-    // best-effort via mpv properties. No Rust/C++ involved.
+    // One persistent audio-only libmpv instance with on-disk demuxer cache
+    // + gapless. media_kit already defaults to vo=null (audio-only) + the
+    // buffer below; we set the rest best-effort via mpv properties. No
+    // Rust/C++ involved.
+    //
+    // ensureInitialized() dlopens libmpv (multi-MB .so). It is called here
+    // rather than from main() so the dlopen is off the first-frame path —
+    // nothing before the first play needs media_kit. Idempotent, and the
+    // only other Player() site (the motion-art session) calls it too.
+    MediaKit.ensureInitialized();
     // 16MiB demuxer buffer: lossless 24/192 peaks ~9Mbps, so this
     // still holds ~14s of the heaviest stream while halving the
     // 32MiB RSS cost (was the single biggest native allocation).
