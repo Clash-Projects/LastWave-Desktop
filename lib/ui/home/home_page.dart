@@ -2233,37 +2233,79 @@ class _ArtistTile extends StatefulWidget {
 }
 
 class _ArtistTileState extends State<_ArtistTile> {
+  /// Cover edge. The resting radius is half of it, which is a circle; the
+  /// hover radius is [WaveRadius.floating] — a rounded square, one rung
+  /// below a full circle (12 read as too square at this size).
+  static const double _size = 112;
+
   bool _hover = false;
+  bool _pressed = false;
+
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    // Hover reads as the shape relaxing: circle → rounded square (56 → 20
+    // on a 112px cover), plus the app's standard ×1.03 lift. No accent
+    // ring — accent means "selected/playing" everywhere else in the app.
+    final radius = BorderRadius.circular(
+      _hover ? WaveRadius.floating : _size / 2,
+    );
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
       child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
         onTap: () => context.go(
             '/artist/${Uri.encodeComponent(widget.track.artist)}'),
         child: SizedBox(
           width: 120,
           child: Column(
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: _hover
-                        ? waveAccent(context)
-                            .withValues(alpha: 0.6)
-                        : waveDivider(context),
-                    width: _hover ? 2 : 1,
+              AnimatedScale(
+                scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+                duration: WaveMotion.fast,
+                curve: Curves.easeOutCubic,
+                child: AnimatedContainer(
+                  duration: WaveMotion.normal,
+                  curve: Curves.easeOutCubic,
+                  // The clip is what animates the shape, so the artwork
+                  // itself renders square (radius 0) and lets this own it.
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    boxShadow: [
+                      if (_hover)
+                        BoxShadow(
+                          color: Colors.black
+                              .withValues(alpha: dark ? 0.45 : 0.18),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                    ],
                   ),
-                ),
-                child: WaveArtwork.circle(
-                  url: widget.track.artworkUrl,
-                  size: 112,
-                  label: widget.track.artist,
-                  title: widget.track.artist,
-                  artist: widget.track.artist,
+                  // Hairline as a *foreground* decoration: a plain
+                  // `border` would inset the cover by 1px (Container pads
+                  // by the border width), and this keeps the ring exactly
+                  // on the clip edge for both shapes.
+                  foregroundDecoration: BoxDecoration(
+                    borderRadius: radius,
+                    border: Border.all(color: waveDivider(context)),
+                  ),
+                  child: WaveArtwork(
+                    url: widget.track.artworkUrl,
+                    size: _size,
+                    radius: WaveRadius.structural,
+                    kind: ArtworkKind.artist,
+                    label: widget.track.artist,
+                    title: widget.track.artist,
+                    artist: widget.track.artist,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),

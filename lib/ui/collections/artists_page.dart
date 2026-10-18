@@ -164,6 +164,9 @@ class _ArtistCell extends StatefulWidget {
 }
 
 class _ArtistCellState extends State<_ArtistCell> {
+  /// Cover edge; the resting radius is half of it (a circle).
+  static const double _artSize = 120;
+
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
@@ -184,6 +187,7 @@ class _ArtistCellState extends State<_ArtistCell> {
         ),
       ],
       child: MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
@@ -208,12 +212,28 @@ class _ArtistCellState extends State<_ArtistCell> {
                     scale: _hover ? 1.04 : 1.0,
                     duration:
                         const Duration(milliseconds: 110),
-                    child: WaveArtwork.circle(
-                        url: widget.artwork,
-                        size: 120,
-                        label: widget.name,
-                        title: widget.name,
-                        artist: widget.name),
+                    // Same shape language as the home "Artists for you"
+                    // shelf: circle at rest (radius = half the cover),
+                    // relaxing to a rounded square on hover. The clip is
+                    // what animates, so the artwork renders square.
+                    child: AnimatedContainer(
+                      duration: WaveMotion.normal,
+                      curve: Curves.easeOutCubic,
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(_hover
+                            ? WaveRadius.floating
+                            : _artSize / 2),
+                      ),
+                      child: WaveArtwork(
+                          url: widget.artwork,
+                          size: _artSize,
+                          radius: WaveRadius.structural,
+                          kind: ArtworkKind.artist,
+                          label: widget.name,
+                          title: widget.name,
+                          artist: widget.name),
+                    ),
                   ),
                   Positioned(
                     left: 8,
