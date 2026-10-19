@@ -19,6 +19,7 @@ import '../mini_player/mini_player.dart';
 import '../components/infobar_host.dart';
 import '../lyrics/lyrics_side_panel.dart';
 import '../navigation/destinations.dart';
+import '../navigation/route_origin.dart';
 import '../navigation/side_rail.dart';
 import '../player_dock/player_dock.dart';
 import '../queue/queue_panel.dart';
@@ -693,7 +694,17 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     // anywhere. Enter is deliberately left to focused controls.
     return Mica(
           backgroundColor: waveBackground(context),
-          child: Column(
+          // Single pointer observer for the whole chrome. Route
+          // transitions anchor at wherever the user last released the
+          // pointer (see WaveRouteOrigin): one Listener here beats a global
+          // key per card, translucent keeps it out of the hit-test verdict,
+          // and pointer-up is dispatched before the gesture arena resolves
+          // the tap, so the anchor is always in place for the navigation it
+          // caused.
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerUp: (event) => WaveRouteOrigin.record(event.position),
+            child: Column(
             children: [
               _titleBarFor(
                 _backStack.isNotEmpty,
@@ -930,6 +941,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                       ),
                     ),
             ],
+          ),
           ),
         );
   }

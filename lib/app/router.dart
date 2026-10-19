@@ -20,6 +20,7 @@ import '../ui/discover/discover_page.dart';
 import '../ui/home/home_page.dart';
 import '../ui/lyrics/lyrics_screen.dart';
 import '../ui/misc/support_pages.dart';
+import '../ui/navigation/route_origin.dart';
 import '../ui/now_playing/now_playing_page.dart';
 import '../ui/search/search_page.dart';
 import '../ui/settings/settings_page.dart';
@@ -41,6 +42,44 @@ Page<void> _page(Widget child) {
       );
     },
     transitionDuration: WaveMotion.fast,
+  );
+}
+
+/// Pointer-anchored entrance for routes opened from a surface the user pressed
+/// (a card, a cover, the dock).
+///
+/// The destination grows out of the recorded press point — a 0.94 → 1 scale
+/// anchored there, under the same crossfade — so a tap reads as the page
+/// expanding out of what was tapped instead of a hard cut. Reversing the
+/// route plays the same curve backwards, shrinking back toward the origin.
+///
+/// Falls back to [_page] whenever no fresh origin exists (deep link, hotkey,
+/// command palette, session restore) and drops to a plain fade when the OS
+/// reduce-motion switch is on.
+Page<void> _anchoredPage(Widget child) {
+  final origin = WaveRouteOrigin.consume();
+  if (origin == null) return _page(child);
+  return CustomTransitionPage(
+    child: child,
+    transitionsBuilder:
+        (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: WaveMotion.standard,
+      );
+      if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+        return FadeTransition(opacity: curved, child: child);
+      }
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
+          alignment: origin.alignmentIn(MediaQuery.sizeOf(context)),
+          child: child,
+        ),
+      );
+    },
+    transitionDuration: WaveMotion.normal,
   );
 }
 
@@ -136,7 +175,7 @@ GoRouter buildRouter({required AuthGate gate}) {
               ),
               GoRoute(
                 path: '/album/:id',
-                pageBuilder: (c, s) => _page(
+                pageBuilder: (c, s) => _anchoredPage(
                   WaveAlbumPage(
                     browseId: Uri.decodeComponent(
                         s.pathParameters['id'] ?? ''),
@@ -154,7 +193,7 @@ GoRouter buildRouter({required AuthGate gate}) {
               ),
               GoRoute(
                 path: '/artist/:name',
-                pageBuilder: (c, s) => _page(
+                pageBuilder: (c, s) => _anchoredPage(
                   WaveArtistPage(
                     name: Uri.decodeComponent(
                         s.pathParameters['name'] ?? ''),
@@ -172,7 +211,7 @@ GoRouter buildRouter({required AuthGate gate}) {
                 routes: [
                   GoRoute(
                     path: ':id',
-                    pageBuilder: (c, s) => _page(
+                    pageBuilder: (c, s) => _anchoredPage(
                       WavePlaylistDetailPage(
                         id: int.tryParse(
                                 s.pathParameters['id'] ?? '') ??
@@ -184,7 +223,7 @@ GoRouter buildRouter({required AuthGate gate}) {
               ),
               GoRoute(
                 path: '/ytplaylist/:id',
-                pageBuilder: (c, s) => _page(
+                pageBuilder: (c, s) => _anchoredPage(
                   WaveYtPlaylistDetailPage(
                     playlistId:
                         s.pathParameters['id'] ?? '',
@@ -221,12 +260,12 @@ GoRouter buildRouter({required AuthGate gate}) {
               GoRoute(
                 path: '/now',
                 pageBuilder: (c, s) =>
-                    _page(const WaveNowPlayingPage()),
+                    _anchoredPage(const WaveNowPlayingPage()),
               ),
               GoRoute(
                 path: '/lyrics',
                 pageBuilder: (c, s) =>
-                    _page(const WaveLyricsScreen()),
+                    _anchoredPage(const WaveLyricsScreen()),
               ),
               GoRoute(
                 path: '/friends',
