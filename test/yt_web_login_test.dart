@@ -29,4 +29,14 @@ void main() {
       isTrue,
     );
   });
+
+  test('isBlankUrl detects blank and about:blank URLs', () {
+    expect(YtWebLogin.isBlankUrl('about:blank'), isTrue);
+    expect(YtWebLogin.isBlankUrl('ABOUT:BLANK'), isTrue);
+    expect(YtWebLogin.isBlankUrl('data:,'), isTrue);
+    expect(YtWebLogin.isBlankUrl(''), isTrue);
+    expect(YtWebLogin.isBlankUrl('   '), isTrue);
+    expect(YtWebLogin.isBlankUrl('https://music.youtube.com/'), isFalse);
+    expect(YtWebLogin.isBlankUrl('https://accounts.google.com/'), isFalse);
+  });
 }

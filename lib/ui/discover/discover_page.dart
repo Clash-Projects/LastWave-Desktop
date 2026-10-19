@@ -671,7 +671,7 @@ class _GenreTileState extends State<_GenreTile> {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child:                     Container(
+              child: SizedBox(
                 height: height,
                 child: Stack(
                   fit: StackFit.expand,

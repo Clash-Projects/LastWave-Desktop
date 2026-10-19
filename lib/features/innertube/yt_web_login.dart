@@ -307,10 +307,18 @@ class YtWebLogin {
     }
   }
 
+  /// Pure check for blank page URLs (about:blank, data:,, or empty).
+  static bool isBlankUrl(String url) {
+    final u = url.trim().toLowerCase();
+    return u.isEmpty || u == 'about:blank' || u.startsWith('data:,');
+  }
+
   static Future<String?> _run() async {
     final w = await _ensureWindow();
     if (w == null) return null;
     try {
+      // Allow WebView host/controller a moment to attach before initiating navigation
+      await Future<void>.delayed(const Duration(milliseconds: 300));
       // Windows: load directly without the navigation-approval round-trip.
       // With triggerOnUrlRequestEvent=true (the default) native WebView2
       // cancels the navigation and only re-issues it after a Dart
@@ -374,10 +382,59 @@ class YtWebLogin {
     unawaited(webview.onClose.then((_) => closed = true));
     var stuckCycles = 0;
     var autoReloads = 0;
+    var blankCycles = 0;
     while (!closed) {
+      if (Platform.isLinux && !await YtWebviewGuard.isVisible()) {
+        return null;
+      }
       final header = await _readHeader(webview);
       if (header != null) return header;
-      if (closed) return null;
+      if (closed || (Platform.isLinux && !await YtWebviewGuard.isVisible())) {
+        return null;
+      }
+
+      // Blank page check: if WebView2 opened on about:blank or dropped navigation, recover
+      try {
+        final currentUrlRaw = await webview
+            .evaluateJavaScript('window.location.href')
+            .timeout(const Duration(seconds: 4));
+        var currentUrl = (currentUrlRaw ?? '').trim();
+        if (currentUrl.length >= 2 &&
+            currentUrl.startsWith('"') &&
+            currentUrl.endsWith('"')) {
+          currentUrl = currentUrl.substring(1, currentUrl.length - 1);
+        }
+        if (isBlankUrl(currentUrl)) {
+          if (closed || (Platform.isLinux && !await YtWebviewGuard.isVisible())) {
+            return null;
+          }
+          blankCycles++;
+          if (blankCycles >= 2) {
+            blankCycles = 0;
+            if (closed || (Platform.isLinux && !await YtWebviewGuard.isVisible())) {
+              return null;
+            }
+            if (kDebugMode) {
+              debugPrint('YtWebLogin: window stuck on about:blank, re-launching $_loginUrl');
+            }
+            try {
+              webview.launch(_loginUrl, triggerOnUrlRequestEvent: false);
+              await webview.evaluateJavaScript('window.location.href = "$_loginUrl";');
+            } catch (_) {}
+            if (!closed && (!Platform.isLinux || await YtWebviewGuard.isVisible())) {
+              await _foreground(webview);
+            }
+            await Future<void>.delayed(const Duration(seconds: 3));
+            continue;
+          }
+        } else {
+          blankCycles = 0;
+        }
+      } catch (_) {}
+      if (closed || (Platform.isLinux && !await YtWebviewGuard.isVisible())) {
+        return null;
+      }
+
       // Stall check runs sequentially after the cookie read (never
       // overlapping it). ~5 consecutive hits ≈ 10s stuck.
       var stuck = false;
@@ -472,9 +529,30 @@ class YtWebLogin {
     }
 
     final hasSapisid = pick('__Secure-3PAPISID') != null ||
+        pick('__Secure-1PAPISID') != null ||
         pick('SAPISID') != null;
-    final loggedIn = pick('LOGIN_INFO') != null;
+    final loggedIn = pick('LOGIN_INFO') != null ||
+        pick('__Secure-3PSID') != null ||
+        pick('__Secure-1PSID') != null ||
+        pick('SID') != null;
     if (!hasSapisid || !loggedIn) return null;
+
+    // Ensure we do not complete prematurely while on accounts.google.com
+    // before the redirect to YouTube sets YouTube-specific session cookies.
+    final hasYoutubeSession = cookies.any((c) {
+      final domain = (c.domain ?? '').toString().toLowerCase();
+      if (!domain.contains('youtube.com')) return false;
+      final name = _normName(c.name);
+      final val = _normValue(c.value);
+      return val.isNotEmpty &&
+          (name == 'LOGIN_INFO' ||
+              name == 'SAPISID' ||
+              name == '__Secure-3PAPISID' ||
+              name == '__Secure-1PAPISID' ||
+              name == 'SID' ||
+              name == '__Secure-3PSID');
+    });
+    if (!hasYoutubeSession) return null;
 
     // Jar may hold cookies from other Google properties; keep only
     // YouTube/Google session cookies for the header.
