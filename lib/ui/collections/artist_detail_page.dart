@@ -15,6 +15,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, WaveChip, WaveGhostButton, WaveLink, WavePrimaryButton;
 import '../components/desktop_table.dart';
 import '../components/shelf.dart';
+import '../components/skeletons.dart';
 import '../components/states.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
@@ -257,22 +258,67 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
   Widget build(BuildContext context) {
     final async = ref.watch(_artistDetailProvider(widget.name));
     return async.when(
-      loading: () =>
-          const WaveLoading(label: 'Loading artist…'),
+      // The name *is* the route, so the header can be real on the first frame:
+      // only the portrait, bio, transport and track list have to be fetched.
+      // That is what the route entrance animates — over a spinner it played on
+      // an empty page and the artist looked like it never faded in, just
+      // arrived late. `_body` is shared with the loaded path.
+      loading: () => _body(
+        _ArtistDetail(
+          name: widget.name,
+          artwork: '',
+          popular: const [],
+          albums: const [],
+          singles: const [],
+        ),
+        loading: true,
+      ),
       error: (e, _) => WaveError(
         title: 'Could not load artist',
         message: '$e',
         onRetry: () => ref
             .invalidate(_artistDetailProvider(widget.name)),
       ),
-      data: (d) {
-        final playingKey = ref.watch(
-          playbackServiceProvider.select((s) => s.current?.queueKey),
+      data: (d) => _body(d, loading: false),
+    );
+  }
+
+  /// Artist layout: portrait + name/meta over Popular, Albums, Singles and
+  /// Related. [loading] means the detail has not answered yet — the name is
+  /// already right (it came in on the route) and skeleton blocks stand in for
+  /// the bio, the transport row and the track list, so the entrance animates
+  /// the page the user asked for.
+  Widget _body(_ArtistDetail d, {required bool loading}) {
+    final playingKey = ref.watch(
+      playbackServiceProvider.select((s) => s.current?.queueKey),
+    );
+    final visiblePopular = _showAllPopular
+        ? d.popular
+        : d.popular.take(5).toList();
+    // The provider only ever resolves a YouTube channel avatar, and the
+    // resolver demotes YouTube hosts to its fallback tier anyway — so the
+    // primary slot stays empty and the avatar rides along as a fallback. This
+    // tile is mounted several times while the artist loads, and each fresh
+    // tile paints the generic cover until its own press photo answers — that
+    // is what read as the portrait blinking. The skeleton covers that window,
+    // and leaving `url` unchanged keeps the photo that already resolved when
+    // the detail lands, instead of invalidating it for the thumbnail.
+    Widget portrait(double size) => Stack(
+          alignment: Alignment.center,
+          children: [
+            WaveArtwork.circle(
+              url: '',
+              fallbackUrls: [if (d.artwork.isNotEmpty) d.artwork],
+              size: size,
+              label: d.name,
+              title: d.name,
+              artist: d.name,
+            ),
+            if (loading)
+              SkeletonBox(width: size, height: size, radius: size / 2),
+          ],
         );
-        final visiblePopular = _showAllPopular
-            ? d.popular
-            : d.popular.take(5).toList();
-        return WaveEntranceGroup(
+    return WaveEntranceGroup(
           child: ListView(
           padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
           children: [
@@ -300,7 +346,12 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                             overflow: TextOverflow.ellipsis,
                             style: WaveType.pageTitle
                                 .copyWith(fontSize: 30)),
-                        if (d.bio.isNotEmpty) ...[
+                        if (loading) ...[
+                          const SizedBox(height: 8),
+                          const SkeletonBox(width: 240, height: 10),
+                          const SizedBox(height: 6),
+                          const SkeletonBox(width: 180, height: 10),
+                        ] else if (d.bio.isNotEmpty) ...[
                           const SizedBox(height: 6),
                           _ExpandableBio(
                             text: d.bio,
@@ -310,6 +361,12 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                           ),
                         ],
                         const SizedBox(height: 14),
+                        if (loading)
+                          // Reserve the transport row: the buttons only exist
+                          // once there are tracks, so without this the header
+                          // would jump when they land.
+                          const SizedBox(height: 32)
+                        else
                         Wrap(
                           spacing: 10,
                           runSpacing: 10,
@@ -349,12 +406,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                         crossAxisAlignment:
                             CrossAxisAlignment.start,
                         children: [
-                          WaveArtwork.circle(
-                              url: d.artwork,
-                              size: 140,
-                              label: d.name,
-                              title: d.name,
-                              artist: d.name),
+                          portrait(140),
                           const SizedBox(height: 16),
                           meta,
                         ],
@@ -364,18 +416,19 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                       crossAxisAlignment:
                           CrossAxisAlignment.end,
                       children: [
-                        WaveArtwork.circle(
-                            url: d.artwork,
-                            size: 168,
-                            label: d.name,
-                            title: d.name,
-                            artist: d.name),
+                        portrait(168),
                         const SizedBox(width: 22),
                         Expanded(child: meta),
                       ],
                     );
                     }),
                   ),
+                  // Skeleton track list while the artist loads; the real
+                  // sections below are data-guarded, so they simply take over.
+                  if (loading) ...[
+                    const SizedBox(height: 26),
+                    const SkeletonRow(count: 6),
+                  ],
                   if (d.popular.isNotEmpty) ...[
                     const SizedBox(height: 26),
                     Row(
@@ -554,8 +607,6 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
           ],
           ),
         );
-      },
-    );
   }
 }
 
