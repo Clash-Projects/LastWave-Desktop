@@ -13,13 +13,19 @@ static constexpr const char* kBotGuardTitle = "LastWave BotGuard";
 static constexpr const char* kArmedKey = "lastwave-yt-guarded";
 
 static FlMethodChannel* g_channel = nullptr;
+static bool g_yt_dismissed = false;
 
 // X pressed (or any delete-event): hide instead of destroying. Returning
 // TRUE stops GTK's default handler, so the WebKit window — and its EGL
 // context — stays alive and no destroy signal ever fires.
 static gboolean on_yt_delete_event(GtkWidget* widget, GdkEvent* /*event*/,
                                    gpointer /*user_data*/) {
+  g_yt_dismissed = true;
   gtk_widget_hide(widget);
+  if (g_channel != nullptr) {
+    fl_method_channel_invoke_method(g_channel, "onDismissed", nullptr, nullptr,
+                                    nullptr, nullptr);
+  }
   return TRUE;
 }
 
@@ -63,6 +69,7 @@ static void handle_method_call(FlMethodChannel* /*channel*/,
   const gchar* method = fl_method_call_get_name(method_call);
   GtkWidget* window = find_yt_window();
   if (strcmp(method, "hide") == 0) {
+    g_yt_dismissed = true;
     if (window != nullptr) {
       arm_delete_blocker(window);
       gtk_widget_hide(window);
@@ -72,12 +79,19 @@ static void handle_method_call(FlMethodChannel* /*channel*/,
     return;
   }
   if (strcmp(method, "show") == 0) {
+    g_yt_dismissed = false;
     if (window != nullptr) {
       arm_delete_blocker(window);
       gtk_widget_show(window);
       gtk_window_present(GTK_WINDOW(window));
     }
     g_autoptr(FlValue) result = fl_value_new_bool(window != nullptr);
+    fl_method_call_respond_success(method_call, result, nullptr);
+    return;
+  }
+  if (strcmp(method, "isVisible") == 0) {
+    gboolean vis = (window != nullptr && gtk_widget_is_visible(window) && !g_yt_dismissed);
+    g_autoptr(FlValue) result = fl_value_new_bool(vis);
     fl_method_call_respond_success(method_call, result, nullptr);
     return;
   }

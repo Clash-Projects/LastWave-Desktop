@@ -4268,8 +4268,7 @@ static String normalize(String s) {
       url = appendPot(url, gvsPoToken);
       final mime = format['mimeType']?.toString() ?? '';
       final codec = _extractCodec(mime);
-      final mimeBase = mime.split(';').first.trim();
-      if (!_isCompatibleAudio(mimeBase, codec)) continue;
+      if (!_isCompatibleAudio(mime, codec)) continue;
       final bitrate =
           (format['bitrate'] as num?)?.toInt() ?? 0;
       final urlExpiry = _urlExpiryMs(url);
@@ -4293,9 +4292,7 @@ static String normalize(String s) {
                   ? 'AAC'
                   : 'AUDIO');
       final itag = (format['itag'] as num?)?.toInt() ?? -1;
-      final cleanMime = mimeBase.startsWith('video/')
-          ? 'audio/${mimeBase.substring(6)}'
-          : mimeBase;
+      final cleanMime = mime.split(';').first.trim();
       candidates.add(_Candidate(
         stream: ResolvedStream(
           url: url,
@@ -4315,7 +4312,7 @@ static String normalize(String s) {
     }
     candidates.sort((a, b) {
       final adaptiveOrder =
-          (a.adaptive ? 1 : 0).compareTo(b.adaptive ? 1 : 0);
+          (b.adaptive ? 1 : 0).compareTo(a.adaptive ? 1 : 0);
       if (adaptiveOrder != 0) return adaptiveOrder;
       return b.bitrate.compareTo(a.bitrate);
     });
@@ -4398,15 +4395,12 @@ static String normalize(String s) {
             if (url == null) continue;
             final mime = f['mimeType']?.toString() ?? '';
             final codec = _extractCodec(mime);
-            final mimeBase = mime.split(';').first.trim();
-            if (!_isCompatibleAudio(mimeBase, codec)) {
+            if (!_isCompatibleAudio(mime, codec)) {
               continue;
             }
             final bitrate =
                 (f['bitrate'] as num?)?.toInt() ?? 0;
-            final cleanMime = mimeBase.startsWith('video/')
-                ? 'audio/${mimeBase.substring(6)}'
-                : mimeBase;
+            final cleanMime = mime.split(';').first.trim();
             collected.add(_Candidate(
               stream: ResolvedStream(
                 url: url,
@@ -4768,22 +4762,36 @@ static String normalize(String s) {
   static String _take40(String s) =>
       s.length <= 40 ? s : s.substring(0, 40);
 
+  static bool _hasVideoCodec(String mime) {
+    final lower = mime.toLowerCase();
+    return lower.contains('avc1') ||
+        lower.contains('avc3') ||
+        lower.contains('hvc1') ||
+        lower.contains('hev1') ||
+        lower.contains('vp8') ||
+        lower.contains('vp9') ||
+        lower.contains('vp09') ||
+        lower.contains('av01') ||
+        lower.contains('mp4v') ||
+        lower.contains('theora');
+  }
+
   static bool _isCompatibleAudio(String mime, String? codec) {
     final m = mime.toLowerCase();
     final c = (codec ?? '').toLowerCase();
-    if (m == 'audio/webm') {
+    if (_hasVideoCodec(m) || _hasVideoCodec(c)) return false;
+    if (m.startsWith('video/')) return false;
+    final base = m.split(';').first.trim();
+    if (base == 'audio/webm') {
       return c.isEmpty || c.contains('opus') || c.contains('vorbis');
     }
-    if (m == 'audio/mp4' || m == 'audio/m4a') {
+    if (base == 'audio/mp4' || base == 'audio/m4a') {
       return c.isEmpty || c.contains('mp4a') || c.contains('aac');
     }
-    if (m == 'video/mp4') {
-      return c.contains('mp4a') || c.contains('aac');
-    }
-    if (m == 'audio/ogg') {
+    if (base == 'audio/ogg') {
       return c.isEmpty || c.contains('opus') || c.contains('vorbis');
     }
-    if (m == 'audio/mpeg') return true;
+    if (base == 'audio/mpeg') return true;
     return false;
   }
 

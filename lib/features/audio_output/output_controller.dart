@@ -105,6 +105,7 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
   @override
   void dispose() {
     _hotplugDebounce?.cancel();
+    _pendingHotplugEvents.clear();
     _hotplug?.cancel();
     super.dispose();
   }
@@ -227,18 +228,31 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
     }
   }
 
+  final List<({String reason, String id})> _pendingHotplugEvents = [];
+
   Future<void> _onHotplug(Map<String, dynamic> event) async {
     final reason = event['reason']?.toString() ?? '';
     final id = event['id']?.toString() ?? '';
     wasapiLog('Device event: $reason $id');
-    // Property notifications fire for volume/exclusive state transitions
-    // while playing/pausing; never trigger a full device re-enumeration for them.
-    if (reason == 'property') return;
+    _pendingHotplugEvents.add((reason: reason, id: id));
     _hotplugDebounce?.cancel();
     _hotplugDebounce = Timer(const Duration(milliseconds: 300), () async {
+      final events =
+          List<({String reason, String id})>.from(_pendingHotplugEvents);
+      _pendingHotplugEvents.clear();
       final selected = state.selectedId;
       await refreshDevices();
-      if (reason == 'removed' && selected.isNotEmpty && selected == id) {
+      final wasRemoved = events.any((e) =>
+          e.reason == 'removed' && selected.isNotEmpty && selected == e.id);
+      final shouldApply = events.any((e) =>
+          e.reason == 'added' ||
+          e.reason == 'default' ||
+          e.reason == 'state' ||
+          e.reason == 'property');
+      if (shouldApply || wasRemoved) {
+        await applyToPlayer();
+      }
+      if (wasRemoved) {
         await _ref.read(playbackServiceProvider.notifier).pause();
         state = state.copyWith(
           path: state.path.copyWith(
@@ -246,10 +260,6 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
             error: 'DAC disconnected',
           ),
         );
-        return;
-      }
-      if (reason == 'added' || reason == 'default' || reason == 'state') {
-        await applyToPlayer();
       }
     });
   }

@@ -100,9 +100,21 @@ class SignatureDecipher {
         final match =
             RegExp(r'(/s/player/[A-Za-z0-9_./-]+/base\.js)').firstMatch(html);
         jsUrl = match?.group(1);
-        jsUrl ??= RegExp(r'"jsUrl"\s*:\s*\\?"([^"\\]+)\\?"')
+        if (jsUrl == null) {
+          final jsonMatch =
+              RegExp(r'"jsUrl"\s*:\s*"((?:\\.|[^"\\])*)"').firstMatch(html);
+          if (jsonMatch != null) {
+            try {
+              jsUrl = jsonDecode('"${jsonMatch.group(1)}"') as String?;
+            } catch (_) {
+              jsUrl = jsonMatch.group(1)?.replaceAll(r'\/', '/');
+            }
+          }
+        }
+        jsUrl ??= RegExp(r'((?:\\?/s\\?/player\\?/[A-Za-z0-9_./\\-]+/base\.js))')
             .firstMatch(html)
-            ?.group(1);
+            ?.group(1)
+            ?.replaceAll(r'\/', '/');
         if (jsUrl != null) break;
       } catch (_) {}
     }

@@ -10,6 +10,8 @@ int main(int argc, char** argv) {
         strcmp(argv[i], "--enable-software-rendering") == 0 ||
         strcmp(argv[i], "--software") == 0) {
       setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
+      setenv("LASTWAVE_DISABLE_IMPELLER", "1", 1);
+      setenv("FLUTTER_ENABLE_IMPELLER", "0", 1);
       break;
     }
   }
