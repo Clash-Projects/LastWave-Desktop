@@ -519,6 +519,9 @@ class _DesktopDualPane extends StatelessWidget {
         ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
         : 0.0;
 
+    final availableArtHeight = maxHeight - (lyricsVisible ? 140.0 : 150.0);
+    final artworkSize = math.min(colWidth, availableArtHeight).clamp(200.0, 420.0);
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.only(bottom: 24),
@@ -532,14 +535,12 @@ class _DesktopDualPane extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Left Column (Media Player)
+                // Left Column (Media Player) — fixed, non-scrolling, vertically balanced
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 500),
                   curve: Curves.easeInOutCubic,
                   width: colWidth,
                   child: RepaintBoundary(
-                    child: SingleChildScrollView(
-                      physics: const ClampingScrollPhysics(),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: lyricsVisible
@@ -549,11 +550,11 @@ class _DesktopDualPane extends StatelessWidget {
                         // Artwork Card
                         _HeroArtworkCard(
                           track: track,
-                          size: colWidth,
+                          size: artworkSize,
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 16),
 
-                        // Track Info — crossfades on track change.
+                        // Track Info & Badges — crossfades on track change.
                         _TrackSwap(
                           child: _TrackMetadataSection(
                             key: ValueKey(track.queueKey),
@@ -561,15 +562,10 @@ class _DesktopDualPane extends StatelessWidget {
                             alignCenter: !lyricsVisible,
                           ),
                         ),
-                        const SizedBox(height: 10),
-
-                        // Up Next Pill
-                        _UpNextPill(alignCenter: !lyricsVisible),
                       ],
                     ),
                   ),
                 ),
-              ),
 
                 // Gap
                 AnimatedContainer(
@@ -651,7 +647,7 @@ class _NarrowCenteredPane extends StatelessWidget {
                 track: track,
                 size: 260,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               _TrackSwap(
                 child: _TrackMetadataSection(
                   key: ValueKey(track.queueKey),
@@ -659,8 +655,6 @@ class _NarrowCenteredPane extends StatelessWidget {
                   alignCenter: true,
                 ),
               ),
-              const SizedBox(height: 12),
-              const _UpNextPill(alignCenter: true),
             ],
           ),
         ),
@@ -878,7 +872,11 @@ class _TrackMetadataSection extends ConsumerWidget {
       playbackServiceProvider.select((s) => s.stream),
     );
 
+    final showDistinctAlbum = track.album.isNotEmpty &&
+        track.album.toLowerCase().trim() != track.title.toLowerCase().trim();
+
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment:
           alignCenter ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       children: [
@@ -888,7 +886,7 @@ class _TrackMetadataSection extends ConsumerWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: alignCenter ? TextAlign.center : TextAlign.start,
           style: WaveType.pageTitle.copyWith(
-            fontSize: 26,
+            fontSize: 24,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.4,
             color: Colors.white,
@@ -903,63 +901,53 @@ class _TrackMetadataSection extends ConsumerWidget {
             '/search?q=${Uri.encodeComponent(track.artist)}',
           ),
           child: Text(
-            track.artist,
+            showDistinctAlbum ? '${track.artist} · ${track.album}' : track.artist,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: alignCenter ? TextAlign.center : TextAlign.start,
             style: WaveType.body.copyWith(
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.94),
+              color: Colors.white.withValues(alpha: 0.90),
               shadows: const [
                 Shadow(color: Color(0x66000000), blurRadius: 10),
               ],
             ),
           ),
         ),
-        if (track.album.isNotEmpty) ...[
-          const SizedBox(height: 2),
-          Text(
-            track.album,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: alignCenter ? TextAlign.center : TextAlign.start,
-            style: WaveType.meta.copyWith(
-              fontSize: 13,
-              color: Colors.white.withValues(alpha: 0.78),
-              shadows: const [
-                Shadow(color: Color(0x66000000), blurRadius: 10),
-              ],
-            ),
-          ),
-        ],
-        if (stream != null) ...[
-          const SizedBox(height: 8),
-          WaveGlass(
-            blur: false,
-            borderRadius: WaveRadius.controlsRadius,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Text(
-              '${stream.qualityBadge} · ${stream.audioCodec}${stream.bitrateKbps > 0 ? ' · ${stream.bitrateKbps} kbps' : ''}',
-              style: WaveType.overline.copyWith(
-                fontSize: 9.5,
-                fontWeight: FontWeight.w700,
-                color: dark
-                    ? WaveColors.textPrimary
-                    : WaveColors.lightTextPrimary,
+        const SizedBox(height: 8),
+        Wrap(
+          alignment: alignCenter ? WrapAlignment.center : WrapAlignment.start,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            if (stream != null)
+              WaveGlass(
+                blur: false,
+                borderRadius: BorderRadius.circular(20),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Text(
+                  '${stream.qualityBadge} · ${stream.audioCodec}${stream.bitrateKbps > 0 ? ' · ${stream.bitrateKbps} kbps' : ''}',
+                  style: WaveType.overline.copyWith(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
+                    color: dark
+                        ? WaveColors.textPrimary
+                        : WaveColors.lightTextPrimary,
+                  ),
+                ),
               ),
-            ),
-          ),
-        ],
+            const _UpNextPill(),
+          ],
+        ),
       ],
     );
   }
 }
 
 class _UpNextPill extends ConsumerWidget {
-  final bool alignCenter;
-
-  const _UpNextPill({this.alignCenter = false});
+  const _UpNextPill();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -972,52 +960,49 @@ class _UpNextPill extends ConsumerWidget {
 
     final nextTrack = queue[index + 1];
 
-    return Align(
-      alignment: alignCenter ? Alignment.center : Alignment.centerLeft,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: () => ref.read(playbackServiceProvider.notifier).next(),
-          child: WaveGlass(
-            blur: false,
-            borderRadius: BorderRadius.circular(20),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'UP NEXT',
-                  style: WaveType.overline.copyWith(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    color: waveAccent(context),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => ref.read(playbackServiceProvider.notifier).next(),
+        child: WaveGlass(
+          blur: false,
+          borderRadius: BorderRadius.circular(20),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'UP NEXT',
+                style: WaveType.overline.copyWith(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: waveAccent(context),
+                ),
+              ),
+              const SizedBox(width: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 160),
+                child: Text(
+                  '${nextTrack.title} · ${nextTrack.artist}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WaveType.meta.copyWith(
+                    fontSize: 10.5,
+                    color: dark
+                        ? WaveColors.textPrimary
+                        : WaveColors.lightTextPrimary,
                   ),
                 ),
-                const SizedBox(width: 8),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 180),
-                  child: Text(
-                    '${nextTrack.title} · ${nextTrack.artist}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.meta.copyWith(
-                      fontSize: 11,
-                      color: dark
-                          ? WaveColors.textPrimary
-                          : WaveColors.lightTextPrimary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(
-                  FluentIcons.chevron_right,
-                  size: 10,
-                  color: dark
-                      ? WaveColors.textSecondary
-                      : WaveColors.lightTextSecondary,
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 3),
+              Icon(
+                FluentIcons.chevron_right,
+                size: 9,
+                color: dark
+                    ? WaveColors.textSecondary
+                    : WaveColors.lightTextSecondary,
+              ),
+            ],
           ),
         ),
       ),
