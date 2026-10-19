@@ -105,6 +105,86 @@ void main() {
     expect(activeLyricLineIndex(lines, 1000), 1);
     expect(activeLyricLineIndex(lines, 2499), 1);
     expect(activeLyricLineIndex(lines, 2500), 2);
+    expect(activeLyricLineIndex(lines, 9999), 2);
+    expect(activeLyricLineIndex(lines, -100), -1);
+
+    final introLines = [
+      const LyricLine(timeMs: 0, durationMs: 500, text: 'intro 1'),
+      const LyricLine(timeMs: 0, durationMs: 500, text: 'intro 2'),
+      const LyricLine(timeMs: 3000, durationMs: 1000, text: 'verse 1'),
+    ];
+    expect(activeLyricLineIndex(introLines, 0), 0);
+    expect(activeLyricLineIndex(introLines, 1500), 0);
+    expect(activeLyricLineIndex(introLines, 3000), 2);
+  });
+
+  test('parseLrc parses mm:ss:xx 3-part timestamps without hour misinterpretation', () {
+    final lines = parseLrc('[01:23:45]Hello world\n');
+    expect(lines.length, 1);
+    expect(lines.first.timeMs, 83450); // 1m 23s 450ms, NOT 1h 23m 45s (5025000ms)
+    expect(lines.first.text, 'Hello world');
+  });
+
+  test('parseTtml parses start, startTime, from, to, and suffixed times', () {
+    const xml = '''
+<tt>
+  <body>
+    <div>
+      <p begin="00:01:23.450s" end="00:01:25s">Line 1</p>
+      <p start="00:01:25.500" endTime="00:01:27.000">Line 2</p>
+      <p from="88.0s" to="90.0s">Line 3</p>
+    </div>
+  </body>
+</tt>
+''';
+    final lines = parseTtml(xml);
+    expect(lines.length, 3);
+    expect(lines[0].timeMs, 83450);
+    expect(lines[1].timeMs, 85500);
+    expect(lines[2].timeMs, 88000);
+  });
+
+  group('Lyrics Accent and Diacritic Matching', () {
+    test('titles match across accents and diacritics', () {
+      expect(lyricsTitlesMatchStrict('Beyoncé', 'Beyonce'), isTrue);
+      expect(lyricsTitlesMatchStrict('Señorita', 'Senorita'), isTrue);
+      expect(lyricsTitlesMatchStrict('Dépêche Mode', 'Depeche Mode'), isTrue);
+      expect(lyricsTitlesMatchStrict('Café', 'Cafe'), isTrue);
+    });
+
+    test('artists match across accents and diacritics', () {
+      expect(lyricsArtistsMatchStrict('Beyoncé', 'Beyonce'), isTrue);
+      expect(lyricsArtistsMatchStrict('Björk', 'Bjork'), isTrue);
+      expect(lyricsArtistsMatchStrict('Mötley Crüe', 'Motley Crue'), isTrue);
+      expect(lyricsArtistsMatchStrict('Sigur Rós', 'Sigur Ros'), isTrue);
+    });
+  });
+
+  group('Lyrics Multi-Artist Billing & Punctuation', () {
+    test('artists match across conjunctions, commas, &, and x', () {
+      expect(lyricsArtistsMatchStrict('Calvin Harris, Dua Lipa', 'Calvin Harris & Dua Lipa'), isTrue);
+      expect(lyricsArtistsMatchStrict('Marshmello x Khalid', 'Marshmello & Khalid'), isTrue);
+      expect(lyricsArtistsMatchStrict('Post Malone ft. Swae Lee', 'Post Malone, Swae Lee'), isTrue);
+      expect(lyricsArtistsMatchStrict('Drake', 'Drake, 21 Savage'), isTrue);
+      expect(lyricsArtistsMatchStrict('Taylor Swift', 'Taylor Swift feat. Bon Iver'), isTrue);
+    });
+
+    test('titles match across apostrophe and quote variations', () {
+      expect(lyricsTitlesMatchStrict("Don't Stop Believin'", 'Dont Stop Believin'), isTrue);
+      expect(lyricsTitlesMatchStrict("Rock 'N' Roll", 'Rock N Roll'), isTrue);
+      expect(lyricsTitlesMatchStrict("Ain't No Mountain", 'Aint No Mountain'), isTrue);
+    });
+
+    test('rejects similarly named songs to prevent false positives', () {
+      expect(lyricsTitlesMatchStrict('Let It Be', 'Let It Go'), isFalse);
+      expect(lyricsTitlesMatchStrict('Bad Guy', 'Bad Girl'), isFalse);
+    });
+
+    test('rejects remix without brackets against original studio track', () {
+      expect(lyricsSameVersion('Despacito', 'Despacito Remix'), isFalse);
+      expect(lyricsSameVersion('Song', 'Song - VIP Mix'), isFalse);
+      expect(lyricsSameVersion('Song', 'Song (Acoustic Version)'), isFalse);
+    });
   });
 }
 

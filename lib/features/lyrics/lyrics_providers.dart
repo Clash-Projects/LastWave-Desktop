@@ -21,10 +21,15 @@ enum LyricsProviderId {
     'Auto',
     'Fastest word-sync wins, LRCLIB fallback',
   ),
+  lastwave(
+    'lastwave',
+    'LastWave',
+    'Syllable & line-synced Apple lyrics first',
+  ),
   lrcRed(
     'lrc_red',
-    'Lrc.Red',
-    'Recording-matched word-sync first',
+    'lrc.red',
+    'ISRC-indexed syllable TTML & LRC first',
   ),
   appleMusic(
     'apple_music',
@@ -36,10 +41,20 @@ enum LyricsProviderId {
     'BetterLyrics',
     'Word-synced lyrics first',
   ),
+  betterLyricsPortato(
+    'better_lyrics_portato',
+    'QQ Karaoke',
+    'QQ Music karaoke word timings first',
+  ),
   kugou(
     'kugou',
     'Kugou',
     'KRC word-synced lyrics first',
+  ),
+  biniLyrics(
+    'bini_lyrics',
+    'Syllable-Sync',
+    'Recording-matched syllable lyrics first',
   ),
   simpMusic(
     'simp_music',
@@ -55,6 +70,36 @@ enum LyricsProviderId {
     'lrclib',
     'LRCLIB',
     'Line-synced community lyrics first',
+  ),
+  lyricsPlus(
+    'lyrics_plus',
+    'LyricsPlus',
+    'Syllable-synced on community mirrors first',
+  ),
+  unison(
+    'unison',
+    'Unison',
+    'Community-submitted synced lyrics first',
+  ),
+  youtubeCaptions(
+    'youtube_captions',
+    'YouTube Captions',
+    'Timed captions from the playing video first',
+  ),
+  youtubeMusic(
+    'youtube_music',
+    'YouTube Music',
+    'Plain lyrics from the video\'s Lyrics tab first',
+  ),
+  megalobiz(
+    'megalobiz',
+    'Megalobiz',
+    'Community line-synced LRC first',
+  ),
+  genius(
+    'genius',
+    'Genius',
+    'Plain-text web catalogue, tried last',
   );
 
   final String id;
@@ -65,9 +110,17 @@ enum LyricsProviderId {
 
   /// True for providers that can return syllable/word timing and take
   /// part in the word-sync race with a preferred head start.
-  bool get isWordProvider =>
-      this != auto &&
-      this != lrclib;
+  bool get isWordProvider => switch (this) {
+        auto ||
+        lrclib ||
+        musixmatch ||
+        megalobiz ||
+        genius ||
+        youtubeMusic ||
+        youtubeCaptions =>
+          false,
+        _ => true,
+      };
 
   static LyricsProviderId fromId(String? id) =>
       values.firstWhere(
@@ -80,13 +133,36 @@ enum LyricsProviderId {
 /// yield null (no exclusion possible for them).
 String? lyricsSourceToProviderId(String source) {
   final s = source.toLowerCase();
+  if (s.startsWith('lastwave')) return LyricsProviderId.lastwave.id;
   if (s.startsWith('lrc.red')) return LyricsProviderId.lrcRed.id;
-  if (s.contains('apple')) return LyricsProviderId.appleMusic.id;
+  if (s.startsWith('apple music') || s.contains('apple')) {
+    return LyricsProviderId.appleMusic.id;
+  }
+  if (s.startsWith('qq karaoke') || s.startsWith('portato')) {
+    return LyricsProviderId.betterLyricsPortato.id;
+  }
   if (s.startsWith('betterlyrics')) return LyricsProviderId.betterLyrics.id;
   if (s.startsWith('kugou')) return LyricsProviderId.kugou.id;
-  if (s.startsWith('video-match')) return LyricsProviderId.simpMusic.id;
-  if (s.startsWith('catalog')) return LyricsProviderId.musixmatch.id;
+  if (s.startsWith('syllable-sync') || s.startsWith('bini')) {
+    return LyricsProviderId.biniLyrics.id;
+  }
+  if (s.startsWith('video-match') || s.startsWith('simp')) {
+    return LyricsProviderId.simpMusic.id;
+  }
+  if (s.startsWith('catalog') || s.startsWith('musixmatch')) {
+    return LyricsProviderId.musixmatch.id;
+  }
   if (s.contains('lrclib')) return LyricsProviderId.lrclib.id;
+  if (s.startsWith('lyricsplus')) return LyricsProviderId.lyricsPlus.id;
+  if (s.startsWith('unison')) return LyricsProviderId.unison.id;
+  if (s.startsWith('youtube captions')) {
+    return LyricsProviderId.youtubeCaptions.id;
+  }
+  if (s.startsWith('youtube music')) {
+    return LyricsProviderId.youtubeMusic.id;
+  }
+  if (s.startsWith('megalobiz')) return LyricsProviderId.megalobiz.id;
+  if (s.startsWith('genius')) return LyricsProviderId.genius.id;
   return null;
 }
 
@@ -233,10 +309,12 @@ Future<({List<LyricLine> lines, bool wordSynced})?> _fetchBetterAttempt(
 /// display later, which must never count as word-sync.
 bool _betterHasWordTiming(String payload) {
   final lower = payload.toLowerCase();
-  if (lower.contains('<tt') || lower.contains('http://www.w3.org/ns/ttml')) {
-    if (parseTtml(payload).isNotEmpty) {
-      return RegExp(r'<span\b[^>]*\bbegin\s*=', caseSensitive: false)
-          .hasMatch(payload);
+  if (lower.contains('<tt') ||
+      lower.contains('<p') ||
+      lower.contains('http://www.w3.org/ns/ttml')) {
+    final ttml = parseTtml(payload);
+    if (ttml.isNotEmpty) {
+      return ttml.any((l) => l.hasSyllables);
     }
   }
   if (parseBetterKaraoke(payload).isNotEmpty) return true;
@@ -250,7 +328,9 @@ List<LyricLine>? parseBetterDocument(String raw) {
   final payload = _unwrapBetterPayload(raw);
   if (payload == null || payload.isEmpty) return null;
   final lower = payload.toLowerCase();
-  if (lower.contains('<tt') || lower.contains('http://www.w3.org/ns/ttml')) {
+  if (lower.contains('<tt') ||
+      lower.contains('<p') ||
+      lower.contains('http://www.w3.org/ns/ttml')) {
     final ttml = parseTtml(payload);
     if (ttml.isNotEmpty) return ttml;
   }
@@ -1136,4 +1216,619 @@ Future<({List<LyricLine> lines, bool wordSynced})?> fetchSimpMusic(
   } catch (_) {
     return null;
   }
+}
+
+// -- QQ Karaoke / Portato (lyrics-api.boidu.dev/qq/getLyrics) -----------------
+Future<LyricsResult?> fetchPortatoLyrics(
+  Dio dio, {
+  required String title,
+  required String artist,
+  String? album,
+  int? durationSeconds,
+}) async {
+  if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+  final attempts = [
+    (title, artist),
+    (lyricsForSearchTitle(title), lyricsForSearchArtist(artist)),
+  ];
+  for (final attempt in attempts) {
+    if (attempt.$1.trim().isEmpty || attempt.$2.trim().isEmpty) continue;
+    final qp = {
+      's': attempt.$1.trim(),
+      'a': attempt.$2.trim(),
+      if (durationSeconds != null && durationSeconds > 0)
+        'd': '$durationSeconds',
+      if (album != null && album.trim().isNotEmpty) 'al': album.trim(),
+    };
+    try {
+      final res = await dio.get<String>(
+        'https://lyrics-api.boidu.dev/qq/getLyrics',
+        queryParameters: qp,
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: {'Accept': 'application/json'},
+        ),
+      );
+      final body = res.data;
+      if (body == null || body.isEmpty) continue;
+      final parsed = parseBetterDocument(body);
+      if (parsed != null &&
+          parsed.isNotEmpty &&
+          lyricsPlausibleDuration(parsed, durationSeconds)) {
+        final payload = _unwrapBetterPayload(body) ?? body;
+        final wordSynced = _betterHasWordTiming(payload);
+        return LyricsResult(
+          lines: parsed,
+          isSynced: true,
+          isWordSynced: wordSynced,
+          plainLyrics: parsed.map((l) => l.text).join('\n'),
+          source: wordSynced
+              ? 'QQ Karaoke (Word-Sync)'
+              : 'QQ Karaoke (Line-Sync)',
+        );
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+// -- Syllable-Sync (Bini / lyrics-api.binimum.org) ----------------------------
+Future<LyricsResult?> fetchBiniLyrics(
+  Dio dio, {
+  required String title,
+  required String artist,
+  String? album,
+  int? durationSeconds,
+  String? isrc,
+}) async {
+  if (title.trim().isEmpty) return null;
+
+  Future<List<Map<String, dynamic>>> query(Map<String, String> qp) async {
+    try {
+      final res = await dio.get<dynamic>(
+        'https://lyrics-api.binimum.org/',
+        queryParameters: qp,
+        options: Options(
+          headers: {
+            'User-Agent':
+                'LastWave-Desktop/1.0 (https://github.com/clash-projects/lastwave-desktop)',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+      final data = res.data;
+      if (data is Map && data['results'] is List) {
+        return (data['results'] as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  List<Map<String, dynamic>> hits = [];
+  if (isrc != null && isrc.trim().isNotEmpty) {
+    hits = await query({'isrc': isrc.trim()});
+  }
+  if (hits.isEmpty) {
+    final shaped = <String, String>{
+      'track': title.trim(),
+      'artist': artist.trim(),
+      if (album != null && album.trim().isNotEmpty) 'album': album.trim(),
+      if (durationSeconds != null && durationSeconds > 0)
+        'duration': durationSeconds.toString(),
+    };
+    hits = await query(shaped);
+    if (hits.isEmpty) {
+      final q = artist.trim().isEmpty
+          ? title.trim()
+          : '${artist.trim()} - ${title.trim()}';
+      hits = await query({'q': q});
+    }
+  }
+  if (hits.isEmpty) return null;
+
+  Map<String, dynamic>? best;
+  var bestScore = -1;
+  for (final hit in hits) {
+    final trackName = hit['track_name']?.toString() ?? '';
+    final artistName = hit['artist_name']?.toString() ?? '';
+    if (!lyricsSameVersion(title, trackName)) continue;
+    var score = 0;
+    final cleanT = lyricsForSearchTitle(trackName);
+    final reqT = lyricsForSearchTitle(title);
+    if (cleanT.toLowerCase() == reqT.toLowerCase()) {
+      score += 3;
+    } else if (lyricsTitlesMatchStrict(cleanT, reqT)) {
+      score += 1;
+    }
+    final cleanA = lyricsForSearchArtist(artistName);
+    final reqA = lyricsForSearchArtist(artist);
+    if (lyricsArtistsMatchStrict(cleanA, reqA)) score += 2;
+    final dur =
+        hit['duration'] is num ? (hit['duration'] as num).toInt() : null;
+    if (durationSeconds != null &&
+        durationSeconds > 0 &&
+        dur != null &&
+        dur > 0) {
+      final diff = (dur - durationSeconds).abs();
+      if (diff <= 3) {
+        score += 3;
+      } else if (diff <= 10) {
+        score += 1;
+      }
+    }
+    if (hit['timing_type']?.toString().toLowerCase() == 'word') score += 1;
+    if (score >= 5 && score > bestScore) {
+      bestScore = score;
+      best = hit;
+    }
+  }
+  if (best == null) return null;
+
+  final lyricsUrl = best['lyricsUrl']?.toString();
+  if (lyricsUrl == null || lyricsUrl.trim().isEmpty) return null;
+
+  try {
+    final docRes = await dio.get<String>(
+      lyricsUrl,
+      options: Options(
+        responseType: ResponseType.plain,
+        headers: {
+          'User-Agent':
+              'LastWave-Desktop/1.0 (https://github.com/clash-projects/lastwave-desktop)',
+          'Accept': 'application/xml, text/xml, */*',
+        },
+      ),
+    );
+    final xml = docRes.data;
+    if (xml == null || xml.isEmpty) return null;
+    final lines = parseTtml(xml);
+    if (lines.isNotEmpty && lyricsPlausibleDuration(lines, durationSeconds)) {
+      final wordSynced = lines.any((l) => l.hasSyllables);
+      return LyricsResult(
+        lines: lines,
+        isSynced: true,
+        isWordSynced: wordSynced,
+        plainLyrics: lines.map((l) => l.text).join('\n'),
+        source: 'Syllable-Sync',
+      );
+    }
+  } catch (_) {}
+  return null;
+}
+
+// -- LyricsPlus (multi-mirror aggregation) -------------------------------------
+const _lyricsPlusMirrors = [
+  'https://lyricsplus.prjktla.my.id',
+  'https://lyricsplus.atomix.one',
+  'https://lyricsplus.binimum.org',
+  'https://lyricsplus.prjktla.workers.dev',
+  'https://lyricsplus-seven.vercel.app',
+  'https://lyrics-plus-backend.vercel.app',
+];
+
+Future<LyricsResult?> fetchLyricsPlus(
+  Dio dio, {
+  required String title,
+  required String artist,
+  String? album,
+  int? durationSeconds,
+  String? isrc,
+}) async {
+  if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+
+  List<LyricSyllable> mergeSyllables(List<dynamic> rawSyllables) {
+    final words = <LyricSyllable>[];
+    final buf = StringBuffer();
+    var start = 0;
+    var end = 0;
+
+    void flush() {
+      if (buf.isNotEmpty) {
+        words.add(LyricSyllable(
+          timeMs: start,
+          durationMs: end > start ? end - start : 0,
+          text: buf.toString(),
+        ));
+      }
+      buf.clear();
+    }
+
+    for (final s in rawSyllables) {
+      if (s is! Map) continue;
+      final raw = s['text']?.toString() ?? '';
+      final content = raw.trim();
+      if (content.isEmpty) {
+        flush();
+        continue;
+      }
+      final time = (s['time'] as num?)?.toInt();
+      if (time == null) continue;
+      final duration = (s['duration'] as num?)?.toInt() ?? 0;
+
+      final joins = buf.isNotEmpty && !raw.startsWith(RegExp(r'\s'));
+      if (!joins) flush();
+      if (buf.isEmpty) {
+        start = time;
+        end = time;
+      }
+      buf.write(content);
+      final wordEnd = time + duration;
+      if (wordEnd > end) end = wordEnd;
+      if (raw.endsWith(' ') || raw.endsWith('\t')) flush();
+    }
+    flush();
+    return words;
+  }
+
+  for (final host in _lyricsPlusMirrors) {
+    final qp = {
+      'title': title.trim(),
+      'artist': artist.trim(),
+      if (durationSeconds != null && durationSeconds > 0)
+        'duration': '$durationSeconds',
+      if (album != null && album.trim().isNotEmpty) 'album': album.trim(),
+      if (isrc != null && isrc.trim().isNotEmpty) 'isrc': isrc.trim(),
+    };
+    try {
+      final res = await dio.get<dynamic>(
+        '$host/v2/lyrics/get',
+        queryParameters: qp,
+        options: Options(
+          responseType: ResponseType.json,
+          headers: {
+            'User-Agent':
+                'LastWave-Desktop/1.0 (https://github.com/clash-projects/lastwave-desktop)',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+      final data = res.data;
+      if (data is Map && data['lyrics'] is List) {
+        final rawLines = data['lyrics'] as List;
+        final lines = <LyricLine>[];
+        for (final item in rawLines) {
+          if (item is! Map) continue;
+          final time = (item['time'] as num?)?.toInt();
+          if (time == null) continue;
+          final duration = (item['duration'] as num?)?.toInt() ?? 0;
+          final syllablesRaw = item['syllabus'] as List?;
+          final words = syllablesRaw != null
+              ? mergeSyllables(syllablesRaw)
+              : const <LyricSyllable>[];
+          if (words.isNotEmpty) {
+            lines.add(LyricLine(
+              timeMs: math.min(time, words.first.timeMs),
+              durationMs: duration > 0 ? duration : 0,
+              text: words.map((w) => w.text).join(' '),
+              syllables: words,
+            ));
+          } else {
+            final text = item['text']?.toString().trim() ?? '';
+            if (text.isNotEmpty) {
+              lines.add(LyricLine(
+                timeMs: time,
+                durationMs: duration > 0 ? duration : 0,
+                text: text,
+              ));
+            }
+          }
+        }
+        lines.sort((a, b) => a.timeMs.compareTo(b.timeMs));
+        if (lines.isNotEmpty &&
+            lyricsPlausibleDuration(lines, durationSeconds)) {
+          final wordSynced = lines.any((l) => l.hasSyllables);
+          return LyricsResult(
+            lines: lines,
+            isSynced: true,
+            isWordSynced: wordSynced,
+            plainLyrics: lines.map((l) => l.text).join('\n'),
+            source: wordSynced
+                ? 'LyricsPlus (Word-Sync)'
+                : 'LyricsPlus (Line-Sync)',
+          );
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+// -- Unison (unison.boidu.dev) ------------------------------------------------
+Future<LyricsResult?> fetchUnisonLyrics(
+  Dio dio, {
+  required String title,
+  required String artist,
+  String? album,
+  int? durationSeconds,
+}) async {
+  if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+  final qp = {
+    'song': title.trim(),
+    'artist': artist.trim(),
+    if (album != null && album.trim().isNotEmpty) 'album': album.trim(),
+    if (durationSeconds != null && durationSeconds > 0)
+      'duration': '$durationSeconds',
+  };
+  try {
+    final res = await dio.get<dynamic>(
+      'https://unison.boidu.dev/lyrics',
+      queryParameters: qp,
+      options: Options(
+        responseType: ResponseType.json,
+        headers: {
+          'User-Agent':
+              'LastWave-Desktop/1.0 (https://github.com/clash-projects/lastwave-desktop)',
+          'Accept': 'application/json',
+        },
+      ),
+    );
+    final data = res.data;
+    if (data is Map && data['success'] == true && data['data'] is Map) {
+      final entry = data['data'] as Map;
+      final lyricsText = entry['lyrics']?.toString() ?? '';
+      if (lyricsText.trim().isEmpty) return null;
+      final format = entry['format']?.toString().toLowerCase() ?? '';
+      final syncType = entry['syncType']?.toString().toLowerCase() ?? '';
+
+      List<LyricLine> lines = [];
+      if (format == 'ttml') {
+        lines = parseTtml(lyricsText);
+      } else if (syncType == 'plain') {
+        lines = const [];
+      } else {
+        lines = parseLrc(lyricsText);
+      }
+      if (lines.isNotEmpty &&
+          lyricsPlausibleDuration(lines, durationSeconds)) {
+        final bool wordSynced;
+        if (format == 'ttml') {
+          wordSynced = lines.any((l) => l.hasSyllables);
+        } else {
+          wordSynced = syncType == 'word' ||
+              syncType == 'syllable' ||
+              parseEnhancedLrc(lyricsText).isNotEmpty;
+        }
+        final cleanLines = wordSynced
+            ? lines
+            : [
+                for (final l in lines)
+                  LyricLine(
+                    timeMs: l.timeMs,
+                    durationMs: l.durationMs,
+                    text: l.text,
+                    transliteration: l.transliteration,
+                    syllables: const [],
+                  ),
+              ];
+        return LyricsResult(
+          lines: cleanLines,
+          isSynced: true,
+          isWordSynced: wordSynced,
+          plainLyrics: cleanLines.map((l) => l.text).join('\n'),
+          source: wordSynced ? 'Unison (Word-Sync)' : 'Unison (Line-Sync)',
+        );
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+// -- Megalobiz (megalobiz.com) ------------------------------------------------
+Future<LyricsResult?> fetchMegalobizLyrics(
+  Dio dio, {
+  required String title,
+  required String artist,
+  int? durationSeconds,
+}) async {
+  if (title.trim().isEmpty) return null;
+  try {
+    final qry = '$artist $title'.trim();
+    final searchRes = await dio.get<String>(
+      'https://www.megalobiz.com/searchall',
+      queryParameters: {'qry': qry},
+      options: Options(
+        responseType: ResponseType.plain,
+        headers: {
+          'User-Agent':
+              'LastWave-Desktop/1.0 (https://github.com/clash-projects/lastwave-desktop)',
+          'Accept': 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        },
+      ),
+    );
+    final html = searchRes.data ?? '';
+    final linkMatch = RegExp(
+      r'''href=["'](/lrc/maker/download/[^"']+)["']''',
+      caseSensitive: false,
+    ).firstMatch(html);
+    if (linkMatch == null) return null;
+    final path = linkMatch.group(1)!.replaceAll('&amp;', '&');
+    final pageRes = await dio.get<String>(
+      'https://www.megalobiz.com$path',
+      options: Options(
+        responseType: ResponseType.plain,
+        headers: {
+          'User-Agent':
+              'LastWave-Desktop/1.0 (https://github.com/clash-projects/lastwave-desktop)',
+        },
+      ),
+    );
+    final pageHtml = pageRes.data ?? '';
+    final bodyMatch = RegExp(
+      r'''id=["']lrc_[^"']*_details["'][^>]*>(.*?)</span>''',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(pageHtml);
+    if (bodyMatch == null) return null;
+    var rawLrc = bodyMatch.group(1)!;
+    rawLrc = rawLrc
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'<[^>]+>'), '');
+    final unescaped = rawLrc
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll('&#39;', "'");
+    final lines = parseLrc(unescaped);
+    if (lines.isNotEmpty &&
+        lyricsPlausibleDuration(lines, durationSeconds)) {
+      return LyricsResult(
+        lines: lines,
+        isSynced: true,
+        isWordSynced: false,
+        plainLyrics: lines.map((l) => l.text).join('\n'),
+        source: 'Megalobiz (Line-Sync)',
+      );
+    }
+  } catch (_) {}
+  return null;
+}
+
+// -- Genius (genius.com) ------------------------------------------------------
+Future<LyricsResult?> fetchGeniusLyrics(
+  Dio dio, {
+  required String title,
+  required String artist,
+}) async {
+  if (title.trim().isEmpty) return null;
+  final query = artist.trim().isNotEmpty
+      ? '${artist.trim()} ${title.trim()}'
+      : title.trim();
+  try {
+    final searchRes = await dio.get<dynamic>(
+      'https://genius.com/api/search/multi',
+      queryParameters: {'q': query},
+      options: Options(
+        responseType: ResponseType.json,
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+          'Accept': 'application/json',
+        },
+      ),
+    );
+    final data = searchRes.data;
+    if (data is! Map) return null;
+    final sections = data['response']?['sections'] as List?;
+    if (sections == null) return null;
+    Map<String, dynamic>? songSection;
+    for (final s in sections) {
+      if (s is Map && s['type'] == 'song') {
+        songSection = Map<String, dynamic>.from(s);
+        break;
+      }
+    }
+    final hits = songSection?['hits'] as List?;
+    if (hits == null || hits.isEmpty) return null;
+    String? songUrl;
+    for (final h in hits) {
+      if (h is Map && h['result'] is Map) {
+        songUrl = h['result']['url']?.toString();
+        if (songUrl != null && songUrl.isNotEmpty) break;
+      }
+    }
+    if (songUrl == null) return null;
+
+    final pageRes = await dio.get<String>(
+      songUrl,
+      options: Options(
+        responseType: ResponseType.plain,
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+        },
+      ),
+    );
+    final html = pageRes.data ?? '';
+    final containerRegex = RegExp(
+      r'''<div[^>]*data-lyrics-container=["']true["'][^>]*>(.*?)</div>''',
+      dotAll: true,
+      caseSensitive: false,
+    );
+    final matches = containerRegex.allMatches(html);
+    if (matches.isEmpty) return null;
+    final sb = StringBuffer();
+    for (final m in matches) {
+      var chunk = m.group(1) ?? '';
+      chunk =
+          chunk.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+      chunk = chunk.replaceAll(RegExp(r'<[^>]+>'), '');
+      chunk = chunk
+          .replaceAll('&amp;', '&')
+          .replaceAll('&lt;', '<')
+          .replaceAll('&gt;', '>')
+          .replaceAll('&quot;', '"')
+          .replaceAll('&apos;', "'")
+          .replaceAll('&#39;', "'");
+      if (sb.isNotEmpty) sb.write('\n\n');
+      sb.write(chunk.trim());
+    }
+    final text = sb.toString().trim();
+    if (text.isNotEmpty) {
+      return LyricsResult(
+        lines: const [],
+        isSynced: false,
+        isWordSynced: false,
+        plainLyrics: text,
+        source: 'Genius (Plain)',
+      );
+    }
+  } catch (_) {}
+  return null;
+}
+
+// -- LastWave (lyrics-api.boidu.dev/lastwave) ----------------------------------
+Future<LyricsResult?> fetchLastWaveLyrics(
+  Dio dio, {
+  required String title,
+  required String artist,
+  String? album,
+  int? durationSeconds,
+  String? isrc,
+}) async {
+  const base = 'https://lyrics-api.boidu.dev/lastwave';
+  final qp = {
+    'title': title.trim(),
+    if (artist.trim().isNotEmpty) 'artist': artist.trim(),
+    if (album != null && album.trim().isNotEmpty) 'album': album.trim(),
+    if (durationSeconds != null && durationSeconds > 0)
+      'duration': '$durationSeconds',
+    if (isrc != null && isrc.trim().isNotEmpty) 'isrc': isrc.trim(),
+  };
+  try {
+    final res = await dio.get<String>(
+      '$base/lyrics',
+      queryParameters: qp,
+      options: Options(
+        responseType: ResponseType.plain,
+        headers: {
+          'User-Agent':
+              'LastWave-Desktop/1.0 (https://github.com/clash-projects/lastwave-desktop)',
+          'Accept': 'application/json, text/plain',
+        },
+      ),
+    );
+    final body = res.data;
+    if (body == null || body.trim().isEmpty) return null;
+    final payload = _unwrapBetterPayload(body) ?? body.trim();
+    final lines = parseBetterDocument(payload);
+    if (lines != null &&
+        lines.isNotEmpty &&
+        lyricsPlausibleDuration(lines, durationSeconds)) {
+      final wordSynced = _betterHasWordTiming(payload);
+      return LyricsResult(
+        lines: lines,
+        isSynced: true,
+        isWordSynced: wordSynced,
+        plainLyrics: lines.map((l) => l.text).join('\n'),
+        source:
+            wordSynced ? 'LastWave (Word-Sync)' : 'LastWave (Line-Sync)',
+      );
+    }
+  } catch (_) {}
+  return null;
 }

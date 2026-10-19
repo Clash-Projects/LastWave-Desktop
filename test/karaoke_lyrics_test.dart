@@ -306,6 +306,9 @@ void main() {
       expect(cleanSongTitle('Hotel California - Remastered 2013'), equals('Hotel California'));
       expect(cleanSongTitle('Blinding Lights (Live on SNL)'), equals('Blinding Lights'));
       expect(cleanSongTitle('Ordinary Song'), equals('Ordinary Song'));
+      expect(cleanSongTitle('Bad Guy | Official Music Video'), equals('Bad Guy'));
+      expect(cleanSongTitle('Hello / 4K Video'), equals('Hello'));
+      expect(cleanSongTitle("Creepin' feat. The Weeknd"), equals("Creepin'"));
     });
 
     test('cleanSongArtist removes Topic and featuring suffixes', () {
@@ -464,7 +467,7 @@ void main() {
       );
     });
 
-    test('complete unsynced Apple lyrics beat a shorter timed cut', () {
+    test('timed cut beats complete unsynced Apple lyrics', () {
       final complete = LyricsResult(
         lines: [
           LyricLine(timeMs: 0, text: 'full chorus ${'na ' * 80}'),
@@ -482,11 +485,11 @@ void main() {
       );
       expect(lyricsBodyLength(complete), greaterThan(lyricsBodyLength(truncated)));
       expect(
-        LyricsRepository.isBetterCandidate(complete, truncated),
+        LyricsRepository.isBetterCandidate(truncated, complete),
         isTrue,
       );
       expect(
-        LyricsRepository.isBetterCandidate(truncated, complete),
+        LyricsRepository.isBetterCandidate(complete, truncated),
         isFalse,
       );
     });
@@ -583,6 +586,8 @@ void main() {
     test('parenthetical cuts do not steal the main track', () {
       expect(lyricsTitlesMatch('Song (Interlude)', 'Song'), isFalse);
       expect(lyricsTitlesMatch('Song', 'Song (Album Version)'), isTrue);
+      expect(lyricsTitlesMatch('Song (Live)', 'Song'), isFalse);
+      expect(lyricsTitlesMatch('Song', 'Song (Live)'), isFalse);
       expect(lyricsTitlesMatch('All Caps', 'All Caps (feat. Doom)'), isTrue);
       expect(
         lyricsTitlesMatch('Overdue', 'Overdue (feat. Travis Scott)'),
@@ -593,6 +598,12 @@ void main() {
     test('artist must be the same act, not a cover', () {
       expect(lyricsArtistsMatch('Madvillain', 'Madvillain'), isTrue);
       expect(lyricsArtistsMatch('Madvillain', 'Madvillain & MF DOOM'), isTrue);
+      expect(lyricsArtistsMatch('Drake', 'Drake Bell'), isFalse);
+      expect(lyricsArtistsMatch('Pink', 'Pink Floyd'), isFalse);
+      expect(lyricsArtistsMatch('Drake', 'Drake, 21 Savage'), isTrue);
+      expect(lyricsArtistsMatch('Drake', 'Drake feat. 21 Savage'), isTrue);
+      expect(lyricsArtistsMatch('Drake', 'Drake ft 21 Savage'), isTrue);
+      expect(lyricsArtistsMatch('Drake', 'Drake with 21 Savage'), isTrue);
       expect(lyricsArtistsMatch('Madvillain', 'Abstract Orchestra'), isFalse);
       expect(lyricsArtistsMatch('Madvillain', 'SERAPHINE NOIR'), isFalse);
     });
@@ -617,6 +628,14 @@ void main() {
       expect(lyricsDurationPlausible(132, 138), isTrue);
       expect(lyricsDurationPlausible(132, 257), isFalse);
       expect(lyricsDurationPlausible(null, 257), isTrue);
+      expect(lyricsDurationPlausible(240, 205), isTrue);
+      expect(lyricsDurationPlausible(240, 280), isTrue);
+    });
+
+    test('lyricsTitlesMatch matches Artist - Title against Title', () {
+      expect(lyricsTitlesMatch('Shape of You', 'Ed Sheeran - Shape Of You'), isTrue);
+      expect(lyricsTitlesMatch('Ed Sheeran - Shape Of You', 'Shape of You'), isTrue);
+      expect(lyricsTitlesMatch('Queen - Bohemian Rhapsody', 'Bohemian Rhapsody'), isTrue);
     });
   });
 

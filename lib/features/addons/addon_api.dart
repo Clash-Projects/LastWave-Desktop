@@ -59,27 +59,57 @@ class AddonApi implements LosslessSource {
   String get _secret => AppEnv.addonClientSecret;
 
   @override
-  bool get isConfigured =>
-      bases.isNotEmpty && _secret.isNotEmpty;
+  bool get isConfigured => bases.isNotEmpty;
 
   // -- URL parsing ------------------------------------------------------------
 
   /// Accepts a full addon root (trailing slash optional), a manifest
-  /// URL, or a deeper addon URL (stream/…). Bare domains and
-  /// non-hex tokens are rejected (the server would 404 them anyway).
+  /// URL, or a deeper addon URL (stream/…). Supports tokenized addon
+  /// roots (`{base}/a/<token>/`) and standalone/worker addon roots
+  /// (`https://host/`).
   static ({String root, String token})? parseAddonUrl(
       String raw) {
-    var v = raw.trim().replaceAll(RegExp(r'/+$'), '');
+    var v = raw.trim();
     if (v.isEmpty) return null;
-    v = v.replaceAll(RegExp(r'/manifest(\.json)?$'), '');
-    final m =
-        RegExp(r'^(https?://[^/?#]+)/a/([^/?#]+)').firstMatch(v);
-    if (m == null) return null;
-    final token = m.group(2)!;
-    if (!RegExp(r'^[0-9a-fA-F]{16,}$').hasMatch(token)) {
+
+    final uri = Uri.tryParse(v);
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty) {
       return null;
     }
-    return (root: '${m.group(1)}/a/$token/', token: token);
+
+    v = v.replaceAll(RegExp(r'/+$'), '');
+    v = v.replaceAll(RegExp(r'/manifest(\.json)?$', caseSensitive: false), '');
+
+    final m =
+        RegExp(r'^(https?://[^/?#]+)/a/([^/?#]+)').firstMatch(v);
+    if (m != null) {
+      final token = m.group(2)!;
+      if (!RegExp(r'^[0-9a-fA-F]{16,}$').hasMatch(token)) {
+        return null;
+      }
+      return (root: '${m.group(1)}/a/$token/', token: token);
+    }
+
+    // Malformed /a/ paths without a valid token are rejected.
+    if (RegExp(r'^(https?://[^/?#]+)/a(/.*)?$').hasMatch(v)) {
+      return null;
+    }
+
+    var cleanPath = uri.path.replaceAll(RegExp(r'/+$'), '');
+    cleanPath = cleanPath.replaceAll(
+        RegExp(r'/manifest(\.json)?$', caseSensitive: false), '');
+    cleanPath = cleanPath.replaceAll(
+        RegExp(r'/(stream|search)(/.*)?$', caseSensitive: false), '');
+
+    final origin =
+        '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}';
+    final root = cleanPath.isEmpty || cleanPath == '/'
+        ? '$origin/'
+        : '$origin$cleanPath/';
+
+    return (root: root, token: '');
   }
 
   // -- request signing (one-way lock) ------------------------------------------
@@ -112,13 +142,19 @@ class AddonApi implements LosslessSource {
 
   Map<String, String> _signHeaders(
       String method, String root, String path) {
+    final token = tokenOfRoot(root);
+    if (_secret.isEmpty || token.isEmpty) {
+      return {
+        'User-Agent': 'LastWave-Player/1.0',
+      };
+    }
     final ts =
         (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
     return signFor(
         secret: _secret,
         method: method,
         path: path,
-        token: tokenOfRoot(root),
+        token: token,
         ts: ts);
   }
 

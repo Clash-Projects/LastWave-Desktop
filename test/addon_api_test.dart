@@ -38,10 +38,24 @@ void main() {
       expect(p?.root, 'https://x.test/a/${_hex('d')}/');
     });
 
-    test('bare domain rejected', () {
-      expect(
-          AddonApi.parseAddonUrl('https://x.test/'), isNull);
-      expect(AddonApi.parseAddonUrl('https://x.test'), isNull);
+    test('bare domain accepted as root', () {
+      final p1 = AddonApi.parseAddonUrl('https://x.test/');
+      expect(p1?.root, 'https://x.test/');
+      expect(p1?.token, '');
+
+      final p2 = AddonApi.parseAddonUrl('https://x.test');
+      expect(p2?.root, 'https://x.test/');
+      expect(p2?.token, '');
+
+      final p3 = AddonApi.parseAddonUrl(
+          'https://l-bitches.clashgram.workers.dev');
+      expect(p3?.root, 'https://l-bitches.clashgram.workers.dev/');
+      expect(p3?.token, '');
+
+      final p4 = AddonApi.parseAddonUrl(
+          'https://l-bitches.clashgram.workers.dev/manifest.json');
+      expect(p4?.root, 'https://l-bitches.clashgram.workers.dev/');
+      expect(p4?.token, '');
     });
 
     test('short/non-hex tokens rejected', () {
@@ -663,8 +677,14 @@ void main() {
   });
 
   group('AddonApi gating', () {
-    test('unconfigured without bases or secret', () {
+    test('unconfigured without bases', () {
       expect(AddonApi(const []).isConfigured, isFalse);
+    });
+
+    test('configured with bases even without secret', () {
+      expect(
+          AddonApi(['https://l-bitches.clashgram.workers.dev/']).isConfigured,
+          isTrue);
     });
   });
 
