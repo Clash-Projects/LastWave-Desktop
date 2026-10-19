@@ -52,7 +52,7 @@ const _waveSettingsSections = [
 /// Fluent settings: left nav list + right form.
 ///
 /// Reuses theme_controller + prefs logic; presentation is Fluent
-/// (ToggleSwitch, Slider, ComboBox, ContentDialog) — no old ledger
+/// (ToggleSwitch, Slider, WaveSelect, ContentDialog) — no old ledger
 /// switches or boxed groups.
 class WaveSettingsPage extends ConsumerStatefulWidget {
   /// Deep-link into a section rail entry (e.g. 'lastfm' from the
@@ -641,19 +641,13 @@ class _EqualizerSettingsSummary extends ConsumerWidget {
             children: [
               const Text('Clarity target', style: WaveType.trackTitle),
               const Spacer(),
-              ComboBox<String>(
+              WaveSelect<String>(
                 value: eq.clarityPreset.key,
-                items: [
+                options: [
                   for (final t in ClarityPresets.all)
-                    ComboBoxItem(
-                      value: t.key,
-                      child: Text(t.displayName),
-                    ),
+                    WaveSelectOption(value: t.key, label: t.displayName),
                 ],
-                onChanged: (key) {
-                  if (key == null) return;
-                  notifier.setClarityPreset(key);
-                },
+                onChanged: (key) => notifier.setClarityPreset(key),
               ),
             ],
           ),
@@ -663,24 +657,18 @@ class _EqualizerSettingsSummary extends ConsumerWidget {
           children: [
             const Text('Equalizer preset', style: WaveType.trackTitle),
             const Spacer(),
-            ComboBox<String>(
+            WaveSelect<String>(
               value: EqualizerPresets.all.any((p) => p.name == eq.presetName)
                   ? eq.presetName
                   : 'Custom',
-              items: [
+              options: [
                 for (final p in EqualizerPresets.all)
-                  ComboBoxItem(
-                    value: p.name,
-                    child: Text(p.name),
-                  ),
+                  WaveSelectOption(value: p.name, label: p.name),
                 if (!EqualizerPresets.all.any((p) => p.name == eq.presetName))
-                  const ComboBoxItem(
-                    value: 'Custom',
-                    child: Text('Custom'),
-                  ),
+                  const WaveSelectOption(value: 'Custom', label: 'Custom'),
               ],
               onChanged: (preset) {
-                if (preset != null && preset != 'Custom') {
+                if (preset != 'Custom') {
                   notifier.setPreset(preset);
                 }
               },
