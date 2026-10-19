@@ -34,16 +34,20 @@ class WavePlayerDock extends ConsumerWidget {
   final VoidCallback onExpand;
   final VoidCallback onToggleQueue;
   final VoidCallback onToggleLyrics;
+  final VoidCallback? onToggleEqualizer;
   final bool queueActive;
   final bool lyricsActive;
+  final bool equalizerActive;
   final VoidCallback onToggleMini;
   const WavePlayerDock({
     super.key,
     required this.onExpand,
     required this.onToggleQueue,
     required this.onToggleLyrics,
+    this.onToggleEqualizer,
     this.queueActive = false,
     this.lyricsActive = false,
+    this.equalizerActive = false,
     required this.onToggleMini,
   });
 
@@ -311,6 +315,13 @@ class WavePlayerDock extends ConsumerWidget {
                             active: queueActive,
                             onTap: onToggleQueue,
                           ),
+                          if (onToggleEqualizer != null)
+                            _Glyph(
+                              tooltip: 'Equalizer',
+                              icon: WaveIcons.equalizer,
+                              active: equalizerActive,
+                              onTap: onToggleEqualizer!,
+                            ),
                           if (showDevice) const _DeviceGlyph(),
                           if (showVolumeSlider)
                             const _VolumeSection()
@@ -338,6 +349,7 @@ class WavePlayerDock extends ConsumerWidget {
                             onToggleLyrics: onToggleLyrics,
                             onExpand: onExpand,
                             onToggleMini: onToggleMini,
+                            onToggleEqualizer: onToggleEqualizer,
                           ),
                         ],
                       ),
@@ -1270,6 +1282,7 @@ class _DockOverflow extends ConsumerWidget {
   final VoidCallback onToggleLyrics;
   final VoidCallback onExpand;
   final VoidCallback onToggleMini;
+  final VoidCallback? onToggleEqualizer;
   const _DockOverflow({
     this.showLyricsItem = false,
     this.showQualityItem = false,
@@ -1279,6 +1292,7 @@ class _DockOverflow extends ConsumerWidget {
     required this.onToggleLyrics,
     required this.onExpand,
     required this.onToggleMini,
+    this.onToggleEqualizer,
   });
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1343,6 +1357,13 @@ class _DockOverflow extends ConsumerWidget {
                 const Icon(WaveIcons.miniPlayer, size: 15),
             label: 'Mini player',
             onPressed: onToggleMini,
+          ),
+        if (onToggleEqualizer != null)
+          WaveMenuAction(
+            leading:
+                const Icon(WaveIcons.equalizer, size: 15),
+            label: 'Equalizer',
+            onPressed: onToggleEqualizer!,
           ),
         if (hasCollapsed) const WaveMenuSeparator(),
         WaveMenuAction(

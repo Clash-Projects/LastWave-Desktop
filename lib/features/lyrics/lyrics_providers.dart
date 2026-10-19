@@ -1769,8 +1769,14 @@ Future<LyricsResult?> fetchGeniusLyrics(
     }
     final text = sb.toString().trim();
     if (text.isNotEmpty) {
+      final lines = text
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .map((l) => LyricLine(timeMs: 0, text: l))
+          .toList();
       return LyricsResult(
-        lines: const [],
+        lines: lines,
         isSynced: false,
         isWordSynced: false,
         plainLyrics: text,

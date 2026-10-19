@@ -276,6 +276,23 @@ LyricsResult ensureMillisecondTimestamps(LyricsResult result) {
 /// wipe lasts until the next word instead of flashing then jumping.
 LyricsResult normalizeKaraokeTimings(LyricsResult result) {
   result = ensureMillisecondTimestamps(result);
+  if (result.lines.isEmpty && result.plainLyrics.isNotEmpty) {
+    final rawLines = result.plainLyrics
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    result = LyricsResult(
+      lines: [
+        for (final l in rawLines) LyricLine(timeMs: 0, text: l),
+      ],
+      isSynced: result.isSynced,
+      isWordSynced: result.isWordSynced,
+      plainLyrics: result.plainLyrics,
+      isInstrumental: result.isInstrumental,
+      source: result.source,
+    );
+  }
   if (!result.isSynced || result.lines.isEmpty) return result;
   final src = List<LyricLine>.of(result.lines)
     ..sort((a, b) => a.timeMs.compareTo(b.timeMs));

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -147,6 +148,23 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// the next open waits for idle first — otherwise loadfile races
   /// the dying demuxer and corrupts the heap.
   bool _lastWasDash = false;
+  String _currentAudioFilter = '';
+  String _currentAudioDevice = 'auto';
+
+  // -- Dual-engine Crossfade & Standby state -------------------------------
+  Player? _standbyPlayer;
+  bool _standbyArmed = false;
+  PlayableTrack? _standbyTrack;
+  ResolvedStream? _standbyStream;
+  int _standbyIndex = -1;
+  bool _crossfading = false;
+  DateTime? _crossfadeStartTime;
+  Duration? _crossfadeDuration;
+  Timer? _crossfadeTimer;
+  double _crossfadeTargetVolume = 1.0;
+  String _crossfadeResolvedKey = '';
+  DateTime _lastCrossfadeResolveAttempt =
+      DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Crash-surviving breadcrumb file (`<temp>/lastwave/mpv-ops.log`).
   /// Written synchronously with flush BEFORE each native op, so the
@@ -288,6 +306,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           // YouTube too — strictly more patient, never less.
           await dyn.setProperty('stream-lavf-o', 'timeout=15000000');
         } catch (_) {}
+        if (_currentAudioFilter.isNotEmpty) {
+          try {
+            await dyn.setProperty('af', _currentAudioFilter);
+          } catch (_) {}
+        }
       }
     } catch (_) {}
     // Crash-surviving trail: mpv logs to disk continuously and Dart
@@ -311,6 +334,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       } catch (_) {}
     } catch (_) {}
     final p = _player!;
+    _bindPlayerStreams(p);
+    await restoreSession();
+  }
+
+  void _bindPlayerStreams(Player p) {
     _subs.addAll([
       p.stream.playing.listen((v) {
         runGuarded('player.playing', () {
@@ -338,6 +366,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           // prefetch is once-per-track. Saves 60Hz DateTime+prefs wakes.
           _tickScrobble(v);
           _maybePrefetchFromPosition(v);
+          _updateCrossfadeSchedule(v);
           state = state.copyWith(position: v);
         });
       }),
@@ -410,7 +439,350 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         });
       }),
     ]);
-    await restoreSession();
+  }
+
+  void _rebindPlayerStreams() {
+    for (final s in _subs) {
+      try {
+        s.cancel();
+      } catch (_) {}
+    }
+    _subs.clear();
+    final p = _player;
+    if (p != null) {
+      _bindPlayerStreams(p);
+    }
+  }
+
+  // -- Crossfade & Standby hand-off engine ---------------------------------
+
+  Future<void> _ensureStandbyPlayer() async {
+    if (_standbyPlayer != null) return;
+    MediaKit.ensureInitialized();
+    final sb = Player(
+      configuration: const PlayerConfiguration(
+        vo: 'null',
+        title: 'LastWave Standby',
+        bufferSize: 16 * 1024 * 1024,
+      ),
+    );
+    _standbyPlayer = sb;
+    try {
+      final platform = sb.platform as dynamic;
+      if (platform != null) {
+        try {
+          await platform.setProperty('gapless-audio', 'yes');
+        } catch (_) {}
+        try {
+          await platform.setProperty('cache', 'yes');
+        } catch (_) {}
+        try {
+          await platform.setProperty('cache-on-disk', 'yes');
+        } catch (_) {}
+        final cacheDir = mpvCacheDirPath();
+        await ensureDirExists(cacheDir);
+        try {
+          await platform.setProperty('cache-dir', cacheDir);
+        } catch (_) {}
+        try {
+          await platform.setProperty(
+              'demuxer-max-bytes', '${16 * 1024 * 1024}');
+        } catch (_) {}
+        try {
+          await platform.setProperty('vid', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('stream-lavf-o', 'timeout=15000000');
+        } catch (_) {}
+        if (_currentAudioDevice.isNotEmpty && _currentAudioDevice != 'auto') {
+          try {
+            await sb.setAudioDevice(AudioDevice(_currentAudioDevice, ''));
+          } catch (_) {}
+        }
+        if (_currentAudioFilter.isNotEmpty) {
+          try {
+            await platform.setProperty('af', _currentAudioFilter);
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  void cancelCrossfade() {
+    _crossfadeTimer?.cancel();
+    _crossfadeTimer = null;
+    if (_crossfading || _standbyArmed) {
+      try {
+        _standbyPlayer?.stop();
+        _standbyPlayer?.setVolume(0);
+      } catch (_) {}
+      try {
+        _player?.setVolume(state.volume * 100);
+      } catch (_) {}
+    }
+    _crossfading = false;
+    _standbyArmed = false;
+    _standbyTrack = null;
+    _standbyStream = null;
+    _standbyIndex = -1;
+  }
+
+  void _updateCrossfadeSchedule(Duration position) {
+    if (!_prefs.crossfadeEnabled) {
+      if (_standbyArmed || _crossfading) cancelCrossfade();
+      return;
+    }
+    if (exclusiveApplied || _prefs.wasapiExclusive) {
+      if (_standbyArmed || _crossfading) cancelCrossfade();
+      return;
+    }
+    if (state.repeatMode == RepeatMode.one) {
+      if (_standbyArmed || _crossfading) cancelCrossfade();
+      return;
+    }
+    if (!state.isPlaying || _resolving || state.error != null) return;
+    final duration = state.duration;
+    if (duration.inSeconds < 10) return;
+    final remaining = duration - position;
+
+    final nextIndex = _nextIndex();
+    if (nextIndex == null || !_queueIndexValid(nextIndex)) {
+      if (_standbyArmed) cancelCrossfade();
+      return;
+    }
+    final nextTrack = state.queue[nextIndex];
+    if (_standbyArmed && _standbyTrack?.queueKey != nextTrack.queueKey) {
+      cancelCrossfade();
+    }
+
+    // 1. Pre-resolve next track (lossless first) ~30s before track end
+    if (remaining <= const Duration(seconds: 30) && remaining > Duration.zero) {
+      _maybeEarlyResolveNextTrack(nextTrack, nextIndex);
+    }
+
+    final crossfadeSec = _prefs.crossfadeSeconds.clamp(3, 12);
+    final fadeDuration = Duration(seconds: crossfadeSec);
+
+    // 2. Arm standby player 6s before fade window
+    if (remaining <= fadeDuration + const Duration(seconds: 6) &&
+        !_crossfading &&
+        !_standbyArmed) {
+      _armStandbyForNext(nextTrack, nextIndex);
+    }
+
+    // 3. Start crossfade when position enters the fade window
+    if (remaining <= fadeDuration &&
+        _standbyArmed &&
+        !_crossfading &&
+        _standbyPlayer != null) {
+      _startCrossfade(fadeDuration);
+    }
+  }
+
+  void _maybeEarlyResolveNextTrack(PlayableTrack nextTrack, int nextIndex) {
+    final cacheKey = _playCacheKey(nextTrack, false);
+    if (_playCache.get(cacheKey) != null) return;
+    if (_resolveInflight.containsKey(cacheKey)) return;
+    final now = DateTime.now();
+    if (nextTrack.queueKey == _crossfadeResolvedKey &&
+        now.difference(_lastCrossfadeResolveAttempt).inSeconds < 10) {
+      return;
+    }
+    _crossfadeResolvedKey = nextTrack.queueKey;
+    _lastCrossfadeResolveAttempt = now;
+    unawaited(_resolveRemote(nextTrack).then((stream) {
+      if (stream != null) {
+        final currentNext = _nextIndex();
+        if (currentNext == null || !_queueIndexValid(currentNext)) return;
+        if (state.queue[currentNext].queueKey != nextTrack.queueKey) return;
+        if (exclusiveApplied || _prefs.wasapiExclusive) return;
+        if (state.repeatMode == RepeatMode.one) return;
+
+        final pos = state.position;
+        final dur = state.duration;
+        final rem = dur - pos;
+        final fadeSec = _prefs.crossfadeSeconds.clamp(3, 12);
+        if (rem <= Duration(seconds: fadeSec + 6) &&
+            !_crossfading &&
+            !_standbyArmed &&
+            state.isPlaying) {
+          _armStandbyForNext(nextTrack, currentNext);
+        }
+      }
+    }, onError: (_) {}));
+  }
+
+  Future<void> _armStandbyForNext(
+      PlayableTrack nextTrack, int nextIndex) async {
+    if (_standbyArmed || _crossfading) return;
+    if (exclusiveApplied || _prefs.wasapiExclusive) return;
+    if (state.repeatMode == RepeatMode.one) return;
+
+    final cacheKey = _playCacheKey(nextTrack, false);
+    final stream = _localStream(nextTrack) ?? _playCache.get(cacheKey);
+    if (stream == null) {
+      // Stream resolution is currently in-flight; will arm when finished
+      return;
+    }
+    _standbyArmed = true;
+    _standbyTrack = nextTrack;
+    _standbyIndex = nextIndex;
+    _standbyStream = stream;
+
+    await _ensureStandbyPlayer();
+    final sb = _standbyPlayer;
+    if (sb == null) {
+      _standbyArmed = false;
+      _standbyTrack = null;
+      _standbyStream = null;
+      _standbyIndex = -1;
+      return;
+    }
+    try {
+      await sb.setVolume(0);
+      var playUrl = stream.url;
+      if (!playUrl.startsWith('http') && !playUrl.startsWith('file:')) {
+        try {
+          playUrl = Uri.file(playUrl).toString();
+        } catch (_) {}
+      }
+      await _serializedMpv(() async {
+        await sb.open(
+          Media(playUrl, httpHeaders: stream.requestHeaders),
+          play: false,
+        );
+      });
+      // Safety checks: cancel if playback state or track shifted during open
+      if (!_standbyArmed ||
+          _standbyTrack?.queueKey != nextTrack.queueKey ||
+          !state.isPlaying ||
+          exclusiveApplied ||
+          _prefs.wasapiExclusive) {
+        try {
+          await sb.stop();
+        } catch (_) {}
+        _standbyArmed = false;
+        _standbyTrack = null;
+        _standbyStream = null;
+        _standbyIndex = -1;
+        return;
+      }
+    } catch (_) {
+      _standbyArmed = false;
+      _standbyTrack = null;
+      _standbyStream = null;
+      _standbyIndex = -1;
+    }
+  }
+
+  void _startCrossfade(Duration fadeDuration) {
+    if (_crossfading || !_standbyArmed || _standbyPlayer == null) return;
+    _crossfading = true;
+    _crossfadeDuration = fadeDuration;
+    _crossfadeStartTime = DateTime.now();
+    _crossfadeTargetVolume = state.volume;
+
+    try {
+      unawaited(_standbyPlayer!.play());
+    } catch (_) {
+      cancelCrossfade();
+      return;
+    }
+
+    _crossfadeTimer?.cancel();
+    _crossfadeTimer =
+        Timer.periodic(const Duration(milliseconds: 25), (timer) {
+      if (!_crossfading) {
+        timer.cancel();
+        return;
+      }
+      final elapsed = DateTime.now().difference(_crossfadeStartTime!);
+      final progress = (elapsed.inMilliseconds /
+              _crossfadeDuration!.inMilliseconds)
+          .clamp(0.0, 1.0);
+      final masterVol100 = (_crossfadeTargetVolume * 100).clamp(0.0, 100.0);
+
+      // Perceptual equal-power curve (sin/cos preserves energy level)
+      final outVol = math.cos(progress * math.pi / 2) * masterVol100;
+      final inVol = math.sin(progress * math.pi / 2) * masterVol100;
+
+      try {
+        _player?.setVolume(outVol.clamp(0.0, 100.0));
+        _standbyPlayer?.setVolume(inVol.clamp(0.0, 100.0));
+      } catch (_) {}
+
+      if (progress >= 1.0) {
+        timer.cancel();
+        _completeCrossfade();
+      }
+    });
+  }
+
+  void _completeCrossfade() {
+    if (!_crossfading) return;
+    _crossfadeTimer?.cancel();
+    _crossfadeTimer = null;
+
+    final incomingTrack = _standbyTrack;
+    final incomingIndex = _standbyIndex;
+    final incomingStream = _standbyStream;
+    final sb = _standbyPlayer;
+
+    if (incomingTrack == null || sb == null) {
+      cancelCrossfade();
+      return;
+    }
+
+    _flushScrobble(completed: true);
+
+    final oldPrimary = _player;
+    try {
+      oldPrimary?.stop();
+      oldPrimary?.setVolume(0);
+    } catch (_) {}
+
+    try {
+      sb.setVolume((_crossfadeTargetVolume * 100).clamp(0.0, 100.0));
+      if (state.speed != 1.0) {
+        sb.setRate(state.speed);
+      }
+    } catch (_) {}
+    _player = sb;
+    _standbyPlayer = oldPrimary;
+
+    _rebindPlayerStreams();
+
+    final trackDur = sb.state.duration;
+
+    _activeQueueKey = incomingTrack.queueKey;
+    _audioClockKey = incomingTrack.queueKey;
+    _audioClockStart = DateTime.now();
+    _audioOpenDoneAt = DateTime.now();
+
+    state = state.copyWith(
+      currentIndex: incomingIndex,
+      current: incomingTrack,
+      stream: incomingStream,
+      bitrateKbps: incomingStream?.bitrateKbps,
+      isPlaying: true,
+      isBuffering: false,
+      position: Duration.zero,
+      duration: trackDur,
+      clearError: true,
+    );
+
+    _beginScrobbleWindow(incomingTrack);
+
+    _crossfading = false;
+    _standbyArmed = false;
+    _standbyTrack = null;
+    _standbyStream = null;
+    _standbyIndex = -1;
+
+    unawaited(_refreshAoFormat());
+    _prefetchNeighbors();
+    _maybeRefillRadio();
+    _schedulePersist();
   }
 
   /// Ordered teardown for app quit: awaits the queued mpv stop/dispose
@@ -419,6 +791,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   Future<void> disposePlayer() async {
     // Flush any past-threshold window before tearing down (manual pause/
     // app close would otherwise leave it only as “Scrobbling now”).
+    cancelCrossfade();
     _flushScrobble(completed: false);
     _resolveGeneration++;
     _resolving = false;
@@ -430,10 +803,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _subs.clear();
     _sleepTimer?.cancel();
     _persistThrottle?.cancel();
-    // Queue teardown behind any in-flight open: disposing mid-loadfile
-    // is the same heap race as overlapping stop/open (Alt+F4 path).
-    // Awaited (not fire-and-forget): the quit path must not destroy
-    // the native window while the mpv dispose is still in flight.
+    final standby = _standbyPlayer;
+    _standbyPlayer = null;
+    if (standby != null) {
+      try {
+        await standby.stop();
+        await standby.dispose();
+      } catch (_) {}
+    }
     final player = _player;
     _player = null;
     if (player != null) {
@@ -468,6 +845,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     bool startShuffled = false,
     bool endlessRadio = false,
   }) async {
+    cancelCrossfade();
     await ensurePlayer();
     if (tracks.isEmpty) return;
     var index = startIndex.clamp(0, tracks.length - 1);
@@ -619,11 +997,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> pause() async {
+    cancelCrossfade();
     await _player?.pause();
     _schedulePersist();
   }
 
   Future<void> seek(Duration position) async {
+    cancelCrossfade();
     await _player?.seek(position);
     state = state.copyWith(position: position);
   }
@@ -633,6 +1013,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     state = state.copyWith(volume: v);
     if (!software || _lockSoftwareVolume) {
       await _player?.setVolume(100);
+      return;
+    }
+    if (_crossfading) {
+      _crossfadeTargetVolume = v;
       return;
     }
     await _player?.setVolume(v * 100);
@@ -656,6 +1040,18 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     _lockSoftwareVolume = lockSoftwareVolume;
+    _currentAudioDevice = mpvDevice;
+    if (exclusive) {
+      cancelCrossfade();
+      final standby = _standbyPlayer;
+      _standbyPlayer = null;
+      if (standby != null) {
+        try {
+          await standby.stop();
+          await standby.dispose();
+        } catch (_) {}
+      }
+    }
     final player = _player;
     if (player == null) {
       exclusiveApplied = false;
@@ -734,6 +1130,25 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     unawaited(_refreshAoFormat());
   }
 
+  /// Sets or clears audio filter (e.g. 10-band equalizer) in libmpv.
+  Future<void> setAudioFilter(String af) async {
+    _currentAudioFilter = af;
+    final player = _player;
+    if (player != null) {
+      try {
+        final dyn = player.platform as dynamic;
+        await dyn.setProperty('af', af);
+      } catch (_) {}
+    }
+    final sb = _standbyPlayer;
+    if (sb != null) {
+      try {
+        final dyn = sb.platform as dynamic;
+        await dyn.setProperty('af', af);
+      } catch (_) {}
+    }
+  }
+
   Future<void> _refreshAoFormat() async {
     final player = _player;
     if (player == null) return;
@@ -764,6 +1179,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> next() async {
+    cancelCrossfade();
     final nextIndex = _nextIndex();
     if (nextIndex == null) return;
     state = state.copyWith(
@@ -778,6 +1194,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> previous() async {
+    cancelCrossfade();
     if (state.position > const Duration(seconds: 5)) {
       await seek(Duration.zero);
       return;
@@ -800,6 +1217,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   Future<void> seekToQueueItem(int index) async {
     if (index < 0 || index >= state.queue.length) return;
+    cancelCrossfade();
     state = state.copyWith(
       currentIndex: index,
       current: state.queue[index],
@@ -812,6 +1230,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> toggleShuffle() async {
+    cancelCrossfade();
     final enabled = !state.shuffleEnabled;
     _rebuildShuffleOrder(state.queue.length, state.currentIndex);
     state = state.copyWith(shuffleEnabled: enabled);
@@ -819,6 +1238,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> cycleRepeat() async {
+    cancelCrossfade();
     final next = switch (state.repeatMode) {
       RepeatMode.off => RepeatMode.all,
       RepeatMode.all => RepeatMode.one,
@@ -876,6 +1296,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> stopAndClear() async {
+    cancelCrossfade();
     _flushScrobble(completed: false);
     _resolveGeneration++;
     _resolving = false;
@@ -885,6 +1306,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     try {
       await _serializedMpv(() async {
         await _player?.stop();
+        await _standbyPlayer?.stop();
       });
     } catch (_) {}
     _lastWasDash = false;
@@ -1385,6 +1807,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
                 wantedQueueKey)) {
       return;
     }
+    cancelCrossfade();
 
     // Upgrade track artwork if lossless stream supplied official studio artwork
     var effectiveTrack = track;
@@ -1627,6 +2050,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   void _onTrackCompleted() {
+    if (_crossfading) {
+      _completeCrossfade();
+      return;
+    }
+    cancelCrossfade();
     if (_resolving || state.error != null) return;
     _flushScrobble(completed: true);
     if (state.duration - state.position > const Duration(seconds: 10)) {
@@ -2169,6 +2597,9 @@ class PrefsHandle {
   bool get scrobblerEnabled => _prefs.scrobblerEnabled;
   bool get syncYtHistory => _prefs.syncYtHistory;
   bool get liveTelemetryEnabled => _prefs.liveTelemetryEnabled;
+  bool get crossfadeEnabled => _prefs.crossfadeEnabled;
+  int get crossfadeSeconds => _prefs.crossfadeSeconds;
+  bool get wasapiExclusive => _prefs.wasapiExclusive;
   Prefs get rawPrefs => _prefs;
 }
 

@@ -77,6 +77,7 @@ class WaveIcons {
   static const IconData miniPlayer = FluentIcons.mini_expand;
   static const IconData device = FluentIcons.speakers;
   static const IconData streamPath = FluentIcons.equalizer;
+  static const IconData equalizer = FluentIcons.equalizer;
 
   // Community — DO NOT use these generic fallbacks for UI.
   // Use TelegramIcon / DiscordIcon from brand_icons.dart (official marks).
