@@ -457,9 +457,8 @@ class _TrendCell extends ConsumerWidget {
         artworkUrl: track.artworkUrl,
         videoId: track.videoId,
       ),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
+      child: WavePressable(
+        pressedScale: 0.985,
         onTap: () => playGenerated(ref, context, track,
             sourceLabel: 'Trending',
             queueAll: queueAll,
@@ -510,7 +509,7 @@ class _TrendCell extends ConsumerWidget {
             ],
           ),
         ),
-      )),
+      ),
     );
   }
 }
@@ -876,51 +875,7 @@ class _NewReleasesExplorer extends StatelessWidget {
                       const SizedBox(width: 12),
                   itemBuilder: (context, i) {
                     final a = shown[i];
-                    return MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                      onTap: () {
-                        if (a.browseId.isNotEmpty) {
-                          context.go(
-                              '/album/${Uri.encodeComponent(a.browseId)}');
-                        }
-                      },
-                      child: SizedBox(
-                        width: 136,
-                        child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            WaveArtwork(
-                                url: a.artworkUrl,
-                                size: 136,
-                                radius: WaveRadius.artwork,
-                                title: a.name,
-                                artist: a.artist.isNotEmpty
-                                    ? a.artist
-                                    : a.subtitle,
-                                kind: ArtworkKind.album),
-                            const SizedBox(height: 6),
-                            Text(a.name,
-                                maxLines: 1,
-                                overflow:
-                                    TextOverflow.ellipsis,
-                                style: WaveType.trackTitle
-                                    .copyWith(
-                                        fontSize: 12.5)),
-                            Text(
-                                a.artist.isNotEmpty
-                                    ? a.artist
-                                    : a.subtitle,
-                                maxLines: 1,
-                                overflow:
-                                    TextOverflow.ellipsis,
-                                style: WaveType.meta.copyWith(
-                                    fontSize: 11.5)),
-                          ],
-                        ),
-                      ),
-                    ));
+                    return _ReleaseCard(album: a);
                   },
                 ),
               ),
@@ -1012,52 +967,10 @@ class _PopularShelves extends ConsumerWidget {
               separatorBuilder: (_, _) =>
                   const SizedBox(width: 12),
               itemBuilder: (context, i) {
-                final a = extraAlbums[i];
                 return WaveEntrance(
                   index: i,
                   rise: 10,
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                  onTap: () {
-                    if (a.browseId.isNotEmpty) {
-                      context.go(
-                          '/album/${Uri.encodeComponent(a.browseId)}');
-                    }
-                  },
-                  child: SizedBox(
-                    width: 136,
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        WaveArtwork(
-                            url: a.artworkUrl,
-                            size: 136,
-                            radius: WaveRadius.artwork,
-                            title: a.name,
-                            artist: a.artist.isNotEmpty
-                                ? a.artist
-                                : a.subtitle,
-                            kind: ArtworkKind.album),
-                        const SizedBox(height: 6),
-                        Text(a.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: WaveType.trackTitle
-                                .copyWith(fontSize: 12.5)),
-                        Text(
-                            a.artist.isNotEmpty
-                                ? a.artist
-                                : a.subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: WaveType.meta
-                                .copyWith(fontSize: 11.5)),
-                      ],
-                    ),
-                  ),
-                )),
+                  child: _ReleaseCard(album: extraAlbums[i]),
                 );
               },
             ),
@@ -1087,9 +1000,7 @@ class _PopularShelves extends ConsumerWidget {
                 return WaveEntrance(
                   index: i,
                   rise: 10,
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
+                  child: WavePressable(
                   onTap: () => playGenerated(ref, context, t,
                       sourceLabel: 'Popular right now'),
                   child: SizedBox(
@@ -1118,7 +1029,7 @@ class _PopularShelves extends ConsumerWidget {
                       ],
                     ),
                   ),
-                )),
+                ),
                 );
               },
             ),
@@ -1270,6 +1181,53 @@ class _ArtistRailCardState extends State<_ArtistRailCard> {
                   style: WaveType.trackTitle.copyWith(fontSize: 12.5)),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 136px album card shared by the New Releases and Popular Albums rails.
+///
+/// Press feedback comes from [WavePressable] (the cover and both text lines
+/// dip together), which is also what makes the anchored album-page transition
+/// read as one motion.
+class _ReleaseCard extends StatelessWidget {
+  final YouTubeMusicEntity album;
+  const _ReleaseCard({required this.album});
+
+  @override
+  Widget build(BuildContext context) {
+    final artist =
+        album.artist.isNotEmpty ? album.artist : album.subtitle;
+    return WavePressable(
+      onTap: () {
+        if (album.browseId.isNotEmpty) {
+          context.go('/album/${Uri.encodeComponent(album.browseId)}');
+        }
+      },
+      child: SizedBox(
+        width: 136,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            WaveArtwork(
+                url: album.artworkUrl,
+                size: 136,
+                radius: WaveRadius.artwork,
+                title: album.name,
+                artist: artist,
+                kind: ArtworkKind.album),
+            const SizedBox(height: 6),
+            Text(album.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WaveType.trackTitle.copyWith(fontSize: 12.5)),
+            Text(artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WaveType.meta.copyWith(fontSize: 11.5)),
+          ],
         ),
       ),
     );

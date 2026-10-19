@@ -222,6 +222,73 @@ class WaveLink extends StatelessWidget {
       );
 }
 
+/// Pointer feedback for a tappable surface that has no choreography of its
+/// own: the pointer cursor and the house press dip.
+///
+/// Discover's rails each hand-rolled this before; this is the shared version.
+/// It wraps whatever it is given, so a card keeps its own shape and a row dips
+/// by a smaller amount — pass [pressedScale].
+///
+/// The dip is what makes the pointer-anchored route transition read as one
+/// motion: the page grows out of a card that has already reacted under the
+/// finger. A surface with its own hover choreography (a morphing artist cover,
+/// a hero pill) should keep it rather than wrap here.
+class WavePressable extends StatefulWidget {
+  const WavePressable({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.pressedScale = 0.97,
+    this.cursor = SystemMouseCursors.click,
+    this.behavior = HitTestBehavior.opaque,
+  });
+
+  final Widget child;
+  final VoidCallback? onTap;
+
+  /// Scale held while the pointer is down (the house dip is 0.97; a list row
+  /// reads better at ~0.985 because it scales from its centre).
+  final double pressedScale;
+
+  final MouseCursor cursor;
+
+  /// Opaque by default (the [WaveMediaCard] convention) so the gaps inside a
+  /// card — between its cover and its title, say — still take the tap.
+  final HitTestBehavior behavior;
+
+  @override
+  State<WavePressable> createState() => _WavePressableState();
+}
+
+class _WavePressableState extends State<WavePressable> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final live = widget.onTap != null;
+    return MouseRegion(
+      cursor: live ? widget.cursor : MouseCursor.defer,
+      onExit: (_) {
+        // A pointer that left mid-press will never deliver the up event here.
+        if (_pressed) setState(() => _pressed = false);
+      },
+      child: GestureDetector(
+        behavior: widget.behavior,
+        onTapDown: live ? (_) => setState(() => _pressed = true) : null,
+        onTapUp: live ? (_) => setState(() => _pressed = false) : null,
+        onTapCancel: live ? () => setState(() => _pressed = false) : null,
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _pressed ? widget.pressedScale : 1.0,
+          duration: WaveMotion.fast,
+          curve: WaveMotion.standard,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
 /// The hero's primary action: accent pill, contrast glyph, pressed dip.
 ///
 /// Accent fill with a contrast glyph (`onAccentFor` — the accent can be
