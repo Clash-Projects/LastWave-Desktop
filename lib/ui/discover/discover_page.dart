@@ -15,6 +15,7 @@ import '../components/menus.dart';
 import '../components/shelf.dart';
 import '../components/select.dart';
 import '../components/states.dart';
+import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -1103,7 +1104,8 @@ class _ArtistRailCardState extends State<_ArtistRailCard> {
         onTapDown: (_) => setState(() => _pressed = true),
         onTapUp: (_) => setState(() => _pressed = false),
         onTapCancel: () => setState(() => _pressed = false),
-        onTap: () => context.go('/artist/${Uri.encodeComponent(a.name)}'),
+        onTap: () =>
+            waveOpen(context, '/artist/${Uri.encodeComponent(a.name)}'),
         child: SizedBox(
           width: _size,
           child: Column(
@@ -1203,7 +1205,14 @@ class _ReleaseCard extends StatelessWidget {
     return WavePressable(
       onTap: () {
         if (album.browseId.isNotEmpty) {
-          context.go('/album/${Uri.encodeComponent(album.browseId)}');
+          waveOpen(
+              context,
+              waveAlbumLocation(
+                browseId: album.browseId,
+                title: album.name,
+                artist: artist,
+                artworkUrl: album.artworkUrl,
+              ));
         }
       },
       child: SizedBox(

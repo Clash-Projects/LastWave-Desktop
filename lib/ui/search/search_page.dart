@@ -18,6 +18,7 @@ import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../components/desktop_table.dart';
 import '../components/states.dart';
+import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
@@ -816,11 +817,18 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
     switch (hero.tab) {
       case SearchTab.artists:
         if (hero.name.isNotEmpty) {
-          context.go('/artist/${Uri.encodeComponent(hero.name)}');
+          waveOpen(context, '/artist/${Uri.encodeComponent(hero.name)}');
         }
       case SearchTab.albums:
         if (hero.entityId.isNotEmpty) {
-          context.go('/album/${Uri.encodeComponent(hero.entityId)}');
+          waveOpen(
+              context,
+              waveAlbumLocation(
+                browseId: hero.entityId,
+                title: hero.name,
+                artist: hero.artist,
+                artworkUrl: hero.artworkUrl,
+              ));
         }
       case SearchTab.playlists:
         _openPlaylist(hero);
@@ -840,7 +848,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
       context.go('/playlists/$id');
       return;
     }
-    context.go('/ytplaylist/${item.entityId}'
+    waveOpen(context, '/ytplaylist/${item.entityId}'
         '?title=${Uri.encodeComponent(item.name)}'
         '&art=${Uri.encodeComponent(item.artworkUrl)}');
   }
@@ -993,8 +1001,16 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                     size: 124,
                     onTap: () {
                       if (a.entityId.isNotEmpty) {
-                        context.go(
-                            '/album/${Uri.encodeComponent(a.entityId)}');
+                        waveOpen(
+                            context,
+                            waveAlbumLocation(
+                              browseId: a.entityId,
+                              title: a.name,
+                              artist: a.artist.isNotEmpty
+                                  ? a.artist
+                                  : a.subtitle,
+                              artworkUrl: a.artworkUrl,
+                            ));
                       }
                     },
                   ),
@@ -1032,8 +1048,8 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                     child: MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
-                    onTap: () => context.go(
-                        '/artist/${Uri.encodeComponent(a.name)}'),
+                    onTap: () => waveOpen(
+                        context, '/artist/${Uri.encodeComponent(a.name)}'),
                     child: SizedBox(
                       width: 96,
                       child: Column(

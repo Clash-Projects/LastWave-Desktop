@@ -14,6 +14,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/menus.dart';
 import '../components/states.dart';
+import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -209,7 +210,14 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
           '/search?q=${Uri.encodeComponent('${a.artist} ${a.title}')}');
       return;
     }
-    context.go('/album/${Uri.encodeComponent(bid)}');
+    waveOpen(
+        context,
+        waveAlbumLocation(
+          browseId: bid,
+          title: a.title,
+          artist: a.artist,
+          artworkUrl: a.artwork,
+        ));
   }
 
   Future<void> _quickPlay() async {

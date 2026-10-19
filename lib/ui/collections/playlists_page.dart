@@ -16,6 +16,7 @@ import 'playlist_dialogs.dart'
         showWaveDeletePlaylist,
         showWaveImportPlaylist,
         showWaveRenamePlaylist;
+import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -239,7 +240,7 @@ class _YtCardState extends ConsumerState<_YtCard> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final p = widget.lists[widget.index];
-    void play() => context.go('/ytplaylist/${p.id}'
+    void play() => waveOpen(context, '/ytplaylist/${p.id}'
         '?title=${Uri.encodeComponent(p.title)}'
         '&art=${Uri.encodeComponent(p.artworkUrl)}');
     return MouseRegion(

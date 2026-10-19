@@ -1,7 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -15,6 +14,7 @@ import '../components/buttons.dart';
 import '../components/hero.dart';
 import '../components/menus.dart';
 import '../components/states.dart';
+import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
@@ -250,8 +250,8 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
         WaveMenuAction(
           leading: const Icon(FluentIcons.contact, size: 13),
           label: 'Go to artist',
-          onPressed: () => context.go(
-              '/artist/${Uri.encodeComponent(e.artist)}'),
+          onPressed: () => waveOpen(
+              context, '/artist/${Uri.encodeComponent(e.artist)}'),
         ),
         const WaveMenuSeparator(),
         WaveMenuAction(

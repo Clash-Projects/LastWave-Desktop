@@ -21,6 +21,7 @@ import '../lyrics/lyrics_side_panel.dart';
 import '../navigation/destinations.dart';
 import '../navigation/route_origin.dart';
 import '../navigation/side_rail.dart';
+import '../navigation/wave_nav.dart';
 import '../player_dock/player_dock.dart';
 import '../queue/queue_panel.dart';
 import '../theme/tokens.dart';
@@ -231,7 +232,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       // Now Playing — its in-page transport was removed so this dock is
       // the single control surface.
       _dockCache = WavePlayerDock(
-        onExpand: () => _go('/now'),
+        onExpand: _openNowPlaying,
         lyricsActive: lyricsActive,
         queueActive: queueActive,
         equalizerActive: equalizerActive,
@@ -563,7 +564,33 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     _applyRoute(path);
   }
 
+  /// Opens Now Playing *on top* of the current page, so the dock cover it grew
+  /// out of is still underneath when it closes back over it (see waveOpen).
+  void _openNowPlaying() {
+    // Already there (the dock is on every view, Now Playing included).
+    if (widget.location.startsWith('/now')) return;
+    if (_searchFocus.hasFocus) _searchFocus.unfocus();
+    _searchController.clear();
+    setState(() {
+      _miniOpen = false;
+      _queueOpen = false;
+      _lyricsOpen = false;
+    });
+    waveOpen(context, '/now');
+  }
+
   void _goBack() {
+    // A page that was opened on top of another (an album, an artist, a
+    // playlist, Now Playing) closes back over the surface it grew out of —
+    // the reverse of its entrance. Location history is only replayed once
+    // there is nothing left to pop. Mirror it into forward history so the
+    // pair stays symmetric.
+    if (context.canPop()) {
+      _forwardStack.add(widget.location);
+      _historyLocked = true;
+      context.pop();
+      return;
+    }
     while (_backStack.isNotEmpty) {
       final dest = _backStack.removeLast();
       if (dest == widget.location) continue;

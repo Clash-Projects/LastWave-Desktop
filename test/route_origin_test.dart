@@ -32,16 +32,30 @@ void main() {
     );
   });
 
-  test('alignment maps the press point into -1..1 and clamps', () {
+  test('alignment anchors on the pressed height, centred horizontally', () {
     WaveRouteOrigin.record(const Offset(400, 300));
     final centre = WaveRouteOrigin.consume()!.alignmentIn(const Size(800, 600));
     expect(centre.x, closeTo(0, 0.001));
     expect(centre.y, closeTo(0, 0.001));
 
     WaveRouteOrigin.record(const Offset(1200, 900));
-    final corner = WaveRouteOrigin.consume()!.alignmentIn(const Size(800, 600));
-    expect(corner.x, 1.0);
-    expect(corner.y, 1.0);
+    final bottom = WaveRouteOrigin.consume()!.alignmentIn(const Size(800, 600));
+    expect(
+      bottom.x,
+      0.0,
+      reason: 'a horizontal anchor translates the page sideways as it scales, '
+          'so the destination appeared to slide in from the side that was '
+          'pressed instead of growing out of it',
+    );
+    expect(bottom.y, 1.0);
+  });
+
+  test('alignment clamps a press from outside the frame', () {
+    WaveRouteOrigin.record(const Offset(-40, 5000));
+    expect(
+      WaveRouteOrigin.consume()!.alignmentIn(const Size(800, 600)),
+      const Alignment(0, 1.0),
+    );
   });
 
   test('a degenerate size falls back to centred', () {

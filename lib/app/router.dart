@@ -48,10 +48,12 @@ Page<void> _page(Widget child) {
 /// Pointer-anchored entrance for routes opened from a surface the user pressed
 /// (a card, a cover, the dock).
 ///
-/// The destination grows out of the recorded press point — a 0.94 → 1 scale
-/// anchored there, under the same crossfade — so a tap reads as the page
-/// expanding out of what was tapped instead of a hard cut. Reversing the
-/// route plays the same curve backwards, shrinking back toward the origin.
+/// The destination grows out of the recorded press point — a 0.96 → 1 scale
+/// anchored at the pressed *height* (see [WaveRouteOrigin.alignmentIn] for why
+/// it is not anchored horizontally), under the same crossfade — so a tap reads
+/// as the page expanding out of what was tapped instead of a hard cut.
+/// Reversing the route plays the same curve backwards, shrinking back toward
+/// the origin.
 ///
 /// Falls back to [_page] whenever no fresh origin exists (deep link, hotkey,
 /// command palette, session restore) and drops to a plain fade when the OS
@@ -73,7 +75,7 @@ Page<void> _anchoredPage(Widget child) {
       return FadeTransition(
         opacity: curved,
         child: ScaleTransition(
-          scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
+          scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
           alignment: origin.alignmentIn(MediaQuery.sizeOf(context)),
           child: child,
         ),
@@ -179,6 +181,13 @@ GoRouter buildRouter({required AuthGate gate}) {
                   WaveAlbumPage(
                     browseId: Uri.decodeComponent(
                         s.pathParameters['id'] ?? ''),
+                    // What the pressed card already knew. The selection
+                    // fills the header on the first frame (see
+                    // waveAlbumLocation), so the entrance animates the album
+                    // instead of a spinner while browseAlbum answers.
+                    fallbackTitle: s.uri.queryParameters['title'] ?? '',
+                    fallbackArtist: s.uri.queryParameters['artist'] ?? '',
+                    fallbackArt: s.uri.queryParameters['art'] ?? '',
                   ),
                 ),
               ),

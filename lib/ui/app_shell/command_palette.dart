@@ -10,6 +10,7 @@ import '../../app/track_actions.dart' show playGenerated;
 import '../../features/feed/feed_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
+import '../navigation/wave_nav.dart';
 import '../search/search_page.dart';
 import '../theme/tokens.dart';
 
@@ -203,8 +204,12 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
           art: a.artworkUrl,
           action: () {
             if (a.entityId.isNotEmpty) {
-              widget.onGo(
-                  '/album/${Uri.encodeComponent(a.entityId)}');
+              widget.onGo(waveAlbumLocation(
+                browseId: a.entityId,
+                title: a.name,
+                artist: a.artist,
+                artworkUrl: a.artworkUrl,
+              ));
             }
           },
         ));
@@ -274,8 +279,12 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
         widget.onGo('/artist/${Uri.encodeComponent(top.name)}');
       case SearchTab.albums:
         if (top.entityId.isNotEmpty) {
-          widget
-              .onGo('/album/${Uri.encodeComponent(top.entityId)}');
+          widget.onGo(waveAlbumLocation(
+            browseId: top.entityId,
+            title: top.name,
+            artist: top.artist,
+            artworkUrl: top.artworkUrl,
+          ));
         }
       case SearchTab.playlists:
         widget.onSearch(top.name);

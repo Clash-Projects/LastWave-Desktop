@@ -9,6 +9,7 @@ import '../features/feed/feed_repository.dart';
 import '../features/innertube/album_match.dart';
 import '../features/innertube/innertube_api.dart';
 import '../features/player/playback_service.dart';
+import '../ui/navigation/wave_nav.dart';
 
 /// Start the queue; the playback service resolves each track on demand.
 /// Limusic fast path: videoIds are preserved end-to-end so tracks with
@@ -128,18 +129,26 @@ Future<void> goToAlbumOfTrack(
         .read(innerTubeProvider)
         .searchAlbums('$artist $albumName', limit: 15)
         .timeout(const Duration(seconds: 8));
-    final browseId = pickBestAlbumMatch(
+    final match = pickBestAlbumMatch(
       results,
       title: albumName,
       artist: artist,
       minScore: minScore,
-    )?.browseId ?? '';
+    );
+    final browseId = match?.browseId ?? '';
     if (browseId.isEmpty) {
       fallback();
       return;
     }
     if (!context.mounted) return;
-    context.go('/album/${Uri.encodeComponent(browseId)}');
+    waveOpen(
+        context,
+        waveAlbumLocation(
+          browseId: browseId,
+          title: match?.name ?? albumName,
+          artist: match?.artist ?? artist,
+          artworkUrl: match?.artworkUrl ?? '',
+        ));
   } catch (_) {
     try {
       fallback();

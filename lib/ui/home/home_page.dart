@@ -21,6 +21,7 @@ import '../components/buttons.dart';
 import '../components/menus.dart';
 import '../components/shelf.dart';
 import '../components/states.dart';
+import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -714,19 +715,26 @@ class _YtShelfRow extends StatelessWidget {
     if (id.isEmpty) return;
     switch (e.kind) {
       case YouTubeEntityKind.artist:
-        context.go('/artist/${Uri.encodeComponent(e.name)}');
+        waveOpen(context, '/artist/${Uri.encodeComponent(e.name)}');
       case YouTubeEntityKind.album:
         // Albums are MPRE ids; anything else here is a misclassified
         // playlist id (recap-style cards) and belongs on the playlist
         // page instead of a dead Empty album.
         if (id.startsWith('MPRE')) {
-          context.go('/album/${Uri.encodeComponent(id)}');
+          waveOpen(
+              context,
+              waveAlbumLocation(
+                browseId: id,
+                title: e.name,
+                artist: e.artist.isNotEmpty ? e.artist : e.subtitle,
+                artworkUrl: e.artworkUrl,
+              ));
         } else {
-          context.go('/ytplaylist/${Uri.encodeComponent(id)}');
+          waveOpen(context, '/ytplaylist/${Uri.encodeComponent(id)}');
         }
       case YouTubeEntityKind.playlist:
       case YouTubeEntityKind.mix:
-        context.go('/ytplaylist/${Uri.encodeComponent(id)}');
+        waveOpen(context, '/ytplaylist/${Uri.encodeComponent(id)}');
     }
   }
 
@@ -2199,8 +2207,8 @@ class _ArtistTileState extends State<_ArtistTile> {
         onTapDown: (_) => setState(() => _pressed = true),
         onTapUp: (_) => setState(() => _pressed = false),
         onTapCancel: () => setState(() => _pressed = false),
-        onTap: () => context.go(
-            '/artist/${Uri.encodeComponent(widget.track.artist)}'),
+        onTap: () => waveOpen(
+            context, '/artist/${Uri.encodeComponent(widget.track.artist)}'),
         child: SizedBox(
           width: 120,
           child: Column(

@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../app/track_actions.dart'
     show formatDuration, playGenerated, playableFromGenerated;
@@ -17,6 +16,7 @@ import '../components/buttons.dart' show LWTooltip, WaveChip, WaveGhostButton, W
 import '../components/desktop_table.dart';
 import '../components/shelf.dart';
 import '../components/states.dart';
+import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -455,8 +455,14 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                             width: 136,
                             artSize: 136,
                             artist: d.name,
-                            onTap: () => context.go(
-                                '/album/${Uri.encodeComponent(a.browseId)}'),
+                            onTap: () => waveOpen(
+                                context,
+                                waveAlbumLocation(
+                                  browseId: a.browseId,
+                                  title: a.name,
+                                  artist: d.name,
+                                  artworkUrl: a.artworkUrl,
+                                )),
                           ),
                         );
                       },
@@ -485,8 +491,14 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                             artSize: 118,
                             titleSize: 12,
                             artist: d.name,
-                            onTap: () => context.go(
-                                '/album/${Uri.encodeComponent(a.browseId)}'),
+                            onTap: () => waveOpen(
+                                context,
+                                waveAlbumLocation(
+                                  browseId: a.browseId,
+                                  title: a.name,
+                                  artist: d.name,
+                                  artworkUrl: a.artworkUrl,
+                                )),
                           ),
                         );
                       },
@@ -514,7 +526,8 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                                         event.logicalKey ==
                                             LogicalKeyboardKey
                                                 .space)) {
-                                  context.go(
+                                  waveOpen(
+                                      context,
                                       '/artist/${Uri.encodeComponent(r)}');
                                   return KeyEventResult.handled;
                                 }
@@ -524,7 +537,8 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                                 cursor:
                                     SystemMouseCursors.click,
                                 child: GestureDetector(
-                                  onTap: () => context.go(
+                                  onTap: () => waveOpen(
+                                      context,
                                       '/artist/${Uri.encodeComponent(r)}'),
                                   child: WaveChip(label: r),
                                 ),

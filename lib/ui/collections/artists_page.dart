@@ -8,6 +8,7 @@ import '../../features/search/shared_providers.dart';
 import '../components/artwork.dart';
 import '../components/menus.dart';
 import '../components/states.dart';
+import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
@@ -176,8 +177,8 @@ class _ArtistCellState extends State<_ArtistCell> {
         WaveMenuAction(
           leading: const Icon(FluentIcons.contact, size: 13),
           label: 'Open artist',
-          onPressed: () => context.go(
-              '/artist/${Uri.encodeComponent(widget.name)}'),
+          onPressed: () => waveOpen(
+              context, '/artist/${Uri.encodeComponent(widget.name)}'),
         ),
         WaveMenuAction(
           leading: const Icon(FluentIcons.search, size: 13),
@@ -191,8 +192,8 @@ class _ArtistCellState extends State<_ArtistCell> {
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
-        onTap: () => context.go(
-            '/artist/${Uri.encodeComponent(widget.name)}'),
+        onTap: () => waveOpen(
+            context, '/artist/${Uri.encodeComponent(widget.name)}'),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 110),
           decoration: BoxDecoration(

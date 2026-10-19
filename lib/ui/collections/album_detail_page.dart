@@ -16,6 +16,7 @@ import '../components/buttons.dart';
 import '../components/command_bar.dart';
 import '../components/desktop_table.dart';
 import '../components/menus.dart';
+import '../components/skeletons.dart';
 import '../components/states.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -91,27 +92,60 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
   Widget build(BuildContext context) {
     final async = ref.watch(_albumDetailProvider(widget.browseId));
     return async.when(
-      loading: () =>
-          const WaveLoading(label: 'Loading album…'),
+      loading: () => _body(
+        title: widget.fallbackTitle,
+        artist: widget.fallbackArtist,
+        art: widget.fallbackArt,
+        tracks: null,
+      ),
       error: (e, _) => WaveError(
         title: 'Could not load album',
         message: '$e',
         onRetry: () =>
             ref.invalidate(_albumDetailProvider(widget.browseId)),
       ),
-      data: (d) {
-        final playingKey = ref.watch(
-          playbackServiceProvider.select((s) => s.current?.queueKey),
-        );
-        final order = List.of(d.tracks);
-        final title =
-            d.title.isNotEmpty ? d.title : widget.fallbackTitle;
-        final artist = d.artist.isNotEmpty
-            ? d.artist
-            : widget.fallbackArtist;
-        final art =
-            d.artwork.isNotEmpty ? d.artwork : widget.fallbackArt;
-        return WaveEntranceGroup(
+      data: (d) => _body(
+        title: d.title.isNotEmpty ? d.title : widget.fallbackTitle,
+        artist:
+            d.artist.isNotEmpty ? d.artist : widget.fallbackArtist,
+        art: d.artwork.isNotEmpty ? d.artwork : widget.fallbackArt,
+        tracks: d.tracks,
+      ),
+    );
+  }
+
+  /// Album layout: header over the track table, shared by the loading and the
+  /// loaded path. [tracks] null means `browseAlbum` has not answered yet — the
+  /// header is already real (cover/title/artist were routed in by
+  /// [waveAlbumLocation]) and skeleton rows stand in for the table, which then
+  /// fades in underneath. That is what the route entrance animates; with a
+  /// spinner here it played over nothing and the album looked like it never
+  /// faded in, just arrived late.
+  Widget _body({
+    required String title,
+    required String artist,
+    required String art,
+    required List<GeneratedTrack>? tracks,
+  }) {
+    final loading = tracks == null;
+    final order = tracks ?? const <GeneratedTrack>[];
+    final albumTitle = title.isNotEmpty ? title : 'Album';
+    final playingKey = ref.watch(
+      playbackServiceProvider.select((s) => s.current?.queueKey),
+    );
+    // A seedless load (command palette, deep link) has no cover to show:
+    // stand a skeleton tile in rather than an empty artwork frame.
+    Widget artTile(double size) => (loading && art.isEmpty)
+        ? SkeletonBox(width: size, height: size)
+        : WaveArtwork(
+            url: art,
+            size: size,
+            radius: WaveRadius.artwork,
+            title: albumTitle,
+            artist: artist,
+            label: albumTitle,
+            kind: ArtworkKind.album);
+    return WaveEntranceGroup(
           child: ListView(
           padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
           children: [
@@ -135,7 +169,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                                 color: waveTextTertiary(
                                     context))),
                         const SizedBox(height: 6),
-                        Text(title,
+                        Text(albumTitle,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: WaveType.pageTitle
@@ -143,8 +177,8 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                         const SizedBox(height: 4),
                         WaveLink(
                           onPressed: () => context.go(
-                              '/search?q=${Uri.encodeComponent(d.artist)}'),
-                          child: Text(d.artist,
+                              '/search?q=${Uri.encodeComponent(artist)}'),
+                          child: Text(artist,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: WaveType.body.copyWith(
@@ -155,32 +189,42 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Flexible(
-                              child: Text(
-                                  '${d.tracks.length} tracks',
-                                  maxLines: 1,
-                                  overflow:
-                                      TextOverflow.ellipsis,
-                                  style: WaveType.meta.copyWith(
-                                      color: waveTextTertiary(
-                                          context))),
-                            ),
+                            if (loading)
+                              const SkeletonBox(
+                                  width: 84, height: 10)
+                            else
+                              Flexible(
+                                child: Text(
+                                    '${order.length} tracks',
+                                    maxLines: 1,
+                                    overflow:
+                                        TextOverflow.ellipsis,
+                                    style: WaveType.meta.copyWith(
+                                        color: waveTextTertiary(
+                                            context))),
+                              ),
                             const SizedBox(width: 8),
-                            if (order.isNotEmpty)
+                            if (!loading && order.isNotEmpty)
                               _AlbumQualityChip(
                                 title: order.first.name,
-                                artist: d.artist,
-                                album: title,
+                                artist: artist,
+                                album: albumTitle,
                               ),
                           ],
                         ),
                         const SizedBox(height: 14),
+                        if (loading)
+                          // Placeholder for the transport row: WaveCommandBar
+                          // drops a button whose callback is null, so without
+                          // this the header would jump when the browse lands.
+                          const SizedBox(height: 32)
+                        else
                         WaveCommandBar(
                               onPlay: order.isEmpty
                                   ? null
                                   : () => playGenerated(
                                       ref, context, order.first,
-                                      sourceLabel: title,
+                                      sourceLabel: albumTitle,
                                       queueAll: order),
                               onShuffle: order.isEmpty
                                   ? null
@@ -189,7 +233,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                                         ..shuffle();
                                       playGenerated(ref, context,
                                           s.first,
-                                          sourceLabel: title,
+                                          sourceLabel: albumTitle,
                                           queueAll: s);
                                     },
                               onDownload: order.isEmpty
@@ -224,14 +268,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                         crossAxisAlignment:
                             CrossAxisAlignment.start,
                         children: [
-                          WaveArtwork(
-                              url: art,
-                              size: 180,
-                              radius: WaveRadius.artwork,
-                              title: title,
-                              artist: artist,
-                              label: title,
-                              kind: ArtworkKind.album),
+                          artTile(180),
                           const SizedBox(height: 16),
                           header,
                         ],
@@ -240,14 +277,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        WaveArtwork(
-                            url: art,
-                            size: 200,
-                            radius: WaveRadius.artwork,
-                            title: title,
-                            artist: artist,
-                            label: title,
-                            kind: ArtworkKind.album),
+                        artTile(200),
                         const SizedBox(width: 22),
                         Expanded(child: header),
                       ],
@@ -255,46 +285,76 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                     }),
                   ),
                   const SizedBox(height: 20),
-                  WaveDesktopTable<GeneratedTrack>(
-                    items: order,
-                    keyOf: (t) => t.key,
-                    titleOf: (t) => t.name,
-                    subtitleOf: (t) => t.artist,
-                    albumOf: (_) => title,
-                    artworkOf: (_) => art,
-                    artworkKind: ArtworkKind.album,
-                    artworkTitleOf: (_) => title,
-                    artworkArtistOf: (_) => artist,
-                    playableOf: playableFromGenerated,
-                    durationOf: (t) => t.durationSeconds > 0
-                        ? formatDuration(
-                            Duration(seconds: t.durationSeconds))
-                        : '',
-                    titleSortOf: (t) => t.name.toLowerCase(),
-                    artistSortOf: (t) => t.artist.toLowerCase(),
-                    durationSortOf: (t) => t.durationSeconds,
-                    isCurrent: (t) => playingKey == t.key,
-                    isPlaying: (t) {
-                      final s = ref.watch(
-                        playbackServiceProvider.select(
-                            (p) => p.isPlaying),
-                      );
-                      return playingKey == t.key && s;
-                    },
-                    showArtistColumn: true,
-                    shrinkWrap: true,
-                    onPlay: (i) => playGenerated(
-                        ref, context, order[i],
-                        sourceLabel: title,
-                        queueAll: order,
-                        startIndex: i),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    '${order.length} tracks',
-                    style: WaveType.meta.copyWith(
-                        color:
-                            waveTextTertiary(context)),
+                  // The browse answers well after the route entrance has
+                  // finished (that is the whole reason the header is seeded),
+                  // so the swap is what has to soften: the table fades in where
+                  // the skeleton stood instead of popping in after the motion.
+                  // Deliberately not a crossfade — the outgoing skeleton and
+                  // the incoming table would have to overlap, and the Stack
+                  // that needs would drop the table's full width.
+                  TweenAnimationBuilder<double>(
+                    key: ValueKey(
+                        loading ? 'album-loading' : 'album-tracks'),
+                    tween: Tween(begin: 0, end: 1),
+                    duration: WaveMotion.normal,
+                    curve: WaveMotion.standard,
+                    builder: (context, t, child) =>
+                        Opacity(opacity: t, child: child),
+                    child: loading
+                        ? const SkeletonRow(count: 8)
+                        : Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              WaveDesktopTable<GeneratedTrack>(
+                                items: order,
+                                keyOf: (t) => t.key,
+                                titleOf: (t) => t.name,
+                                subtitleOf: (t) => t.artist,
+                                albumOf: (_) => albumTitle,
+                                artworkOf: (_) => art,
+                                artworkKind: ArtworkKind.album,
+                                artworkTitleOf: (_) => albumTitle,
+                                artworkArtistOf: (_) => artist,
+                                playableOf: playableFromGenerated,
+                                durationOf: (t) =>
+                                    t.durationSeconds > 0
+                                        ? formatDuration(Duration(
+                                            seconds:
+                                                t.durationSeconds))
+                                        : '',
+                                titleSortOf: (t) =>
+                                    t.name.toLowerCase(),
+                                artistSortOf: (t) =>
+                                    t.artist.toLowerCase(),
+                                durationSortOf: (t) =>
+                                    t.durationSeconds,
+                                isCurrent: (t) =>
+                                    playingKey == t.key,
+                                isPlaying: (t) {
+                                  final s = ref.watch(
+                                    playbackServiceProvider.select(
+                                        (p) => p.isPlaying),
+                                  );
+                                  return playingKey == t.key && s;
+                                },
+                                showArtistColumn: true,
+                                shrinkWrap: true,
+                                onPlay: (i) => playGenerated(
+                                    ref, context, order[i],
+                                    sourceLabel: albumTitle,
+                                    queueAll: order,
+                                    startIndex: i),
+                              ),
+                              const SizedBox(height: 18),
+                              Text(
+                                '${order.length} tracks',
+                                style: WaveType.meta.copyWith(
+                                    color:
+                                        waveTextTertiary(context)),
+                              ),
+                            ],
+                          ),
                   ),
                 ],
               ),
@@ -302,8 +362,6 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
           ],
           ),
         );
-      },
-    );
   }
 }
 

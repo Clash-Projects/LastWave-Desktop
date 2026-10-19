@@ -10,6 +10,7 @@ import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, WaveButton, WaveFilledButton, WaveLink;
 import '../components/menus.dart';
+import '../navigation/wave_nav.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 
@@ -388,8 +389,8 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
       WaveMenuAction(
         leading: const Icon(WaveIcons.artists, size: 15),
         label: 'Go to artist',
-        onPressed: () => context.go(
-            '/artist/${Uri.encodeComponent(t.artist)}'),
+        onPressed: () => waveOpen(
+            context, '/artist/${Uri.encodeComponent(t.artist)}'),
       ),
       const WaveMenuSeparator(),
       WaveMenuAction(

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/track_actions.dart';
 import '../../core/audio/stream_models.dart';
@@ -13,6 +12,7 @@ import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/shared_providers.dart';
 import '../app_shell/wave_hotkeys.dart';
+import '../navigation/wave_nav.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip, WaveButton, WaveFilledButton;
 
@@ -204,8 +204,8 @@ List<WaveMenuEntry> waveTrackMenuItems({
     WaveMenuAction(
       leading: const Icon(FluentIcons.microphone, size: 15),
       label: 'Go to artist',
-      onPressed: () => ref.context
-          .go('/artist/${Uri.encodeComponent(artist)}'),
+      onPressed: () => waveOpen(
+          ref.context, '/artist/${Uri.encodeComponent(artist)}'),
     ),
   );
   items.add(const WaveMenuSeparator());
