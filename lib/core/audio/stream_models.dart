@@ -116,6 +116,18 @@ class PlayableTrack {
         playbackUrl: playbackUrl ?? this.playbackUrl,
         playbackMimeType: playbackMimeType ?? this.playbackMimeType,
       );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlayableTrack &&
+          runtimeType == other.runtimeType &&
+          queueKey == other.queueKey &&
+          videoId == other.videoId &&
+          album == other.album;
+
+  @override
+  int get hashCode => Object.hash(queueKey, videoId, album);
 }
 
 /// A resolved playable stream (lossless or YouTube).

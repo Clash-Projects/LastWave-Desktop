@@ -1745,11 +1745,12 @@ class _Sources extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (AppEnv.addonClientSecret.isEmpty)
+          if (AppEnv.addonClientSecret.isEmpty &&
+              urls.any((u) => AddonApi.tokenOfRoot(u).isNotEmpty))
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
               child: Text(
-                'This build has no addon app key — addon calls will fail. '
+                'This build has no addon app key — official addons may fail. '
                 'Rebuild with ADDON_CLIENT_SECRET set.',
                 style: TextStyle(fontSize: 12),
               ),
@@ -1797,7 +1798,7 @@ class _Sources extends ConsumerWidget {
         title: const Text('Add addon'),
         content: TextBox(
           controller: controller,
-          placeholder: 'https://…/a/<token>/',
+          placeholder: 'https://…/a/<token>/ or https://…',
           maxLines: 2,
         ),
         actions: [
@@ -1823,7 +1824,7 @@ class _Sources extends ConsumerWidget {
           builder: (dialogContext) => ContentDialog(
             title: const Text('Not an addon URL'),
             content: const Text(
-              'Expected something like https://host/a/<token>/.',
+              'Expected something like https://host/a/<token>/ or https://host/.',
             ),
             actions: [
               FilledButton(
@@ -1939,7 +1940,7 @@ class _About extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('LastWave Desktop · v1.2.0', style: WaveType.trackTitle),
+          Text('LastWave Desktop · v1.3.0', style: WaveType.trackTitle),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
