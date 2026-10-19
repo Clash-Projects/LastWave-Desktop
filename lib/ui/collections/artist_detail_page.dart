@@ -11,6 +11,7 @@ import '../../../features/lastfm/auth_repository.dart'
 import '../../../features/player/playback_service.dart';
 import '../../../features/search/shared_providers.dart'
     show prefsApiKeyProvider;
+import '../components/ambient.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, WaveChip, WaveGhostButton, WaveLink, WavePrimaryButton;
 import '../components/desktop_table.dart';
@@ -329,8 +330,11 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   WaveEntrance(
+                    index: 0,
                     rise: 10,
-                    child: LayoutBuilder(builder: (context, c) {
+                    child: WaveAmbientBand(
+                      artworkUrl: d.artwork,
+                      child: LayoutBuilder(builder: (context, c) {
                     final meta = Column(
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
@@ -422,7 +426,8 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                       ],
                     );
                     }),
-                  ),
+                      ),
+                    ),
                   // Skeleton track list while the artist loads; the real
                   // sections below are data-guarded, so they simply take over.
                   if (loading) ...[
@@ -431,7 +436,10 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                   ],
                   if (d.popular.isNotEmpty) ...[
                     const SizedBox(height: 26),
-                    Row(
+                    WaveEntrance(
+                      index: 1,
+                      rise: 8,
+                      child: Row(
                       children: [
                         Text('Popular',
                             style: WaveType.sectionTitle),
@@ -448,9 +456,13 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                                 style: WaveType.label),
                           ),
                       ],
+                      ),
                     ),
                     const SizedBox(height: 6),
-                    WaveDesktopTable<GeneratedTrack>(
+                    WaveEntrance(
+                      index: 2,
+                      rise: 10,
+                      child: WaveDesktopTable<GeneratedTrack>(
                       items: visiblePopular,
                       keyOf: (t) => t.key,
                       titleOf: (t) => t.name,
@@ -485,11 +497,16 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                           startIndex: d.popular
                               .indexOf(visiblePopular[i])),
                     ),
+                    ),
                   ],
                   if (d.albums.isNotEmpty) ...[
                     const SizedBox(height: 26),
-                    Text('Albums',
-                        style: WaveType.sectionTitle),
+                    WaveEntrance(
+                      index: 3,
+                      rise: 8,
+                      child: Text('Albums',
+                          style: WaveType.sectionTitle),
+                    ),
                     const SizedBox(height: 10),
                     WaveRail(
                       height: 196,
@@ -523,8 +540,12 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                   ],
                   if (d.singles.isNotEmpty) ...[
                     const SizedBox(height: 22),
-                    Text('Singles & EPs',
-                        style: WaveType.sectionTitle),
+                    WaveEntrance(
+                      index: 4,
+                      rise: 8,
+                      child: Text('Singles & EPs',
+                          style: WaveType.sectionTitle),
+                    ),
                     const SizedBox(height: 10),
                     WaveRail(
                       height: 168,
@@ -559,8 +580,12 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                   ],
                   if (d.related.isNotEmpty) ...[
                     const SizedBox(height: 22),
-                    Text('Related artists',
-                        style: WaveType.sectionTitle),
+                    WaveEntrance(
+                      index: 5,
+                      rise: 8,
+                      child: Text('Related artists',
+                          style: WaveType.sectionTitle),
+                    ),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,

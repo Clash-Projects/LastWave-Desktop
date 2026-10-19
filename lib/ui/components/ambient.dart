@@ -1098,6 +1098,41 @@ class _AmbientMeshPainter extends CustomPainter {
   }
 }
 
+/// Artwork-tinted band behind an editorial header ([child] keeps its own
+/// layout and paints on top).
+///
+/// Deliberately the palette-seeded [AmbientWash], not the mesh: a header
+/// band has to be there whatever the haze/visualizer settings say
+/// ([WaveAmbientMesh] renders nothing when they are off), it skips the
+/// artwork decode entirely, and its alpha fades to zero so title and meta
+/// keep their contrast on any cover without a scrim.
+class WaveAmbientBand extends StatelessWidget {
+  final String artworkUrl;
+  final Widget child;
+  const WaveAmbientBand({
+    super.key,
+    required this.artworkUrl,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (artworkUrl.isEmpty) return child;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: AmbientWash(
+            artworkUrl: artworkUrl,
+            dynamicMesh: false,
+            height: 320,
+          ),
+        ),
+        child,
+      ],
+    );
+  }
+}
+
 /// Artwork-derived ambient wash for editorial headers and containers.
 class AmbientWash extends StatelessWidget {
   final String artworkUrl;

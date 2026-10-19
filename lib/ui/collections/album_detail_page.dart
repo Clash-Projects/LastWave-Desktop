@@ -11,6 +11,7 @@ import '../../../features/downloads/download_manager.dart';
 import '../../../features/feed/feed_repository.dart';
 import '../../../features/innertube/innertube_api.dart';
 import '../../../features/player/playback_service.dart';
+import '../components/ambient.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/command_bar.dart';
@@ -156,8 +157,11 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   WaveEntrance(
+                    index: 0,
                     rise: 10,
-                    child: LayoutBuilder(builder: (context, c) {
+                    child: WaveAmbientBand(
+                      artworkUrl: art,
+                      child: LayoutBuilder(builder: (context, c) {
                     final narrow = c.maxWidth < 640;
                     final header = Column(
                       crossAxisAlignment:
@@ -282,7 +286,8 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                         Expanded(child: header),
                       ],
                     );
-                    }),
+                      }),
+                    ),
                   ),
                   const SizedBox(height: 20),
                   // The browse answers well after the route entrance has
@@ -292,7 +297,10 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                   // Deliberately not a crossfade — the outgoing skeleton and
                   // the incoming table would have to overlap, and the Stack
                   // that needs would drop the table's full width.
-                  TweenAnimationBuilder<double>(
+                  WaveEntrance(
+                    index: 1,
+                    rise: 10,
+                    child: TweenAnimationBuilder<double>(
                     key: ValueKey(
                         loading ? 'album-loading' : 'album-tracks'),
                     tween: Tween(begin: 0, end: 1),
@@ -355,6 +363,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                               ),
                             ],
                           ),
+                    ),
                   ),
                 ],
               ),

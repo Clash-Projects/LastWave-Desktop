@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
+import 'ambient.dart';
 import 'artwork.dart';
 import 'buttons.dart' show LWTooltip, WaveButton;
 import 'menus.dart';
@@ -106,8 +107,12 @@ class WaveCollectionHero extends StatelessWidget {
         );
 
     // Content-aware (rail-aware) stacking: LayoutBuilder sees the real
-    // content width, unlike MediaQuery window width (+200 rail error).
-    return LayoutBuilder(
+    // content width, unlike MediaQuery window width (+200 rail error). The
+    // artwork-tinted band behind it (no blur) is what stops the hero reading
+    // as a flat banner — layout is untouched, it paints underneath.
+    return WaveAmbientBand(
+      artworkUrl: artworkUrl,
+      child: LayoutBuilder(
       builder: (context, constraints) {
         final narrow = constraints.maxWidth < 720;
         if (narrow) {
@@ -129,6 +134,7 @@ class WaveCollectionHero extends StatelessWidget {
           ],
         );
       },
+      ),
     );
   }
 }
