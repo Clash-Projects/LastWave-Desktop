@@ -205,6 +205,35 @@ jobs:
           if [ -d "$HERE/usr/lib/gio/modules" ]; then
             export GIO_MODULE_DIR="$HERE/usr/lib/gio/modules"
           fi
+
+          # Handle legacy OpenGL (< 3.0 / missing glBlitFramebuffer) or explicit flags
+          USE_SOFTWARE=0
+          for arg in "$@"; do
+            case "$arg" in
+              --no-enable-impeller|--disable-impeller|--enable-software-rendering|--software)
+                USE_SOFTWARE=1
+                ;;
+            esac
+          done
+
+          if [ "$LASTWAVE_DISABLE_IMPELLER" = "1" ] || [ "$LASTWAVE_FORCE_SOFTWARE" = "1" ]; then
+            USE_SOFTWARE=1
+          fi
+
+          if [ "$USE_SOFTWARE" = "0" ] && command -v glxinfo >/dev/null 2>&1; then
+            GL_VER="$(glxinfo 2>/dev/null | grep -i "OpenGL version string:" | head -n1 | sed -E 's/.*OpenGL version string: ([0-9]+\.[0-9]+).*/\1/')"
+            if [ -n "$GL_VER" ]; then
+              MAJOR="$(echo "$GL_VER" | cut -d. -f1)"
+              if [ "$MAJOR" -lt 3 ] 2>/dev/null; then
+                USE_SOFTWARE=1
+              fi
+            fi
+          fi
+
+          if [ "$USE_SOFTWARE" = "1" ]; then
+            export LIBGL_ALWAYS_SOFTWARE=1
+          fi
+
           exec "$HERE/AppRun.real" "$@"
           EOF
           chmod +x AppDir/AppRun

@@ -464,7 +464,7 @@ void main() {
       );
     });
 
-    test('complete unsynced Apple lyrics beat a shorter timed cut', () {
+    test('timed lyrics beat longer unsynced text (static must lose)', () {
       final complete = LyricsResult(
         lines: [
           LyricLine(timeMs: 0, text: 'full chorus ${'na ' * 80}'),
@@ -482,11 +482,11 @@ void main() {
       );
       expect(lyricsBodyLength(complete), greaterThan(lyricsBodyLength(truncated)));
       expect(
-        LyricsRepository.isBetterCandidate(complete, truncated),
+        LyricsRepository.isBetterCandidate(truncated, complete),
         isTrue,
       );
       expect(
-        LyricsRepository.isBetterCandidate(truncated, complete),
+        LyricsRepository.isBetterCandidate(complete, truncated),
         isFalse,
       );
     });

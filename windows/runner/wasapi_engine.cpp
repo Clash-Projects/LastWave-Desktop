@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #pragma comment(lib, "ole32.lib")
@@ -159,7 +160,20 @@ bool ExclusiveSupports(IAudioClient* client, WAVEFORMATEX* format) {
   return hr == S_OK;
 }
 
+static std::mutex g_probe_cache_mu;
+static std::unordered_map<std::string, std::pair<bool, std::vector<PcmFormat>>> g_probe_cache;
+
 void ProbeFormats(IMMDevice* device, DeviceInfo* info) {
+  {
+    std::lock_guard<std::mutex> lock(g_probe_cache_mu);
+    const auto it = g_probe_cache.find(info->id);
+    if (it != g_probe_cache.end()) {
+      info->exclusive_supported = it->second.first;
+      info->formats = it->second.second;
+      return;
+    }
+  }
+
   IAudioClient* client = nullptr;
   HRESULT hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                                 reinterpret_cast<void**>(&client));
@@ -210,6 +224,10 @@ void ProbeFormats(IMMDevice* device, DeviceInfo* info) {
     }
   }
   client->Release();
+  {
+    std::lock_guard<std::mutex> lock(g_probe_cache_mu);
+    g_probe_cache[info->id] = {any, found};
+  }
   info->exclusive_supported = any;
   info->formats = std::move(found);
 }
@@ -274,7 +292,8 @@ class NotificationClient final : public IMMNotificationClient {
   }
   HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR id,
                                                    const PROPERTYKEY) override {
-    Notify("property", id);
+    // Ignore internal property notifications (volume, format, meter changes)
+    // during playback to prevent expensive device re-enumeration freezes.
     return S_OK;
   }
 

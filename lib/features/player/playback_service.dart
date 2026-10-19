@@ -583,7 +583,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   // -- transport ---------------------------------------------------------------
 
+  DateTime _lastToggleTime = DateTime.fromMillisecondsSinceEpoch(0);
+
   Future<void> toggle() async {
+    final now = DateTime.now();
+    if (now.difference(_lastToggleTime).inMilliseconds < 150) return;
+    _lastToggleTime = now;
     await ensurePlayer();
     if (state.error != null) {
       await retry();
@@ -602,7 +607,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       }
       return;
     }
-    await _player?.playOrPause();
+    try {
+      await _player?.playOrPause();
+    } catch (_) {}
   }
 
   Future<void> playResume() async {
@@ -615,11 +622,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       }
       return;
     }
-    await _player?.play();
+    try {
+      await _player?.play();
+    } catch (_) {}
   }
 
   Future<void> pause() async {
-    await _player?.pause();
+    try {
+      await _player?.pause();
+    } catch (_) {}
     _schedulePersist();
   }
 
@@ -739,7 +750,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (player == null) return;
     try {
       final dyn = player.platform as dynamic;
-      final raw = await dyn.getProperty('audio-out-params') as String? ?? '';
+      final raw = await (dyn.getProperty('audio-out-params') as Future)
+              .timeout(const Duration(seconds: 1), onTimeout: () => '')
+          as String? ??
+          '';
       if (raw.isEmpty) return;
       if (mpvFormatIsFloat(RegExp(r'format=([^\s,}]+)').firstMatch(raw)?.group(1))) {
         final rateMatch = RegExp(r'samplerate=(\d+)').firstMatch(raw);

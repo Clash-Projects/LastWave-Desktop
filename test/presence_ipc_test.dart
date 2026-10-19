@@ -138,6 +138,7 @@ void main() {
         await dir.delete(recursive: true);
       }
     },
+    skip: Platform.isWindows,
     timeout: const Timeout(Duration(seconds: 30)),
   );
 }

@@ -522,9 +522,25 @@ class InnerTubeMusicApi {
   };
 
   static const List<PlayerClient> playerClients = [
-    // Limusic fast order: direct-URL clients first (no cipher/poToken),
-    // ciphered web clients last. The resolver tries VISIONOS alone
-    // first, then at most 2 more fallbacks — never the full table.
+    // Direct-URL clients first (no cipher/poToken botguard blockage).
+    PlayerClient(
+      'ANDROID',
+      '21.26.364',
+      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+      osName: 'Android',
+      osVersion: '11',
+    ),
+    PlayerClient(
+      'IOS',
+      '21.26.4',
+      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
+      'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2;)',
+      osName: 'iPhone',
+      osVersion: '18.3.2.22D82',
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+    ),
     PlayerClient(
       'VISIONOS',
       '0.1',
@@ -586,24 +602,6 @@ class InnerTubeMusicApi {
       '2.0',
       'AIzaSyAO_FJ2SlqAz8GlBg1fA54p0wDE7Xk80mU',
       'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/4.0 Chrome/76.0.3809.146 TV Safari/537.36',
-    ),
-    PlayerClient(
-      'IOS',
-      '21.26.4',
-      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
-      'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2;)',
-      osName: 'iPhone',
-      osVersion: '18.3.2.22D82',
-      deviceMake: 'Apple',
-      deviceModel: 'iPhone16,2',
-    ),
-    PlayerClient(
-      'ANDROID',
-      '21.26.364',
-      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
-      osName: 'Android',
-      osVersion: '11',
     ),
     PlayerClient(
       'ANDROID_CREATOR',
@@ -697,7 +695,7 @@ class InnerTubeMusicApi {
   static const int _unknownExpiryTtlMs = 5 * 60 * 1000;
   // Limusic fast path: one preferred direct-URL client first,
   // then at most 2 limited fallbacks. Never fan out to the full table.
-  static const String _fastPreferredClient = 'VISIONOS';
+  static const String _fastPreferredClient = 'ANDROID';
   static const int _maxStreamClients = 3;
   static const Duration _fastClientTimeout = Duration(seconds: 8);
 
@@ -4269,14 +4267,11 @@ static String normalize(String s) {
       if (url == null || url.isEmpty) continue;
       url = appendPot(url, gvsPoToken);
       final mime = format['mimeType']?.toString() ?? '';
-      if (!mime.toLowerCase().startsWith('audio/')) continue;
       final codec = _extractCodec(mime);
+      final mimeBase = mime.split(';').first.trim();
+      if (!_isCompatibleAudio(mimeBase, codec)) continue;
       final bitrate =
           (format['bitrate'] as num?)?.toInt() ?? 0;
-      if (!_isCompatibleAudio(
-          mime.split(';').first, codec)) {
-        continue;
-      }
       final urlExpiry = _urlExpiryMs(url);
       DateTime? expiresAt;
       final options = [
@@ -4298,10 +4293,13 @@ static String normalize(String s) {
                   ? 'AAC'
                   : 'AUDIO');
       final itag = (format['itag'] as num?)?.toInt() ?? -1;
+      final cleanMime = mimeBase.startsWith('video/')
+          ? 'audio/${mimeBase.substring(6)}'
+          : mimeBase;
       candidates.add(_Candidate(
         stream: ResolvedStream(
           url: url,
-          mimeType: mime.split(';').first,
+          mimeType: cleanMime,
           bitrateKbps: (bitrate / 1000).round(),
           audioCodec: codecLabel,
           cacheKey:
@@ -4399,15 +4397,20 @@ static String normalize(String s) {
             }();
             if (url == null) continue;
             final mime = f['mimeType']?.toString() ?? '';
-            if (!mime.toLowerCase().startsWith('audio/')) {
+            final codec = _extractCodec(mime);
+            final mimeBase = mime.split(';').first.trim();
+            if (!_isCompatibleAudio(mimeBase, codec)) {
               continue;
             }
             final bitrate =
                 (f['bitrate'] as num?)?.toInt() ?? 0;
+            final cleanMime = mimeBase.startsWith('video/')
+                ? 'audio/${mimeBase.substring(6)}'
+                : mimeBase;
             collected.add(_Candidate(
               stream: ResolvedStream(
                 url: url,
-                mimeType: mime.split(';').first,
+                mimeType: cleanMime,
                 bitrateKbps: (bitrate / 1000).round(),
                 audioCodec: 'AUDIO',
                 cacheKey: 'yt-dl:$videoId:${f['itag']}',
@@ -4774,6 +4777,9 @@ static String normalize(String s) {
     if (m == 'audio/mp4' || m == 'audio/m4a') {
       return c.isEmpty || c.contains('mp4a') || c.contains('aac');
     }
+    if (m == 'video/mp4') {
+      return c.contains('mp4a') || c.contains('aac');
+    }
     if (m == 'audio/ogg') {
       return c.isEmpty || c.contains('opus') || c.contains('vorbis');
     }
@@ -4784,8 +4790,18 @@ static String normalize(String s) {
   static String? _extractCodec(String mime) {
     final m = _codecPattern.firstMatch(mime)?.group(1);
     if (m == null) return null;
-    final first = m.split(',').first.trim();
-    return first.isEmpty ? null : first;
+    final parts =
+        m.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty);
+    for (final p in parts) {
+      final lp = p.toLowerCase();
+      if (lp.contains('mp4a') ||
+          lp.contains('aac') ||
+          lp.contains('opus') ||
+          lp.contains('vorbis')) {
+        return p;
+      }
+    }
+    return parts.isEmpty ? null : parts.first;
   }
 
   static int? _urlExpiryMs(String url) {

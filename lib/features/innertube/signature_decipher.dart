@@ -97,11 +97,10 @@ class SignatureDecipher {
           ),
         ).timeout(const Duration(seconds: 15));
         final html = res.data ?? '';
-        jsUrl = RegExp(
-                r'"jsUrl":"(/s/player/[A-Za-z0-9]+/player_ias\.vflset/[A-Za-z_-]+/base\.js)"')
-            .firstMatch(html)
-            ?.group(1);
-        jsUrl ??= RegExp(r'"jsUrl"\s*:\s*"([^"]+)"')
+        final match =
+            RegExp(r'(/s/player/[A-Za-z0-9_./-]+/base\.js)').firstMatch(html);
+        jsUrl = match?.group(1);
+        jsUrl ??= RegExp(r'"jsUrl"\s*:\s*\\?"([^"\\]+)\\?"')
             .firstMatch(html)
             ?.group(1);
         if (jsUrl != null) break;

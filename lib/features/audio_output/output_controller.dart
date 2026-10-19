@@ -72,6 +72,7 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
   final WasapiEngine _engine;
   final FormatNegotiator _negotiator;
   StreamSubscription<Map<String, dynamic>>? _hotplug;
+  Timer? _hotplugDebounce;
   bool _attached = false;
   String? _lastLogged;
   // Fingerprint of every input _rebuildPath consumes, so position-only
@@ -103,6 +104,7 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
 
   @override
   void dispose() {
+    _hotplugDebounce?.cancel();
     _hotplug?.cancel();
     super.dispose();
   }
@@ -229,21 +231,27 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
     final reason = event['reason']?.toString() ?? '';
     final id = event['id']?.toString() ?? '';
     wasapiLog('Device event: $reason $id');
-    final selected = state.selectedId;
-    await refreshDevices();
-    if (reason == 'removed' && selected.isNotEmpty && selected == id) {
-      await _ref.read(playbackServiceProvider.notifier).pause();
-      state = state.copyWith(
-        path: state.path.copyWith(
-          reason: BitPerfectReason.deviceUnavailable,
-          error: 'DAC disconnected',
-        ),
-      );
-      return;
-    }
-    if (reason == 'added' || reason == 'default' || reason == 'state') {
-      await applyToPlayer();
-    }
+    // Property notifications fire for volume/exclusive state transitions
+    // while playing/pausing; never trigger a full device re-enumeration for them.
+    if (reason == 'property') return;
+    _hotplugDebounce?.cancel();
+    _hotplugDebounce = Timer(const Duration(milliseconds: 300), () async {
+      final selected = state.selectedId;
+      await refreshDevices();
+      if (reason == 'removed' && selected.isNotEmpty && selected == id) {
+        await _ref.read(playbackServiceProvider.notifier).pause();
+        state = state.copyWith(
+          path: state.path.copyWith(
+            reason: BitPerfectReason.deviceUnavailable,
+            error: 'DAC disconnected',
+          ),
+        );
+        return;
+      }
+      if (reason == 'added' || reason == 'default' || reason == 'state') {
+        await applyToPlayer();
+      }
+    });
   }
 
   /// True only when every input _rebuildPath reads is unchanged, so the

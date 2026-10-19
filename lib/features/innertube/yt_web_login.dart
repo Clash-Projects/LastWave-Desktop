@@ -307,10 +307,18 @@ class YtWebLogin {
     }
   }
 
+  /// Pure check for blank page URLs (about:blank, data:,, or empty).
+  static bool isBlankUrl(String url) {
+    final u = url.trim().toLowerCase();
+    return u.isEmpty || u == 'about:blank' || u.startsWith('data:,');
+  }
+
   static Future<String?> _run() async {
     final w = await _ensureWindow();
     if (w == null) return null;
     try {
+      // Allow WebView host/controller a moment to attach before initiating navigation
+      await Future<void>.delayed(const Duration(milliseconds: 300));
       // Windows: load directly without the navigation-approval round-trip.
       // With triggerOnUrlRequestEvent=true (the default) native WebView2
       // cancels the navigation and only re-issues it after a Dart
@@ -374,10 +382,44 @@ class YtWebLogin {
     unawaited(webview.onClose.then((_) => closed = true));
     var stuckCycles = 0;
     var autoReloads = 0;
+    var blankCycles = 0;
     while (!closed) {
       final header = await _readHeader(webview);
       if (header != null) return header;
       if (closed) return null;
+
+      // Blank page check: if WebView2 opened on about:blank or dropped navigation, recover
+      try {
+        final currentUrlRaw = await webview
+            .evaluateJavaScript('window.location.href')
+            .timeout(const Duration(seconds: 4));
+        var currentUrl = (currentUrlRaw ?? '').trim();
+        if (currentUrl.length >= 2 &&
+            currentUrl.startsWith('"') &&
+            currentUrl.endsWith('"')) {
+          currentUrl = currentUrl.substring(1, currentUrl.length - 1);
+        }
+        if (isBlankUrl(currentUrl)) {
+          blankCycles++;
+          if (blankCycles >= 2) {
+            blankCycles = 0;
+            if (kDebugMode) {
+              debugPrint('YtWebLogin: window stuck on about:blank, re-launching $_loginUrl');
+            }
+            try {
+              webview.launch(_loginUrl, triggerOnUrlRequestEvent: false);
+              await webview.evaluateJavaScript('window.location.href = "$_loginUrl";');
+            } catch (_) {}
+            await _foreground(webview);
+            await Future<void>.delayed(const Duration(seconds: 3));
+            continue;
+          }
+        } else {
+          blankCycles = 0;
+        }
+      } catch (_) {}
+      if (closed) return null;
+
       // Stall check runs sequentially after the cookie read (never
       // overlapping it). ~5 consecutive hits ≈ 10s stuck.
       var stuck = false;
@@ -472,8 +514,12 @@ class YtWebLogin {
     }
 
     final hasSapisid = pick('__Secure-3PAPISID') != null ||
+        pick('__Secure-1PAPISID') != null ||
         pick('SAPISID') != null;
-    final loggedIn = pick('LOGIN_INFO') != null;
+    final loggedIn = pick('LOGIN_INFO') != null ||
+        pick('__Secure-3PSID') != null ||
+        pick('__Secure-1PSID') != null ||
+        pick('SID') != null;
     if (!hasSapisid || !loggedIn) return null;
 
     // Jar may hold cookies from other Google properties; keep only
