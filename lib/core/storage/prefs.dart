@@ -95,9 +95,9 @@ class Prefs {
   // -- Window behaviour ---------------------------------------------------
   /// Close button / Alt+F4 hides to the tray instead of quitting.
   /// Real quit stays in tray → Quit (ordered player teardown first).
-  /// Default on.
+  /// Default off (clicking X closes the application and stops audio).
   bool get closeToTray =>
-      _sp.getBool('lw_close_to_tray') ?? true;
+      _sp.getBool('lw_close_to_tray') ?? false;
   Future<void> setCloseToTray(bool v) =>
       _sp.setBool('lw_close_to_tray', v);
 
