@@ -133,6 +133,7 @@ class _WaveLyricsSidePanelState
             current: current,
             dark: dark,
             onClose: widget.onClose,
+            visible: widget.visible,
           ),
         ],
       ),
@@ -144,10 +145,12 @@ class _PanelBody extends ConsumerWidget {
   final PlayableTrack? current;
   final bool dark;
   final VoidCallback onClose;
+  final bool visible;
   const _PanelBody({
     required this.current,
     required this.dark,
     required this.onClose,
+    this.visible = true,
   });
 
   @override
@@ -255,6 +258,7 @@ class _PanelBody extends ConsumerWidget {
                     fontSize: 34,
                     showHeaderControls: true,
                     onClose: null,
+                    isActive: visible,
                   ),
                 ),
         ),

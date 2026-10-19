@@ -3258,6 +3258,100 @@ class InnerTubeMusicApi {
     return out.take(limit).toList();
   }
 
+  /// Plain lyrics from a video's YouTube Music "Lyrics" tab, when it has one.
+  Future<String?> fetchLyricsTabText(String videoId) async {
+    final id = videoId.trim();
+    if (id.isEmpty) return null;
+    await _ensureConfig();
+    try {
+      final next = await _post(
+        '$musicApi/next?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'videoId': id,
+          'isAudioOnly': true,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+      );
+      final tabs = <Map<String, dynamic>>[];
+      _collectObjects(next, 'tabRenderer', tabs);
+      Map<String, dynamic>? lyricsTab;
+      for (final tab in tabs) {
+        final title = _runsText(tab['title']) ?? tab['title']?.toString() ?? '';
+        if (title.toLowerCase().contains('lyrics')) {
+          lyricsTab = tab;
+          break;
+        }
+      }
+      dynamic endpoint = lyricsTab?['endpoint']?['browseEndpoint'];
+      if (endpoint == null && tabs.length > 1) {
+        endpoint = tabs[1]['endpoint']?['browseEndpoint'];
+      }
+      if (endpoint is! Map) return null;
+      final browseId = endpoint['browseId']?.toString();
+      if (browseId == null || browseId.isEmpty) return null;
+      final params = endpoint['params']?.toString();
+
+      final page = await _post(
+        '$musicApi/browse?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'browseId': browseId,
+          if (params != null && params.isNotEmpty) 'params': params,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+      );
+      final shelves = <Map<String, dynamic>>[];
+      _collectObjects(page, 'musicDescriptionShelfRenderer', shelves);
+      for (final shelf in shelves) {
+        final descObj = shelf['description'];
+        final desc = descObj is Map ? _runsText(descObj['runs']) : _runsText(descObj);
+        if (desc != null && desc.trim().isNotEmpty) return desc.trim();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Timed transcript cues from a video, when it has them.
+  Future<List<({int timeMs, String text})>?> fetchTranscriptCues(String videoId) async {
+    final id = videoId.trim();
+    if (id.isEmpty) return null;
+    await _ensureConfig();
+    try {
+      final idBytes = utf8.encode(id);
+      final paramBytes = [0x0A, idBytes.length, ...idBytes];
+      final params = base64.encode(paramBytes);
+      final res = await _post(
+        '$musicApi/get_transcript?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'params': params,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+      );
+      final cues = <Map<String, dynamic>>[];
+      _collectObjects(res, 'transcriptCueRenderer', cues);
+      final lines = <({int timeMs, String text})>[];
+      for (final cue in cues) {
+        final startOffset = int.tryParse(cue['startOffsetMs']?.toString() ?? '');
+        if (startOffset == null) continue;
+        final cueObj = cue['cue'];
+        final text = (cueObj is Map ? _runsText(cueObj['runs']) : _runsText(cueObj)) ??
+            cueObj?.toString() ?? '';
+        if (text.trim().isEmpty) continue;
+        lines.add((timeMs: startOffset, text: text.trim()));
+      }
+      if (lines.isNotEmpty) return lines;
+    } catch (_) {}
+    return null;
+  }
+
   /// Parse one `musicTwoRowItemRenderer`.
   ///
   /// [kind] defaults to [YouTubeEntityKind.album] because every caller
