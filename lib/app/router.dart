@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'auth_gate.dart';
 
 import '../ui/app_shell/app_shell.dart';
+import '../ui/app_shell/branch_switcher.dart';
 import '../ui/auth/welcome_page.dart';
 import '../ui/collections/album_detail_page.dart';
 import '../ui/collections/albums_page.dart';
@@ -73,7 +74,14 @@ GoRouter buildRouter({required AuthGate gate}) {
         pageBuilder: (c, s) =>
             _page(const WaveWelcomePage()),
       ),
-      StatefulShellRoute.indexedStack(
+      StatefulShellRoute(
+        // Custom branch container: keeps every branch mounted (tab state and
+        // scroll survive) but animates the switch. See WaveBranchSwitcher.
+        navigatorContainerBuilder: (context, navigationShell, children) =>
+            WaveBranchSwitcher(
+          currentIndex: navigationShell.currentIndex,
+          children: children,
+        ),
         builder: (context, state, navigationShell) => WaveShell(
           location: state.uri.hasQuery
               ? '${state.uri.path}?${state.uri.query}'
