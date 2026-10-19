@@ -306,6 +306,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
     // the detail lands, instead of invalidating it for the thumbnail.
     Widget portrait(double size) => Stack(
           alignment: Alignment.center,
+          clipBehavior: Clip.none,
           children: [
             WaveArtwork.circle(
               url: '',

@@ -1101,30 +1101,36 @@ class _AmbientMeshPainter extends CustomPainter {
 /// Artwork-tinted band behind an editorial header ([child] keeps its own
 /// layout and paints on top).
 ///
-/// Deliberately the palette-seeded [AmbientWash], not the mesh: a header
-/// band has to be there whatever the haze/visualizer settings say
-/// ([WaveAmbientMesh] renders nothing when they are off), it skips the
-/// artwork decode entirely, and its alpha fades to zero so title and meta
-/// keep their contrast on any cover without a scrim.
+/// Deliberately the static [AmbientWash], not the mesh: a header band has
+/// to be there whatever the haze/visualizer settings say
+/// ([WaveAmbientMesh] renders nothing when they are off), and its palette
+/// radial fades to zero so title and meta keep their contrast on any
+/// cover without a scrim.
 class WaveAmbientBand extends StatelessWidget {
   final String artworkUrl;
   final Widget child;
+
+  /// Forwarded to [AmbientWash] — raise it if the band still reads faint.
+  final double strength;
   const WaveAmbientBand({
     super.key,
     required this.artworkUrl,
     required this.child,
+    this.strength = 1.0,
   });
 
   @override
   Widget build(BuildContext context) {
     if (artworkUrl.isEmpty) return child;
     return Stack(
+      clipBehavior: Clip.none,
       children: [
         Positioned.fill(
           child: AmbientWash(
             artworkUrl: artworkUrl,
             dynamicMesh: false,
             height: 320,
+            strength: strength,
           ),
         ),
         child,
@@ -1139,11 +1145,18 @@ class AmbientWash extends StatelessWidget {
   final double height;
   final bool dynamicMesh;
 
+  /// Multiplies the static gradient's alphas (the mesh has its own
+  /// opacity). 1.0 is the tuned header default: plainly visible as a lit
+  /// surface, still faint enough that title/meta hold their contrast
+  /// without a scrim.
+  final double strength;
+
   const AmbientWash({
     super.key,
     required this.artworkUrl,
     this.height = 320,
     this.dynamicMesh = true,
+    this.strength = 1.0,
   });
 
   @override
@@ -1163,21 +1176,47 @@ class AmbientWash extends StatelessWidget {
 
     return Consumer(
       builder: (context, ref, _) {
-        final seed =
-            ref.watch(artworkSeedProvider(artworkUrl)).valueOrNull ??
-                const Color(0xFF232838);
+        // Palette, not the single seed: one flat colour at low alpha is
+        // what made an earlier header band invisible against #0E0E0E. Two
+        // stops off the artwork's own vivid/primary read as light on the
+        // surface. Null until the palette answers, so nothing is painted
+        // in a wrong colour — the band simply fades up.
+        final palette =
+            ref.watch(artworkPaletteProvider(artworkUrl)).valueOrNull;
+        final lead = dark
+            ? (palette?.vibrant ?? ArtworkPalette.fallback.vibrant)
+            : (palette?.lightVibrant ?? ArtworkPalette.fallback.lightVibrant);
+        final tail = dark
+            ? (palette?.primary ?? ArtworkPalette.fallback.primary)
+            : (palette?.cream ?? ArtworkPalette.fallback.cream);
+        final a = ((dark ? 0.44 : 0.32) * strength).clamp(0.0, 0.92);
 
         return IgnorePointer(
-          child: Container(
-            height: height,
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(-0.7, -0.6),
-                radius: 1.1,
-                colors: [
-                  seed.withValues(alpha: dark ? 0.28 : 0.18),
-                  seed.withValues(alpha: 0.0),
-                ],
+          child: AnimatedOpacity(
+            opacity: palette == null ? 0 : 1,
+            duration: WaveMotion.slow,
+            curve: WaveMotion.standard,
+            child: Container(
+              height: height,
+              decoration: BoxDecoration(
+                // Vertical fade, not a radial: a glow anchored above the
+                // box always has non-zero alpha where the header's top edge
+                // cuts the box, and that straight line of colour reads as
+                // the artwork being clipped. This is transparent at the top
+                // and at the foot, so the band has no edge at all — it just
+                // lifts the header's own surface.
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    tail.withValues(alpha: 0.0),
+                    lead.withValues(alpha: a * 0.5),
+                    lead.withValues(alpha: a),
+                    tail.withValues(alpha: a * 0.28),
+                    tail.withValues(alpha: 0.0),
+                  ],
+                  stops: const [0.0, 0.24, 0.5, 0.8, 1.0],
+                ),
               ),
             ),
           ),
