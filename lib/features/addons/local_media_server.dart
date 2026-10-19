@@ -32,13 +32,21 @@ class LocalMediaServer {
 
   final Dio _dio;
   HttpServer? _server;
+  String? _authToken;
   final Map<String, _Session> _sessions = {};
+
+  static String _generateAuthToken() {
+    final rand = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rand.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
 
   Future<int> ensureStarted() async {
     final running = _server;
     if (running != null) return running.port;
     final bound =
         await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    _authToken ??= _generateAuthToken();
     bound.listen(_route, onError: (_) {});
     _server = bound;
     return bound.port;
@@ -75,7 +83,8 @@ class LocalMediaServer {
         () => _Session(_dio, safe, manifestXml),
       );
       session.kickoff();
-      return Uri.parse('http://127.0.0.1:$port/a/$safe.m4a');
+      final token = _authToken;
+      return Uri.parse('http://127.0.0.1:$port/a/$safe.m4a?token=$token');
     } catch (_) {
       return null;
     }
@@ -96,11 +105,22 @@ class LocalMediaServer {
 
   Future<void> _route(HttpRequest req) async {
     try {
+      // 1. Enforce GET method
       if (req.method != 'GET') {
         req.response.statusCode = HttpStatus.methodNotAllowed;
         await req.response.close();
         return;
       }
+
+      // 2. Validate ephemeral authentication token
+      final token = req.uri.queryParameters['token'];
+      if (_authToken == null || token != _authToken) {
+        req.response.statusCode = HttpStatus.forbidden;
+        await req.response.close();
+        return;
+      }
+
+      // 3. Validate path structure
       final segs = req.uri.pathSegments;
       if (segs.length != 2 ||
           segs[0] != 'a' ||
@@ -227,7 +247,30 @@ class _Session {
         final ok = await DashAssembler.fetchSegments(
           _dio,
           mediaTemplate: plan.mediaTemplate,
+       final slots =
+            List<List<int>?>.filled(plan.segmentCount, null);
+        // 120s overall budget (healthy assembles finish in ~3-28s):
+        // a stalled CDN fails here into the same-tier retry path
+        // instead of wedging the session under a reading player.
+        final ok = await DashAssembler.fetchSegments(
+          _dio,
+          mediaTemplate: plan.mediaTemplate,
           startNumber: plan.startNumber,
+          count: plan.segmentCount,
+          totalTimeout: const Duration(seconds: 120),
+          onSegment: (i, bytes) => slots[i] = bytes,
+          onBatch: (base, end) async {
+            for (var i = base; i < end; i++) {
+              final chunk = slots[i];
+              if (chunk != null) {
+                sink.add(chunk);
+                // Null out immediately after writing so GC can reclaim the memory
+                slots[i] = null;
+              }
+            }
+            await sink.flush();
+          },
+        );   startNumber: plan.startNumber,
           count: plan.segmentCount,
           totalTimeout: const Duration(seconds: 120),
           onSegment: (i, bytes) => slots[i] = bytes,
