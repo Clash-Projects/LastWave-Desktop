@@ -257,10 +257,10 @@ class _YtCardState extends ConsumerState<_YtCard> {
         onTap: play,
         child: AnimatedScale(
           scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
-            duration: WaveMotion.normal,
+            duration: waveMotion(context, WaveMotion.normal),
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
               borderRadius: WaveRadius.artworkRadius,
@@ -281,7 +281,7 @@ class _YtCardState extends ConsumerState<_YtCard> {
                     Positioned.fill(
                       child: AnimatedOpacity(
                         opacity: _hover ? 1 : 0,
-                        duration: WaveMotion.fast,
+                        duration: waveMotion(context, WaveMotion.fast),
                         child: Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
@@ -297,7 +297,7 @@ class _YtCardState extends ConsumerState<_YtCard> {
                           child: Center(
                             child: AnimatedScale(
                               scale: _hover ? 1.0 : 0.70,
-                              duration: WaveMotion.fast,
+                              duration: waveMotion(context, WaveMotion.fast),
                               curve: Curves.easeOutBack,
                               child: GestureDetector(
                                 onTap: play,
@@ -420,10 +420,10 @@ class _PlaylistCardState
           onTap: play,
           child: AnimatedScale(
             scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             curve: Curves.easeOutCubic,
             child: AnimatedContainer(
-              duration: WaveMotion.normal,
+              duration: waveMotion(context, WaveMotion.normal),
               curve: Curves.easeOutCubic,
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
@@ -477,7 +477,7 @@ class _PlaylistCardState
                       Positioned.fill(
                         child: AnimatedOpacity(
                           opacity: _hover ? 1 : 0,
-                          duration: WaveMotion.fast,
+                          duration: waveMotion(context, WaveMotion.fast),
                           child: Container(
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
@@ -493,7 +493,7 @@ class _PlaylistCardState
                             child: Center(
                               child: AnimatedScale(
                                 scale: _hover ? 1.0 : 0.70,
-                                duration: WaveMotion.fast,
+                                duration: waveMotion(context, WaveMotion.fast),
                                 curve: Curves.easeOutBack,
                                 child: GestureDetector(
                                   onTap: play,

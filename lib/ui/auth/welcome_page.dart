@@ -297,7 +297,7 @@ class _ChromeBtnState extends State<_ChromeBtn> {
         child: GestureDetector(
           onTap: widget.onTap,
           child: AnimatedContainer(
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             width: 46,
             height: WaveDensity.titleBar,
             color: _hover

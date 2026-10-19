@@ -147,7 +147,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
           },
           onDoubleTap: _activate,
           child: AnimatedContainer(
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             height: WaveDensity.trackRow,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
@@ -250,7 +250,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
                 ),
                 // Secondary actions appear on hover / current.
                 AnimatedOpacity(
-                  duration: WaveMotion.fast,
+                  duration: waveMotion(context, WaveMotion.fast),
                   opacity: (_hover ||
                           widget.isCurrent ||
                           liked)
@@ -383,7 +383,7 @@ class _RowGlyphState extends State<_RowGlyph> {
               onTap: onOpen,
               child: AnimatedScale(
                 scale: _hover ? 1.15 : 1.0,
-                duration: WaveMotion.fast,
+                duration: waveMotion(context, WaveMotion.fast),
                 curve: Curves.easeOutCubic,
                 child: Container(
                   width: 30,
@@ -407,7 +407,7 @@ class _RowGlyphState extends State<_RowGlyph> {
           onTap: widget.onTap,
           child: AnimatedScale(
             scale: _hover ? 1.15 : 1.0,
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             curve: Curves.easeOutCubic,
             child: Container(
               width: 30,

@@ -208,7 +208,7 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
           behavior: HitTestBehavior.opaque,
           onTap: enabled ? _show : null,
           child: AnimatedContainer(
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             height: 36,
             padding: const EdgeInsets.symmetric(horizontal: 14),
             decoration: BoxDecoration(

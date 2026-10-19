@@ -375,7 +375,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     return GestureDetector(
       onTap: () => notifier.setClarityPreset(target.key),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
+        duration: waveMotion(context, const Duration(milliseconds: 140)),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(WaveRadius.menu),
@@ -494,8 +494,10 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           return GestureDetector(
             onTap: () => notifier.applyPreset(preset),
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 140),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              duration:
+                  waveMotion(context, const Duration(milliseconds: 140)),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(15),
                 color: isSelected
@@ -923,7 +925,7 @@ class _TabButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
+        duration: waveMotion(context, const Duration(milliseconds: 140)),
         padding: const EdgeInsets.symmetric(vertical: 7),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(WaveRadius.menu),

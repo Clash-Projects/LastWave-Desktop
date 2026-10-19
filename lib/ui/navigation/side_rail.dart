@@ -78,7 +78,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
         right: BorderSide(color: waveDivider(context)),
       ),
       child: AnimatedContainer(
-        duration: WaveMotion.normal,
+        duration: waveMotion(context, WaveMotion.normal),
         curve: WaveMotion.standard,
         width: width,
       // The rail persists across navigation, so this group's timeline
@@ -231,7 +231,7 @@ class _RailItemState extends State<_RailItem> {
             widget.onTap();
           },
           child: AnimatedContainer(
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             height: itemHeight,
             margin: const EdgeInsets.symmetric(vertical: 1.5),
             padding: EdgeInsets.zero,
@@ -247,13 +247,13 @@ class _RailItemState extends State<_RailItem> {
               alignment: Alignment.centerLeft,
               children: [
                 AnimatedPositioned(
-                  duration: WaveMotion.fast,
+                  duration: waveMotion(context, WaveMotion.fast),
                   curve: Curves.easeOutCubic,
                   left: widget.selected ? 0 : -4,
                   top: (itemHeight - 16) / 2,
                   height: 16,
                   child: AnimatedOpacity(
-                    duration: WaveMotion.fast,
+                    duration: waveMotion(context, WaveMotion.fast),
                     opacity: widget.selected ? 1.0 : 0.0,
                     child: Container(
                       width: 3,
@@ -286,7 +286,7 @@ class _RailItemState extends State<_RailItem> {
                                   scale: widget.selected
                                       ? 1.05
                                       : (_hover ? 1.02 : 1.0),
-                                  duration: WaveMotion.fast,
+                                  duration: waveMotion(context, WaveMotion.fast),
                                   curve: Curves.easeOutCubic,
                                   child: Icon(
                                     widget.destination.icon,
@@ -318,7 +318,7 @@ class _RailItemState extends State<_RailItem> {
                                   scale: widget.selected
                                       ? 1.06
                                       : (_hover ? 1.03 : 1.0),
-                                  duration: WaveMotion.fast,
+                                  duration: waveMotion(context, WaveMotion.fast),
                                   curve: Curves.easeOutCubic,
                                   child: Icon(
                                     widget.destination.icon,

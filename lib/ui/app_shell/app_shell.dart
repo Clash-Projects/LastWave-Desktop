@@ -850,7 +850,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                         child: IgnorePointer(
                                           ignoring: !showOverlay,
                                           child: AnimatedOpacity(
-                                            duration: WaveMotion.normal,
+                                            duration: waveMotion(context, WaveMotion.normal),
                                             curve: Curves.easeOutCubic,
                                             opacity: showOverlay ? 1.0 : 0.0,
                                             child: GestureDetector(
@@ -872,7 +872,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                       ),
                                       // Contextual queue — slides smoothly from right.
                                       AnimatedPositioned(
-                                        duration: WaveMotion.normal,
+                                        duration: waveMotion(context, WaveMotion.normal),
                                         curve: Curves.easeOutCubic,
                                         top: 0,
                                         bottom: 0,
@@ -901,7 +901,8 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                       ),
                                       // Contextual Equalizer & Studio Master Clarity drawer — slides smoothly from right.
                                       AnimatedPositioned(
-                                        duration: WaveMotion.normal,
+                                        duration: waveMotion(
+                                            context, WaveMotion.normal),
                                         curve: Curves.easeOutCubic,
                                         top: 0,
                                         bottom: 0,
@@ -923,7 +924,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                       ),
                                       // Contextual Apple Music Karaoke Lyrics drawer — slides smoothly from right.
                                       AnimatedPositioned(
-                                        duration: WaveMotion.normal,
+                                        duration: waveMotion(context, WaveMotion.normal),
                                         curve: Curves.easeOutCubic,
                                         top: 0,
                                         bottom: 0,

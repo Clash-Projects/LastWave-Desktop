@@ -318,6 +318,25 @@ class WaveMotion {
   static const Curve standard = Curves.easeOutCubic;
 }
 
+/// The OS "reduce motion" switch — KDE's animation speed, GNOME's
+/// animations toggle, Windows "Show animations", macOS Reduce Motion.
+///
+/// Only [WaveBranchSwitcher] honoured it before: every entrance, press dip
+/// and hover lift ran regardless, because each one reached for
+/// [WaveMotion.fast] straight instead of asking. Route `duration:` through
+/// [waveMotion] and the switch reaches all of them.
+bool waveReduceMotion(BuildContext context) =>
+    MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+/// Collapses an implicit-animation [duration] under reduce motion.
+///
+/// The switch means "arrive, don't travel": a hover wash, a press dip or a
+/// selection change still happens, it just doesn't interpolate. Motion that
+/// is the whole affordance — entrances ([WaveEntrance]), repeating tickers,
+/// route scale flights — is skipped outright instead of landing at zero ms.
+Duration waveMotion(BuildContext context, Duration duration) =>
+    waveReduceMotion(context) ? Duration.zero : duration;
+
 /// Hover / focus / cursor contract.
 ///
 /// - hover: 7% wash (`0.07`) over [WaveMotion.fast] (~120ms) — use

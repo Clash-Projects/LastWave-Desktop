@@ -46,7 +46,7 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
   /// 0 → the incoming branch is fully transparent, 1 → settled.
   late final AnimationController _fade = AnimationController(
     vsync: this,
-    duration: WaveMotion.normal,
+    duration: waveMotion(context, WaveMotion.normal),
     value: 1,
   );
 

@@ -410,7 +410,8 @@ class _MiniGlyphState extends State<_MiniGlyph> {
         child: GestureDetector(
           onTap: widget.onTap,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
+            duration:
+                waveMotion(context, const Duration(milliseconds: 120)),
             width: 28,
             height: 28,
             decoration: BoxDecoration(

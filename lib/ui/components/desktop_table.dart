@@ -250,7 +250,8 @@ class _WaveDesktopTableState<T extends Object>
         index: widget.showHeader ? next + 1 : next,
         scrollController: sc,
         alignment: 0.5,
-        duration: (_) => const Duration(milliseconds: 140),
+        duration: (_) =>
+            waveMotion(context, const Duration(milliseconds: 140)),
         curve: (_) => Curves.easeOutCubic,
       );
     }
@@ -825,7 +826,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
         },
         onDoubleTap: onDoubleTap,
         child: AnimatedContainer(
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
             height: WaveDensity.trackRow,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
@@ -968,7 +969,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                 SizedBox(
                   width: _kRowActions,
                   child: AnimatedOpacity(
-                  duration: WaveMotion.fast,
+                  duration: waveMotion(context, WaveMotion.fast),
                   opacity: (hovered || current || liked) ? 1 : 0,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1136,7 +1137,11 @@ class _WaveEqDotsState extends ConsumerState<WaveEqDots>
     _syncTickerState(
       playing &&
           (ModalRoute.of(context)?.isCurrent ?? true) &&
-          TickerMode.valuesOf(context).enabled,
+          TickerMode.valuesOf(context).enabled &&
+          // Reduce motion: a bouncing equaliser is decoration, not state —
+          // the bars stay drawn frozen on a frame the row still reads as
+          // "this is the current track".
+          !waveReduceMotion(context),
     );
     final color =
         widget.light ? Colors.white : waveAccent(context);
@@ -1208,7 +1213,7 @@ class _HoverGlyphState extends State<_HoverGlyph> {
       child: Center(
         child: AnimatedScale(
           scale: _hover ? 1.15 : 1.0,
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: Icon(widget.icon, size: 14, color: color),
         ),

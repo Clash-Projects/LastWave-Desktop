@@ -83,7 +83,7 @@ class WavePlayerDock extends ConsumerWidget {
 
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(begin: targetBase, end: targetBase),
-      duration: WaveMotion.normal,
+      duration: waveMotion(context, WaveMotion.normal),
       curve: Curves.easeOutCubic,
       builder: (context, animatedBase, child) {
         return WaveHaze(
@@ -112,7 +112,7 @@ class WavePlayerDock extends ConsumerWidget {
                   SizedBox(
                     width: narrow ? 200 : 290,
                     child: AnimatedSwitcher(
-                      duration: WaveMotion.normal,
+                      duration: waveMotion(context, WaveMotion.normal),
                       switchInCurve: Curves.easeOutCubic,
                       switchOutCurve: Curves.easeInCubic,
                       transitionBuilder: (child, anim) => FadeTransition(
@@ -641,7 +641,7 @@ class _GlyphState extends State<_Glyph> {
         onTap: widget.onTap,
         child: AnimatedScale(
           scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: Container(
             width: 34,
@@ -672,7 +672,7 @@ class _GlyphState extends State<_Glyph> {
             onTap: onOpen,
             child: AnimatedScale(
               scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
-              duration: WaveMotion.fast,
+              duration: waveMotion(context, WaveMotion.fast),
               curve: Curves.easeOutCubic,
               child: Container(
                 width: 34,
@@ -774,10 +774,10 @@ class _PlayGlyphState extends State<_PlayGlyph> {
             onTap: widget.enabled ? widget.onTap : null,
             child: AnimatedScale(
               scale: _pressed ? 0.92 : (_hover ? 1.06 : 1.0),
-              duration: WaveMotion.fast,
+              duration: waveMotion(context, WaveMotion.fast),
               curve: Curves.easeOutCubic,
               child: AnimatedContainer(
-                duration: WaveMotion.fast,
+                duration: waveMotion(context, WaveMotion.fast),
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
@@ -808,7 +808,8 @@ class _PlayGlyphState extends State<_PlayGlyph> {
                           ),
                         )
                       : AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 180),
+                          duration: waveMotion(
+                              context, const Duration(milliseconds: 180)),
                           transitionBuilder: (child, animation) =>
                               ScaleTransition(
                             scale: CurvedAnimation(
@@ -1035,8 +1036,9 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
     // slight overshoot bounce. (Previously `forward(from: 0.8)` ran the
     // grow phase linear to the 1.25 bound — a visible jump — and the pop
     // fired on unlike too.) Settle is mounted-guarded so a track change
-    // mid-pop can't drive a disposed controller.
-    if (!liked) {
+    // mid-pop can't drive a disposed controller. Reduce motion keeps the
+    // glyph at rest: the fill change still lands on the same frame.
+    if (!liked && !waveReduceMotion(context)) {
       _anim
           .animateTo(1.25,
               duration: const Duration(milliseconds: 110),

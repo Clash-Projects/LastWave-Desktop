@@ -269,7 +269,7 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
         child: GestureDetector(
           onDoubleTap: _play,
           child: AnimatedContainer(
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             curve: Curves.easeOutCubic,
             height: 54,
             // Inset the content, not the fill: the 6px hover plate keeps its

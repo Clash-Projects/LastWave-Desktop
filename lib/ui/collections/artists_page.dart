@@ -195,7 +195,7 @@ class _ArtistCellState extends State<_ArtistCell> {
         onTap: () => waveOpen(
             context, '/artist/${Uri.encodeComponent(widget.name)}'),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 110),
+          duration: waveMotion(context, const Duration(milliseconds: 110)),
           decoration: BoxDecoration(
             color: _hover
                 ? (dark ? Colors.white : Colors.black)
@@ -218,7 +218,7 @@ class _ArtistCellState extends State<_ArtistCell> {
                     // relaxing to a rounded square on hover. The clip is
                     // what animates, so the artwork renders square.
                     child: AnimatedContainer(
-                      duration: WaveMotion.normal,
+                      duration: waveMotion(context, WaveMotion.normal),
                       curve: Curves.easeOutCubic,
                       clipBehavior: Clip.antiAlias,
                       decoration: BoxDecoration(

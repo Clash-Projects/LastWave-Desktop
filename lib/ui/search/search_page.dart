@@ -543,10 +543,10 @@ class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
           onTap: play,
           child: AnimatedScale(
             scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             curve: Curves.easeOutCubic,
             child: AnimatedContainer(
-              duration: WaveMotion.normal,
+              duration: waveMotion(context, WaveMotion.normal),
               curve: Curves.easeOutCubic,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -691,7 +691,7 @@ class _BrowseTileState extends State<_BrowseTile> {
         onTap: widget.onTap,
         child: AnimatedScale(
           scale: _hover ? 1.015 : 1,
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(WaveRadius.menu),

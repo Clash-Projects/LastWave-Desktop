@@ -229,11 +229,11 @@ class _SectionSwap extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedSize(
-      duration: WaveMotion.normal,
+      duration: waveMotion(context, WaveMotion.normal),
       curve: Curves.easeOutCubic,
       alignment: Alignment.topLeft,
       child: AnimatedSwitcher(
-        duration: WaveMotion.fast,
+        duration: waveMotion(context, WaveMotion.fast),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeOutCubic,
         layoutBuilder: (currentChild, previousChildren) {

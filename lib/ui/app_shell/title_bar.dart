@@ -306,7 +306,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
       child: LWTooltip(
         message: 'Search (Ctrl+F)',
         child: AnimatedContainer(
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           // Fill the Flexible budget from the parent; focus state only
           // changes decoration, never width (no layout push).
           width: double.infinity,
@@ -429,7 +429,7 @@ class _BarBtnState extends State<_BarBtn> {
           onTapUp: (_) => setState(() => _pressed = false),
           onTapCancel: () => setState(() => _pressed = false),
           child: AnimatedContainer(
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             width: WaveDensity.hitArea,
             height: WaveDensity.hitArea,
             decoration: BoxDecoration(
@@ -626,7 +626,7 @@ class _WinBtnState extends State<_WinBtn> {
         child: GestureDetector(
           onTap: widget.onTap,
           child: AnimatedContainer(
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             width: 44,
             height: WaveDensity.titleBar,
             color: _hover

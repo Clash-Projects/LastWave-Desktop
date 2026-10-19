@@ -283,10 +283,10 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
         onTap: play,
         child: AnimatedScale(
           scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
-            duration: WaveMotion.normal,
+            duration: waveMotion(context, WaveMotion.normal),
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
               color: _hover
@@ -315,7 +315,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                     Positioned.fill(
                       child: AnimatedOpacity(
                         opacity: _hover ? 1 : 0,
-                        duration: WaveMotion.fast,
+                        duration: waveMotion(context, WaveMotion.fast),
                         child: Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
@@ -331,7 +331,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                           child: Center(
                             child: AnimatedScale(
                               scale: _hover ? 1.0 : 0.70,
-                              duration: WaveMotion.fast,
+                              duration: waveMotion(context, WaveMotion.fast),
                               curve: Curves.easeOutBack,
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,

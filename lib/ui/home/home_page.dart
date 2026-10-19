@@ -1194,7 +1194,7 @@ class _RadioPillState extends State<_RadioPill> {
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           padding:
               const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
           decoration: BoxDecoration(
@@ -1408,10 +1408,10 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
               children: [
                 AnimatedScale(
                   scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-                  duration: WaveMotion.fast,
+                  duration: waveMotion(context, WaveMotion.fast),
                   curve: Curves.easeOutCubic,
                   child: AnimatedContainer(
-                    duration: WaveMotion.normal,
+                    duration: waveMotion(context, WaveMotion.normal),
                     curve: Curves.easeOutCubic,
                     decoration: BoxDecoration(
                       borderRadius: WaveRadius.artworkRadius,
@@ -1431,7 +1431,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                         ),
                         Positioned.fill(
                           child: AnimatedOpacity(
-                            duration: WaveMotion.fast,
+                            duration: waveMotion(context, WaveMotion.fast),
                             opacity: _hover ? 1 : 0,
                             child: Container(
                               decoration: BoxDecoration(
@@ -1450,7 +1450,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                               child: Center(
                                 child: AnimatedScale(
                                   scale: _hover ? 1.0 : 0.70,
-                                  duration: WaveMotion.fast,
+                                  duration: waveMotion(context, WaveMotion.fast),
                                   curve: Curves.easeOutBack,
                                   child: GestureDetector(
                                     onTap: play,
@@ -1598,10 +1598,10 @@ class _MixCardState extends ConsumerState<_MixCard> {
               children: [
                 AnimatedScale(
                   scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-                  duration: WaveMotion.fast,
+                  duration: waveMotion(context, WaveMotion.fast),
                   curve: Curves.easeOutCubic,
                   child: AnimatedContainer(
-                    duration: WaveMotion.normal,
+                    duration: waveMotion(context, WaveMotion.normal),
                     curve: Curves.easeOutCubic,
                     decoration: BoxDecoration(
                       borderRadius: WaveRadius.artworkRadius,
@@ -1664,7 +1664,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                         Positioned.fill(
                           child: AnimatedOpacity(
                             opacity: _hover ? 1 : 0,
-                            duration: WaveMotion.fast,
+                            duration: waveMotion(context, WaveMotion.fast),
                             child: Container(
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
@@ -1680,7 +1680,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                               child: Center(
                                 child: AnimatedScale(
                                   scale: _hover ? 1.0 : 0.70,
-                                  duration: WaveMotion.fast,
+                                  duration: waveMotion(context, WaveMotion.fast),
                                   curve: Curves.easeOutBack,
                                   child: GestureDetector(
                                     onTap: play,
@@ -1808,10 +1808,10 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
             children: [
               AnimatedScale(
                 scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-                duration: WaveMotion.fast,
+                duration: waveMotion(context, WaveMotion.fast),
                 curve: Curves.easeOutCubic,
                 child: AnimatedContainer(
-                  duration: WaveMotion.normal,
+                  duration: waveMotion(context, WaveMotion.normal),
                   curve: Curves.easeOutCubic,
                   decoration: BoxDecoration(
                     borderRadius: WaveRadius.artworkRadius,
@@ -1833,7 +1833,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                       Positioned.fill(
                         child: AnimatedOpacity(
                           opacity: _hover ? 1 : 0,
-                          duration: WaveMotion.fast,
+                          duration: waveMotion(context, WaveMotion.fast),
                           child: Container(
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
@@ -1849,7 +1849,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                             child: Center(
                               child: AnimatedScale(
                                 scale: _hover ? 1.0 : 0.70,
-                                duration: WaveMotion.fast,
+                                duration: waveMotion(context, WaveMotion.fast),
                                 curve: Curves.easeOutBack,
                                 child: GestureDetector(
                                   onTap: play,
@@ -2073,7 +2073,7 @@ class _FreshRowState extends ConsumerState<_FreshRow> {
                     Positioned.fill(
                       child: AnimatedOpacity(
                         opacity: _hover && !playing ? 1 : 0,
-                        duration: WaveMotion.fast,
+                        duration: waveMotion(context, WaveMotion.fast),
                         child: Container(
                           decoration: BoxDecoration(
                             color: Colors.black
@@ -2189,10 +2189,10 @@ class _ArtistTileState extends State<_ArtistTile> {
             children: [
               AnimatedScale(
                 scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-                duration: WaveMotion.fast,
+                duration: waveMotion(context, WaveMotion.fast),
                 curve: Curves.easeOutCubic,
                 child: AnimatedContainer(
-                  duration: WaveMotion.normal,
+                  duration: waveMotion(context, WaveMotion.normal),
                   curve: Curves.easeOutCubic,
                   // The clip is what animates the shape, so the artwork
                   // itself renders square (radius 0) and lets this own it.

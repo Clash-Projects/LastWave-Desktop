@@ -371,7 +371,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
       dark ? 0.14 : 0.72,
     ).toColor();
     return AnimatedContainer(
-      duration: WaveMotion.normal,
+      duration: waveMotion(context, WaveMotion.normal),
       curve: WaveMotion.standard,
       width: widget.size,
       height: widget.size,
@@ -516,7 +516,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
     );
     if (widget.isCircle) {
       return AnimatedContainer(
-        duration: WaveMotion.normal,
+        duration: waveMotion(context, WaveMotion.normal),
         curve: WaveMotion.standard,
         width: widget.size,
         height: widget.size,
@@ -524,7 +524,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
       );
     }
     return AnimatedContainer(
-      duration: WaveMotion.normal,
+      duration: waveMotion(context, WaveMotion.normal),
       curve: WaveMotion.standard,
       width: widget.size,
       height: widget.size,

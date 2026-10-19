@@ -341,10 +341,10 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
             children: [
               AnimatedScale(
                 scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-                duration: WaveMotion.fast,
+                duration: waveMotion(context, WaveMotion.fast),
                 curve: Curves.easeOutCubic,
                 child: AnimatedContainer(
-                  duration: WaveMotion.normal,
+                  duration: waveMotion(context, WaveMotion.normal),
                   curve: Curves.easeOutCubic,
                   decoration: BoxDecoration(
                     borderRadius: WaveRadius.artworkRadius,
@@ -370,7 +370,7 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
                       ),
                       Positioned.fill(
                         child: AnimatedOpacity(
-                          duration: WaveMotion.fast,
+                          duration: waveMotion(context, WaveMotion.fast),
                           opacity: _hover ? 1 : 0,
                           child: Container(
                             decoration: BoxDecoration(
@@ -387,7 +387,7 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
                             child: Center(
                               child: AnimatedScale(
                                 scale: _hover ? 1.0 : 0.70,
-                                duration: WaveMotion.fast,
+                                duration: waveMotion(context, WaveMotion.fast),
                                 curve: Curves.easeOutBack,
                                 child: GestureDetector(
                                   onTap: widget.onPlay ?? widget.onTap,
@@ -491,7 +491,7 @@ class _WaveArtistCardState extends State<WaveArtistCard> {
           children: [
             AnimatedScale(
               scale: _pressed ? 0.95 : (_hover ? 1.05 : 1.0),
-              duration: WaveMotion.fast,
+              duration: waveMotion(context, WaveMotion.fast),
               curve: Curves.easeOutCubic,
               child: Stack(
                 children: [
@@ -588,10 +588,10 @@ class _WaveQuickTileState extends ConsumerState<WaveQuickTile> {
         behavior: HitTestBehavior.opaque,
         child: AnimatedScale(
           scale: _pressed ? 0.98 : (_hover ? 1.02 : 1.0),
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             height: 60,
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(

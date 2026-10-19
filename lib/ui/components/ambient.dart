@@ -1194,7 +1194,7 @@ class AmbientWash extends StatelessWidget {
         return IgnorePointer(
           child: AnimatedOpacity(
             opacity: palette == null ? 0 : 1,
-            duration: WaveMotion.slow,
+            duration: waveMotion(context, WaveMotion.slow),
             curve: WaveMotion.standard,
             child: Container(
               height: height,

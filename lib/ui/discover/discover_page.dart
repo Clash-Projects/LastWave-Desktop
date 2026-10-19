@@ -635,10 +635,10 @@ class _GenreTileState extends State<_GenreTile> {
         onTap: play,
         child: AnimatedScale(
           scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
-            duration: WaveMotion.normal,
+            duration: waveMotion(context, WaveMotion.normal),
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
               borderRadius: WaveRadius.artworkRadius,
@@ -714,10 +714,10 @@ class _GenreTileState extends State<_GenreTile> {
                                       .withValues(alpha: 0.9)),
                               const Spacer(),
                               AnimatedOpacity(
-                                duration: WaveMotion.fast,
+                                duration: waveMotion(context, WaveMotion.fast),
                                 opacity: _hover ? 1 : 0,
                                 child: AnimatedSlide(
-                                  duration: WaveMotion.fast,
+                                  duration: waveMotion(context, WaveMotion.fast),
                                   offset: _hover
                                       ? Offset.zero
                                       : const Offset(-0.25, 0),
@@ -1112,7 +1112,7 @@ class _ArtistRailCardState extends State<_ArtistRailCard> {
             children: [
               AnimatedScale(
                 scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-                duration: WaveMotion.fast,
+                duration: waveMotion(context, WaveMotion.fast),
                 curve: Curves.easeOutCubic,
                 child: Stack(
                   // The lift, the shadow and the rank chip all paint
@@ -1120,7 +1120,7 @@ class _ArtistRailCardState extends State<_ArtistRailCard> {
                   clipBehavior: Clip.none,
                   children: [
                     AnimatedContainer(
-                      duration: WaveMotion.normal,
+                      duration: waveMotion(context, WaveMotion.normal),
                       curve: Curves.easeOutCubic,
                       // The clip is what animates the shape, so the
                       // artwork renders square and lets this own it.

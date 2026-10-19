@@ -90,7 +90,7 @@ class _WaveIconButtonState extends State<WaveIconButton> {
         onPointerCancel: disabled ? null : (_) => setState(() => _pressed = false),
         child: AnimatedScale(
           scale: disabled ? 1.0 : (_pressed ? 0.93 : (_hover ? 1.05 : 1.0)),
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: SizedBox(
             width: WaveDensity.hitArea,
@@ -266,6 +266,10 @@ class _WavePressableState extends State<WavePressable> {
   @override
   Widget build(BuildContext context) {
     final live = widget.onTap != null;
+    // Reduce motion: the dip is the only feedback, so keep the button
+    // still rather than snapping it 3% smaller and back.
+    final dip = widget.pressedScale;
+    final reduce = waveReduceMotion(context);
     return MouseRegion(
       cursor: live ? widget.cursor : MouseCursor.defer,
       onExit: (_) {
@@ -279,8 +283,8 @@ class _WavePressableState extends State<WavePressable> {
         onTapCancel: live ? () => setState(() => _pressed = false) : null,
         onTap: widget.onTap,
         child: AnimatedScale(
-          scale: _pressed ? widget.pressedScale : 1.0,
-          duration: WaveMotion.fast,
+          scale: _pressed && !reduce ? dip : 1.0,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: WaveMotion.standard,
           child: widget.child,
         ),
@@ -331,10 +335,10 @@ class _WavePlayPillState extends State<WavePlayPill> {
         onTap: widget.onTap,
         child: AnimatedScale(
           scale: _pressed ? 0.96 : 1.0,
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
-            duration: WaveMotion.fast,
+            duration: waveMotion(context, WaveMotion.fast),
             padding:
                 const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
             decoration: BoxDecoration(
@@ -412,7 +416,7 @@ class _WavePlayButtonState extends State<WavePlayButton> {
         onPointerCancel: disabled ? null : (_) => setState(() => _pressed = false),
         child: AnimatedScale(
           scale: disabled ? 1.0 : (_pressed ? 0.92 : (_hover ? 1.06 : 1.0)),
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: SizedBox(
             width: size,
@@ -450,7 +454,7 @@ class _WavePlayButtonState extends State<WavePlayButton> {
                         ),
                       )
                     : AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
+                        duration: waveMotion(context, const Duration(milliseconds: 180)),
                         transitionBuilder: (child, animation) =>
                             ScaleTransition(
                           scale: CurvedAnimation(

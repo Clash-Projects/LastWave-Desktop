@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import 'tokens.dart';
+
 /// WinUI 3 motion layer — staggered "Entrance" choreography.
 ///
 /// Mirrors the WinUI `EntranceThemeTransition`: content fades in while
@@ -86,6 +88,9 @@ class _WaveEntranceGroupState extends State<WaveEntranceGroup>
 
   @override
   Widget build(BuildContext context) {
+    // Reduce motion: the whole point of this widget is the movement, so
+    // there is no "instant" version to fall back to — hand the child over.
+    if (waveReduceMotion(context)) return widget.child;
     if (_hasCompletedOnce || _controller.isCompleted || _controller.value >= 1.0) {
       return widget.child;
     }
@@ -149,6 +154,8 @@ class WaveEntrance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Reduce motion: skip the stagger entirely (see [WaveEntranceGroup]).
+    if (waveReduceMotion(context)) return child;
     final group = local ? null : _WaveEntranceScope.of(context);
     if (group != null) return _groupDriven(group);
     if (index >= _standaloneCap) return child;

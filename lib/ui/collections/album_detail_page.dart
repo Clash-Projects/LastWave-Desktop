@@ -304,7 +304,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                     key: ValueKey(
                         loading ? 'album-loading' : 'album-tracks'),
                     tween: Tween(begin: 0, end: 1),
-                    duration: WaveMotion.normal,
+                    duration: waveMotion(context, WaveMotion.normal),
                     curve: WaveMotion.standard,
                     builder: (context, t, child) =>
                         Opacity(opacity: t, child: child),

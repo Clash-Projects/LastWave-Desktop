@@ -221,7 +221,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                     children: [
                       // Top Actions Bar (Fadeable on idle)
                       AnimatedOpacity(
-                        duration: const Duration(milliseconds: 350),
+                        duration: waveMotion(context, const Duration(milliseconds: 350)),
                         opacity: _controlsIdle ? 0.0 : 1.0,
                         child: ExcludeFocus(
                           excluding: _controlsIdle,
@@ -278,7 +278,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
               child: IgnorePointer(
                 ignoring: !_queueVisible,
                 child: AnimatedOpacity(
-                  duration: WaveMotion.normal,
+                  duration: waveMotion(context, WaveMotion.normal),
                   curve: Curves.easeOutCubic,
                   opacity: _queueVisible ? 1.0 : 0.0,
                   child: GestureDetector(
@@ -295,7 +295,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
             // Offstage when shut: skips paint/raster of the 8 image rows
             // while closed (scroll offset preserved, no remount).
             AnimatedPositioned(
-              duration: WaveMotion.normal,
+              duration: waveMotion(context, WaveMotion.normal),
               curve: Curves.easeOutCubic,
               top: 0,
               bottom: 0,
@@ -444,7 +444,7 @@ class _FsIconButtonState extends State<_FsIconButton> {
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
-          duration: WaveMotion.fast,
+          duration: waveMotion(context, WaveMotion.fast),
           width: 36,
           height: 36,
           decoration: BoxDecoration(
@@ -532,7 +532,8 @@ class _DesktopDualPane extends StatelessWidget {
                   // Left Column (Media Player) — the metadata keeps its
                   // intrinsic height; artwork takes whatever remains.
                   AnimatedContainer(
-                    duration: const Duration(milliseconds: 500),
+                    duration:
+                        waveMotion(context, const Duration(milliseconds: 500)),
                     curve: Curves.easeInOutCubic,
                     width: colWidth,
                     height: maxHeight,
@@ -582,20 +583,23 @@ class _DesktopDualPane extends StatelessWidget {
 
                   // Gap
                   AnimatedContainer(
-                    duration: const Duration(milliseconds: 500),
+                    duration:
+                        waveMotion(context, const Duration(milliseconds: 500)),
                     curve: Curves.easeInOutCubic,
                     width: gap,
                   ),
 
                   // Right Column (Apple Music Karaoke Lyrics Pane)
                   AnimatedContainer(
-                    duration: const Duration(milliseconds: 500),
+                    duration:
+                        waveMotion(context, const Duration(milliseconds: 500)),
                     curve: Curves.easeInOutCubic,
                     width: lyricsWidth,
                     height: maxHeight,
                     child: ClipRect(
                       child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 350),
+                        duration: waveMotion(
+                            context, const Duration(milliseconds: 350)),
                         curve: Curves.easeInOutCubic,
                         opacity: lyricsVisible ? 1.0 : 0.0,
                         child: ExcludeFocus(
@@ -835,7 +839,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
                 Positioned.fill(
                   child: IgnorePointer(
                     child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 480),
+                      duration: waveMotion(context, const Duration(milliseconds: 480)),
                       curve: Curves.easeOutCubic,
                       opacity: motionReady ? 0 : 1,
                       onEnd: () {
@@ -869,7 +873,7 @@ class _TrackSwap extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: WaveMotion.normal,
+      duration: waveMotion(context, WaveMotion.normal),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       transitionBuilder: (child, animation) => FadeTransition(
