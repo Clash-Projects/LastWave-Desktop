@@ -15,11 +15,41 @@ class YtWebviewGuard {
   static const _channel = MethodChannel('lastwave/yt_webview');
 
   static bool get isSupported => Platform.isLinux;
+  static bool _dismissed = false;
+  static bool _initialized = false;
+
+  static void _ensureInitialized() {
+    if (_initialized || !isSupported) return;
+    _initialized = true;
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onDismissed') {
+        _dismissed = true;
+      }
+    });
+  }
+
+  static bool get isDismissed => _dismissed;
+
+  /// Whether the sign-in window is currently visible and not dismissed.
+  static Future<bool> isVisible() async {
+    if (!isSupported) return true;
+    _ensureInitialized();
+    if (_dismissed) return false;
+    try {
+      final vis = await _channel.invokeMethod<bool>('isVisible') ?? true;
+      if (!vis) _dismissed = true;
+      return vis;
+    } catch (_) {
+      return true;
+    }
+  }
 
   /// Hide the sign-in window. False when unsupported or not found
   /// (e.g. never created) — callers fall back to the plugin call.
   static Future<bool> hide() async {
     if (!isSupported) return false;
+    _ensureInitialized();
+    _dismissed = true;
     try {
       return await _channel.invokeMethod<bool>('hide') ?? false;
     } catch (_) {
@@ -31,6 +61,8 @@ class YtWebviewGuard {
   /// caller should create a fresh window instead of reusing the cache.
   static Future<bool> show() async {
     if (!isSupported) return false;
+    _ensureInitialized();
+    _dismissed = false;
     try {
       return await _channel.invokeMethod<bool>('show') ?? false;
     } catch (_) {
