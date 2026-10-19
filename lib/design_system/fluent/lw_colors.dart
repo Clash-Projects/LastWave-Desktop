@@ -59,7 +59,9 @@ class LwColors {
   static const lightTextPrimary = WaveColors.lightTextPrimary;
   static const lightTextSecondary = WaveColors.lightTextSecondary;
   static const lightTextTertiary = WaveColors.lightTextTertiary;
-  static const lightDivider = WaveColors.lightOutlineSoft;
+  // Black 10%, matching `waveDivider`: a fixed grey could only ever read on
+  // the white cards or on the #F3F3F3 page, never on both.
+  static const lightDivider = Color(0x1A000000);
   static const lightDividerStrong = WaveColors.lightOutline;
 }
 

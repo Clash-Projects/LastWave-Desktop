@@ -721,13 +721,7 @@ class _BrowseTileState extends State<_BrowseTile> {
                         decoration: BoxDecoration(
                           borderRadius:
                               BorderRadius.circular(WaveRadius.artwork),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.35),
-                              blurRadius: 12,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
+                          boxShadow: WaveElevation.lift(waveIsDark(context)),
                         ),
                         child: WaveArtwork(
                           url: widget.artworkUrl,

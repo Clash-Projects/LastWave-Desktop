@@ -455,18 +455,12 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
       decoration: BoxDecoration(
         color: theme.menuColor,
         borderRadius: WaveRadius.menuRadius,
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x21000000),
-            blurRadius: 7.2,
-            offset: Offset(0, 3.2),
-          ),
-          BoxShadow(
-            color: Color(0x1C000000),
-            blurRadius: 1.8,
-            offset: Offset(0, 0.68),
-          ),
-        ],
+        // The pearl theme has no value step left above a card
+        // (`lightSurface == lightSurfaceRaised`), so a menu opened over one
+        // has nothing but its shadow to separate it — the same hairline the
+        // command palette carries gives it an edge again.
+        border: Border.all(color: waveDivider(context)),
+        boxShadow: WaveElevation.flyout(theme.brightness == Brightness.dark),
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: widget.maxWidth),

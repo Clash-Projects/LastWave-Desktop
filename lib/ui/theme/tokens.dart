@@ -442,6 +442,81 @@ Color waveRailTranslucent(BuildContext context) => waveIsDark(context)
     ? waveSurfaces(context).railTranslucent
     : WaveColors.lightNavBackground;
 
+/// Hairline stroke: dividers, panel edges, control outlines.
+///
+/// Light mode paints black at 10% instead of a fixed grey. The pearl page
+/// is `#F3F3F3` and its cards are white, so any single grey could only
+/// ever read on one of the two — `#EDEBE9` read on neither (6/255 against
+/// the page: title bar, rail, dock and every section rule had no edge at
+/// all in light mode). An alpha stroke lands at `#DBDBDB` on the page and
+/// `#E6E6E6` on a card, which is what one hairline has to look like in
+/// both.
 Color waveDivider(BuildContext context) => waveIsDark(context)
     ? WaveColors.outlineSoft
-    : WaveColors.lightOutlineSoft;
+    : Colors.black.withValues(alpha: 0.10);
+
+/// Elevation ladder for surfaces that float over the page.
+///
+/// Dark mode leans on value — three distinct surface tones — and a deep
+/// black shadow. The pearl page is `#F3F3F3` with `#FFFFFF` cards, and
+/// `lightSurface == lightSurfaceRaised`, so a light float has to separate
+/// by stroke ([waveDivider]) and shadow instead; the same 45% black 32px
+/// plate that reads as depth on graphite reads as a dirty smear on white.
+/// Light therefore keeps the dark shapes at roughly a third of the
+/// strength — Windows 11 flyout weight.
+///
+/// Every floating surface goes through here so a shadow cannot drift back
+/// into a hardcoded literal that only ever suited one theme.
+class WaveElevation {
+  WaveElevation._();
+
+  /// Artwork hover lift: the cover rises off the grid.
+  static List<BoxShadow> lift(bool dark) => [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: dark ? 0.45 : 0.18),
+          blurRadius: 16,
+          offset: const Offset(0, 6),
+        ),
+      ];
+
+  /// Feature artwork at hero size — a deeper drop than [lift].
+  static List<BoxShadow> artwork(bool dark) => [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: dark ? 0.45 : 0.16),
+          blurRadius: 24,
+          offset: const Offset(0, 10),
+        ),
+      ];
+
+  /// Full-height side panel (queue, lyrics, side sheets), cast inward.
+  static List<BoxShadow> panel(bool dark) => [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: dark ? 0.45 : 0.16),
+          blurRadius: dark ? 32 : 28,
+          offset: const Offset(-10, 0),
+        ),
+      ];
+
+  /// Menu / dialog flyout: two layers, the tight one giving the edge.
+  static List<BoxShadow> flyout(bool dark) => const [
+        BoxShadow(
+          color: Color(0x21000000),
+          blurRadius: 7.2,
+          offset: Offset(0, 3.2),
+        ),
+        BoxShadow(
+          color: Color(0x1C000000),
+          blurRadius: 1.8,
+          offset: Offset(0, 0.68),
+        ),
+      ];
+
+  /// Round transport control sitting on the dock.
+  static List<BoxShadow> transport(bool dark) => [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: dark ? 0.45 : 0.18),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ];
+}

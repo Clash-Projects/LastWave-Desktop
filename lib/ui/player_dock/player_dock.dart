@@ -793,14 +793,7 @@ class _PlayGlyphState extends State<_PlayGlyph> {
                             alpha: _focus.hasFocus ? 0.9 : 0.14),
                     width: _focus.hasFocus ? 2 : 1,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(
-                          alpha: dark ? 0.45 : 0.18),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+                  boxShadow: WaveElevation.transport(dark),
                 ),
                 child: Center(
                   child: widget.buffering

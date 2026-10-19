@@ -1,48 +1,35 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-/// Elevation — restrained Fluent shadows.
+import '../../ui/theme/tokens.dart';
+
+/// Elevation — restrained Fluent shadows, bridged to [WaveElevation].
 ///
-/// Content (L0) has no shadow. Chrome (L1) none. Panels (L2) one soft
-/// 32px shadow. Flyouts (L3) layered shadow + 1px tonal ring.
+/// These aliases used to carry their own hardcoded black plates, so the kit
+/// and the live UI could disagree about what "panel" meant and the light
+/// theme inherited the graphite shadow. They delegate now: one ladder, one
+/// theme-aware set of values.
 class LwElevation {
   LwElevation._();
 
-  static List<BoxShadow> get none => const [];
+  static List<BoxShadow> none(BuildContext context) => const [];
 
-  static List<BoxShadow> get panel => [
-        const BoxShadow(
-          color: Color(0x73000000),
-          blurRadius: 32,
-          offset: Offset(-12, 0),
-        ),
-      ];
+  /// Hover lift for artwork and cards.
+  static List<BoxShadow> lift(BuildContext context) =>
+      WaveElevation.lift(waveIsDark(context));
 
-  static List<BoxShadow> get artwork => [
-        const BoxShadow(
-          color: Color(0x73000000),
-          blurRadius: 32,
-          offset: Offset(0, 12),
-        ),
-      ];
+  /// Feature artwork at hero size.
+  static List<BoxShadow> artwork(BuildContext context) =>
+      WaveElevation.artwork(waveIsDark(context));
 
-  static List<BoxShadow> get flyout => [
-        const BoxShadow(
-          color: Color(0x66000000),
-          blurRadius: 16,
-          offset: Offset(0, 8),
-        ),
-        const BoxShadow(
-          color: Color(0x33000000),
-          blurRadius: 4,
-          offset: Offset(0, 2),
-        ),
-      ];
+  /// Full-height side panel, cast inward.
+  static List<BoxShadow> panel(BuildContext context) =>
+      WaveElevation.panel(waveIsDark(context));
 
-  static List<BoxShadow> get transport => [
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.35),
-          blurRadius: 8,
-          offset: const Offset(0, 2),
-        ),
-      ];
+  /// Menu / dialog flyout.
+  static List<BoxShadow> flyout(BuildContext context) =>
+      WaveElevation.flyout(waveIsDark(context));
+
+  /// Round transport control on the dock.
+  static List<BoxShadow> transport(BuildContext context) =>
+      WaveElevation.transport(waveIsDark(context));
 }

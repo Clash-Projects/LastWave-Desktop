@@ -350,12 +350,7 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
                     borderRadius: WaveRadius.artworkRadius,
                     boxShadow: [
                       if (_hover) ...[
-                        BoxShadow(
-                          color: Colors.black.withValues(
-                              alpha: dark ? 0.45 : 0.18),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
+                        ...WaveElevation.lift(dark),
                         BoxShadow(
                           color: seedColor.withValues(alpha: 0.20),
                           blurRadius: 16,
@@ -611,9 +606,7 @@ class _WaveQuickTileState extends ConsumerState<WaveQuickTile> {
               border: Border.all(
                 color: widget.playing
                     ? accent.withValues(alpha: 0.5)
-                    : (dark
-                        ? WaveColors.outlineSoft
-                        : WaveColors.lightOutlineSoft),
+                    : waveDivider(context),
               ),
             ),
           child: Row(

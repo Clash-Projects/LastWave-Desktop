@@ -248,13 +248,7 @@ class _Shell extends StatelessWidget {
       enableBlur: false,
       base: waveBackground(context),
       border: Border(left: BorderSide(color: waveDivider(context))),
-      shadow: const [
-        BoxShadow(
-          color: Color(0x73000000),
-          blurRadius: 32,
-          offset: Offset(-12, 0),
-        ),
-      ],
+      shadow: WaveElevation.panel(waveIsDark(context)),
       child: SizedBox(
         width: WaveDensity.contextPanel,
         child: body,

@@ -265,13 +265,7 @@ class _YtCardState extends ConsumerState<_YtCard> {
             decoration: BoxDecoration(
               borderRadius: WaveRadius.artworkRadius,
               boxShadow: [
-                if (_hover)
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                        alpha: dark ? 0.45 : 0.18),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
+                if (_hover) ...WaveElevation.lift(dark),
               ],
             ),
             child: Column(
@@ -441,13 +435,7 @@ class _PlaylistCardState
                     : Colors.transparent,
                 borderRadius: WaveRadius.artworkRadius,
                 boxShadow: [
-                  if (_hover)
-                    BoxShadow(
-                      color: Colors.black.withValues(
-                          alpha: dark ? 0.45 : 0.18),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
+                  if (_hover) ...WaveElevation.lift(dark),
                 ],
               ),
               child: Column(

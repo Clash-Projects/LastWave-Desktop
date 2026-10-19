@@ -925,13 +925,7 @@ class _FeaturedHero extends ConsumerWidget {
         Container(
           decoration: BoxDecoration(
             borderRadius: WaveRadius.artworkRadius,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.4),
-                blurRadius: 24,
-                offset: const Offset(0, 10),
-              ),
-            ],
+            boxShadow: WaveElevation.artwork(dark),
           ),
           child: WaveArtwork(
             url: track.artworkUrl,
@@ -1422,13 +1416,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                     decoration: BoxDecoration(
                       borderRadius: WaveRadius.artworkRadius,
                       boxShadow: [
-                        if (_hover)
-                          BoxShadow(
-                            color: Colors.black.withValues(
-                                alpha: dark ? 0.45 : 0.18),
-                            blurRadius: 16,
-                            offset: const Offset(0, 6),
-                          ),
+                        if (_hover) ...WaveElevation.lift(dark),
                       ],
                     ),
                     child: Stack(
@@ -1618,14 +1606,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                     decoration: BoxDecoration(
                       borderRadius: WaveRadius.artworkRadius,
                       boxShadow: [
-                        if (_hover)
-                          BoxShadow(
-                            color: Colors.black.withValues(
-                              alpha: dark ? 0.45 : 0.18,
-                            ),
-                            blurRadius: 16,
-                            offset: const Offset(0, 6),
-                          ),
+                        if (_hover) ...WaveElevation.lift(dark),
                       ],
                     ),
                     child: Stack(
@@ -1835,14 +1816,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                   decoration: BoxDecoration(
                     borderRadius: WaveRadius.artworkRadius,
                     boxShadow: [
-                      if (_hover)
-                        BoxShadow(
-                          color: Colors.black.withValues(
-                            alpha: dark ? 0.45 : 0.18,
-                          ),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
+                      if (_hover) ...WaveElevation.lift(dark),
                     ],
                   ),
                   child: Stack(
@@ -2226,13 +2200,7 @@ class _ArtistTileState extends State<_ArtistTile> {
                   decoration: BoxDecoration(
                     borderRadius: radius,
                     boxShadow: [
-                      if (_hover)
-                        BoxShadow(
-                          color: Colors.black
-                              .withValues(alpha: dark ? 0.45 : 0.18),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
+                      if (_hover) ...WaveElevation.lift(dark),
                     ],
                   ),
                   // Hairline as a *foreground* decoration: a plain
