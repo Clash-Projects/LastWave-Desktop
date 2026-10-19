@@ -27,6 +27,8 @@ import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
+import '../../features/equalizer/equalizer_controller.dart';
+import '../../features/equalizer/equalizer_models.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/telemetry/live_telemetry_service.dart';
 
@@ -542,7 +544,96 @@ class _Audio extends ConsumerWidget {
               ),
             ],
           ),
-        )
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          title: 'Equalizer & Studio Master Clarity',
+          subtitle: '10-band ISO curves with acoustic & stage compensation',
+          child: const _EqualizerSettingsSummary(),
+        ),
+      ],
+    );
+  }
+}
+
+class _EqualizerSettingsSummary extends ConsumerWidget {
+  const _EqualizerSettingsSummary();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final eq = ref.watch(equalizerProvider);
+    final notifier = ref.read(equalizerProvider.notifier);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SwitchRow(
+          value: eq.enabled,
+          onChanged: (v) => notifier.setEnabled(v),
+          title: '10-Band Equalizer',
+          subtitle: eq.enabled
+              ? 'Active: ${eq.presetName} (-8 dB to +8 dB per band)'
+              : 'Bit-perfect direct stream bypass (filter removed)',
+        ),
+        const SizedBox(height: 8),
+        _SwitchRow(
+          value: eq.studioClarityEnabled,
+          onChanged: (v) => notifier.setStudioClarityEnabled(v),
+          title: 'Studio Master Clarity',
+          subtitle: 'Acoustic & stage compensation (${eq.clarityPreset.displayName})',
+        ),
+        if (eq.studioClarityEnabled) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text('Clarity target', style: WaveType.trackTitle),
+              const Spacer(),
+              ComboBox<String>(
+                value: eq.clarityPreset.key,
+                items: [
+                  for (final t in ClarityPresets.all)
+                    ComboBoxItem(
+                      value: t.key,
+                      child: Text(t.displayName),
+                    ),
+                ],
+                onChanged: (key) {
+                  if (key == null) return;
+                  notifier.setClarityPreset(key);
+                },
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Text('Equalizer preset', style: WaveType.trackTitle),
+            const Spacer(),
+            ComboBox<String>(
+              value: EqualizerPresets.all.any((p) => p.name == eq.presetName)
+                  ? eq.presetName
+                  : 'Custom',
+              items: [
+                for (final p in EqualizerPresets.all)
+                  ComboBoxItem(
+                    value: p.name,
+                    child: Text(p.name),
+                  ),
+                if (!EqualizerPresets.all.any((p) => p.name == eq.presetName))
+                  const ComboBoxItem(
+                    value: 'Custom',
+                    child: Text('Custom'),
+                  ),
+              ],
+              onChanged: (preset) {
+                if (preset != null && preset != 'Custom') {
+                  notifier.setPreset(preset);
+                }
+              },
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -2044,12 +2135,22 @@ class _General extends ConsumerWidget {
   }
 }
 
-class _Playback extends ConsumerWidget {
+class _Playback extends ConsumerStatefulWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Playback({required this.onUpdate});
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_Playback> createState() => _PlaybackState();
+}
+
+class _PlaybackState extends ConsumerState<_Playback> {
+  double? _dragSeconds;
+
+  @override
+  Widget build(BuildContext context) {
     final prefs = ref.watch(prefsProvider);
+    final currentSeconds = _dragSeconds ?? prefs.crossfadeSeconds.toDouble();
+
     return _Group(
       title: 'Playback',
       subtitle: 'Gapless, crossfade and output behaviour',
@@ -2057,7 +2158,7 @@ class _Playback extends ConsumerWidget {
         children: [
           _SwitchRow(
             value: prefs.autoplaySimilar,
-            onChanged: (v) => onUpdate((p) => p.setAutoplaySimilar(v)),
+            onChanged: (v) => widget.onUpdate((p) => p.setAutoplaySimilar(v)),
             title: 'Autoplay similar',
             subtitle: 'Keep playing related tracks after a queue ends',
           ),
@@ -2065,12 +2166,68 @@ class _Playback extends ConsumerWidget {
           _SwitchRow(
             value: prefs.crossfadeEnabled,
             onChanged: (v) async {
-              await onUpdate((p) => p.setCrossfade(v));
+              await widget.onUpdate((p) => p.setCrossfade(v));
               ref.read(audioOutputProvider.notifier).refreshPath();
             },
             title: 'Crossfade',
-            subtitle: '${prefs.crossfadeSeconds}s · gapless otherwise',
+            subtitle: prefs.crossfadeEnabled
+                ? '${prefs.crossfadeSeconds}s crossfade duration'
+                : 'Gapless direct transition (crossfade disabled)',
           ),
+          if (prefs.crossfadeEnabled) ...[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'Crossfade duration',
+                        style: WaveType.trackTitle,
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${currentSeconds.round()}s',
+                        style: WaveType.meta.copyWith(
+                          color: waveAccent(context),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Slider(
+                    value: currentSeconds.clamp(3.0, 12.0),
+                    min: 3.0,
+                    max: 12.0,
+                    divisions: 9,
+                    onChanged: (v) => setState(() => _dragSeconds = v),
+                    onChangeEnd: (v) async {
+                      setState(() => _dragSeconds = null);
+                      final secs = v.round().clamp(3, 12);
+                      await widget.onUpdate((p) => p.setCrossfadeSeconds(secs));
+                    },
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('3s (Short)',
+                          style: WaveType.meta
+                              .copyWith(color: waveTextSecondary(context))),
+                      Text('7s (Standard)',
+                          style: WaveType.meta
+                              .copyWith(color: waveTextSecondary(context))),
+                      Text('12s (Long)',
+                          style: WaveType.meta
+                              .copyWith(color: waveTextSecondary(context))),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

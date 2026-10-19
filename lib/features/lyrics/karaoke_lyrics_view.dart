@@ -381,6 +381,22 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         ),
       ),
       data: (result) {
+        final effectiveResult = (result.lines.isEmpty && result.plainLyrics.isNotEmpty)
+            ? LyricsResult(
+                lines: result.plainLyrics
+                    .split('\n')
+                    .map((l) => l.trim())
+                    .where((l) => l.isNotEmpty)
+                    .map((l) => LyricLine(timeMs: 0, text: l))
+                    .toList(),
+                isSynced: false,
+                isWordSynced: false,
+                plainLyrics: result.plainLyrics,
+                isInstrumental: result.isInstrumental,
+                source: result.source,
+              )
+            : result;
+
         // Header controls (the source switcher + close) must survive the
         // no-lyrics states. Switching source can legitimately land on a
         // provider with no match, and dropping the switcher then strands
@@ -394,7 +410,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
               children: [
                 _KaraokeToolbar(
                   track: widget.track,
-                  result: result,
+                  result: effectiveResult,
                   offsetMs: offsetMs,
                   showTransliteration: showTransliteration,
                   following: _following,
@@ -416,14 +432,14 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           );
         }
 
-        if (result.isInstrumental) {
+        if (effectiveResult.isInstrumental) {
           return withHeader(const WaveEmpty(
             icon: FluentIcons.music_note,
             title: 'Instrumental',
             subtitle: 'No lyrics for this track.',
           ));
         }
-        if (result.isEmpty) {
+        if (effectiveResult.isEmpty) {
           return withHeader(WaveEmpty(
             icon: FluentIcons.microphone,
             title: 'No lyrics found',
@@ -433,27 +449,18 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                 ref.invalidate(waveLyricsProvider(widget.track)),
           ));
         }
-        if (!result.isSynced && result.lines.length < 2) {
-          return _KaraokePlainLyrics(
-            text: result.plainLyrics,
-            compact: widget.compact,
-            showHeaderControls: widget.showHeaderControls,
-            onClose: widget.onClose,
-          );
-        }
-
 
         if (_currentTrackKey != widget.track.queueKey ||
-            _currentResult != result ||
+            _currentResult != effectiveResult ||
             _lastTransliteration != showTransliteration ||
             _lastWordByWord != wordByWord) {
           _currentTrackKey = widget.track.queueKey;
-          _currentResult = result;
+          _currentResult = effectiveResult;
           _lastTransliteration = showTransliteration;
           _lastWordByWord = wordByWord;
-          if (result.lines.isNotEmpty) {
+          if (effectiveResult.lines.isNotEmpty && effectiveResult.isSynced) {
             final lineIndex =
-                activeLyricLineIndex(result.lines, _interpolatedPositionMs.value);
+                activeLyricLineIndex(effectiveResult.lines, _interpolatedPositionMs.value);
             if (_activeLineIndex.value != lineIndex) {
               _activeLineIndex.value = lineIndex;
             }
@@ -469,7 +476,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
               if (widget.showHeaderControls)
                 _KaraokeToolbar(
                   track: widget.track,
-                  result: result,
+                  result: effectiveResult,
                   offsetMs: offsetMs,
                   showTransliteration: showTransliteration,
                   following: _following,
@@ -491,7 +498,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                     Positioned.fill(
                       child: RepaintBoundary(
                         child: _AppleLineLyricsView(
-                          result: result,
+                          result: effectiveResult,
                           activeLineListenable: _activeLineIndex,
                           positionListenable: _interpolatedPositionMs,
                           compact: widget.compact,
@@ -505,6 +512,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                             setState(() => _following = true);
                           },
                           onSeekLineMs: (lineMs) {
+                            if (!effectiveResult.isSynced || lineMs <= 0) return;
                             final seekTargetMs = lineMs + _offsetMs;
                             ref.read(playbackServiceProvider.notifier).seek(
                                   Duration(
@@ -514,7 +522,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                         ),
                       ),
                     ),
-                    if (!_following)
+                    if (!_following && effectiveResult.isSynced)
                       Positioned(
                         right: 16,
                         bottom: 16,
@@ -1328,7 +1336,7 @@ class _KaraokeToolbar extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           // Timing Offset Controls: [-] offset [+] [Reset]
-          if (hasLyrics) Container(
+          if (hasLyrics && result.isSynced) Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             decoration: BoxDecoration(
               color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.10),
@@ -1382,7 +1390,7 @@ class _KaraokeToolbar extends ConsumerWidget {
               ],
             ),
           ),
-          if (hasLyrics) const SizedBox(width: 8),
+          if (hasLyrics && result.isSynced) const SizedBox(width: 8),
           // Transliteration / Romaji Toggle
           if (hasLyrics) LWTooltip(
             message: showTransliteration
@@ -1394,8 +1402,8 @@ class _KaraokeToolbar extends ConsumerWidget {
               onTap: transliterationNotifier.toggle,
             ),
           ),
-          if (hasLyrics) const SizedBox(width: 4),
-          if (hasLyrics) LWTooltip(
+          if (hasLyrics && result.isSynced) const SizedBox(width: 4),
+          if (hasLyrics && result.isSynced) LWTooltip(
             message: following
                 ? 'Pause automatic scrolling'
                 : 'Return to the line being sung',
@@ -1577,7 +1585,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       _lastIndex = -1;
     }
     if (widget.following && !oldWidget.following) {
-      final untimed = lyricsAreUntimed(widget.result.lines);
+      final untimed = !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
       _scrollTo(
         untimed ? 0 : widget.activeLineListenable.value,
       );
@@ -1635,7 +1643,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
 
   @override
   Widget build(BuildContext context) {
-    final untimed = lyricsAreUntimed(widget.result.lines);
+    final untimed = !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
     final padding = EdgeInsets.fromLTRB(
       widget.compact ? 12 : 28,
       24,
@@ -1650,12 +1658,15 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
         itemCount: widget.result.lines.length,
         itemBuilder: (context, i) {
           final line = widget.result.lines[i];
+          final canSeek = widget.result.isSynced && line.timeMs > 0;
           return Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: MouseRegion(
-              cursor: SystemMouseCursors.click,
+              cursor: canSeek
+                  ? SystemMouseCursors.click
+                  : SystemMouseCursors.basic,
               child: GestureDetector(
-                onTap: () => widget.onSeekLineMs(line.timeMs),
+                onTap: canSeek ? () => widget.onSeekLineMs(line.timeMs) : null,
                 child: WaveKaraokeLyricLine(
                   line: line,
                   positionMs: 0,
@@ -1714,7 +1725,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                       compact: widget.compact,
                       fontSize: widget.fontSize,
                       showTransliteration: widget.showTransliteration,
-                      karaoke: widget.result.isSynced,
+                      karaoke: widget.result.isWordSynced,
                       softenIdle: true,
                     ),
                   ),
@@ -1729,86 +1740,12 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     return Stack(
       children: [
         list,
-        if (!widget.following)
+        if (!widget.following && widget.result.isSynced)
           Positioned(
             right: 16,
             bottom: 16,
             child: _ReturnToCurrentPill(onTap: widget.onResume),
           ),
-      ],
-    );
-  }
-}
-
-class _KaraokePlainLyrics extends StatelessWidget {
-  final String text;
-  final bool compact;
-  final bool showHeaderControls;
-  final VoidCallback? onClose;
-
-  const _KaraokePlainLyrics({
-    required this.text,
-    this.compact = false,
-    this.showHeaderControls = true,
-    this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (showHeaderControls)
-          Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 12 : 24,
-              vertical: 8,
-            ),
-            child: Row(
-              children: [
-                Text(
-                  'PLAIN LYRICS',
-                  style: WaveType.overline.copyWith(
-                    fontSize: 9.5,
-                    color: waveAccent(context),
-                  ),
-                ),
-                const Spacer(),
-                if (onClose != null)
-                  _MiniIconButton(
-                    icon: WaveIcons.close,
-                    onTap: onClose!,
-                  ),
-              ],
-            ),
-          ),
-        Expanded(
-          child: ListView(
-            physics: const ClampingScrollPhysics(),
-            padding: EdgeInsets.all(compact ? 14 : 28),
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: WaveDensity.lyricMax,
-                  ),
-                  child: SelectableText(
-                    text,
-                    style: WaveType.body.copyWith(
-                      height: 1.75,
-                      fontSize: compact ? 18 : 22,
-                      color: dark
-                          ? WaveColors.textPrimary
-                          : WaveColors.lightTextPrimary,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ],
     );
   }

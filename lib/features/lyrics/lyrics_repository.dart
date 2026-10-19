@@ -462,7 +462,7 @@ class LyricsRepository {
       if (preferred == LyricsProviderId.lrclib) lrclibAttempted = true;
       final first = normalize(await attempt(preferred.id));
       if (first != null) {
-        if (first.isWordSynced || (first.isInstrumental && wantsAlt)) {
+        if (first.isWordSynced || first.isSynced || (first.isInstrumental && wantsAlt) || !wordByWord) {
           _store(key, first, queryTitle: title);
           return display(first);
         }
@@ -495,11 +495,9 @@ class LyricsRepository {
         single = null;
       }
       if (single != null && plausible(single)) {
-        if (single.isWordSynced && wordByWord) {
-          _store(key, single, queryTitle: title);
-          return display(single);
-        }
-        if (single.isInstrumental && wantsAlt) {
+        if ((single.isWordSynced && wordByWord) ||
+            (single.isSynced && !wordByWord) ||
+            (single.isInstrumental && wantsAlt)) {
           _store(key, single, queryTitle: title);
           return display(single);
         }
@@ -581,14 +579,26 @@ class LyricsRepository {
         return display(won);
       }
     } else {
-      // Line mode: Apple + LRCLIB race for line sources under the same
-      // deadline (pre-port behavior), with the explicit pick above
-      // outranking whatever they find.
-      final pending = <Future<LyricsResult?>>[attempt('apple_music')];
-      if (!lrclibAttempted) {
-        lrclibAttempted = true;
-        pending.add(attempt('lrclib'));
-      }
+      // Line mode: race all candidate providers for line sources under the deadline.
+      final pending = <Future<LyricsResult?>>[
+        for (final id in const [
+          'lastwave',
+          'lrc_red',
+          'apple_music',
+          'better_lyrics',
+          'better_lyrics_portato',
+          'bini_lyrics',
+          'lyrics_plus',
+          'unison',
+          'kugou',
+          'simp_music',
+          'lrclib',
+        ])
+          if (id != 'simp_music' || (videoId?.isNotEmpty ?? false))
+            if (id != 'lrclib' || !lrclibAttempted)
+              attempt(id),
+      ];
+      if (!lrclibAttempted) lrclibAttempted = true;
       try {
         await drainRace(pending).timeout(raceTotal);
       } on TimeoutException {
@@ -603,43 +613,51 @@ class LyricsRepository {
       return display(preferredSettled);
     }
     final lineSettled = lineFallback;
-    if (lineSettled != null) {
+    if (lineSettled != null && lineSettled.isSynced) {
       _store(key, lineSettled, queryTitle: title);
       return display(lineSettled);
     }
     // Extra line-sync & plain catalogue after the race.
     final mxm = normalize(await attempt('musixmatch'));
-    if (mxm != null && plausible(mxm)) {
+    if (mxm != null && mxm.isSynced && plausible(mxm)) {
       _store(key, mxm, queryTitle: title);
       return display(mxm);
     }
 
     final mb = normalize(await attempt('megalobiz'));
-    if (mb != null && plausible(mb)) {
+    if (mb != null && mb.isSynced && plausible(mb)) {
       _store(key, mb, queryTitle: title);
       return display(mb);
     }
 
     if (videoId?.isNotEmpty ?? false) {
       final captions = normalize(await attempt('youtube_captions'));
-      if (captions != null && plausible(captions)) {
+      if (captions != null && captions.isSynced && plausible(captions)) {
         _store(key, captions, queryTitle: title);
         return display(captions);
-      }
-
-      final ytm = normalize(await attempt('youtube_music'));
-      if (ytm != null && plausible(ytm)) {
-        _store(key, ytm, queryTitle: title);
-        return display(ytm);
       }
     }
 
     // LRCLIB line fallback (skipped when already tried as preferred).
     if (!lrclibAttempted) {
       final lrc = normalize(await attempt('lrclib'));
-      if (lrc != null) {
+      if (lrc != null && lrc.isSynced && plausible(lrc)) {
         _store(key, lrc, queryTitle: title);
         return display(lrc);
+      }
+    }
+
+    // Unsynced fallback if any provider returned unsynced/plain text earlier.
+    if (lineSettled != null && !lineSettled.isEmpty) {
+      _store(key, lineSettled, queryTitle: title);
+      return display(lineSettled);
+    }
+
+    if (videoId?.isNotEmpty ?? false) {
+      final ytm = normalize(await attempt('youtube_music'));
+      if (ytm != null && plausible(ytm)) {
+        _store(key, ytm, queryTitle: title);
+        return display(ytm);
       }
     }
 
