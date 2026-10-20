@@ -19,6 +19,7 @@ import '../components/desktop_table.dart';
 import '../components/menus.dart';
 import '../components/skeletons.dart';
 import '../components/states.dart';
+import '../navigation/flight.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
@@ -138,14 +139,19 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
     // stand a skeleton tile in rather than an empty artwork frame.
     Widget artTile(double size) => (loading && art.isEmpty)
         ? SkeletonBox(width: size, height: size)
-        : WaveArtwork(
-            url: art,
-            size: size,
-            radius: WaveRadius.artwork,
-            title: albumTitle,
-            artist: artist,
-            label: albumTitle,
-            kind: ArtworkKind.album);
+        : WaveFlightTarget(
+            kind: 'album',
+            id: widget.browseId,
+            enabled: art.isNotEmpty,
+            child: WaveArtwork(
+                url: art,
+                size: size,
+                radius: WaveRadius.artwork,
+                title: albumTitle,
+                artist: artist,
+                label: albumTitle,
+                kind: ArtworkKind.album),
+          );
     return WaveEntranceGroup(
           child: ListView(
           padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),

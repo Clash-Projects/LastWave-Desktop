@@ -116,6 +116,8 @@ class _WavePlaylistDetailPageState
                     CrossAxisAlignment.start,
                 children: [
                   WaveCollectionHero(
+                    flightKind: 'playlist',
+                    flightId: '${playlist.id}',
                     overline:
                         'Playlist${playlist.isPinned ? ' · Pinned' : ''}',
                     title: playlist.title,

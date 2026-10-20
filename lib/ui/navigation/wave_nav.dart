@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
+import 'flight.dart';
+
 /// Opens [location] as a page *stacked* on top of the one the user is looking
 /// at.
 ///
@@ -18,7 +20,12 @@ import 'package:go_router/go_router.dart';
 /// Use it for anything opened *from* a page: an album, an artist, a YouTube
 /// playlist, Now Playing. Rail destinations and command-palette jumps stay
 /// `go`/`goBranch` — those swap the tab rather than stacking on it.
-void waveOpen(BuildContext context, String location) => context.push(location);
+void waveOpen(BuildContext context, String location) {
+  // Record where this came from before pushing: the detail header replays the
+  // cover flight out of the pressed card. See `flight.dart`.
+  WaveFlight.arm(context, location);
+  context.push(location);
+}
 
 /// `/album/<id>` carrying the metadata the pressed card already had.
 ///

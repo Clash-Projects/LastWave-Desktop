@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../navigation/flight.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import 'ambient.dart';
@@ -23,6 +24,13 @@ class WaveCollectionHero extends StatelessWidget {
   final List<Widget> primaryActions;
   final List<WaveMenuEntry> overflowItems;
   final Widget? trailing;
+
+  /// Route identity of this collection, for the cover flight from the card
+  /// that opened it (see `navigation/flight.dart`). Leave null for heroes
+  /// reached from the rail — nothing flies into those.
+  final String? flightKind;
+  final String? flightId;
+
   const WaveCollectionHero({
     super.key,
     required this.overline,
@@ -34,6 +42,8 @@ class WaveCollectionHero extends StatelessWidget {
     this.primaryActions = const [],
     this.overflowItems = const [],
     this.trailing,
+    this.flightKind,
+    this.flightId,
   });
 
   @override
@@ -41,11 +51,18 @@ class WaveCollectionHero extends StatelessWidget {
     final dark = waveIsDark(context);
     // Unconditional canonical artwork: WaveArtwork handles '' via the
     // tonal fallback (label initials), so no flat generic placeholder.
-    final art = WaveArtwork(
-      url: artworkUrl,
-      size: artworkSize,
-      radius: WaveRadius.artwork,
-      label: title,
+    final art = WaveFlightTarget(
+      kind: flightKind ?? '',
+      id: flightId ?? '',
+      enabled: flightKind != null &&
+          flightId != null &&
+          artworkUrl.isNotEmpty,
+      child: WaveArtwork(
+        url: artworkUrl,
+        size: artworkSize,
+        radius: WaveRadius.artwork,
+        label: title,
+      ),
     );
 
     Widget textBlock() => Column(

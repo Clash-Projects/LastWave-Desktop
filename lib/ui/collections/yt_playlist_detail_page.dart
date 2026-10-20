@@ -78,6 +78,7 @@ class _WaveYtPlaylistDetailPageState
           );
         }
         return _Body(
+          playlistId: widget.playlistId,
           res: res,
           heroTitle: widget.title.isNotEmpty
               ? widget.title
@@ -97,6 +98,7 @@ class _WaveYtPlaylistDetailPageState
 }
 
 class _Body extends ConsumerWidget {
+  final String playlistId;
   final YouTubePlaylistResult res;
   final String heroTitle;
   final String heroArt;
@@ -106,6 +108,7 @@ class _Body extends ConsumerWidget {
   final String sort;
   final ValueChanged<String> onSort;
   const _Body({
+    required this.playlistId,
     required this.res,
     required this.heroTitle,
     required this.heroArt,
@@ -173,6 +176,8 @@ class _Body extends ConsumerWidget {
                         CrossAxisAlignment.start,
                     children: [
                       WaveCollectionHero(
+                        flightKind: 'ytplaylist',
+                        flightId: playlistId,
                         overline: 'YouTube Music playlist',
                         title: heroTitle.isNotEmpty
                             ? heroTitle

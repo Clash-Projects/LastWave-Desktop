@@ -20,6 +20,7 @@ import '../ui/discover/discover_page.dart';
 import '../ui/home/home_page.dart';
 import '../ui/lyrics/lyrics_screen.dart';
 import '../ui/misc/support_pages.dart';
+import '../ui/navigation/flight.dart';
 import '../ui/navigation/route_origin.dart';
 import '../ui/now_playing/now_playing_page.dart';
 import '../ui/search/search_page.dart';
@@ -61,6 +62,9 @@ Page<void> _page(Widget child) {
 Page<void> _anchoredPage(Widget child) {
   final origin = WaveRouteOrigin.consume();
   if (origin == null) return _page(child);
+  // A cover flight is already the motion (see flight.dart): scaling the page
+  // underneath it would move the landing spot out from under the cover.
+  if (WaveFlight.isArmed) return _page(child);
   return CustomTransitionPage(
     child: child,
     transitionsBuilder:

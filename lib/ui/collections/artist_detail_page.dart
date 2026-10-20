@@ -18,6 +18,7 @@ import '../components/desktop_table.dart';
 import '../components/shelf.dart';
 import '../components/skeletons.dart';
 import '../components/states.dart';
+import '../navigation/flight.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -304,21 +305,28 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
     // is what read as the portrait blinking. The skeleton covers that window,
     // and leaving `url` unchanged keeps the photo that already resolved when
     // the detail lands, instead of invalidating it for the thumbnail.
-    Widget portrait(double size) => Stack(
-          alignment: Alignment.center,
-          clipBehavior: Clip.none,
-          children: [
-            WaveArtwork.circle(
-              url: '',
-              fallbackUrls: [if (d.artwork.isNotEmpty) d.artwork],
-              size: size,
-              label: d.name,
-              title: d.name,
-              artist: d.name,
-            ),
-            if (loading)
-              SkeletonBox(width: size, height: size, radius: size / 2),
-          ],
+    Widget portrait(double size) => WaveFlightTarget(
+          kind: 'artist',
+          id: widget.name,
+          enabled: d.artwork.isNotEmpty,
+          // Artist portraits are circles; the flight morphs into one.
+          radius: size / 2,
+          child: Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              WaveArtwork.circle(
+                url: '',
+                fallbackUrls: [if (d.artwork.isNotEmpty) d.artwork],
+                size: size,
+                label: d.name,
+                title: d.name,
+                artist: d.name,
+              ),
+              if (loading)
+                SkeletonBox(width: size, height: size, radius: size / 2),
+            ],
+          ),
         );
     return WaveEntranceGroup(
           child: ListView(
