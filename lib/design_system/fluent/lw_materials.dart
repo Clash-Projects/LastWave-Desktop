@@ -11,8 +11,9 @@ import 'lw_colors.dart';
 /// - L0 crisp: track tables, dense library, album grids, reading surfaces.
 ///   No blur, fully opaque base.
 /// - L1 subtle tonal: navigation pane, title chrome, player dock,
-///   secondary page surfaces. Translucent wash, optional 12px blur only
-///   over static chrome (never over scrolling content).
+///   secondary page surfaces. Translucent wash + 12px blur; callers opt in
+///   via [enableBlur] where something actually sits behind the surface (the
+///   expanded rail floats over the page, the dock does not).
 /// - L2 apparent: queue panel, lyrics controls, suggestion panel,
 ///   floating clusters. Translucent + 20px blur in a bounded 320-380px
 ///   region; rows stay crisp (no per-row blur).
@@ -143,8 +144,10 @@ class LwHaze extends StatelessWidget {
         (dark ? LwColors.surfaceLayer1 : LwColors.lightSurfaceLayer1);
     final reduceT =
         MediaQuery.maybeOf(context)?.highContrast ?? false;
-    final useBlur =
-        enableBlur && !reduceT && spec.blurSigma > 0 && level != LwHazeLevel.l0 && level != LwHazeLevel.l1;
+    final useBlur = enableBlur &&
+        !reduceT &&
+        spec.blurSigma > 0 &&
+        level != LwHazeLevel.l0;
     final alpha = !useBlur && level == LwHazeLevel.l1
         ? (dark ? 0.94 : 0.96)
         : (dark ? spec.darkAlpha : spec.lightAlpha);

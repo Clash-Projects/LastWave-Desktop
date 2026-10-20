@@ -68,9 +68,13 @@ class _WaveSideRailState extends State<WaveSideRail> {
     final width =
         expanded ? WaveDensity.railExpanded : WaveDensity.railCollapsed;
     // Haze Level 1 — subtle tonal navigation material, never a solid slab.
+    // The expanded 200px drawer floats over the page (content only reserves
+    // the 60px collapsed strip), so it has to frost what it covers; the
+    // collapsed strip has the shell behind it and blurring it would buy
+    // nothing. Haze=Solid still short-circuits the filter upstream.
     return WaveHaze(
       level: LwHazeLevel.l1,
-      enableBlur: false,
+      enableBlur: expanded,
       base: dark
           ? waveRailTranslucent(context)
           : WaveColors.lightNavBackground.withValues(alpha: 0.92),
