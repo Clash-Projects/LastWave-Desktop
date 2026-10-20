@@ -267,6 +267,30 @@ class WaveHomePage extends ConsumerWidget {
     final ytShelves = ref.watch(ytHomeShelvesProvider).valueOrNull ?? const [];
     for (final shelf in ytShelves) {
       if (!shelf.isRenderable || shelf.title.isEmpty) continue;
+      // The shelf's playable tracks, if it has any — a shelf of albums or
+      // artists has nothing to queue, so it keeps the bare count.
+      final shelfTracks = <GeneratedTrack>[
+        if (shelf.isTrackShelf)
+          for (final t in shelf.tracks)
+            GeneratedTrack(
+              name: t.title,
+              artist: t.artist,
+              album: t.album,
+              artworkUrl: t.artworkUrl,
+              videoId: t.videoId,
+              durationSeconds: t.durationSeconds,
+            )
+        else if (shelf.isTrackCardShelf)
+          for (final t in shelf.trackCards)
+            GeneratedTrack(
+              name: t.title,
+              artist: t.artist,
+              album: t.album,
+              artworkUrl: t.artworkUrl,
+              videoId: t.videoId,
+              durationSeconds: t.durationSeconds,
+            ),
+      ];
       gap(26);
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
@@ -277,35 +301,34 @@ class WaveHomePage extends ConsumerWidget {
             child: _SectionHead(
               kicker: 'YouTube Music',
               title: shelf.title,
-              count: shelf.isTrackShelf
-                  ? shelf.tracks.length
-                  : shelf.isTrackCardShelf
-                      ? shelf.trackCards.length
-                      : shelf.entities.length,
+              count: shelfTracks.isNotEmpty
+                  ? shelfTracks.length
+                  : shelf.entities.length,
+              actionLabel: shelfTracks.isEmpty ? null : 'Play',
+              actionIcon: WaveIcons.play,
+              onAction: shelfTracks.isEmpty
+                  ? null
+                  : () => playGenerated(
+                        ref,
+                        context,
+                        shelfTracks.first,
+                        sourceLabel: shelf.title,
+                        queueAll: shelfTracks,
+                      ),
             ),
           ),
         ),
       ));
       if (shelf.isTrackShelf) {
-        final rows = shelf.tracks
-            .map((t) => GeneratedTrack(
-                  name: t.title,
-                  artist: t.artist,
-                  album: t.album,
-                  artworkUrl: t.artworkUrl,
-                  videoId: t.videoId,
-                  durationSeconds: t.durationSeconds,
-                ))
-            .toList();
         slivers.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side, top: 6),
           sliver: SuperSliverList.builder(
-            itemCount: rows.length,
+            itemCount: shelfTracks.length,
             itemBuilder: (context, i) => WaveEntrance(
               index: i,
               rise: 10,
               child: _FreshRow(
-                track: rows[i],
+                track: shelfTracks[i],
                 sourceLabel: shelf.title,
               ),
             ),
@@ -316,21 +339,11 @@ class WaveHomePage extends ConsumerWidget {
         // not containers - tapping plays, like every other song
         // surface. The card menu (Play, Go to album, …) comes from
         // WaveMediaCard itself once artist + videoId are set.
-        final cards = shelf.trackCards
-            .map((t) => GeneratedTrack(
-                  name: t.title,
-                  artist: t.artist,
-                  album: t.album,
-                  artworkUrl: t.artworkUrl,
-                  videoId: t.videoId,
-                  durationSeconds: t.durationSeconds,
-                ))
-            .toList();
         slivers.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side, top: 10),
           sliver: SliverToBoxAdapter(
             child: _YtSongCardRow(
-              tracks: cards,
+              tracks: shelfTracks,
               sourceLabel: shelf.title,
             ),
           ),
@@ -815,12 +828,19 @@ class _SectionHead extends StatelessWidget {
   final int? count;
   final String? actionLabel;
   final String? actionPath;
+
+  /// Action that is not a route — "Play" on a generated shelf, which has no
+  /// page to navigate to. Wins over [actionPath] when both are set.
+  final VoidCallback? onAction;
+  final IconData actionIcon;
   const _SectionHead({
     required this.kicker,
     required this.title,
     this.count,
     this.actionLabel,
     this.actionPath,
+    this.onAction,
+    this.actionIcon = WaveIcons.chevronRight,
   });
 
   @override
@@ -859,11 +879,11 @@ class _SectionHead extends StatelessWidget {
             ],
           ),
         ),
-        if (actionLabel != null && actionPath != null)
+        if (actionLabel != null && (onAction != null || actionPath != null))
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
-            onTap: () => context.go(actionPath!),
+            onTap: onAction ?? () => context.go(actionPath!),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -876,7 +896,7 @@ class _SectionHead extends StatelessWidget {
                 ),
                 const SizedBox(width: 2),
                 Icon(
-                  WaveIcons.chevronRight,
+                  actionIcon,
                   size: 13,
                   color: waveTextTertiary(context),
                 ),
