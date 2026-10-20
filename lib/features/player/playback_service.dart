@@ -177,7 +177,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       final path = _crumbPath;
       if (path == null) return;
       File(path).writeAsStringSync(
-        '${DateTime.now().toIso8601String()} $line\n',
+        '${DateTime.now().toIso8601String()}$line\n',
         mode: FileMode.append,
         flush: true,
       );
@@ -1364,10 +1364,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _resolvingIndex = index;
     _playbackAttempt = attempt;
     final totalSw = Stopwatch()..start();
+    final track = state.queue[index];
+    final wantedQueueKey = track.queueKey;
     int resolveMs = 0;
     try {
-      final track = state.queue[index];
-      final wantedQueueKey = track.queueKey;
       _activeQueueKey = wantedQueueKey;
       // Arm the first-audio clock: resolve-start → first playing=true.
       _audioClockStart = DateTime.now();
@@ -1428,6 +1428,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         return;
       }
       if (stream == null) {
+        // Stale check before triggering retry or skip
+        if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
+
         // Retry YouTube-only only when the first pass could have taken
         // the lossless path — otherwise it repeats the identical
         // best-effort search (up to ~15s of spinner for nothing) on
@@ -1440,26 +1443,30 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           return;
         }
         _unavailable.add(track.queueKey);
+        if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
         await _skipUnavailable(index);
         return;
       }
-      _resolving = false;
+
       final openSw = Stopwatch()..start();
       await _open(track, stream, generation, wantedQueueKey);
       openSw.stop();
       totalSw.stop();
-      if (generation == _resolveGeneration) {
-        _logTiming('play key=$wantedQueueKey path=remote '
-            'playcache_hit=${cached != null} '
-            'resolve_ms=$resolveMs '
-            'mpv_open_ms=${openSw.elapsedMilliseconds} '
-            'total_ms=${totalSw.elapsedMilliseconds}');
-      }
-      if (generation != _resolveGeneration) return;
+
+      // Guard: if user clicked next during _open, exit immediately
+      if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
+
+      _logTiming('play key=$wantedQueueKey path=remote '
+          'playcache_hit=${cached != null} '
+          'resolve_ms=$resolveMs '
+          'mpv_open_ms=${openSw.elapsedMilliseconds} '
+          'total_ms=${totalSw.elapsedMilliseconds}');
+
       _prefetchNeighbors();
       _maybeRefillRadio();
-    } catch (_) {
-      if (generation != _resolveGeneration) return;
+    } catch (e) {
+      // Strictly ignore errors from outdated skip requests
+      if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
       state = state.copyWith(
         isPlaying: false,
         isBuffering: false,
@@ -1467,6 +1474,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         error: 'Could not load this track. Press Play to retry.',
       );
     } finally {
+      // Only release the resolving lock if THIS specific generation is still the latest
       if (generation == _resolveGeneration) {
         _resolving = false;
         _resolvingIndex = -1;
@@ -1898,6 +1906,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       int stopMs = 0;
       int loadMs = 0;
       await _serializedMpv(() async {
+        // Stale check right before native operations
+        if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
+
         // Always tear down before loading: opening over a live stream
         // (or racing its teardown) corrupts the Windows libmpv heap —
         // first track plays, the next dies in ntdll.
@@ -1907,16 +1918,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         } catch (_) {}
         stopSw.stop();
         stopMs = stopSw.elapsedMilliseconds;
-        if (generation != _resolveGeneration) return;
-        if (_activeQueueKey != wantedQueueKey) return;
+        if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
         if (wasDash) {
           // Proven crash window (mpv.log): the previous DASH demuxer
           // is still unwinding when loadfile arrives — the second
           // manifest dies mid-probe ~10ms after open. Bounded grace.
           _crumb('open key=$wantedQueueKey dash-grace');
           await Future.delayed(const Duration(milliseconds: 500));
-          if (generation != _resolveGeneration) return;
-          if (_activeQueueKey != wantedQueueKey) return;
+          if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
         }
         // Stamp open-issue BEFORE the call, not after it returns:
         // mpv events (pause=no) and the open() reply travel on separate
@@ -1926,6 +1935,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
             _activeQueueKey == wantedQueueKey) {
           _audioOpenDoneAt = DateTime.now();
         }
+
+        // Final sanity check before issuing native loadfile
+        if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
+
         final loadSw = Stopwatch()..start();
         await _player?.open(
           Media(playUrl, httpHeaders: stream.requestHeaders),
@@ -1937,8 +1950,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       });
       _logTiming('mpv key=$wantedQueueKey kind=$kind '
           'stop_ms=$stopMs load_ms=$loadMs dash_grace=${wasDash ? 500 : 0}');
-      if (generation != _resolveGeneration) return;
-      if (_activeQueueKey != wantedQueueKey) return;
+      if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
       if (state.speed != 1.0) {
         await _player?.setRate(state.speed);
       }
@@ -1950,7 +1962,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         debugPrint('LastWave-Player: open stack: $st');
         _dumpMpvLog('_open.exception');
       }
-      if (generation != _resolveGeneration) return;
+      if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
       await _onPlayerError();
     }
   }
@@ -2042,6 +2054,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _unavailable.add(track.queueKey);
     await _skipUnavailable(state.currentIndex);
   }
+
   Future<void> _skipUnavailable(int failedIndex) async {
     final nextIndex = _nextIndex(skipUnavailable: true);
     if (nextIndex == null) {
@@ -2170,6 +2183,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     return null;
   }
+
   int? _prevIndex() {
     if (state.shuffleEnabled && _shuffleOrder.isNotEmpty) {
       final pos = _shuffleOrder.indexOf(state.currentIndex);

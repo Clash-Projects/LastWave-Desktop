@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
@@ -154,7 +155,9 @@ class SignatureDecipher {
       ).timeout(const Duration(seconds: 20));
       final js = res.data ?? '';
       if (js.isEmpty) return null;
-      final script = _parse(jsUrl, js);
+
+      // Offload regex parsing to an isolate worker thread to prevent main UI thread stutters
+      final script = await Isolate.run(() => _parse(jsUrl, js));
       if (script == null) return null;
       if (_byJsUrl.length > 8) {
         _byJsUrl.clear();
@@ -260,7 +263,7 @@ class SignatureDecipher {
         '\\.get\\("n"\\)\\)&&\\($_sc=($_mc)(?:\\[(\\d+)\\])?\\($_sc\\)'),
   ];
 
-  PlayerScript? _parse(String jsUrl, String js) {
+  static PlayerScript? _parse(String jsUrl, String js) {
     // STS lives in the player script (NewPipe: signatureTimestamp[=:](\d+)).
     final sts = RegExp(r'signatureTimestamp[=:](\d+)')
         .firstMatch(js)
@@ -339,7 +342,7 @@ class SignatureDecipher {
 
   /// Extract `NAME=function(...)` source with balanced braces
   /// (lexer approach, mirroring NewPipe).
-  _FuncCode _extractFunction(String js, String name) {
+  static _FuncCode _extractFunction(String js, String name) {
     final idx = js.indexOf('$name=function');
     if (idx < 0) throw const FormatException('no func');
     final openIdx = js.indexOf('{', idx);
@@ -362,7 +365,7 @@ class SignatureDecipher {
 
   /// Strip NewPipe-style early-return guards, bind the array
   /// variable + extra literals, and compile op statements.
-  _Prepared _prepare(String js, String body, List<String> params,
+  static _Prepared _prepare(String js, String body, List<String> params,
       {String? extraLiteral}) {
     final env = <String, int>{};
     late final String arrayVar;
@@ -426,7 +429,7 @@ class SignatureDecipher {
     return _Prepared(ops, env, arrayVar);
   }
 
-  String? _findNFunc(String js) {
+  static String? _findNFunc(String js) {
     for (final pattern in _nNamePatterns) {
       final m = pattern.firstMatch(js);
       if (m == null) continue;
@@ -458,7 +461,7 @@ class SignatureDecipher {
 
   // -- helper objects + op classification --------------------------------------
 
-  DecipherOp _resolveOp(String js, String obj, String method,
+  static DecipherOp _resolveOp(String js, String obj, String method,
       String? argSrc, Map<String, int> outerEnv) {
     final helper = _helperBody(js, obj);
     final member = _memberBody(helper, method);
@@ -473,7 +476,7 @@ class SignatureDecipher {
     return _classify(member, env);
   }
 
-  String _helperBody(String js, String obj) {
+  static String _helperBody(String js, String obj) {
     // Helper objects are `var NAME={...};` (2+ char names).
     final m = RegExp('(?:var\\s+)?${RegExp.escape(obj)}\\s*=\\s*\\{')
         .firstMatch(js);
@@ -482,7 +485,7 @@ class SignatureDecipher {
     return _balanced(js, start);
   }
 
-  String _memberBody(String helper, String method) {
+  static String _memberBody(String helper, String method) {
     var m = RegExp(RegExp.escape(method) +
             r'\s*:\s*function\s*\(([^)]*)\)\s*\{')
         .firstMatch(helper);
@@ -500,7 +503,7 @@ class SignatureDecipher {
     throw FormatException('no member $method');
   }
 
-  List<String> _memberParams(String helper, String method) {
+  static List<String> _memberParams(String helper, String method) {
     final m = RegExp(RegExp.escape(method) +
             r'\s*(?::\s*function)?\s*\(([^)]*)\)\s*\{')
         .firstMatch(helper);
@@ -513,7 +516,7 @@ class SignatureDecipher {
         .toList();
   }
 
-  DecipherOp _classify(String body, Map<String, int> env) {
+  static DecipherOp _classify(String body, Map<String, int> env) {
     final b = body.replaceAll(RegExp(r'\s+'), '');
     if (b.contains('.reverse(')) return const DecipherOp(DecipherOpType.reverse);
     if (b.contains('.splice(')) {
@@ -559,7 +562,7 @@ class SignatureDecipher {
     throw const FormatException('unknown op');
   }
 
-  DecipherOp _spliceOp(List<String> args, Map<String, int> env) {
+  static DecipherOp _spliceOp(List<String> args, Map<String, int> env) {
     if (args.length >= 2) {
       final start = _evalInt(args[0], env, 0) ?? 0;
       final count = _evalInt(args[1], env, 0) ?? 0;
@@ -570,7 +573,7 @@ class SignatureDecipher {
     return DecipherOp(DecipherOpType.splice, [start]);
   }
 
-  List<String> _splitArgs(String src) {
+  static List<String> _splitArgs(String src) {
     final out = <String>[];
     var depth = 0;
     final buf = StringBuffer();
@@ -589,7 +592,7 @@ class SignatureDecipher {
     return out;
   }
 
-  int? _evalInt(String expr, Map<String, int> env, int len) {
+  static int? _evalInt(String expr, Map<String, int> env, int len) {
     final e = expr.trim();
     final lit = int.tryParse(e);
     if (lit != null) return lit;
@@ -605,7 +608,7 @@ class SignatureDecipher {
     return null;
   }
 
-  String _balanced(String src, int openIdx) {
+  static String _balanced(String src, int openIdx) {
     var depth = 0;
     var inStr = '';
     var escaped = false;

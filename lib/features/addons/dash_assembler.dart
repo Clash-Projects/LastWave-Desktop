@@ -22,8 +22,8 @@ class DashAssembler {
   /// Refuse absurd manifests instead of downloading the internet.
   static const int maxSegments = 512;
 
-  /// Segment fetch parallelism.
-  static const int parallelDownloads = 12;
+  /// Segment fetch parallelism (bounded to 6 to prevent memory spikes).
+  static const int parallelDownloads = 6;
 
   /// Assembled-file cache caps (hi-res tracks are ~50–100MB each).
   static const int maxCachedFiles = 16;
