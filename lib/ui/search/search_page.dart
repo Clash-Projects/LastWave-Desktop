@@ -690,7 +690,7 @@ class _BrowseTileState extends State<_BrowseTile> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedScale(
-          scale: _hover ? 1.015 : 1,
+          scale: _hover ? 1.05 : 1,
           duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: ClipRRect(
