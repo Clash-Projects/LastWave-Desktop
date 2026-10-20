@@ -1364,10 +1364,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _resolvingIndex = index;
     _playbackAttempt = attempt;
     final totalSw = Stopwatch()..start();
+    final track = state.queue[index];
+    final wantedQueueKey = track.queueKey;
     int resolveMs = 0;
     try {
-      final track = state.queue[index];
-      final wantedQueueKey = track.queueKey;
       _activeQueueKey = wantedQueueKey;
       // Arm the first-audio clock: resolve-start → first playing=true.
       _audioClockStart = DateTime.now();

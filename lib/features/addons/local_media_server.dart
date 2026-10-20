@@ -247,14 +247,6 @@ class _Session {
         final ok = await DashAssembler.fetchSegments(
           _dio,
           mediaTemplate: plan.mediaTemplate,
-       final slots =
-            List<List<int>?>.filled(plan.segmentCount, null);
-        // 120s overall budget (healthy assembles finish in ~3-28s):
-        // a stalled CDN fails here into the same-tier retry path
-        // instead of wedging the session under a reading player.
-        final ok = await DashAssembler.fetchSegments(
-          _dio,
-          mediaTemplate: plan.mediaTemplate,
           startNumber: plan.startNumber,
           count: plan.segmentCount,
           totalTimeout: const Duration(seconds: 120),
@@ -267,16 +259,6 @@ class _Session {
                 // Null out immediately after writing so GC can reclaim the memory
                 slots[i] = null;
               }
-            }
-            await sink.flush();
-          },
-        );   startNumber: plan.startNumber,
-          count: plan.segmentCount,
-          totalTimeout: const Duration(seconds: 120),
-          onSegment: (i, bytes) => slots[i] = bytes,
-          onBatch: (base, end) async {
-            for (var i = base; i < end; i++) {
-              sink.add(slots[i]!);
             }
             await sink.flush();
           },
