@@ -612,6 +612,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
   final double? fontSize;
   final bool karaoke;
   final bool softenIdle;
+  final double lineOpacity;
 
   const WaveKaraokeLyricLine({
     super.key,
@@ -625,6 +626,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
     this.fontSize,
     this.karaoke = true,
     this.softenIdle = true,
+    this.lineOpacity = 1.0,
   });
 
   @override
@@ -819,29 +821,37 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       ),
     );
 
-    return RepaintBoundary(
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: AnimatedContainer(
-          duration: WaveMotion.normal,
-          curve: Curves.easeOutCubic,
-          transform: Matrix4.diagonal3Values(
-            widget.isActive ? 1.025 : 1.0,
-            widget.isActive ? 1.025 : 1.0,
-            1.0,
+    return IgnorePointer(
+      ignoring: widget.lineOpacity < 0.05,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        opacity: widget.lineOpacity.clamp(0.0, 1.0),
+        child: RepaintBoundary(
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _isHovered = true),
+            onExit: (_) => setState(() => _isHovered = false),
+            child: AnimatedContainer(
+              duration: WaveMotion.normal,
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.diagonal3Values(
+                widget.isActive ? 1.025 : 1.0,
+                widget.isActive ? 1.025 : 1.0,
+                1.0,
+              ),
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.compact ? 8 : 12,
+                vertical: widget.karaoke ? 4 : 8,
+              ),
+              decoration: BoxDecoration(
+                color: _isHovered && !widget.isActive
+                    ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.06)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: body,
+            ),
           ),
-          padding: EdgeInsets.symmetric(
-            horizontal: widget.compact ? 8 : 12,
-            vertical: widget.karaoke ? 4 : 8,
-          ),
-          decoration: BoxDecoration(
-            color: _isHovered && !widget.isActive
-                ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.06)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: body,
         ),
       ),
     );
@@ -1646,42 +1656,58 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     final untimed = !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
     final padding = EdgeInsets.fromLTRB(
       widget.compact ? 12 : 28,
-      24,
+      widget.compact ? 36 : 64,
       widget.compact ? 12 : 28,
-      80,
+      widget.compact ? 80 : 120,
     );
 
     if (untimed) {
-      return ListView.builder(
-        physics: const ClampingScrollPhysics(),
-        padding: padding,
-        itemCount: widget.result.lines.length,
-        itemBuilder: (context, i) {
-          final line = widget.result.lines[i];
-          final canSeek = widget.result.isSynced && line.timeMs > 0;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: MouseRegion(
-              cursor: canSeek
-                  ? SystemMouseCursors.click
-                  : SystemMouseCursors.basic,
-              child: GestureDetector(
-                onTap: canSeek ? () => widget.onSeekLineMs(line.timeMs) : null,
-                child: WaveKaraokeLyricLine(
-                  line: line,
-                  positionMs: 0,
-                  isActive: false,
-                  isPast: false,
-                  compact: widget.compact,
-                  fontSize: widget.fontSize,
-                  showTransliteration: widget.showTransliteration,
-                  karaoke: false,
-                  softenIdle: false,
+      return ShaderMask(
+        shaderCallback: (Rect bounds) {
+          return const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.transparent,
+              Colors.black,
+              Colors.black,
+              Colors.transparent,
+            ],
+            stops: [0.0, 0.14, 0.86, 1.0],
+          ).createShader(bounds);
+        },
+        blendMode: BlendMode.dstIn,
+        child: ListView.builder(
+          physics: const ClampingScrollPhysics(),
+          padding: padding,
+          itemCount: widget.result.lines.length,
+          itemBuilder: (context, i) {
+            final line = widget.result.lines[i];
+            final canSeek = widget.result.isSynced && line.timeMs > 0;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: MouseRegion(
+                cursor: canSeek
+                    ? SystemMouseCursors.click
+                    : SystemMouseCursors.basic,
+                child: GestureDetector(
+                  onTap: canSeek ? () => widget.onSeekLineMs(line.timeMs) : null,
+                  child: WaveKaraokeLyricLine(
+                    line: line,
+                    positionMs: 0,
+                    isActive: false,
+                    isPast: false,
+                    compact: widget.compact,
+                    fontSize: widget.fontSize,
+                    showTransliteration: widget.showTransliteration,
+                    karaoke: false,
+                    softenIdle: false,
+                  ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       );
     }
 
@@ -1709,6 +1735,24 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
             itemBuilder: (context, i) {
               final line = widget.result.lines[i];
               final isActive = i == active;
+
+              // Distance-based attenuation when following:
+              // Only lines that safely fit without being edged are shown.
+              // Lines that would touch or get clipped at the edges fade out.
+              double lineOpacity = 1.0;
+              if (widget.following && active >= 0) {
+                final dist = (i - active).abs();
+                if (dist == 0) {
+                  lineOpacity = 1.0;
+                } else if (dist == 1) {
+                  lineOpacity = 0.45;
+                } else if (dist == 2) {
+                  lineOpacity = 0.16;
+                } else {
+                  lineOpacity = 0.0;
+                }
+              }
+
               return Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: MouseRegion(
@@ -1727,6 +1771,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                       showTransliteration: widget.showTransliteration,
                       karaoke: widget.result.isWordSynced,
                       softenIdle: true,
+                      lineOpacity: lineOpacity,
                     ),
                   ),
                 ),
@@ -1737,9 +1782,27 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       ),
     );
 
+    final maskedList = ShaderMask(
+      shaderCallback: (Rect bounds) {
+        return const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            Colors.black,
+            Colors.black,
+            Colors.transparent,
+          ],
+          stops: [0.0, 0.18, 0.82, 1.0],
+        ).createShader(bounds);
+      },
+      blendMode: BlendMode.dstIn,
+      child: list,
+    );
+
     return Stack(
       children: [
-        list,
+        maskedList,
         if (!widget.following && widget.result.isSynced)
           Positioned(
             right: 16,

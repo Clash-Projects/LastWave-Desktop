@@ -261,8 +261,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                             ? _DesktopDualPane(
                                 track: current,
                                 lyricsVisible: _lyricsVisible,
-                                maxHeight: constraints.maxHeight - 64,
-                                maxWidth: constraints.maxWidth,
                               )
                             : _NarrowCenteredPane(
                                 track: current,
@@ -491,117 +489,133 @@ class _VisibleTicker extends ConsumerWidget {
 class _DesktopDualPane extends StatelessWidget {
   final PlayableTrack track;
   final bool lyricsVisible;
-  final double maxHeight;
-  final double maxWidth;
 
   const _DesktopDualPane({
     required this.track,
     required this.lyricsVisible,
-    required this.maxHeight,
-    required this.maxWidth,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Symmetrical desktop dual pane layout:
-    // When lyrics are visible, media column and lyrics column have harmonious, balanced
-    // widths, leaving identical horizontal margins (emptiness) on both sides.
-    final colWidth = lyricsVisible
-        ? math.min(maxWidth * 0.36, maxHeight * 0.48).clamp(340.0, 420.0)
-        : math.min(maxWidth * 0.55, maxHeight * 0.52).clamp(360.0, 480.0);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final maxHeight = math.max(0.0, constraints.maxHeight - 24.0);
 
-    final gap = lyricsVisible ? (maxWidth * 0.04).clamp(40.0, 64.0) : 0.0;
+        // Symmetrical desktop dual pane layout:
+        // When lyrics are visible, media column and lyrics column have harmonious, balanced
+        // widths, leaving identical horizontal margins (emptiness) on both sides.
+        final colWidth = lyricsVisible
+            ? math.min(maxWidth * 0.36, maxHeight * 0.48).clamp(340.0, 420.0)
+            : math.min(maxWidth * 0.55, maxHeight * 0.52).clamp(360.0, 480.0);
 
-    // Harmonized lyrics column width, balancing the visual weight of the left column
-    final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
-    final maxAllowedLyricsWidth = math.max(320.0, maxWidth - colWidth - gap - 48.0);
-    final lyricsWidth = lyricsVisible
-        ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
-        : 0.0;
+        final gap = lyricsVisible ? (maxWidth * 0.04).clamp(40.0, 64.0) : 0.0;
 
-    final availableArtHeight = maxHeight - (lyricsVisible ? 140.0 : 150.0);
-    final artworkSize = math.min(colWidth, availableArtHeight).clamp(200.0, 420.0);
+        // Harmonized lyrics column width, balancing the visual weight of the left column
+        final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
+        final maxAllowedLyricsWidth = math.max(320.0, maxWidth - colWidth - gap - 48.0);
+        final lyricsWidth = lyricsVisible
+            ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
+            : 0.0;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 24),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          physics: const ClampingScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minWidth: maxWidth),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Left Column (Media Player) — fixed, non-scrolling, vertically balanced
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeInOutCubic,
-                  width: colWidth,
-                  child: RepaintBoundary(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: lyricsVisible
-                          ? CrossAxisAlignment.start
-                          : CrossAxisAlignment.center,
-                      children: [
-                        // Artwork Card
-                        _HeroArtworkCard(
-                          track: track,
-                          size: artworkSize,
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Track Info & Badges — crossfades on track change.
-                        _TrackSwap(
-                          child: _TrackMetadataSection(
-                            key: ValueKey(track.queueKey),
-                            track: track,
-                            alignCenter: !lyricsVisible,
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: SizedBox(
+              height: maxHeight,
+              child: Row(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Left Column (Media Player) — the metadata keeps its
+                  // intrinsic height; artwork takes whatever remains.
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeInOutCubic,
+                    width: colWidth,
+                    height: maxHeight,
+                    child: RepaintBoundary(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.max,
+                        crossAxisAlignment: lyricsVisible
+                            ? CrossAxisAlignment.start
+                            : CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, artConstraints) {
+                                final artSize = math.max(
+                                  0.0,
+                                  math.min(
+                                    artConstraints.maxWidth,
+                                    artConstraints.maxHeight,
+                                  ),
+                                );
+                                if (artSize <= 0) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Center(
+                                  child: _HeroArtworkCard(
+                                    track: track,
+                                    size: artSize,
+                                  ),
+                                );
+                              },
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 16),
+
+                          // Track Info & Badges — crossfades on track change.
+                          _TrackSwap(
+                            child: _TrackMetadataSection(
+                              key: ValueKey(track.queueKey),
+                              track: track,
+                              alignCenter: !lyricsVisible,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
 
-                // Gap
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeInOutCubic,
-                  width: gap,
-                ),
+                  // Gap
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeInOutCubic,
+                    width: gap,
+                  ),
 
-                // Right Column (Apple Music Karaoke Lyrics Pane)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeInOutCubic,
-                  width: lyricsWidth,
-                  child: ClipRect(
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 350),
-                      curve: Curves.easeInOutCubic,
-                      opacity: lyricsVisible ? 1.0 : 0.0,
-                      child: ExcludeFocus(
-                        excluding: !lyricsVisible,
-                        child: IgnorePointer(
-                          ignoring: !lyricsVisible,
-                          child: SizedBox(
-                            height: maxHeight,
-                            width: lyricsWidth,
-                            child: Offstage(
-                              offstage: !lyricsVisible,
-                              child: _VisibleTicker(
-                                enabled: lyricsVisible,
-                                child: RepaintBoundary(
-                                  child: WaveKaraokeLyricsView(
-                                    track: track,
-                                    compact: false,
-                                    showHeaderControls: true,
-                                    fontSize: 36.0,
-                                    isActive: lyricsVisible,
+                  // Right Column (Apple Music Karaoke Lyrics Pane)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeInOutCubic,
+                    width: lyricsWidth,
+                    height: maxHeight,
+                    child: ClipRect(
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 350),
+                        curve: Curves.easeInOutCubic,
+                        opacity: lyricsVisible ? 1.0 : 0.0,
+                        child: ExcludeFocus(
+                          excluding: !lyricsVisible,
+                          child: IgnorePointer(
+                            ignoring: !lyricsVisible,
+                            child: SizedBox(
+                              height: maxHeight,
+                              width: lyricsWidth,
+                              child: Offstage(
+                                offstage: !lyricsVisible,
+                                child: _VisibleTicker(
+                                  enabled: lyricsVisible,
+                                  child: RepaintBoundary(
+                                    child: WaveKaraokeLyricsView(
+                                      track: track,
+                                      compact: false,
+                                      showHeaderControls: true,
+                                      fontSize: 36.0,
+                                      isActive: lyricsVisible,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -611,12 +625,12 @@ class _DesktopDualPane extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -633,19 +647,36 @@ class _NarrowCenteredPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final coverArtSubtree = SingleChildScrollView(
-      physics: const ClampingScrollPhysics(),
+    final coverArtSubtree = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: MainAxisSize.max,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _HeroArtworkCard(
-                track: track,
-                size: 260,
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final artSize = math.max(
+                      0.0,
+                      math.min(
+                        math.min(constraints.maxWidth, constraints.maxHeight),
+                        360.0,
+                      ),
+                    );
+                    if (artSize <= 0) {
+                      return const SizedBox.shrink();
+                    }
+                    return Center(
+                      child: _HeroArtworkCard(
+                        track: track,
+                        size: artSize,
+                      ),
+                    );
+                  },
+                ),
               ),
               const SizedBox(height: 16),
               _TrackSwap(
@@ -855,6 +886,25 @@ class _TrackSwap extends StatelessWidget {
   }
 }
 
+/// Quality line without the duplicated tier ("HI-RES · HI-RES FLAC").
+String _streamQualityLabel(ResolvedStream stream) {
+  final badge = stream.qualityBadge.trim().toUpperCase();
+  final codec = stream.audioCodec.trim().toUpperCase();
+  final parts = <String>[];
+  if (codec.isEmpty || codec == badge || codec.contains(badge)) {
+    if (codec.isNotEmpty) parts.add(codec);
+  } else if (badge.contains(codec)) {
+    parts.add(badge);
+  } else {
+    parts.add(badge);
+    parts.add(codec);
+  }
+  if (stream.bitrateKbps > 0) {
+    parts.add('${stream.bitrateKbps} kbps');
+  }
+  return parts.join(' · ');
+}
+
 class _TrackMetadataSection extends ConsumerWidget {
   final PlayableTrack track;
   final bool alignCenter;
@@ -926,9 +976,9 @@ class _TrackMetadataSection extends ConsumerWidget {
               WaveGlass(
                 blur: false,
                 borderRadius: BorderRadius.circular(20),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 child: Text(
-                  '${stream.qualityBadge} · ${stream.audioCodec}${stream.bitrateKbps > 0 ? ' · ${stream.bitrateKbps} kbps' : ''}',
+                  _streamQualityLabel(stream),
                   style: WaveType.overline.copyWith(
                     fontSize: 9.5,
                     fontWeight: FontWeight.w700,
@@ -967,7 +1017,7 @@ class _UpNextPill extends ConsumerWidget {
         child: WaveGlass(
           blur: false,
           borderRadius: BorderRadius.circular(20),
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
