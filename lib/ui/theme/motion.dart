@@ -50,21 +50,11 @@ class _WaveEntranceGroupState extends State<WaveEntranceGroup>
 
   late final AnimationController _controller;
   bool _started = false;
-  bool _hasCompletedOnce = false;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: _window);
-    _controller.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        if (!_hasCompletedOnce && mounted) {
-          setState(() {
-            _hasCompletedOnce = true;
-          });
-        }
-      }
-    });
     if (widget.start) _go();
   }
 
@@ -75,7 +65,7 @@ class _WaveEntranceGroupState extends State<WaveEntranceGroup>
   }
 
   void _go() {
-    if (_started || _hasCompletedOnce) return;
+    if (_started) return;
     _started = true;
     _controller.forward();
   }
@@ -91,9 +81,13 @@ class _WaveEntranceGroupState extends State<WaveEntranceGroup>
     // Reduce motion: the whole point of this widget is the movement, so
     // there is no "instant" version to fall back to — hand the child over.
     if (waveReduceMotion(context)) return widget.child;
-    if (_hasCompletedOnce || _controller.isCompleted || _controller.value >= 1.0) {
-      return widget.child;
-    }
+    // The scope stays for the group's whole life. Dropping it once the
+    // timeline finished looked like a saving, but a descendant that rebuilds
+    // afterwards — a rail row on expand/collapse, a table on sort, a row whose
+    // like just flipped — then fell back to the standalone entrance and
+    // replayed its fade, so the content blinked back in. A completed group
+    // already hands plain children back (`_groupDriven` short-circuits), so
+    // keeping the scope costs one inherited lookup and nothing else.
     return _WaveEntranceScope(
       controller: _controller,
       child: widget.child,
