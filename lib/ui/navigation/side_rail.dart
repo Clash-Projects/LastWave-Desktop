@@ -210,7 +210,7 @@ class _RailItemState extends State<_RailItem> {
         ? (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
         : (dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary);
     final hasFocus = _focus.hasFocus;
-    final itemHeight = widget.expanded ? 36.0 : 46.0;
+    final itemHeight = widget.expanded ? 36.0 : 40.0;
 
     final content = Focus(
       focusNode: _focus,
@@ -315,35 +315,18 @@ class _RailItemState extends State<_RailItem> {
                                 ),
                               ],
                             )
-                          : Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                AnimatedScale(
-                                  scale: widget.selected
-                                      ? 1.06
-                                      : (_hover ? 1.03 : 1.0),
-                                  duration: waveMotion(context, WaveMotion.fast),
-                                  curve: Curves.easeOutCubic,
-                                  child: Icon(
-                                    widget.destination.icon,
-                                    size: 18,
-                                    color: widget.selected ? accent : fg,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  widget.destination.label.split(' ').first,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: WaveType.meta.copyWith(
-                                    fontSize: 9.5,
-                                    fontWeight: widget.selected
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                    color: fg,
-                                  ),
-                                ),
-                              ],
+                          : AnimatedScale(
+                              scale: widget.selected
+                                  ? 1.06
+                                  : (_hover ? 1.03 : 1.0),
+                              duration:
+                                  waveMotion(context, WaveMotion.fast),
+                              curve: Curves.easeOutCubic,
+                              child: Icon(
+                                widget.destination.icon,
+                                size: 18,
+                                color: widget.selected ? accent : fg,
+                              ),
                             );
                       },
                       ),
