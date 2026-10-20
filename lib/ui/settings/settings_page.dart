@@ -1,4 +1,5 @@
 import '../components/buttons.dart';
+import '../components/inputs.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -1814,6 +1815,7 @@ Future<void> _ytConnectWithCookies(
               ),
               const SizedBox(height: 12),
               TextBox(
+                decoration: waveInputDecoration(),
                 controller: controller,
                 placeholder: 'SID=...; __Secure-3PAPISID=...; SAPISID=...',
                 maxLines: 7,
@@ -2316,6 +2318,7 @@ class _Sources extends ConsumerWidget {
       builder: (context) => ContentDialog(
         title: const Text('Add addon'),
         content: TextBox(
+          decoration: waveInputDecoration(),
           controller: controller,
           placeholder: 'https://…/a/<token>/ or https://…',
           maxLines: 2,
@@ -2860,6 +2863,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
           const Text('API key', style: WaveType.label),
           const SizedBox(height: 4),
           TextBox(
+            decoration: waveInputDecoration(),
             controller: _key,
             placeholder: '32-character hex key',
           ),
@@ -2867,6 +2871,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
           const Text('Shared secret', style: WaveType.label),
           const SizedBox(height: 4),
           TextBox(
+            decoration: waveInputDecoration(),
             controller: _secret,
             placeholder: 'Shared secret',
             obscureText: true,

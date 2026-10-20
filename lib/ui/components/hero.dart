@@ -6,6 +6,7 @@ import '../theme/wave_icons.dart';
 import 'ambient.dart';
 import 'artwork.dart';
 import 'buttons.dart' show LWTooltip, WaveButton;
+import 'inputs.dart';
 import 'menus.dart';
 
 /// Artwork-led collection header.
@@ -184,6 +185,7 @@ class WaveFilterBar extends StatelessWidget {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 300),
                 child: TextBox(
+                  decoration: waveInputDecoration(),
                   controller: controller,
                   placeholder: hint,
                   prefix: Padding(

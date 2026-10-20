@@ -8,6 +8,7 @@ import '../../core/storage/prefs.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../components/buttons.dart';
+import '../components/inputs.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -880,11 +881,13 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
           ),
           const SizedBox(height: 8),
           TextBox(
+            decoration: waveInputDecoration(),
             controller: _key,
             placeholder: 'API key',
           ),
           const SizedBox(height: 8),
           TextBox(
+            decoration: waveInputDecoration(),
             controller: _secret,
             placeholder: 'Shared secret',
             obscureText: true,

@@ -1,4 +1,5 @@
 import '../components/buttons.dart';
+import '../components/inputs.dart';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -357,6 +358,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextBox(
+                decoration: waveInputDecoration(),
                 controller: widget.controller,
                 autofocus: true,
                 placeholder: 'Type a command or search…',

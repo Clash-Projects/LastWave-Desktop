@@ -8,6 +8,7 @@ import '../../features/library/playlist_import.dart';
 import '../../features/library/playlist_link.dart';
 import '../../features/library/playlists.dart';
 import '../components/buttons.dart';
+import '../components/inputs.dart';
 
 /// Shared playlist dialogs (create / rename / delete), used by the
 /// playlists browser and the local playlist detail page.
@@ -21,6 +22,7 @@ Future<void> showWaveCreatePlaylist(
     builder: (context) => ContentDialog(
       title: const Text('New playlist'),
       content: TextBox(
+        decoration: waveInputDecoration(),
         controller: controller,
         placeholder: 'Playlist name',
         autofocus: true,
@@ -67,6 +69,7 @@ Future<void> showWaveAddToNewPlaylist(
     builder: (context) => ContentDialog(
       title: const Text('New playlist'),
       content: TextBox(
+        decoration: waveInputDecoration(),
         controller: controller,
         placeholder: 'Playlist name',
         autofocus: true,
@@ -104,6 +107,7 @@ Future<void> showWaveRenamePlaylist(
     builder: (context) => ContentDialog(
       title: const Text('Rename playlist'),
       content: TextBox(
+        decoration: waveInputDecoration(),
         controller: controller,
         autofocus: true,
         onSubmitted: (v) =>
@@ -249,6 +253,7 @@ Future<void> showWaveImportPlaylist(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextBox(
+                decoration: waveInputDecoration(),
                 controller: controller,
                 autofocus: true,
                 placeholder:

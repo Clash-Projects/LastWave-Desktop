@@ -10,6 +10,7 @@ import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/buttons.dart' show LWTooltip;
+import '../components/inputs.dart';
 import '../components/menus.dart'
     show
         fastFlyoutTransition,
@@ -312,6 +313,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
           width: double.infinity,
           height: 30,
           child: TextBox(
+            decoration: waveInputDecoration(),
             controller: widget.controller,
             focusNode: widget.focus,
             placeholder: 'Search',
