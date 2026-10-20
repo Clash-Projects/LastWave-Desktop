@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/addons/addon_api.dart';
 import '../../features/downloads/download_manager.dart';
+import '../../features/innertube/innertube_api.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart';
@@ -32,6 +33,7 @@ class WaveInfoBarHost extends ConsumerStatefulWidget {
 class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
   bool _dismissedOffline = false;
   bool _dismissedAuth = false;
+  bool _dismissedYt = false;
   String? _dismissedDownloadKey;
   String? _dismissedQuotaNotice;
 
@@ -76,6 +78,24 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
           child: const Text('Connect'),
         ),
         onClose: () => setState(() => _dismissedAuth = true),
+      ));
+    }
+    // YouTube Music session the server has rejected. Not silent noise:
+    // library, history and uploads all stay empty until this is fixed.
+    if (ref.watch(ytConnectionProvider).connected &&
+        ref.watch(ytAuthStaleProvider) &&
+        !_dismissedYt) {
+      bars.add(InfoBar(
+        title: const Text('YouTube Music session expired'),
+        content: const Text(
+            'Reconnect to load your library, history and uploads again.'),
+        severity: InfoBarSeverity.warning,
+        isLong: false,
+        action: WaveLink(
+          onPressed: () => context.go('/settings?section=integrations'),
+          child: const Text('Reconnect'),
+        ),
+        onClose: () => setState(() => _dismissedYt = true),
       ));
     }
     final quotaNotice = ref.watch(addonNoticeProvider);

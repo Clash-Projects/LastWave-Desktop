@@ -10,6 +10,7 @@ import 'package:synchronized/synchronized.dart';
 
 import '../../core/network/dio_factory.dart';
 import 'challenge_parser.dart';
+import 'webview_profile.dart';
 import 'yt_webview_guard.dart';
 
 class PoTokenResult {
@@ -262,6 +263,7 @@ class PoTokenEngine {
     await file.writeAsString(patched);
     Webview? webview;
     try {
+      final profileFolder = await webviewUserDataFolder('botguard');
       webview = await WebviewWindow.create(
         configuration: CreateConfiguration(
           title: 'LastWave BotGuard',
@@ -271,6 +273,9 @@ class PoTokenEngine {
           windowPosX: -32000,
           windowPosY: -32000,
           useWindowPositionAndSize: true,
+          userDataFolderWindows: profileFolder.isEmpty
+              ? 'webview_window_WebView2'
+              : profileFolder,
         ),
       );
     } catch (_) {

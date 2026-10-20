@@ -858,6 +858,49 @@ class InnerTubeMusicApi {
 
   void setConnection(YtConnection c) => _connection = c;
 
+  // -- session freshness -----------------------------------------------------
+
+  /// True when YouTube has definitively treated the stored jar as
+  /// anonymous (expired/rotated `__Secure-*PSIDTS`). Restored sessions
+  /// start optimistically `connected`; [checkAuth] flips this when the
+  /// server disagrees so the UI can offer "Reconnect" instead of
+  /// silently serving empty library/history lists.
+  bool _authStale = false;
+
+  bool get authStale => _authStale;
+
+  /// Notified on every stale-flag change (wired to
+  /// `ytAuthStaleProvider` by `innerTubeProvider`).
+  void Function(bool stale)? onAuthStaleChanged;
+
+  void _setAuthStale(bool stale) {
+    if (_authStale == stale) return;
+    _authStale = stale;
+    try {
+      onAuthStaleChanged?.call(stale);
+    } catch (_) {}
+  }
+
+  /// Re-checks the stored session without throwing.
+  ///
+  /// Returns false only when YouTube definitively answered "signed
+  /// out". Network/offline errors leave the flag untouched — being
+  /// offline is not an expired session and must not nag the user.
+  Future<bool> checkAuth() async {
+    if (!_connection.connected) {
+      _setAuthStale(false);
+      return false;
+    }
+    try {
+      await verifyConnection();
+      return true;
+    } on FormatException {
+      return false;
+    } catch (_) {
+      return !_authStale;
+    }
+  }
+
   Future<void> loadPersistedConnection() async {
     final stored = await _secure.readYtCookies() ?? '';
     if (stored.isEmpty) return;
@@ -1055,11 +1098,15 @@ class InnerTubeMusicApi {
     try {
       // Fail fast: a lightweight authenticated browse proves the
       // combination is accepted before anything is persisted.
-      await verifyConnection();
+      // markStale: false — a rejected CANDIDATE must not flag the
+      // live session as expired.
+      await verifyConnection(markStale: false);
     } catch (_) {
       _connection = prev;
+      _setAuthStale(!prev.connected);
       rethrow;
     }
+    _setAuthStale(false);
     await _secure.writeYtCookies(normalized);
     await _persistActivePointer();
     if (kDebugMode) {
@@ -1070,7 +1117,8 @@ class InnerTubeMusicApi {
   /// Lightweight authenticated check: browses the account's playlist
   /// shelf. Throws on HTTP error or when the response shows the
   /// session was treated as anonymous (login wall / no contents).
-  Future<void> verifyConnection() async {
+  /// Sets [authStale] unless [markStale] is false (candidate probes).
+  Future<void> verifyConnection({bool markStale = true}) async {
     if (!_connection.connected) {
       throw StateError('Not connected');
     }
@@ -1084,9 +1132,11 @@ class InnerTubeMusicApi {
       if (kDebugMode) {
         debugPrint('YtVerify: REJECTED ${_authDebug()}');
       }
+      if (markStale) _setAuthStale(true);
       throw const FormatException(
           'YouTube rejected the cookies (signed out) — re-export from music.youtube.com while signed in');
     }
+    if (markStale) _setAuthStale(false);
     if (kDebugMode) {
       debugPrint('YtVerify: ok ${_authDebug()}');
     }
@@ -1697,6 +1747,7 @@ class InnerTubeMusicApi {
     await _secure.writeYtActive(null);
     _connection = const YtConnection();
     _clearAccountCache();
+    _setAuthStale(false);
   }
 
   /// Resolve identity for an ARBITRARY jar (not the active
@@ -5631,6 +5682,12 @@ typedef _Map = Map<String, dynamic>;
 final ytConnectionProvider =
     StateProvider<YtConnection>((_) => const YtConnection());
 
+/// True when the connected YouTube Music jar was rejected by the
+/// server (expired/rotated session). Driven by
+/// [InnerTubeMusicApi.onAuthStaleChanged]; UI shows a Reconnect
+/// affordance instead of pretending the account still works.
+final ytAuthStaleProvider = StateProvider<bool>((_) => false);
+
 /// Multi-profile roster (Google logins + their brand channels).
 /// Hydrated at startup from secure storage; the active jar/channel
 /// itself lives in [ytConnectionProvider].
@@ -6037,6 +6094,12 @@ final innerTubeProvider = Provider<InnerTubeMusicApi>((ref) {
     ref.watch(secureStoreProvider),
     ref.watch(poTokenEngineProvider),
   );
+  // Keep the reactive stale flag in sync (expired session → Reconnect).
+  api.onAuthStaleChanged = (stale) {
+    try {
+      ref.read(ytAuthStaleProvider.notifier).state = stale;
+    } catch (_) {}
+  };
   // Direct-only escape hatch: never open the BotGuard WebView.
   try {
     final off = ref.watch(prefsProvider).disablePoToken;
@@ -6051,6 +6114,11 @@ final innerTubeProvider = Provider<InnerTubeMusicApi>((ref) {
       ref.read(ytConnectionProvider.notifier).state =
           api.connection;
     } catch (_) {}
+    // Verify the restored jar in the background. Restored sessions
+    // are optimistically `connected` (there is no cheaper signal), so
+    // without this a session Google has already rotated looks fine
+    // and every account surface just returns empty forever.
+    if (api.connection.connected) unawaited(api.checkAuth());
     try {
       final raw =
           await ref.read(secureStoreProvider).readYtProfiles() ??

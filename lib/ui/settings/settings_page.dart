@@ -1,5 +1,6 @@
 import '../components/buttons.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -17,6 +18,7 @@ import '../../core/storage/prefs.dart';
 import '../../features/addons/addon_api.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
+import '../../features/innertube/yt_session_keeper.dart';
 import '../../features/innertube/yt_web_login.dart';
 import '../components/artwork.dart';
 import '../components/select.dart';
@@ -1003,6 +1005,10 @@ class _Ytm extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _connectedRow(context, ref, connection, account),
+                    if (ref.watch(ytAuthStaleProvider)) ...[
+                      const SizedBox(height: 10),
+                      const _YtStaleBanner(),
+                    ],
                     const SizedBox(height: 8),
                     _SwitchRow(
                       value: prefs.syncYtHistory,
@@ -1023,7 +1029,7 @@ class _Ytm extends ConsumerWidget {
                     ),
                     WaveButton(
                       onPressed: () => _ytConnectWithCookies(context, ref),
-                      child: const Text('Cookie Login'),
+                      child: const Text('Use cookies'),
                     ),
                     const SizedBox(width: 8),
                     WaveFilledButton(
@@ -1278,25 +1284,7 @@ class _Ytm extends ConsumerWidget {
     }
     if (cancelled || header == null || header.isEmpty) {
       if (!cancelled && context.mounted) {
-        await showDialog(
-          context: context,
-          builder: (dialogContext) => ContentDialog(
-            title: const Text('Sign-in incomplete'),
-            content: const Text(
-              'No session was captured. Please try again — if Google '
-              'shows a passkey step that stalls after Windows Hello, '
-              'reload the browser window or pick "Try another way" '
-              'and sign in with your password instead. Make sure you '
-              'complete the sign-in fully before closing the window.',
-            ),
-            actions: [
-              WaveFilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
+        await _ytSignInFailed(context, ref);
       }
       return;
     }
@@ -1308,6 +1296,95 @@ class _Ytm extends ConsumerWidget {
       pageId: YtWebLogin.lastCapturedPageId ?? '',
     );
     await _refocusMain();
+  }
+}
+
+/// Shown when YouTube definitively rejected the stored jar.
+///
+/// Tries the zero-UI hidden-window refresh exactly once per app run
+/// (the WebView2 profile keeps the Google login, so reloading
+/// music.youtube.com usually re-mints the rotated `__Secure-*PSIDTS`
+/// cookies). When that is not possible the user gets an explicit
+/// Reconnect instead of silently empty libraries.
+class _YtStaleBanner extends ConsumerStatefulWidget {
+  const _YtStaleBanner();
+
+  @override
+  ConsumerState<_YtStaleBanner> createState() => _YtStaleBannerState();
+}
+
+class _YtStaleBannerState extends ConsumerState<_YtStaleBanner> {
+  static bool _autoAttempted = false;
+  bool _busy = false;
+  bool _dismissed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // One silent attempt per app run, and only when this run actually
+    // created the sign-in window — with no cached window there is
+    // nothing to reload and the user must sign in.
+    if (!_autoAttempted && YtWebLogin.cachedWindow != null) {
+      _autoAttempted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refresh();
+      });
+    }
+  }
+
+  Future<void> _refresh() async {
+    if (_busy || !mounted) return;
+    setState(() => _busy = true);
+    final ok = await YtSessionKeeper.refresh(ref);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (!ok) {
+      await _showYtFail(
+        context,
+        'The hidden browser window could not refresh this session. '
+        'Sign in again — the browser window or a pasted cookie jar '
+        'both work.',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
+    return InfoBar(
+      title: const Text('YouTube Music session expired'),
+      content: const Text(
+        'YouTube rejected the saved session. Library, history and '
+        'uploads stay empty until you reconnect.',
+      ),
+      severity: InfoBarSeverity.warning,
+      isLong: false,
+      action: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: SizedBox(
+                width: 14,
+                height: 14,
+                child: ProgressRing(),
+              ),
+            )
+          else
+            WaveLink(
+              onPressed: _refresh,
+              child: const Text('Refresh'),
+            ),
+          const SizedBox(width: 12),
+          WaveLink(
+            onPressed: () => _ytConnectWithCookies(context, ref),
+            child: const Text('Reconnect'),
+          ),
+        ],
+      ),
+      onClose: () => setState(() => _dismissed = true),
+    );
   }
 }
 
@@ -1395,29 +1472,51 @@ class _CardActions extends ConsumerWidget {
   static Future<void> _ytAddMenu(BuildContext context, WidgetRef ref) async {
     final mode = await showDialog<String>(
       context: context,
+      // Wider than the 368px ContentDialog default so the option rows
+      // never squeeze their labels ("Cookie s", "Brand channe l").
       builder: (dialogContext) => ContentDialog(
+        constraints: const BoxConstraints(maxWidth: 460),
         title: const Text('Add to YouTube Music'),
-        content: const Text(
-          'Add another Google login, or a brand channel on the '
-          'current login.',
-          style: TextStyle(fontSize: 12),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Each identity keeps its own cookie jar, so adding one '
+              'never signs the others out.',
+              style: WaveType.meta.copyWith(
+                color: waveTextSecondary(dialogContext),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _YtAddOption(
+              icon: FluentIcons.contact,
+              title: 'Google account',
+              subtitle: 'Sign in to another Google account in a browser window',
+              onPressed: () => Navigator.of(dialogContext).pop('account'),
+            ),
+            const SizedBox(height: 8),
+            _YtAddOption(
+              icon: FluentIcons.people,
+              title: 'Brand channel',
+              subtitle: 'Add a channel on the current login (needs the '
+                  'browser window)',
+              onPressed: () => Navigator.of(dialogContext).pop('channel'),
+            ),
+            const SizedBox(height: 8),
+            _YtAddOption(
+              icon: FluentIcons.link,
+              title: 'Cookies',
+              subtitle: 'Paste a session exported from your own browser — '
+                  'works when the built-in window is blocked',
+              onPressed: () => Navigator.of(dialogContext).pop('cookie'),
+            ),
+          ],
         ),
         actions: [
           WaveButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
-          ),
-          WaveButton(
-            onPressed: () => Navigator.of(dialogContext).pop('cookie'),
-            child: const Text('Cookies'),
-          ),
-          WaveButton(
-            onPressed: () => Navigator.of(dialogContext).pop('channel'),
-            child: const Text('Brand channel'),
-          ),
-          WaveFilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop('account'),
-            child: const Text('Google account'),
           ),
         ],
       ),
@@ -1502,10 +1601,7 @@ class _CardActions extends ConsumerWidget {
     }
     if (cancelled || header == null || header.isEmpty) {
       if (!cancelled && context.mounted) {
-        await _showYtFail(
-          context,
-          'No session was captured. Please try again.',
-        );
+        await _ytSignInFailed(context, ref);
       }
       return;
     }
@@ -1624,75 +1720,153 @@ class _CardActions extends ConsumerWidget {
 
 /// Connect with pasted YouTube Music session cookies (raw header, Netscape
 /// cookies.txt, or JSON array). Normalizes and validates via InnerTubeMusicApi.
+///
+/// This is a first-class path, not a hidden fallback: Google refuses
+/// its sign-in page to embedded browsers on macOS (`disallowed_useragent`),
+/// and a broken WebView2 environment can leave Windows stuck on
+/// about:blank. A jar exported from the user's own browser is a normal
+/// Chrome session, so it is the only path that works everywhere.
 Future<void> _ytConnectWithCookies(
   BuildContext context,
   WidgetRef ref,
 ) async {
   final controller = TextEditingController();
   String? errorText;
+  var missing = const <String>[];
+  var hasInput = false;
 
   final result = await showDialog<String>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setState) => ContentDialog(
-        title: const Text('YouTube Music Cookie Login'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Paste your session cookies from music.youtube.com '
-              '(raw Cookie header, Netscape cookies.txt, or JSON array). '
-              'Must contain SAPISID or __Secure-3PAPISID.',
-              style: TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            TextBox(
-              controller: controller,
-              placeholder: 'SID=...; __Secure-3PAPISID=...; SAPISID=...',
-              maxLines: 6,
-              minLines: 3,
-              autofocus: true,
-            ),
-            if (errorText != null) ...[
-              const SizedBox(height: 8),
+      builder: (context, setState) {
+        void analyse() {
+          final text = controller.text.trim();
+          hasInput = text.isNotEmpty;
+          missing = hasInput
+              ? YtWebLogin.missingMarkerNames(_cookieNamesFrom(text))
+              : const [];
+        }
+
+        return ContentDialog(
+          constraints: const BoxConstraints(maxWidth: 540),
+          title: const Text('Connect with cookies'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
               Text(
-                errorText!,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.red,
+                'Use this when the built-in sign-in window is blocked or '
+                'cannot load. The jar comes from your own browser, so '
+                'Google sees a normal desktop session. A pasted jar '
+                'connects the main channel only — brand channels still '
+                'need the browser window.',
+                style: WaveType.meta.copyWith(
+                  color: waveTextSecondary(context),
                 ),
               ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  WaveButton(
+                    onPressed: _openYtInBrowser,
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.open_in_new_window, size: 14),
+                        SizedBox(width: 6),
+                        Text('Open music.youtube.com'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  WaveButton(
+                    onPressed: () async {
+                      final text = await _pickCookieFile();
+                      if (text == null || text.isEmpty) return;
+                      controller.text = text;
+                      setState(() {
+                        errorText = null;
+                        analyse();
+                      });
+                    },
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.open_folder_horizontal, size: 14),
+                        SizedBox(width: 6),
+                        Text('Import cookies.txt'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'In Chrome/Edge: sign in to music.youtube.com, press F12 '
+                '→ Network, reload the page, open any music.youtube.com '
+                'request and copy the value of its Cookie request header '
+                '(right-click → Copy value). Paste it below. '
+                'Firefox works the same way; a cookies.txt extension '
+                'export is also accepted.',
+                style: WaveType.meta.copyWith(
+                  color: waveTextSecondary(context),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextBox(
+                controller: controller,
+                placeholder: 'SID=...; __Secure-3PAPISID=...; SAPISID=...',
+                maxLines: 7,
+                minLines: 4,
+                autofocus: true,
+                onChanged: (_) => setState(() {
+                  errorText = null;
+                  analyse();
+                }),
+              ),
+              const SizedBox(height: 10),
+              _CookieChecklist(missing: missing, hasInput: hasInput),
+              if (errorText != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  errorText!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.red,
+                  ),
+                ),
+              ],
             ],
+          ),
+          actions: [
+            WaveButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            WaveFilledButton(
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.isEmpty) {
+                  setState(() => errorText = 'Paste the cookie text first.');
+                  return;
+                }
+                try {
+                  Navigator.of(dialogContext).pop(
+                    InnerTubeMusicApi.normalizeCookies(text),
+                  );
+                } catch (e) {
+                  setState(() {
+                    errorText = e is FormatException
+                        ? e.message
+                        : 'Invalid cookies. Make sure SAPISID is present.';
+                  });
+                }
+              },
+              child: const Text('Connect'),
+            ),
           ],
-        ),
-        actions: [
-          WaveButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          WaveFilledButton(
-            onPressed: () {
-              final text = controller.text.trim();
-              if (text.isEmpty) {
-                setState(() => errorText = 'Please enter cookie text.');
-                return;
-              }
-              try {
-                final normalized = InnerTubeMusicApi.normalizeCookies(text);
-                Navigator.of(dialogContext).pop(normalized);
-              } catch (e) {
-                setState(() {
-                  errorText = e is FormatException
-                      ? e.message
-                      : 'Invalid cookies. Make sure SAPISID is present.';
-                });
-              }
-            },
-            child: const Text('Connect'),
-          ),
-        ],
-      ),
+        );
+      },
     ),
   );
   controller.dispose();
@@ -1703,6 +1877,150 @@ Future<void> _ytConnectWithCookies(
       ref,
       header: result,
       pageId: '',
+    );
+  }
+}
+
+/// Cookie names present in any accepted paste format, for the live
+/// completeness checklist. Best-effort: normalizeCookies throws on
+/// unusable input, which just means "nothing detected yet".
+List<String> _cookieNamesFrom(String raw) {
+  try {
+    final normalized = InnerTubeMusicApi.normalizeCookies(raw);
+    final out = <String>[];
+    for (final part in normalized.split(';')) {
+      final i = part.indexOf('=');
+      if (i <= 0) continue;
+      final n = part.substring(0, i).trim();
+      if (n.isNotEmpty) out.add(n);
+    }
+    return out;
+  } catch (_) {
+    return const [];
+  }
+}
+
+Future<void> _openYtInBrowser() async {
+  final uri = Uri.parse('https://music.youtube.com/');
+  try {
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  } catch (_) {}
+}
+
+/// Read a cookies.txt / JSON export picked by the user. Capped at 2 MB
+/// (session exports are a few KB) so a stray file can never stall the
+/// dialog.
+Future<String?> _pickCookieFile() async {
+  try {
+    final f = await FilePicker.pickFile(
+      dialogTitle: 'Select a cookies.txt export',
+      type: FileType.any,
+    );
+    if (f == null) return null;
+    final size = await f.length();
+    if (size > 2 * 1024 * 1024) return null;
+    final bytes = await f.readAsBytes();
+    return utf8.decode(bytes, allowMalformed: true);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Live "does this jar look complete?" indicator under the paste box.
+class _CookieChecklist extends StatelessWidget {
+  final List<String> missing;
+  final bool hasInput;
+  const _CookieChecklist({required this.missing, required this.hasInput});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!hasInput) return const SizedBox.shrink();
+    final ok = missing.isEmpty;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          ok ? FluentIcons.check_mark : FluentIcons.warning,
+          size: 14,
+          color: ok ? null : Colors.orange,
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            ok
+                ? 'Session markers detected — this jar looks complete.'
+                : 'Not detected yet: ${missing.join(' · ')}. '
+                    'YouTube needs these to treat the jar as signed in.',
+            style: WaveType.meta.copyWith(
+              color: waveTextSecondary(context),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One full-width choice in the "Add to YouTube Music" dialog.
+class _YtAddOption extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onPressed;
+  const _YtAddOption({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: WaveButton(
+        onPressed: onPressed,
+        style: const ButtonStyle(
+          padding: WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.start,
+                    style: WaveType.trackTitle,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.start,
+                    style: WaveType.meta.copyWith(
+                      color: waveTextSecondary(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(FluentIcons.chevron_right, size: 12),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1844,6 +2162,78 @@ Future<void> _showYtFail(BuildContext context, Object e) {
       ],
     ),
   );
+}
+
+/// Explains WHY the system-WebView sign-in produced nothing and offers
+/// the cookie path, which is the only route that works when Google
+/// refuses its sign-in page to an embedded browser.
+Future<void> _ytSignInFailed(BuildContext context, WidgetRef ref) async {
+  final failure = YtWebLogin.lastFailure;
+  if (failure == YtSignInFailure.windowClosed) return;
+
+  late String title;
+  late String body;
+  switch (failure) {
+    case YtSignInFailure.browserBlocked:
+      title = 'Google blocked the built-in browser';
+      body = 'Google refuses to serve its sign-in page to embedded '
+          'browsers — this is expected on macOS, and no in-app retry can '
+          'get past that page.\n\n'
+          'Use "Connect with cookies" instead: sign in to '
+          'music.youtube.com in Chrome, Edge or Firefox, copy the cookie '
+          'table, and paste it here. That jar is a normal browser '
+          'session and works on every platform.';
+    case YtSignInFailure.unavailable:
+      title = 'No system WebView available';
+      body = 'This machine has no usable WebView runtime (WebView2 on '
+          'Windows, WebKitGTK on Linux), so the sign-in window cannot '
+          'open. Install the runtime, or connect with cookies instead — '
+          'that path does not need a WebView.';
+    case YtSignInFailure.blankPage:
+      title = 'The sign-in window did not load';
+      body = 'The browser window stayed on a blank or error page even '
+          'after reloading. That usually means the WebView profile '
+          'folder is not writable or the runtime is damaged.\n\n'
+          'Connecting with cookies does not depend on the WebView and '
+          'will work.';
+    case YtSignInFailure.timeout:
+      title = 'Sign-in timed out';
+      body = 'No session was captured in ten minutes. Make sure the '
+          'sign-in finishes on music.youtube.com — an intermediate '
+          'accounts.google.com page has no YouTube session yet.\n\n'
+          'You can try again, or connect with cookies instead.';
+    case YtSignInFailure.noSession:
+    case YtSignInFailure.none:
+    case YtSignInFailure.windowClosed:
+      title = 'Sign-in incomplete';
+      body = 'No session was captured. Complete the Google sign-in fully '
+          'on music.youtube.com before closing the window.\n\n'
+          'If Google shows a passkey step that stalls after Windows '
+          'Hello, press Reload in the wait dialog, or pick "Try another '
+          'way" and use your password. If the page never lets you in, '
+          'connect with cookies instead.';
+  }
+  final useCookies = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => ContentDialog(
+      constraints: const BoxConstraints(maxWidth: 470),
+      title: Text(title),
+      content: Text(body),
+      actions: [
+        WaveButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Close'),
+        ),
+        WaveFilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('Connect with cookies'),
+        ),
+      ],
+    ),
+  );
+  if (useCookies == true && context.mounted) {
+    await _ytConnectWithCookies(context, ref);
+  }
 }
 
 Future<void> _refocusMain() async {
