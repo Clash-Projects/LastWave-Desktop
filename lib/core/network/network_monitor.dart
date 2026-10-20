@@ -41,10 +41,19 @@ class ConnectivityStrikes {
 class NetworkMonitor extends StateNotifier<bool> {
   Timer? _timer;
   bool _disposed = false;
+  bool _checking = false;
+  bool _visible = true;
   final HttpClient _client;
   final ConnectivityStrikes _strikes = ConnectivityStrikes();
 
   static const _probeTimeout = Duration(seconds: 5);
+  static const _foregroundInterval = Duration(seconds: 15);
+  // Minimized / tray-hidden: nothing on screen consumes the flag, so a
+  // DNS+TCP wake every 15s is pure waste. A minute still flips the
+  // offline bar promptly, and [setVisible] probes immediately on restore
+  // so the flag is never stale when it can be seen. Playback failure
+  // handling does not consult this flag, so nothing audible depends on it.
+  static const _backgroundInterval = Duration(minutes: 1);
   static final _primary =
       Uri.parse('https://www.youtube.com/generate_204');
   static final _secondary = Uri.parse(
@@ -56,8 +65,22 @@ class NetworkMonitor extends StateNotifier<bool> {
           ..idleTimeout = const Duration(seconds: 10),
         super(true) {
     _check();
+    _restartTimer();
+  }
+
+  /// Window visibility gate. Backs the probe cadence off while minimized
+  /// or tray-hidden and re-probes immediately on restore.
+  void setVisible(bool visible) {
+    if (_visible == visible) return;
+    _visible = visible;
+    _restartTimer();
+    if (visible) unawaited(_check());
+  }
+
+  void _restartTimer() {
+    _timer?.cancel();
     _timer = Timer.periodic(
-      const Duration(seconds: 15),
+      _visible ? _foregroundInterval : _backgroundInterval,
       (_) => _check(),
     );
   }
@@ -78,11 +101,19 @@ class NetworkMonitor extends StateNotifier<bool> {
   }
 
   Future<void> _check() async {
-    if (_disposed) return;
-    // Secondary runs only when the primary stays silent.
-    final responded =
-        await _probe(_primary) || await _probe(_secondary);
-    _emit(_strikes.recordResult(responded: responded));
+    // One probe round at a time: the restore path can now fire an
+    // immediate check on top of a scheduled one, and two overlapping
+    // rounds would double-count strikes (flipping offline early).
+    if (_disposed || _checking) return;
+    _checking = true;
+    try {
+      // Secondary runs only when the primary stays silent.
+      final responded =
+          await _probe(_primary) || await _probe(_secondary);
+      _emit(_strikes.recordResult(responded: responded));
+    } finally {
+      _checking = false;
+    }
   }
 
   bool isCurrentlyConnected() => state;

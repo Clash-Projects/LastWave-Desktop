@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../diagnostics/memory_probe.dart';
 import '../network/dio_factory.dart';
 import '../storage/app_database.dart';
 import '../../features/innertube/innertube_api.dart';
-import '../../features/player/playback_service.dart';
 import '../../features/search/shared_providers.dart';
 import 'official_artwork_service.dart';
 
@@ -158,7 +158,16 @@ class AnimatedArtworkService {
   final List<void Function()> _queue = [];
 
   AnimatedArtworkService({Dio? dio, this._db, this.albumLookup})
-      : _dio = dio ?? DioFactory.create();
+      : _dio = dio ?? DioFactory.create() {
+    MemoryProbe.register('motion', () => debugGauge);
+  }
+
+  /// Motion-art plumbing residency: memory cache (bounded), in-flight
+  /// lookups (a memo that never clears would pin album queries) and the
+  /// two-deep concurrency queue.
+  String get debugGauge =>
+      'cache=${_memory.length} inflight=${_inflight.length} '
+      'queue=${_queue.length} active=$_active';
 
   AnimatedArtwork? peek(AnimatedArtworkQuery query) => _memory[query.cacheKey];
 
@@ -460,34 +469,4 @@ final animatedArtworkProvider =
   final svc = ref.watch(animatedArtworkServiceProvider);
   if (svc.isCached(query)) return Future.value(svc.peek(query));
   return svc.lookup(query);
-});
-
-/// Warms JSON lookup for the current track and next two in queue.
-final animatedArtworkWarmupProvider = Provider<void>((ref) {
-  final svc = ref.watch(animatedArtworkServiceProvider);
-  ref.listen(
-    playbackServiceProvider.select((s) => s.current?.queueKey ?? ''),
-    (_, _) {
-      final snap = ref.read(playbackServiceProvider);
-      final current = snap.current;
-      if (current == null) return;
-      svc.prefetch(AnimatedArtworkQuery(
-        artist: current.artist,
-        album: current.album,
-        title: current.title,
-      ));
-      final q = snap.queue;
-      final i = snap.currentIndex;
-      for (final offset in [1, 2]) {
-        if (i + offset >= q.length) continue;
-        final track = q[i + offset];
-        svc.prefetch(AnimatedArtworkQuery(
-          artist: track.artist,
-          album: track.album,
-          title: track.title,
-        ));
-      }
-    },
-    fireImmediately: true,
-  );
 });

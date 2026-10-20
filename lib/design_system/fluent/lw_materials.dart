@@ -127,17 +127,19 @@ class LwHaze extends StatelessWidget {
     final spec = lwHazeSpecs[level]!;
     final resolvedBase = base ??
         (dark ? LwColors.surfaceLayer1 : LwColors.lightSurfaceLayer1);
-    final alpha = dark ? spec.darkAlpha : spec.lightAlpha;
+    final reduceT =
+        MediaQuery.maybeOf(context)?.highContrast ?? false;
+    final useBlur =
+        enableBlur && !reduceT && spec.blurSigma > 0 && level != LwHazeLevel.l0 && level != LwHazeLevel.l1;
+    final alpha = !useBlur && level == LwHazeLevel.l1
+        ? (dark ? 0.94 : 0.96)
+        : (dark ? spec.darkAlpha : spec.lightAlpha);
     var fill = resolvedBase.withValues(alpha: alpha);
     if (artworkTint != null && level != LwHazeLevel.l0) {
       // Low-saturation atmosphere: mix tint at ≤12%, never flood.
       final tint = artworkTint!.withValues(alpha: spec.tintCap);
       fill = Color.alphaBlend(tint, fill);
     }
-    final reduceT =
-        MediaQuery.maybeOf(context)?.highContrast ?? false;
-    final useBlur =
-        enableBlur && !reduceT && spec.blurSigma > 0 && level != LwHazeLevel.l0;
     final content = Container(
       decoration: BoxDecoration(
         color: fill,
@@ -148,16 +150,18 @@ class LwHaze extends StatelessWidget {
       child: child,
     );
     if (!useBlur) return content;
-    return ClipRRect(
-      borderRadius: borderRadius is BorderRadius
-          ? borderRadius as BorderRadius
-          : BorderRadius.zero,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: spec.blurSigma,
-          sigmaY: spec.blurSigma,
+    return RepaintBoundary(
+      child: ClipRRect(
+        borderRadius: borderRadius is BorderRadius
+            ? borderRadius as BorderRadius
+            : BorderRadius.zero,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(
+            sigmaX: spec.blurSigma,
+            sigmaY: spec.blurSigma,
+          ),
+          child: content,
         ),
-        child: content,
       ),
     );
   }

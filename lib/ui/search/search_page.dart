@@ -1347,6 +1347,9 @@ class _SongsTable extends ConsumerWidget {
     final playingKey = ref.watch(
       playbackServiceProvider.select((s) => s.current?.queueKey),
     );
+    final isPlaying = ref.watch(
+      playbackServiceProvider.select((s) => s.isPlaying),
+    );
     final shown = songs.take(5).toList();
     String keyOf(SearchResultItem e) =>
         '${e.name.toLowerCase()}|${e.artist.toLowerCase()}';
@@ -1367,10 +1370,7 @@ class _SongsTable extends ConsumerWidget {
       durationSortOf: (e) => e.durationSeconds,
       titleSortOf: (e) => e.name.toLowerCase(),
       isCurrent: (e) => playingKey == keyOf(e),
-      isPlaying: (e) =>
-          playingKey == keyOf(e) &&
-          ref.watch(playbackServiceProvider
-              .select((s) => s.isPlaying)),
+      isPlaying: (e) => playingKey == keyOf(e) && isPlaying,
       onPlay: onPlay,
     );
   }

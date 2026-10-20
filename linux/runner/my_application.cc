@@ -83,6 +83,28 @@ static void my_application_activate(GApplication* application) {
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 
+  gboolean enable_impeller = TRUE;
+  const char* disable_env = getenv("LASTWAVE_DISABLE_IMPELLER");
+  const char* force_sw = getenv("LASTWAVE_FORCE_SOFTWARE");
+  const char* flutter_impeller = getenv("FLUTTER_ENABLE_IMPELLER");
+  if ((disable_env != nullptr && strcmp(disable_env, "1") == 0) ||
+      (force_sw != nullptr && strcmp(force_sw, "1") == 0) ||
+      (flutter_impeller != nullptr && strcmp(flutter_impeller, "0") == 0)) {
+    enable_impeller = FALSE;
+  }
+  if (self->dart_entrypoint_arguments != nullptr) {
+    for (char** arg = self->dart_entrypoint_arguments; *arg != nullptr; ++arg) {
+      if (strcmp(*arg, "--no-enable-impeller") == 0 ||
+          strcmp(*arg, "--disable-impeller") == 0 ||
+          strcmp(*arg, "--enable-software-rendering") == 0 ||
+          strcmp(*arg, "--software") == 0) {
+        enable_impeller = FALSE;
+        break;
+      }
+    }
+  }
+  fl_dart_project_set_enable_impeller(project, enable_impeller);
+
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000

@@ -27,7 +27,10 @@ import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
+import '../../features/equalizer/equalizer_controller.dart';
+import '../../features/equalizer/equalizer_models.dart';
 import '../../features/presence/discord_presence_service.dart';
+import '../../features/telemetry/live_telemetry_service.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
@@ -541,7 +544,96 @@ class _Audio extends ConsumerWidget {
               ),
             ],
           ),
-        )
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          title: 'Equalizer & Studio Master Clarity',
+          subtitle: '10-band ISO curves with acoustic & stage compensation',
+          child: const _EqualizerSettingsSummary(),
+        ),
+      ],
+    );
+  }
+}
+
+class _EqualizerSettingsSummary extends ConsumerWidget {
+  const _EqualizerSettingsSummary();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final eq = ref.watch(equalizerProvider);
+    final notifier = ref.read(equalizerProvider.notifier);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SwitchRow(
+          value: eq.enabled,
+          onChanged: (v) => notifier.setEnabled(v),
+          title: '10-Band Equalizer',
+          subtitle: eq.enabled
+              ? 'Active: ${eq.presetName} (-8 dB to +8 dB per band)'
+              : 'Bit-perfect direct stream bypass (filter removed)',
+        ),
+        const SizedBox(height: 8),
+        _SwitchRow(
+          value: eq.studioClarityEnabled,
+          onChanged: (v) => notifier.setStudioClarityEnabled(v),
+          title: 'Studio Master Clarity',
+          subtitle: 'Acoustic & stage compensation (${eq.clarityPreset.displayName})',
+        ),
+        if (eq.studioClarityEnabled) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text('Clarity target', style: WaveType.trackTitle),
+              const Spacer(),
+              ComboBox<String>(
+                value: eq.clarityPreset.key,
+                items: [
+                  for (final t in ClarityPresets.all)
+                    ComboBoxItem(
+                      value: t.key,
+                      child: Text(t.displayName),
+                    ),
+                ],
+                onChanged: (key) {
+                  if (key == null) return;
+                  notifier.setClarityPreset(key);
+                },
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Text('Equalizer preset', style: WaveType.trackTitle),
+            const Spacer(),
+            ComboBox<String>(
+              value: EqualizerPresets.all.any((p) => p.name == eq.presetName)
+                  ? eq.presetName
+                  : 'Custom',
+              items: [
+                for (final p in EqualizerPresets.all)
+                  ComboBoxItem(
+                    value: p.name,
+                    child: Text(p.name),
+                  ),
+                if (!EqualizerPresets.all.any((p) => p.name == eq.presetName))
+                  const ComboBoxItem(
+                    value: 'Custom',
+                    child: Text('Custom'),
+                  ),
+              ],
+              onChanged: (preset) {
+                if (preset != null && preset != 'Custom') {
+                  notifier.setPreset(preset);
+                }
+              },
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -572,7 +664,10 @@ class _Appearance extends ConsumerWidget {
                         await ref
                             .read(themeControllerProvider.notifier)
                             .setThemeMode(false);
-                        await applyWindowMaterial(isLight: false);
+                        await applyWindowMaterial(
+                          isLight: false,
+                          amoled: prefs.amoled,
+                        );
                       },
                       child: const Text('Midnight'),
                     ),
@@ -711,8 +806,10 @@ class _Appearance extends ConsumerWidget {
             children: [
               _SwitchRow(
                 value: prefs.amoled,
+                enabled: !theme.isLight,
                 onChanged: (v) => onUpdate((p) => p.setAmoled(v)),
                 title: 'AMOLED black',
+                subtitle: 'Pure-black surfaces · Midnight only',
               ),
               _SwitchRow(
                 value: prefs.dynamicNowPlaying,
@@ -856,39 +953,127 @@ class _Ytm extends ConsumerWidget {
     final connection = ref.watch(ytConnectionProvider);
     final account = ref.watch(ytAccountProvider).valueOrNull;
     final prefs = ref.watch(prefsProvider);
-    return _Group(
-      title: 'YouTube Music',
-      subtitle: 'Personal library, history and uploads',
-      child: connection.connected
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _connectedRow(context, ref, connection, account),
-                const SizedBox(height: 8),
-                _SwitchRow(
-                  value: prefs.syncYtHistory,
-                  onChanged: (v) =>
-                      onUpdate((p) => p.setSyncYtHistory(v)),
-                  title: 'Sync listening history',
-                  subtitle:
-                      'Record plays to your YouTube Music history',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Group(
+          title: 'YouTube Music',
+          subtitle: 'Personal library, history and uploads',
+          child: connection.connected
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _connectedRow(context, ref, connection, account),
+                    const SizedBox(height: 8),
+                    _SwitchRow(
+                      value: prefs.syncYtHistory,
+                      onChanged: (v) =>
+                          onUpdate((p) => p.setSyncYtHistory(v)),
+                      title: 'Sync listening history',
+                      subtitle:
+                          'Record plays to your YouTube Music history',
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    const Icon(FluentIcons.video, size: 18),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text('Not connected', style: WaveType.trackTitle),
+                    ),
+                    Button(
+                      onPressed: () => _ytConnectWithCookies(context, ref),
+                      child: const Text('Cookie Login'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => _ytConnect(context, ref),
+                      child: const Text('Connect'),
+                    ),
+                  ],
                 ),
-              ],
-            )
-          : Row(
-              children: [
-                const Icon(FluentIcons.video, size: 18),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text('Not connected', style: WaveType.trackTitle),
-                ),
-                FilledButton(
-                  onPressed: () => _ytConnect(context, ref),
-                  child: const Text('Connect'),
-                ),
-              ],
-            ),
+        ),
+        const SizedBox(height: 16),
+        _Group(
+          title: 'Global Live Telemetry & Map',
+          subtitle:
+              'Anonymous real-time listening map at telemetry.clashprojects.qd.je',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _SwitchRow(
+                value: prefs.liveTelemetryEnabled,
+                onChanged: (v) =>
+                    onUpdate((p) => p.setLiveTelemetryEnabled(v)),
+                title: 'Global Live Map Telemetry',
+                subtitle: prefs.liveTelemetryEnabled
+                    ? 'On • Listening ticks broadcast anonymously to the live world map'
+                    : 'Off • Playback telemetry stays completely local',
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Open Global Live Map',
+                            style: WaveType.trackTitle),
+                        const SizedBox(height: 2),
+                        Text(
+                          'telemetry.clashprojects.qd.je • Real-time vector map of global listeners',
+                          style: WaveType.meta.copyWith(
+                            color: waveTextSecondary(context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton(
+                    onPressed: () async {
+                      final uri =
+                          Uri.parse(LiveTelemetryService.telemetryBaseUrl);
+                      try {
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri,
+                              mode: LaunchMode.externalApplication);
+                        }
+                      } catch (_) {}
+                    },
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.globe, size: 14),
+                        SizedBox(width: 6),
+                        Text('Open Live Map'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _Group(
+          title: 'Discord',
+          subtitle: 'Show what you are listening to on your Discord profile',
+          child: _SwitchRow(
+            value: prefs.discordRichPresence,
+            onChanged: (v) async {
+              await onUpdate((p) => p.setDiscordRichPresence(v));
+              try {
+                ref.read(discordPresenceProvider).refresh();
+              } catch (_) {}
+            },
+            title: 'Discord Rich Presence',
+            subtitle: 'Uses the local Discord client · no bot or login',
+          ),
+        ),
+      ],
     );
   }
 
@@ -969,6 +1154,7 @@ class _Ytm extends ConsumerWidget {
       ],
     );
   }
+
 
   /// In-app Google sign-in: opens music.youtube.com in a system
   /// WebView, waits for login, captures cookies automatically, then
@@ -1184,6 +1370,10 @@ class _CardActions extends ConsumerWidget {
             child: const Text('Cancel'),
           ),
           Button(
+            onPressed: () => Navigator.of(dialogContext).pop('cookie'),
+            child: const Text('Cookies'),
+          ),
+          Button(
             onPressed: () => Navigator.of(dialogContext).pop('channel'),
             child: const Text('Brand channel'),
           ),
@@ -1197,6 +1387,8 @@ class _CardActions extends ConsumerWidget {
     if (mode == null || !context.mounted) return;
     if (mode == 'account') {
       await _ytAddAccount(context, ref);
+    } else if (mode == 'cookie') {
+      await _ytConnectWithCookies(context, ref);
     } else {
       await _ytAddChannel(context, ref);
     }
@@ -1392,6 +1584,91 @@ class _CardActions extends ConsumerWidget {
   }
 }
 
+/// Connect with pasted YouTube Music session cookies (raw header, Netscape
+/// cookies.txt, or JSON array). Normalizes and validates via InnerTubeMusicApi.
+Future<void> _ytConnectWithCookies(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final controller = TextEditingController();
+  String? errorText;
+
+  final result = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) => ContentDialog(
+        title: const Text('YouTube Music Cookie Login'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Paste your session cookies from music.youtube.com '
+              '(raw Cookie header, Netscape cookies.txt, or JSON array). '
+              'Must contain SAPISID or __Secure-3PAPISID.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextBox(
+              controller: controller,
+              placeholder: 'SID=...; __Secure-3PAPISID=...; SAPISID=...',
+              maxLines: 6,
+              minLines: 3,
+              autofocus: true,
+            ),
+            if (errorText != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                errorText!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.red,
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isEmpty) {
+                setState(() => errorText = 'Please enter cookie text.');
+                return;
+              }
+              try {
+                final normalized = InnerTubeMusicApi.normalizeCookies(text);
+                Navigator.of(dialogContext).pop(normalized);
+              } catch (e) {
+                setState(() {
+                  errorText = e is FormatException
+                      ? e.message
+                      : 'Invalid cookies. Make sure SAPISID is present.';
+                });
+              }
+            },
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    ),
+  );
+  controller.dispose();
+
+  if (result != null && result.isNotEmpty && context.mounted) {
+    await _ytConnectCaptured(
+      context,
+      ref,
+      header: result,
+      pageId: '',
+    );
+  }
+}
+
 /// Shared capture tail: roster upsert → ALWAYS show the channel
 /// chooser (even a single row — identity double-check) → switch to
 /// the pick. Cancelled chooser falls back to connecting the captured
@@ -1559,11 +1836,12 @@ class _Sources extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (AppEnv.addonClientSecret.isEmpty)
+          if (AppEnv.addonClientSecret.isEmpty &&
+              urls.any((u) => AddonApi.tokenOfRoot(u).isNotEmpty))
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
               child: Text(
-                'This build has no addon app key — addon calls will fail. '
+                'This build has no addon app key — official addons may fail. '
                 'Rebuild with ADDON_CLIENT_SECRET set.',
                 style: TextStyle(fontSize: 12),
               ),
@@ -1611,7 +1889,7 @@ class _Sources extends ConsumerWidget {
         title: const Text('Add addon'),
         content: TextBox(
           controller: controller,
-          placeholder: 'https://…/a/<token>/',
+          placeholder: 'https://…/a/<token>/ or https://…',
           maxLines: 2,
         ),
         actions: [
@@ -1637,7 +1915,7 @@ class _Sources extends ConsumerWidget {
           builder: (dialogContext) => ContentDialog(
             title: const Text('Not an addon URL'),
             content: const Text(
-              'Expected something like https://host/a/<token>/.',
+              'Expected something like https://host/a/<token>/ or https://host/.',
             ),
             actions: [
               FilledButton(
@@ -1753,7 +2031,7 @@ class _About extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('LastWave Desktop · v1.2.0', style: WaveType.trackTitle),
+          Text('LastWave Desktop · v1.3.0', style: WaveType.trackTitle),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -1849,19 +2127,6 @@ class _General extends ConsumerWidget {
                 subtitle:
                     'Keep the player running in the background when closed.',
               ),
-              const SizedBox(height: 8),
-              _SwitchRow(
-                value: prefs.discordRichPresence,
-                onChanged: (v) async {
-                  await onUpdate((p) => p.setDiscordRichPresence(v));
-                  try {
-                    ref.read(discordPresenceProvider).refresh();
-                  } catch (_) {}
-                },
-                title: 'Discord Rich Presence',
-                subtitle:
-                    'Show the current track in your Discord status.',
-              ),
             ],
           ),
         ),
@@ -1870,12 +2135,22 @@ class _General extends ConsumerWidget {
   }
 }
 
-class _Playback extends ConsumerWidget {
+class _Playback extends ConsumerStatefulWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Playback({required this.onUpdate});
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_Playback> createState() => _PlaybackState();
+}
+
+class _PlaybackState extends ConsumerState<_Playback> {
+  double? _dragSeconds;
+
+  @override
+  Widget build(BuildContext context) {
     final prefs = ref.watch(prefsProvider);
+    final currentSeconds = _dragSeconds ?? prefs.crossfadeSeconds.toDouble();
+
     return _Group(
       title: 'Playback',
       subtitle: 'Gapless, crossfade and output behaviour',
@@ -1883,7 +2158,7 @@ class _Playback extends ConsumerWidget {
         children: [
           _SwitchRow(
             value: prefs.autoplaySimilar,
-            onChanged: (v) => onUpdate((p) => p.setAutoplaySimilar(v)),
+            onChanged: (v) => widget.onUpdate((p) => p.setAutoplaySimilar(v)),
             title: 'Autoplay similar',
             subtitle: 'Keep playing related tracks after a queue ends',
           ),
@@ -1891,12 +2166,68 @@ class _Playback extends ConsumerWidget {
           _SwitchRow(
             value: prefs.crossfadeEnabled,
             onChanged: (v) async {
-              await onUpdate((p) => p.setCrossfade(v));
+              await widget.onUpdate((p) => p.setCrossfade(v));
               ref.read(audioOutputProvider.notifier).refreshPath();
             },
             title: 'Crossfade',
-            subtitle: '${prefs.crossfadeSeconds}s · gapless otherwise',
+            subtitle: prefs.crossfadeEnabled
+                ? '${prefs.crossfadeSeconds}s crossfade duration'
+                : 'Gapless direct transition (crossfade disabled)',
           ),
+          if (prefs.crossfadeEnabled) ...[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'Crossfade duration',
+                        style: WaveType.trackTitle,
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${currentSeconds.round()}s',
+                        style: WaveType.meta.copyWith(
+                          color: waveAccent(context),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Slider(
+                    value: currentSeconds.clamp(3.0, 12.0),
+                    min: 3.0,
+                    max: 12.0,
+                    divisions: 9,
+                    onChanged: (v) => setState(() => _dragSeconds = v),
+                    onChangeEnd: (v) async {
+                      setState(() => _dragSeconds = null);
+                      final secs = v.round().clamp(3, 12);
+                      await widget.onUpdate((p) => p.setCrossfadeSeconds(secs));
+                    },
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('3s (Short)',
+                          style: WaveType.meta
+                              .copyWith(color: waveTextSecondary(context))),
+                      Text('7s (Standard)',
+                          style: WaveType.meta
+                              .copyWith(color: waveTextSecondary(context))),
+                      Text('12s (Long)',
+                          style: WaveType.meta
+                              .copyWith(color: waveTextSecondary(context))),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2272,6 +2603,7 @@ class _QualityRow extends StatelessWidget {
         ComboBox<int>(
           value: value,
           items: const [
+            ComboBoxItem(value: 28, child: Text('Dolby Atmos')),
             ComboBoxItem(value: 27, child: Text('Hi-Res · 24/192')),
             ComboBoxItem(value: 7, child: Text('Hi-Res · 24/96')),
             ComboBoxItem(value: 6, child: Text('Lossless · 16/44.1')),
@@ -2289,6 +2621,7 @@ class _QualityRow extends StatelessWidget {
 
 class _SwitchRow extends StatelessWidget {
   final bool value;
+  final bool enabled;
   final ValueChanged<bool> onChanged;
   final String title;
   final String? subtitle;
@@ -2297,6 +2630,7 @@ class _SwitchRow extends StatelessWidget {
     required this.onChanged,
     required this.title,
     this.subtitle,
+    this.enabled = true,
   });
 
   @override
@@ -2321,7 +2655,10 @@ class _SwitchRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          ToggleSwitch(checked: value, onChanged: onChanged),
+          ToggleSwitch(
+            checked: value,
+            onChanged: enabled ? onChanged : null,
+          ),
         ],
       ),
     );

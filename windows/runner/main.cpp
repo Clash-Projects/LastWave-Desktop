@@ -47,6 +47,23 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
+  // Single-instance enforcement: prevent multiple LastWave processes from
+  // launching simultaneously, which would create duplicate tray icons and
+  // audio playback conflicts. If an instance is already running, activate it.
+  HANDLE hMutex = ::CreateMutexW(nullptr, TRUE, L"Local\\LastWaveDesktopSingleInstanceMutex");
+  if (GetLastError() == ERROR_ALREADY_EXISTS) {
+    HWND existingWnd = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
+    if (existingWnd != nullptr) {
+      ::ShowWindow(existingWnd, SW_RESTORE);
+      ::SetForegroundWindow(existingWnd);
+    }
+    if (hMutex != nullptr) {
+      ::CloseHandle(hMutex);
+    }
+    ::CoUninitialize();
+    return EXIT_SUCCESS;
+  }
+
   // 1ms system timer resolution for the life of the app. Dart cannot set
   // this (no FFI binding, and it is process-global by design). Windows
   // defaults to ~15.6ms granularity, which coarsens every Sleep-based
@@ -88,6 +105,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::timeEndPeriod(1);
+  if (hMutex != nullptr) {
+    ::ReleaseMutex(hMutex);
+    ::CloseHandle(hMutex);
+  }
   ::CoUninitialize();
   return EXIT_SUCCESS;
 }

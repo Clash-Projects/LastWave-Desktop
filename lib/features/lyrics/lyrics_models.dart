@@ -1,5 +1,9 @@
 import 'dart:math' as math;
 
+import 'package:unorm_dart/unorm_dart.dart' as unorm;
+
+final _diacriticsRegex = RegExp(r'\p{M}+', unicode: true);
+
 /// Lyrics models. Ported from LastWave-native
 /// `data/lyrics/LyricsRepository.kt`.
 class LyricSyllable {
@@ -115,11 +119,7 @@ int parseLyricTimestampMs(dynamic raw) {
 /// scroll must not treat that as "already on the last line".
 bool lyricsAreUntimed(List<LyricLine> lines) {
   if (lines.length < 2) return false;
-  final first = lines.first.timeMs;
-  for (var i = 1; i < lines.length; i++) {
-    if (lines[i].timeMs != first) return false;
-  }
-  return true;
+  return lines.first.timeMs == lines.last.timeMs;
 }
 
 int lyricsBodyLength(LyricsResult result) {
@@ -175,29 +175,46 @@ int activeLyricLineIndex(List<LyricLine> lines, int positionMs) {
   if (positionMs < lines.first.timeMs) return -1;
   if (lyricsAreUntimed(lines)) return -1;
 
-  var nextDistinct = -1;
-  for (var i = 1; i < lines.length; i++) {
-    if (lines[i].timeMs != lines.first.timeMs) {
-      nextDistinct = i;
-      break;
+  if (lines.length > 1 && lines[0].timeMs == lines[1].timeMs) {
+    var nextDistinctTime = -1;
+    for (var i = 2; i < lines.length; i++) {
+      if (lines[i].timeMs != lines[0].timeMs) {
+        nextDistinctTime = lines[i].timeMs;
+        break;
+      }
     }
-  }
-  if (nextDistinct >= 0 && positionMs < lines[nextDistinct].timeMs) {
-    return 0;
+    if (nextDistinctTime >= 0 && positionMs < nextDistinctTime) {
+      return 0;
+    }
   }
 
-  var active = 0;
-  for (var i = 0; i < lines.length; i++) {
-    if (lines[i].timeMs <= positionMs) {
-      active = i;
+  var low = 0;
+  var high = lines.length - 1;
+  var result = 0;
+
+  while (low <= high) {
+    final mid = (low + high) >> 1;
+    if (lines[mid].timeMs <= positionMs) {
+      result = mid;
+      low = mid + 1;
     } else {
-      break;
+      high = mid - 1;
     }
   }
-  return active;
+  return result;
+}
+
+double calculateSyllableProgress(LyricSyllable syl, int posMs) {
+  final startMs = syl.timeMs;
+  final durMs = math.max(1, syl.durationMs);
+  final endMs = startMs + durMs;
+  if (posMs <= startMs) return 0.0;
+  if (posMs >= endMs) return 1.0;
+  return (posMs - startMs) / durMs;
 }
 
 /// Viewport alignment for follow-scroll. Opening lines stay at the
+
 /// top; only later lines pin to the Apple ~34% karaoke anchor.
 double lyricFollowAlignment(int activeIndex, {required bool compact}) {
   if (activeIndex <= 0) return 0;
@@ -259,6 +276,23 @@ LyricsResult ensureMillisecondTimestamps(LyricsResult result) {
 /// wipe lasts until the next word instead of flashing then jumping.
 LyricsResult normalizeKaraokeTimings(LyricsResult result) {
   result = ensureMillisecondTimestamps(result);
+  if (result.lines.isEmpty && result.plainLyrics.isNotEmpty) {
+    final rawLines = result.plainLyrics
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    result = LyricsResult(
+      lines: [
+        for (final l in rawLines) LyricLine(timeMs: 0, text: l),
+      ],
+      isSynced: result.isSynced,
+      isWordSynced: result.isWordSynced,
+      plainLyrics: result.plainLyrics,
+      isInstrumental: result.isInstrumental,
+      source: result.source,
+    );
+  }
   if (!result.isSynced || result.lines.isEmpty) return result;
   final src = List<LyricLine>.of(result.lines)
     ..sort((a, b) => a.timeMs.compareTo(b.timeMs));
@@ -358,12 +392,18 @@ bool isRtlText(String text) {
 /// runs to the next stamp (or the next line, or +800ms), and stamps are
 /// stripped from the display text. Unstamped input parses exactly as before.
 List<LyricLine> parseLrc(String lrc) {
+  var text = lrc;
+  if (text.contains(r'\n') && !text.contains('\n')) {
+    text = text.replaceAll(r'\r\n', '\n').replaceAll(r'\n', '\n');
+  }
+  text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
   final timestampRegex =
-      RegExp(r'\[(\d{1,2}):(\d{2})(?:[.:](\d{2,3}))?\]');
-  final offsetRegex = RegExp(r'\[offset:\s*([+-]?\d+)\]');
+      RegExp(r'\[\s*(?:(\d{1,2}):)?(\d{1,3}):(\d{2})(?:[.:](\d{1,4}))?\s*\]');
+  final offsetRegex = RegExp(r'\[offset:\s*([+-]?\d+)\]', caseSensitive: false);
   var offset = 0;
   final rawEntries = <({int timeMs, String body})>[];
-  for (final raw in lrc.split('\n')) {
+  for (final raw in text.split('\n')) {
     final line = raw.trim();
     if (line.isEmpty) continue;
     final offsetMatch = offsetRegex.firstMatch(line);
@@ -375,9 +415,7 @@ List<LyricLine> parseLrc(String lrc) {
     if (matches.isEmpty) continue;
     final body = line.replaceAll(timestampRegex, '');
     for (final m in matches) {
-      final min = int.tryParse(m.group(1) ?? '') ?? 0;
-      final sec = int.tryParse(m.group(2) ?? '') ?? 0;
-      final fracRaw = m.group(3) ?? '';
+      final fracRaw = m.group(4) ?? '';
       var fracMs = 0;
       if (fracRaw.length == 1) {
         fracMs = (int.tryParse(fracRaw) ?? 0) * 100;
@@ -385,10 +423,37 @@ List<LyricLine> parseLrc(String lrc) {
         fracMs = (int.tryParse(fracRaw) ?? 0) * 10;
       } else if (fracRaw.length == 3) {
         fracMs = int.tryParse(fracRaw) ?? 0;
+      } else if (fracRaw.length >= 4) {
+        fracMs = (int.tryParse(fracRaw.substring(0, 3)) ?? 0);
       }
-      final totalMs =
-          (min * 60000 + sec * 1000 + fracMs + offset)
-              .clamp(0, 1 << 31);
+      int totalMs;
+      if (m.group(1) != null && fracRaw.isNotEmpty) {
+        // 4 components: hh:mm:ss.frac
+        final hour = int.tryParse(m.group(1)!) ?? 0;
+        final min = int.tryParse(m.group(2) ?? '') ?? 0;
+        final sec = int.tryParse(m.group(3) ?? '') ?? 0;
+        totalMs = (hour * 3600000 + min * 60000 + sec * 1000 + fracMs + offset)
+            .clamp(0, 1 << 31);
+      } else if (m.group(1) != null && fracRaw.isEmpty) {
+        // 3 colon-separated components: [mm:ss:xx] (standard 3-field LRC where xx is hundredths/frames)
+        final min = int.tryParse(m.group(1)!) ?? 0;
+        final sec = int.tryParse(m.group(2) ?? '') ?? 0;
+        final rawFrac = m.group(3) ?? '';
+        var fMs = int.tryParse(rawFrac) ?? 0;
+        if (rawFrac.length == 1) {
+          fMs *= 100;
+        } else if (rawFrac.length == 2) {
+          fMs *= 10;
+        } else if (rawFrac.length >= 4) {
+          fMs = int.tryParse(rawFrac.substring(0, 3)) ?? 0;
+        }
+        totalMs = (min * 60000 + sec * 1000 + fMs + offset).clamp(0, 1 << 31);
+      } else {
+        // 2 components: [mm:ss] or [mm:ss.frac]
+        final min = int.tryParse(m.group(2) ?? '') ?? 0;
+        final sec = int.tryParse(m.group(3) ?? '') ?? 0;
+        totalMs = (min * 60000 + sec * 1000 + fracMs + offset).clamp(0, 1 << 31);
+      }
       rawEntries.add((timeMs: totalMs, body: body));
     }
   }
@@ -509,8 +574,15 @@ const _versionKeywords = <String, String>{
   'session': 'live',
   'unplugged': 'unplugged',
   'acoustic': 'acoustic',
+  'piano': 'acoustic',
+  'stripped': 'acoustic',
   'remix': 'remix',
+  'mix': 'remix',
+  'club mix': 'remix',
+  'extended': 'remix',
+  'vip': 'remix',
   'cover': 'cover',
+  'tribute': 'cover',
   'karaoke': 'karaoke',
   'instrumental': 'instrumental',
   'slowed': 'slowed',
@@ -522,9 +594,20 @@ const _versionKeywords = <String, String>{
   'demo': 'demo',
   'lullaby': 'lullaby',
   '8d': '8d',
+  'interlude': 'interlude',
+  'intro': 'intro',
+  'outro': 'outro',
+  'skit': 'skit',
+  'acapella': 'acapella',
+  'a cappella': 'acapella',
+  'orchestral': 'orchestral',
+  'orchestra': 'orchestral',
+  'symphonic': 'orchestral',
+  're-recorded': 'rerecorded',
+  'rerecorded': 'rerecorded',
 };
 
-/// Version tags found in brackets or a trailing `- X` suffix.
+/// Version tags found in brackets, trailing `- X`, or trailing version word.
 Set<String> _versionTags(String rawTitle) {
   final tags = <String>{};
   final segments = <String>[];
@@ -534,6 +617,13 @@ Set<String> _versionTags(String rawTitle) {
   final trailing =
       RegExp(r'\s*[-–—:]\s*([^-–—:\(\[]+)\s*$').firstMatch(rawTitle);
   if (trailing != null) segments.add(trailing.group(1) ?? '');
+
+  final trailingWord = RegExp(
+          r'\b(remix|acoustic|live|cover|karaoke|instrumental|slowed|nightcore|extended|unplugged|vip)\s*$',
+          caseSensitive: false)
+      .firstMatch(rawTitle);
+  if (trailingWord != null) segments.add(trailingWord.group(1) ?? '');
+
   for (final segment in segments) {
     final lower = ' ${segment.toLowerCase()} ';
     _versionKeywords.forEach((keyword, tag) {
@@ -561,56 +651,115 @@ String _stripLeadingArtistPrefix(String raw) {
 }
 
 String _normalizeLyricsSymbol(String s) {
-  var v = s.toLowerCase();
+  var v = s
+      .replaceAll(RegExp(r"[\u2018\u2019\u201A\u201B`']"), '')
+      .replaceAll(RegExp(r'[\u201C\u201D\u201E\u201F"]'), ' ')
+      .replaceAll(RegExp(r'[\u2013\u2014\u2212-]'), ' ');
+  v = unorm.nfd(v.toLowerCase());
+  v = v.replaceAll(_diacriticsRegex, '');
   v = v.replaceAll(RegExp(r'\$(?=\d)'), '');
   v = v.replaceAll(r'$', 's');
   return v;
 }
 
+Set<String> _extractArtistEntities(String rawArtist) {
+  final stripped = rawArtist
+      .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+      .trim();
+  final cleaned = stripped.replaceAll(
+    RegExp(
+        r'\s*[\(\[]\s*(?:feat\.?|ft\.?|featuring\b|with\b|prod\.?|produced by\b)[^\)\]]*[\)\]]',
+        caseSensitive: false),
+    '',
+  );
+  final normalized = _normalizeLyricsSymbol(cleaned).trim();
+  final entities = <String>{};
+  if (normalized.isNotEmpty) {
+    entities.add(normalized);
+  }
+  final parts = normalized.split(
+    RegExp(r'\s*[,/;&+]\s*|\s+(?:feat\.?|ft\.?|featuring|with|vs\.?|x)\s+',
+        caseSensitive: false),
+  );
+  for (final p in parts) {
+    final t = p.trim();
+    if (t.isNotEmpty) entities.add(t);
+  }
+  return entities;
+}
+
 bool _tokenOverlap(String a, String b, double floor) {
-  final aTokens = _normalizeLyricsSymbol(a).split(RegExp(r'\s+')).toSet();
-  final bTokens = _normalizeLyricsSymbol(b).split(RegExp(r'\s+')).toSet();
+  final aTokens = _normalizeLyricsSymbol(a).split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toSet();
+  final bTokens = _normalizeLyricsSymbol(b).split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toSet();
   final union = aTokens.union(bTokens).length;
   if (union == 0) return false;
   return aTokens.intersection(bTokens).length / union >= floor;
 }
 
 /// Title match that also tolerates dirty community titles carrying an
-/// `Artist - Title` prefix. Bare `contains` is length-gated (shorter
-/// side must cover >=70% of the longer side), else token overlap decides.
+/// `Artist - Title` prefix. Enforces version agreement, length gate,
+/// and high token overlap.
 bool lyricsTitlesMatchStrict(String candidateTitle, String requestTitle) {
-  for (final cand in [candidateTitle, _stripLeadingArtistPrefix(candidateTitle)]) {
-    final ca = _normalizeLyricsSymbol(cand).trim();
-    final cb = _normalizeLyricsSymbol(requestTitle).trim();
-    if (ca.isEmpty || cb.isEmpty) continue;
-    if (ca == cb) return true;
-    if (ca.contains(cb) || cb.contains(ca)) {
-      final ratio =
-          math.min(ca.length, cb.length) / math.max(ca.length, cb.length);
-      if (ratio >= 0.7) return true;
+  if (!lyricsSameVersion(requestTitle, candidateTitle)) return false;
+
+  final cands = [candidateTitle, _stripLeadingArtistPrefix(candidateTitle)];
+  final reqs = [requestTitle, _stripLeadingArtistPrefix(requestTitle)];
+
+  for (final cand in cands) {
+    for (final req in reqs) {
+      final ca = _normalizeLyricsSymbol(cand).trim();
+      final cb = _normalizeLyricsSymbol(req).trim();
+      if (ca.isEmpty || cb.isEmpty) continue;
+      if (ca == cb) return true;
+      if (ca.contains(cb) || cb.contains(ca)) {
+        final ratio =
+            math.min(ca.length, cb.length) / math.max(ca.length, cb.length);
+        if (ratio >= 0.7) return true;
+      }
+      if (_tokenOverlap(ca, cb, 0.6)) return true;
     }
-    if (_tokenOverlap(ca, cb, 0.5)) return true;
   }
   return false;
 }
 
-/// Artist agreement for search-result filtering. Bare `contains` both
-/// ways accepted `Ann` for `Annie` — exact wins, substring needs length
-/// cover, otherwise token overlap.
+/// Artist agreement for search-result filtering. Delimiter-aware entity
+/// matching handles multi-artist billings (commas, feat, &, x) while
+/// rejecting short-name theft.
 bool lyricsArtistsMatchStrict(String candidateArtist, String requestArtist) {
   final ca = _normalizeLyricsSymbol(candidateArtist).trim();
   final ra = _normalizeLyricsSymbol(requestArtist).trim();
   if (ca.isEmpty || ra.isEmpty) return false;
   if (ca == ra) return true;
+
+  final cEntities = _extractArtistEntities(candidateArtist);
+  final rEntities = _extractArtistEntities(requestArtist);
+
+  for (final ce in cEntities) {
+    if (ce.length < 2) continue;
+    for (final re in rEntities) {
+      if (re.length < 2) continue;
+      if (ce == re) return true;
+    }
+  }
+
+  final shorter = ca.length <= ra.length ? ca : ra;
+  final longer = ca.length <= ra.length ? ra : ca;
   if (ca.contains(ra) || ra.contains(ca)) {
-    if (math.min(ca.length, ra.length) < 4) {
-      return _tokenOverlap(ca, ra, 0.5);
+    if (shorter.length < 4) {
+      return _tokenOverlap(ca, ra, 0.6);
+    }
+    final pattern =
+        r'(^|(?:\s*[,&/;+]\s*|\s+(?:with|feat\.?|ft\.?|featuring|vs\.?|x)\s+))' +
+        RegExp.escape(shorter) +
+        r'($|(?:\s*[,&/;+]\s*|\s+(?:with|feat\.?|ft\.?|featuring|vs\.?|x)\s+))';
+    if (RegExp(pattern, caseSensitive: false).hasMatch(longer)) {
+      return true;
     }
     final ratio =
         math.min(ca.length, ra.length) / math.max(ca.length, ra.length);
     if (ratio >= 0.6) return true;
   }
-  return _tokenOverlap(ca, ra, 0.5);
+  return _tokenOverlap(ca, ra, 0.6);
 }
 
 final _searchWhitespace = RegExp(r'\s+');
@@ -694,26 +843,32 @@ bool lyricsPlausibleDuration(List<LyricLine> lines, int? durationSeconds) {
   }
   if (endMs <= 0) return true;
   if (endMs > expectedMs + 45000) return false;
-  if (endMs < expectedMs * 0.5 && expectedMs - endMs > 90000) return false;
+  if (endMs < expectedMs * 0.45 && expectedMs - endMs > 90000) return false;
   return true;
 }
 
 /// Parse TTML (`<p begin end>` lines, `<span begin end>` words).
 List<LyricLine> parseTtml(String ttml) {
+  var raw = ttml;
+  if (raw.contains(r'\n') && !raw.contains('\n')) {
+    raw = raw.replaceAll(r'\r\n', '\n').replaceAll(r'\n', '\n');
+  }
   final pTag = RegExp(
-      r'<p\s+([^>]*?)>(.*?)</p>',
-      dotAll: true);
+      r'<(?:[a-zA-Z0-9_-]+:)?p\b([^>]*?)>(.*?)</(?:[a-zA-Z0-9_-]+:)?p>',
+      dotAll: true,
+      caseSensitive: false);
   final spanTag = RegExp(
-      r'<span\s+([^>]*?)>(.*?)</span>(\s*)',
-      dotAll: true);
+      r'<(?:[a-zA-Z0-9_-]+:)?span\b([^>]*?)>(.*?)</(?:[a-zA-Z0-9_-]+:)?span>(\s*)',
+      dotAll: true,
+      caseSensitive: false);
   final xmlTag = RegExp(r'<[^>]+>');
   final lines = <LyricLine>[];
 
-  for (final p in pTag.allMatches(ttml)) {
+  for (final p in pTag.allMatches(raw)) {
     final pAttrs = p.group(1) ?? '';
     final inner = p.group(2) ?? '';
-    final pBeginMatch = RegExp(r'begin="([^"]+)"').firstMatch(pAttrs);
-    final pEndMatch = RegExp(r'end="([^"]+)"').firstMatch(pAttrs);
+    final pBeginMatch = RegExp(r'''(?:begin|start|startTime|from)=["']([^"']+)["']''', caseSensitive: false).firstMatch(pAttrs);
+    final pEndMatch = RegExp(r'''(?:end|endTime|to)=["']([^"']+)["']''', caseSensitive: false).firstMatch(pAttrs);
     final start = _parseTtmlTime(pBeginMatch?.group(1) ?? '');
     final end = _parseTtmlTime(pEndMatch?.group(1) ?? '');
     final duration = (end - start).clamp(0, 1 << 31);
@@ -722,16 +877,13 @@ List<LyricLine> parseTtml(String ttml) {
     if (spans.isEmpty) {
       final text = _unescapeXml(inner.replaceAll(xmlTag, '').trim());
       if (text.isEmpty) continue;
-      final syllables = interpolateLineSyllables(
-        text: text,
-        startTimeMs: start,
-        durationMs: duration > 0 ? duration : 4000,
-      );
+      // Line-synced TTML carries no syllables so that wordByWord racing
+      // and providers correctly distinguish line sync vs word sync.
       lines.add(LyricLine(
         timeMs: start,
-        durationMs: duration,
+        durationMs: duration > 0 ? duration : 4000,
         text: text,
-        syllables: syllables,
+        syllables: const [],
       ));
     } else {
       final syllables = <LyricSyllable>[];
@@ -746,8 +898,8 @@ List<LyricLine> parseTtml(String ttml) {
         final rawContent = s.group(2) ?? '';
         final trailingSpace = s.group(3) ?? '';
 
-        final beginMatch = RegExp(r'begin="([^"]+)"').firstMatch(attrs);
-        final endMatch = RegExp(r'end="([^"]+)"').firstMatch(attrs);
+        final beginMatch = RegExp(r'''(?:begin|start|startTime|from)=["']([^"']+)["']''', caseSensitive: false).firstMatch(attrs);
+        final endMatch = RegExp(r'''(?:end|endTime|to)=["']([^"']+)["']''', caseSensitive: false).firstMatch(attrs);
 
         if (beginMatch == null || endMatch == null) {
           // Nested or container span (e.g. <span ttm:role="x-bg">)
@@ -757,8 +909,8 @@ List<LyricLine> parseTtml(String ttml) {
             final ispan = innerSpans[j];
             final isInnerLast = isLast && j == innerSpans.length - 1;
             final iattrs = ispan.group(1) ?? '';
-            final ibMatch = RegExp(r'begin="([^"]+)"').firstMatch(iattrs);
-            final ieMatch = RegExp(r'end="([^"]+)"').firstMatch(iattrs);
+            final ibMatch = RegExp(r'''(?:begin|start|startTime|from)=["']([^"']+)["']''', caseSensitive: false).firstMatch(iattrs);
+            final ieMatch = RegExp(r'''(?:end|endTime|to)=["']([^"']+)["']''', caseSensitive: false).firstMatch(iattrs);
             if (ibMatch == null || ieMatch == null) continue;
             final ws = _parseTtmlTime(ibMatch.group(1) ?? '');
             final we = _parseTtmlTime(ieMatch.group(1) ?? '');
@@ -811,17 +963,20 @@ List<LyricLine> parseTtml(String ttml) {
 }
 
 int _parseTtmlTime(String s) {
-  s = s.trim();
-  if (s.isEmpty) return 0;
+  var str = s.trim();
+  if (str.isEmpty) return 0;
   try {
-    if (s.endsWith('ms')) {
-      return double.parse(s.substring(0, s.length - 2)).round();
+    if (str.endsWith('ms')) {
+      final val = str.substring(0, str.length - 2).trim();
+      if (!val.contains(':')) {
+        return double.parse(val).round();
+      }
+      str = val;
+    } else if (str.endsWith('s')) {
+      str = str.substring(0, str.length - 1).trim();
     }
-    if (s.endsWith('s')) {
-      return (double.parse(s.substring(0, s.length - 1)) * 1000).round();
-    }
-    if (s.contains(':')) {
-      final parts = s.split(':');
+    if (str.contains(':')) {
+      final parts = str.split(':');
       final nums = parts.map(double.parse).toList().reversed.toList();
       var total = 0.0;
       var mult = 1.0;
@@ -831,7 +986,7 @@ int _parseTtmlTime(String s) {
       }
       return (total * 1000).round();
     }
-    return (double.parse(s) * 1000).round();
+    return (double.parse(str) * 1000).round();
   } catch (_) {
     return 0;
   }

@@ -115,12 +115,9 @@ class _WaveWelcomePageState
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
     final wide = MediaQuery.sizeOf(context).width >= 860;
     return Mica(
-      backgroundColor: dark
-          ? WaveColors.background
-          : WaveColors.lightBackground,
+      backgroundColor: waveBackground(context),
       child: Column(
         children: [
           const _WelcomeChrome(),

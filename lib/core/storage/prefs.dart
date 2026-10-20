@@ -74,8 +74,8 @@ class Prefs {
 
   // -- Audio quality (mirrors Android quality tiers) ---------------------
   /// -1 = YouTube only, 5 = 320k MP3, 6 = 16/44.1 FLAC,
-  /// 7 = 24/96, 27 = 24/192.
-  static const allowedQualities = [-1, 5, 6, 7, 27];
+  /// 7 = 24/96, 27 = 24/192, 28 = Dolby Atmos.
+  static const allowedQualities = [-1, 5, 6, 7, 27, 28];
 
   bool get preferLossless =>
       _sp.getBool('lw_prefer_lossless_streaming') ?? true;
@@ -95,9 +95,9 @@ class Prefs {
   // -- Window behaviour ---------------------------------------------------
   /// Close button / Alt+F4 hides to the tray instead of quitting.
   /// Real quit stays in tray → Quit (ordered player teardown first).
-  /// Default on.
+  /// Default off (clicking X closes the application and stops audio).
   bool get closeToTray =>
-      _sp.getBool('lw_close_to_tray') ?? true;
+      _sp.getBool('lw_close_to_tray') ?? false;
   Future<void> setCloseToTray(bool v) =>
       _sp.setBool('lw_close_to_tray', v);
 
@@ -112,14 +112,18 @@ class Prefs {
   bool get crossfadeEnabled => _sp.getBool('lw_crossfade_enabled') ?? false;
   int get crossfadeSeconds {
     final v = _sp.getInt('lw_crossfade_seconds') ?? 5;
-    return v.clamp(1, 12);
+    return v.clamp(3, 12);
   }
 
   Future<void> setCrossfade(bool enabled, [int? seconds]) async {
     await _sp.setBool('lw_crossfade_enabled', enabled);
     if (seconds != null) {
-      await _sp.setInt('lw_crossfade_seconds', seconds.clamp(1, 12));
+      await _sp.setInt('lw_crossfade_seconds', seconds.clamp(3, 12));
     }
+  }
+
+  Future<void> setCrossfadeSeconds(int seconds) async {
+    await _sp.setInt('lw_crossfade_seconds', seconds.clamp(3, 12));
   }
 
   bool get bitPerfect => _sp.getBool('lw_bit_perfect') ?? false;
@@ -261,6 +265,16 @@ class Prefs {
   Future<void> setDisablePoToken(bool v) =>
       _sp.setBool('lw_disable_potoken', v);
 
+  // -- Global Live Map Telemetry ----------------------------------------------
+  /// Broadcast anonymous listening ticks to the LastWave Live Global Map
+  /// (telemetry.clashprojects.qd.je).
+  /// Matches mobile key `lw_live_telemetry_enabled`, default on (true).
+  bool get liveTelemetryEnabled =>
+      _sp.getBool('lw_live_telemetry_enabled') ?? true;
+
+  Future<void> setLiveTelemetryEnabled(bool v) =>
+      _sp.setBool('lw_live_telemetry_enabled', v);
+
   // -- Desktop-app Parity (Karaoke Lyrics & Visualizer & CD Mode) ------------
   int getLyricsOffset(String trackKey) =>
       _sp.getInt('lw_lyrics_offset_$trackKey') ?? 0;
@@ -315,6 +329,28 @@ class Prefs {
     'lw_addon_urls',
     jsonEncode(urls.map((e) => e.trim()).where((e) => e.isNotEmpty).toList()),
   );
+
+  // -- Equalizer & Studio Master Clarity ------------------------------------
+  bool get equalizerEnabled => _sp.getBool('lw_eq_enabled') ?? false;
+  Future<void> setEqualizerEnabled(bool v) => _sp.setBool('lw_eq_enabled', v);
+
+  String get equalizerPreset => _sp.getString('lw_eq_preset') ?? 'Default';
+  Future<void> setEqualizerPreset(String v) =>
+      _sp.setString('lw_eq_preset', v);
+
+  String get equalizerGains => _sp.getString('lw_eq_gains') ?? '';
+  Future<void> setEqualizerGains(String v) =>
+      _sp.setString('lw_eq_gains', v);
+
+  bool get studioClarityEnabled =>
+      _sp.getBool('lw_studio_clarity_enabled') ?? false;
+  Future<void> setStudioClarityEnabled(bool v) =>
+      _sp.setBool('lw_studio_clarity_enabled', v);
+
+  String get studioClarityPreset =>
+      _sp.getString('lw_studio_clarity_preset') ?? 'reference';
+  Future<void> setStudioClarityPreset(String v) =>
+      _sp.setString('lw_studio_clarity_preset', v);
 }
 
 final prefsProvider = Provider<Prefs>((_) {

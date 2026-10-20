@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/library/playlists.dart';
@@ -35,16 +34,20 @@ class WavePlayerDock extends ConsumerWidget {
   final VoidCallback onExpand;
   final VoidCallback onToggleQueue;
   final VoidCallback onToggleLyrics;
+  final VoidCallback? onToggleEqualizer;
   final bool queueActive;
   final bool lyricsActive;
+  final bool equalizerActive;
   final VoidCallback onToggleMini;
   const WavePlayerDock({
     super.key,
     required this.onExpand,
     required this.onToggleQueue,
     required this.onToggleLyrics,
+    this.onToggleEqualizer,
     this.queueActive = false,
     this.lyricsActive = false,
+    this.equalizerActive = false,
     required this.onToggleMini,
   });
 
@@ -66,12 +69,11 @@ class WavePlayerDock extends ConsumerWidget {
     final notifier = ref.read(playbackServiceProvider.notifier);
     final current = player.current;
     final artworkUrl = player.current?.artworkUrl ?? '';
-    ref.watch(animatedArtworkWarmupProvider);
     final dockTint = ref.watch(artworkSeedProvider(artworkUrl)).valueOrNull;
 
     final targetBase = () {
       final baseColor = dark
-          ? WaveColors.dockTranslucent
+          ? waveDockTranslucent(context)
           : WaveColors.lightSurface.withValues(alpha: 0.97);
       if (dockTint != null && dark) {
         return Color.lerp(baseColor, dockTint, 0.05) ?? baseColor;
@@ -86,6 +88,7 @@ class WavePlayerDock extends ConsumerWidget {
       builder: (context, animatedBase, child) {
         return WaveHaze(
           level: LwHazeLevel.l1,
+          enableBlur: false,
           base: animatedBase ?? targetBase,
           border: Border(
             top: BorderSide(color: waveDivider(context)),
@@ -255,7 +258,9 @@ class WavePlayerDock extends ConsumerWidget {
                               ],
                             ),
                             const SizedBox(height: 1),
-                            _DockProgress(compact: narrow),
+                            RepaintBoundary(
+                              child: _DockProgress(compact: narrow),
+                            ),
                           ],
                         ),
                       ),
@@ -310,6 +315,13 @@ class WavePlayerDock extends ConsumerWidget {
                             active: queueActive,
                             onTap: onToggleQueue,
                           ),
+                          if (onToggleEqualizer != null)
+                            _Glyph(
+                              tooltip: 'Equalizer',
+                              icon: WaveIcons.equalizer,
+                              active: equalizerActive,
+                              onTap: onToggleEqualizer!,
+                            ),
                           if (showDevice) const _DeviceGlyph(),
                           if (showVolumeSlider)
                             const _VolumeSection()
@@ -337,6 +349,7 @@ class WavePlayerDock extends ConsumerWidget {
                             onToggleLyrics: onToggleLyrics,
                             onExpand: onExpand,
                             onToggleMini: onToggleMini,
+                            onToggleEqualizer: onToggleEqualizer,
                           ),
                         ],
                       ),
@@ -454,7 +467,10 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
                     ),
                     WaveMenuAction(
                       leading: const Icon(WaveIcons.mixes, size: 15),
-                      label: 'Bit depth · ${s.bitDepth}-bit',
+                      label: (s.qualityBadge == 'ATMOS' ||
+                              s.audioCodec.contains('ATMOS'))
+                          ? 'Spatial Audio · Dolby Atmos'
+                          : 'Bit depth · ${s.bitDepth}-bit',
                       onPressed: () {},
                     ),
                     if (s.bitrateKbps > 0)
@@ -1266,6 +1282,7 @@ class _DockOverflow extends ConsumerWidget {
   final VoidCallback onToggleLyrics;
   final VoidCallback onExpand;
   final VoidCallback onToggleMini;
+  final VoidCallback? onToggleEqualizer;
   const _DockOverflow({
     this.showLyricsItem = false,
     this.showQualityItem = false,
@@ -1275,6 +1292,7 @@ class _DockOverflow extends ConsumerWidget {
     required this.onToggleLyrics,
     required this.onExpand,
     required this.onToggleMini,
+    this.onToggleEqualizer,
   });
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1339,6 +1357,13 @@ class _DockOverflow extends ConsumerWidget {
                 const Icon(WaveIcons.miniPlayer, size: 15),
             label: 'Mini player',
             onPressed: onToggleMini,
+          ),
+        if (onToggleEqualizer != null)
+          WaveMenuAction(
+            leading:
+                const Icon(WaveIcons.equalizer, size: 15),
+            label: 'Equalizer',
+            onPressed: onToggleEqualizer!,
           ),
         if (hasCollapsed) const WaveMenuSeparator(),
         WaveMenuAction(

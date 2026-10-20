@@ -18,7 +18,9 @@
 //
 // This layer uses fluent_ui as the single component system. It does NOT
 // import the superseded editorial ledger kit (design_system/components,
-// design_system/tokens, widgets/, shell/). Business logic is reused
+// design_system/tokens — both deleted 2026-10-17 together with the
+// orphaned features/lyrics/lyrics_view.dart that was their last
+// importer). Business logic is reused
 // through existing Riverpod providers — no duplicated repositories,
 // playback services, or network logic.
 library;

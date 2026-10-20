@@ -1,3 +1,5 @@
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/storage/prefs.dart';
 import 'package:lastwave_desktop/features/lyrics/karaoke_lyrics_view.dart';
@@ -304,6 +306,9 @@ void main() {
       expect(cleanSongTitle('Hotel California - Remastered 2013'), equals('Hotel California'));
       expect(cleanSongTitle('Blinding Lights (Live on SNL)'), equals('Blinding Lights'));
       expect(cleanSongTitle('Ordinary Song'), equals('Ordinary Song'));
+      expect(cleanSongTitle('Bad Guy | Official Music Video'), equals('Bad Guy'));
+      expect(cleanSongTitle('Hello / 4K Video'), equals('Hello'));
+      expect(cleanSongTitle("Creepin' feat. The Weeknd"), equals("Creepin'"));
     });
 
     test('cleanSongArtist removes Topic and featuring suffixes', () {
@@ -462,7 +467,7 @@ void main() {
       );
     });
 
-    test('complete unsynced Apple lyrics beat a shorter timed cut', () {
+    test('timed cut beats complete unsynced Apple lyrics', () {
       final complete = LyricsResult(
         lines: [
           LyricLine(timeMs: 0, text: 'full chorus ${'na ' * 80}'),
@@ -480,11 +485,11 @@ void main() {
       );
       expect(lyricsBodyLength(complete), greaterThan(lyricsBodyLength(truncated)));
       expect(
-        LyricsRepository.isBetterCandidate(complete, truncated),
+        LyricsRepository.isBetterCandidate(truncated, complete),
         isTrue,
       );
       expect(
-        LyricsRepository.isBetterCandidate(truncated, complete),
+        LyricsRepository.isBetterCandidate(complete, truncated),
         isFalse,
       );
     });
@@ -581,6 +586,8 @@ void main() {
     test('parenthetical cuts do not steal the main track', () {
       expect(lyricsTitlesMatch('Song (Interlude)', 'Song'), isFalse);
       expect(lyricsTitlesMatch('Song', 'Song (Album Version)'), isTrue);
+      expect(lyricsTitlesMatch('Song (Live)', 'Song'), isFalse);
+      expect(lyricsTitlesMatch('Song', 'Song (Live)'), isFalse);
       expect(lyricsTitlesMatch('All Caps', 'All Caps (feat. Doom)'), isTrue);
       expect(
         lyricsTitlesMatch('Overdue', 'Overdue (feat. Travis Scott)'),
@@ -591,6 +598,12 @@ void main() {
     test('artist must be the same act, not a cover', () {
       expect(lyricsArtistsMatch('Madvillain', 'Madvillain'), isTrue);
       expect(lyricsArtistsMatch('Madvillain', 'Madvillain & MF DOOM'), isTrue);
+      expect(lyricsArtistsMatch('Drake', 'Drake Bell'), isFalse);
+      expect(lyricsArtistsMatch('Pink', 'Pink Floyd'), isFalse);
+      expect(lyricsArtistsMatch('Drake', 'Drake, 21 Savage'), isTrue);
+      expect(lyricsArtistsMatch('Drake', 'Drake feat. 21 Savage'), isTrue);
+      expect(lyricsArtistsMatch('Drake', 'Drake ft 21 Savage'), isTrue);
+      expect(lyricsArtistsMatch('Drake', 'Drake with 21 Savage'), isTrue);
       expect(lyricsArtistsMatch('Madvillain', 'Abstract Orchestra'), isFalse);
       expect(lyricsArtistsMatch('Madvillain', 'SERAPHINE NOIR'), isFalse);
     });
@@ -615,6 +628,98 @@ void main() {
       expect(lyricsDurationPlausible(132, 138), isTrue);
       expect(lyricsDurationPlausible(132, 257), isFalse);
       expect(lyricsDurationPlausible(null, 257), isTrue);
+      expect(lyricsDurationPlausible(240, 205), isTrue);
+      expect(lyricsDurationPlausible(240, 280), isTrue);
+    });
+
+    test('lyricsTitlesMatch matches Artist - Title against Title', () {
+      expect(lyricsTitlesMatch('Shape of You', 'Ed Sheeran - Shape Of You'), isTrue);
+      expect(lyricsTitlesMatch('Ed Sheeran - Shape Of You', 'Shape of You'), isTrue);
+      expect(lyricsTitlesMatch('Queen - Bohemian Rhapsody', 'Bohemian Rhapsody'), isTrue);
+    });
+  });
+
+  group('Karaoke wipe render states', () {
+    const line = LyricLine(
+      timeMs: 1000,
+      durationMs: 2000,
+      text: 'Hello world',
+      syllables: [
+        LyricSyllable(timeMs: 1000, durationMs: 1000, text: 'Hello '),
+        LyricSyllable(timeMs: 2000, durationMs: 1000, text: 'world'),
+      ],
+    );
+
+    Future<void> pumpLine(WidgetTester tester, ValueNotifier<int> pos) async {
+      await tester.pumpWidget(
+        FluentApp(
+          home: Center(
+            child: WaveKaraokeLyricLine(
+              line: line,
+              positionMs: pos.value,
+              positionListenable: pos,
+              isActive: true,
+              isPast: false,
+            ),
+          ),
+        ),
+      );
+    }
+
+    TextStyle? effectiveStyle(WidgetTester tester, String text) {
+      final paragraph = tester.renderObject<RenderParagraph>(find.text(text));
+      final span = paragraph.text;
+      return span is TextSpan ? span.style : null;
+    }
+
+    testWidgets('resting syllable does not inherit the active-line glow',
+        (tester) async {
+      final pos = ValueNotifier<int>(500);
+      addTearDown(pos.dispose);
+      await pumpLine(tester, pos);
+
+      expect(find.text('Hello'), findsOneWidget);
+      final style = effectiveStyle(tester, 'Hello');
+      expect(style, isNotNull);
+      expect(
+        style!.shadows ?? const <Shadow>[],
+        isEmpty,
+        reason: 'Text merges the active-line glow from AnimatedDefaultTextStyle; '
+            'the unsung style must pin shadows so resting pixels match the '
+            'wipe TextPainter (otherwise the word darkens the frame the wipe '
+            'front reaches it)',
+      );
+    });
+
+    testWidgets('wipe uses the painter path and restores glow once sung',
+        (tester) async {
+      final pos = ValueNotifier<int>(500);
+      addTearDown(pos.dispose);
+      await pumpLine(tester, pos);
+      expect(find.text('Hello'), findsOneWidget);
+
+      // Mid-syllable (0 < progress < 1) must switch to the feathered painter.
+      for (final t in [1100, 1400, 1800, 1999]) {
+        pos.value = t;
+        await tester.pump();
+        expect(
+          find.text('Hello'),
+          findsNothing,
+          reason: 'progress=$t should render through the wipe painter',
+        );
+      }
+      expect(tester.takeException(), isNull);
+
+      // Completed syllable returns to Text with its glow intact.
+      pos.value = 2500;
+      await tester.pump();
+      expect(find.text('Hello'), findsOneWidget);
+      final style = effectiveStyle(tester, 'Hello');
+      expect(
+        style?.shadows ?? const <Shadow>[],
+        isNotEmpty,
+        reason: 'sung glyphs keep the highlight glow',
+      );
     });
   });
 }

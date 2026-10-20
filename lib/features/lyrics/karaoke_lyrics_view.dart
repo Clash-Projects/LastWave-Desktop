@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
@@ -20,14 +19,13 @@ import '../../ui/theme/haze.dart';
 import '../../ui/theme/tokens.dart';
 import '../../ui/theme/wave_icons.dart';
 import '../player/playback_service.dart';
-import 'flutter_lyric_adapter.dart';
 import 'lyrics_models.dart';
 import 'lyrics_providers.dart';
 
 /// Provider for track-specific lyrics timing offset in milliseconds.
 final lyricsOffsetProvider = StateNotifierProvider.family<LyricsOffsetNotifier, int, String>(
   (ref, trackKey) {
-    final prefs = ref.watch(prefsProvider);
+    final prefs = ref.read(prefsProvider);
     return LyricsOffsetNotifier(prefs, trackKey);
   },
 );
@@ -59,7 +57,7 @@ class LyricsOffsetNotifier extends StateNotifier<int> {
 /// Provider for transliteration display toggle.
 final lyricsTransliterationProvider =
     StateNotifierProvider<LyricsTransliterationNotifier, bool>((ref) {
-  final prefs = ref.watch(prefsProvider);
+  final prefs = ref.read(prefsProvider);
   return LyricsTransliterationNotifier(prefs);
 });
 
@@ -100,6 +98,7 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
   final VoidCallback? onClose;
   final double? fontSize;
   final bool fillRemainingSpace;
+  final bool isActive;
 
   const WaveKaraokeLyricsView({
     super.key,
@@ -109,6 +108,7 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
     this.onClose,
     this.fontSize,
     this.fillRemainingSpace = true,
+    this.isActive = true,
   });
 
   @override
@@ -122,6 +122,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   bool _following = true;
   late final Ticker _ticker;
   final ValueNotifier<int> _interpolatedPositionMs = ValueNotifier<int>(0);
+  final ValueNotifier<int> _activeLineIndex = ValueNotifier<int>(-1);
   // Clock subscriptions owned here (initState/dispose), not watched in
   // build: position/isPlaying/speed tick 10Hz and feed only ticker/drift
   // side effects, never widget output.
@@ -137,11 +138,6 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   LyricsResult? _currentResult;
   bool _lastTransliteration = true;
   bool _lastWordByWord = true;
-  LyricStyle? _cachedStyle;
-  bool? _lastCompact;
-  double? _lastFontSize;
-  bool? _lastIsDark;
-  bool? _lastIsRtl;
 
   @override
   void initState() {
@@ -174,7 +170,11 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       playbackServiceProvider.select((s) => s.speed),
       (_, _) => _syncPlaybackClock(),
     );
-    _syncPlaybackClock();
+    // NOTE: deliberately NOT calling _syncPlaybackClock() here. It reads
+    // ModalRoute.of(context) / TickerMode.valuesOf(context) via
+    // _isEffectivelyActive — inherited-widget lookups are illegal before
+    // initState completes (FlutterError → debugger stop). The initial
+    // sync runs in didChangeDependencies below (and again in build).
   }
 
   void _onSelectingChanged() {
@@ -186,6 +186,82 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     }
   }
 
+  bool get _isEffectivelyActive {
+    if (!mounted || !widget.isActive) return false;
+    final routeCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    final tickerEnabled = TickerMode.valuesOf(context).enabled;
+    return routeCurrent && tickerEnabled;
+  }
+
+  int _lastTickMs = 0;
+
+  int _getCurrentPositionMs() {
+    if (_ticker.isActive) {
+      return _interpolatedPositionMs.value;
+    }
+    final snap = ref.read(playbackServiceProvider);
+    return snap.position.inMilliseconds - _offsetMs;
+  }
+
+  bool _shouldTickerRun() {
+    if (!_isEffectivelyActive || !_isPlaying) return false;
+    final res = _currentResult;
+    if (res == null || !res.isSynced || res.lines.isEmpty || res.isInstrumental) {
+      return false;
+    }
+    if (!_lastWordByWord && !res.isWordSynced) {
+      return false;
+    }
+    final pos = _getCurrentPositionMs();
+    final firstStart = res.lines.first.timeMs;
+    // Before song intro starts:
+    if (pos < firstStart - 600) return false;
+
+    // After last line ends:
+    final lastLine = res.lines.last;
+    final lastEnd = lastLine.timeMs + math.max(lastLine.durationMs, 3000);
+    if (pos > lastEnd + 1000) return false;
+
+    // In an instrumental break between lines:
+    final activeIdx = _activeLineIndex.value;
+    if (activeIdx >= 0 && activeIdx < res.lines.length - 1) {
+      final curLine = res.lines[activeIdx];
+      final curEnd = curLine.timeMs + math.max(curLine.durationMs, 1000);
+      final nextStart = res.lines[activeIdx + 1].timeMs;
+      if (nextStart - curEnd > 1800) {
+        if (pos > curEnd + 300 && pos < nextStart - 600) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  void _updateTickerState() {
+    final shouldRun = _shouldTickerRun();
+    if (shouldRun && !_ticker.isActive) {
+      _ticker.start();
+    } else if (!shouldRun && _ticker.isActive) {
+      _ticker.stop();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Inherited lookups (ModalRoute/TickerMode) are only legal from here
+    // on, so this is the first place the ticker state can be evaluated.
+    _syncPlaybackClock();
+  }
+
+  @override
+  void didUpdateWidget(WaveKaraokeLyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) {
+      _updateTickerState();
+    }
+  }
+
   @override
   void dispose() {
     _posSub?.close();
@@ -193,71 +269,82 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     _speedSub?.close();
     _ticker.dispose();
     _interpolatedPositionMs.dispose();
+    _activeLineIndex.dispose();
     _lyricController.isSelectingNotifier.removeListener(_onSelectingChanged);
     _lyricController.dispose();
     super.dispose();
   }
 
-  DateTime _lastTickWall = DateTime.now();
-
   void _onTick(Duration _) {
-    // Guarded: a throw here (e.g. a progress value the lyric
-    // controller rejects) aborts the whole process via fail-fast.
     runGuarded('karaoke.tick', () {
-      if (!_isPlaying) return;
-    // Cap interpolation at ~30Hz: the ticker fires at display refresh
-    // (up to 144Hz), and every admitted tick pushes setProgress + a
-    // lyric-view update. Syllable transitions are 50-200ms, so 30Hz
-    // loses nothing visible while halving per-frame Dart + raster
-    // work — the margin that keeps karaoke smooth while motion art
-    // eats the rest of the budget. Accuracy is unaffected — elapsed
-    // is wall-clock based, not tick-counted.
-    final wall = DateTime.now();
-    if (wall.difference(_lastTickWall).inMicroseconds < 33000) return;
-    _lastTickWall = wall;
-    final elapsed = wall.difference(_lastSyncTime).inMilliseconds;
-    final currentMs =
-        _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
-    _interpolatedPositionMs.value = currentMs;
-    _lyricController.setProgress(Duration(milliseconds: math.max(0, currentMs)));
+      if (!_isEffectivelyActive || !_isPlaying) return;
+      final now = DateTime.now();
+      final nowMs = now.millisecondsSinceEpoch;
+      // Cap tick rate to ~60Hz (min 16ms between ticks).
+      // On 120Hz/144Hz/240Hz monitors, this cuts CPU usage drastically
+      // while remaining completely smooth for text wipe animation.
+      if (nowMs - _lastTickMs < 16) return;
+      _lastTickMs = nowMs;
+
+      final elapsed = now.difference(_lastSyncTime).inMilliseconds;
+      final currentMs =
+          _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
+      _interpolatedPositionMs.value = currentMs;
+      if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
+        final lineIndex = activeLyricLineIndex(_currentResult!.lines, currentMs);
+        if (_activeLineIndex.value != lineIndex) {
+          _activeLineIndex.value = lineIndex;
+        }
+      }
+
+      // Check if we entered an idle gap or reached the end
+      if (!_shouldTickerRun()) {
+        _ticker.stop();
+      }
     });
   }
 
-  /// Syncs the 30Hz interpolation clock from the 10Hz playback snapshot.
+  /// Syncs the interpolation clock from the playback snapshot.
   /// Runs from tick listeners and rare rebuilds — writes only the ticker,
   /// the position notifier, and the lyric controller, never setState, so
-  /// it never schedules extra frames. Same math the in-build block ran,
-  /// only the trigger changed.
+  /// it never schedules extra frames.
   void _syncPlaybackClock() {
     final snap = ref.read(playbackServiceProvider);
     final audioMs = snap.position.inMilliseconds;
     _isPlaying = snap.isPlaying;
     _speed = snap.speed <= 0 ? 1.0 : snap.speed;
-    if (!_isPlaying) {
+    final now = DateTime.now();
+
+    if (!_isPlaying || !_ticker.isActive) {
       _lastAudioMs = audioMs;
-      _lastSyncTime = DateTime.now();
+      _lastSyncTime = now;
       final effectiveMs = audioMs - _offsetMs;
       _interpolatedPositionMs.value = effectiveMs;
-      _lyricController.setProgress(Duration(milliseconds: math.max(0, effectiveMs)));
+      if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
+        final lineIndex = activeLyricLineIndex(_currentResult!.lines, effectiveMs);
+        if (_activeLineIndex.value != lineIndex) {
+          _activeLineIndex.value = lineIndex;
+        }
+      }
     } else if (audioMs != _lastAudioMs) {
-      final elapsed = DateTime.now().difference(_lastSyncTime).inMilliseconds;
+      final elapsed = now.difference(_lastSyncTime).inMilliseconds;
       final predicted = _lastAudioMs + (elapsed * _speed).round();
       final drift = audioMs - predicted;
       if (drift < -80 || drift > 80) {
         _lastAudioMs = audioMs;
-        _lastSyncTime = DateTime.now();
+        _lastSyncTime = now;
         final effectiveMs = audioMs - _offsetMs;
         _interpolatedPositionMs.value = effectiveMs;
-        _lyricController.setProgress(
-            Duration(milliseconds: math.max(0, effectiveMs)));
+        if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
+          final lineIndex = activeLyricLineIndex(_currentResult!.lines, effectiveMs);
+          if (_activeLineIndex.value != lineIndex) {
+            _activeLineIndex.value = lineIndex;
+          }
+        }
       }
     }
 
-    if (_isPlaying && !_ticker.isActive) {
-      _ticker.start();
-    } else if (!_isPlaying && _ticker.isActive) {
-      _ticker.stop();
-    }
+    _updateTickerState();
   }
 
   @override
@@ -272,7 +359,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     // not rebuild the karaoke view (it recreates the lyric adapter).
     final wordByWord =
         ref.watch(prefsProvider.select((p) => p.wordByWord));
-    final async = ref.watch(waveLyricsProvider(widget.track.queueKey));
+    final async = ref.watch(waveLyricsProvider(widget.track));
 
     _offsetMs = offsetMs;
     // Covers offset/track/data-driven syncs; clock ticks arrive via the
@@ -290,77 +377,96 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           title: 'Lyrics unavailable',
           message: 'Check your connection and try again.',
           onRetry: () =>
-              ref.invalidate(waveLyricsProvider(widget.track.queueKey)),
+              ref.invalidate(waveLyricsProvider(widget.track)),
         ),
       ),
       data: (result) {
-        if (result.isInstrumental) {
-          return const WaveEmpty(
+        final effectiveResult = (result.lines.isEmpty && result.plainLyrics.isNotEmpty)
+            ? LyricsResult(
+                lines: result.plainLyrics
+                    .split('\n')
+                    .map((l) => l.trim())
+                    .where((l) => l.isNotEmpty)
+                    .map((l) => LyricLine(timeMs: 0, text: l))
+                    .toList(),
+                isSynced: false,
+                isWordSynced: false,
+                plainLyrics: result.plainLyrics,
+                isInstrumental: result.isInstrumental,
+                source: result.source,
+              )
+            : result;
+
+        // Header controls (the source switcher + close) must survive the
+        // no-lyrics states. Switching source can legitimately land on a
+        // provider with no match, and dropping the switcher then strands
+        // the user on "Try again" against the same provider — with no way
+        // back to another one. So the empty states render the toolbar too.
+        Widget withHeader(Widget body) {
+          if (!widget.showHeaderControls) return body;
+          return RepaintBoundary(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _KaraokeToolbar(
+                  track: widget.track,
+                  result: effectiveResult,
+                  offsetMs: offsetMs,
+                  showTransliteration: showTransliteration,
+                  following: _following,
+                  compact: widget.compact,
+                  wordByWord: wordByWord,
+                  onClose: widget.onClose,
+                  onToggleFollowing: () {
+                    if (!_following) {
+                      _lyricController.stopSelection();
+                      setState(() => _following = true);
+                    } else {
+                      setState(() => _following = false);
+                    }
+                  },
+                ),
+                Expanded(child: body),
+              ],
+            ),
+          );
+        }
+
+        if (effectiveResult.isInstrumental) {
+          return withHeader(const WaveEmpty(
             icon: FluentIcons.music_note,
             title: 'Instrumental',
             subtitle: 'No lyrics for this track.',
-          );
+          ));
         }
-        if (result.isEmpty) {
-          return WaveEmpty(
+        if (effectiveResult.isEmpty) {
+          return withHeader(WaveEmpty(
             icon: FluentIcons.microphone,
             title: 'No lyrics found',
-            subtitle: 'Try another track or check back later.',
+            subtitle: 'Pick another source, or check back later.',
             actionLabel: 'Try again',
             onAction: () =>
-                ref.invalidate(waveLyricsProvider(widget.track.queueKey)),
-          );
+                ref.invalidate(waveLyricsProvider(widget.track)),
+          ));
         }
-        if (!result.isSynced && result.lines.length < 2) {
-          return _KaraokePlainLyrics(
-            text: result.plainLyrics,
-            compact: widget.compact,
-            showHeaderControls: widget.showHeaderControls,
-            onClose: widget.onClose,
-          );
-        }
-
-        final isRtl = result.lines.any((l) => l.isRtl);
 
         if (_currentTrackKey != widget.track.queueKey ||
-            _currentResult != result ||
+            _currentResult != effectiveResult ||
             _lastTransliteration != showTransliteration ||
             _lastWordByWord != wordByWord) {
           _currentTrackKey = widget.track.queueKey;
-          _currentResult = result;
+          _currentResult = effectiveResult;
           _lastTransliteration = showTransliteration;
           _lastWordByWord = wordByWord;
-          final useFlutterLyric = wordByWord && result.isSynced;
-          if (useFlutterLyric) {
-            final model = convertToFlutterLyricModel(
-              result,
-              showTransliteration: showTransliteration,
-              wordByWord: result.isWordSynced,
-            );
-            _lyricController.loadLyricModel(model);
-            final effectiveMs = _interpolatedPositionMs.value;
-            _lyricController.setProgress(
-                Duration(milliseconds: math.max(0, effectiveMs)));
+          if (effectiveResult.lines.isNotEmpty && effectiveResult.isSynced) {
+            final lineIndex =
+                activeLyricLineIndex(effectiveResult.lines, _interpolatedPositionMs.value);
+            if (_activeLineIndex.value != lineIndex) {
+              _activeLineIndex.value = lineIndex;
+            }
+          } else {
+            _activeLineIndex.value = -1;
           }
-        }
-
-        final isDark = waveIsDark(context);
-        if (_cachedStyle == null ||
-            _lastCompact != widget.compact ||
-            _lastFontSize != widget.fontSize ||
-            _lastIsDark != isDark ||
-            _lastIsRtl != isRtl) {
-          _lastCompact = widget.compact;
-          _lastFontSize = widget.fontSize;
-          _lastIsDark = isDark;
-          _lastIsRtl = isRtl;
-          _cachedStyle = buildAppleMusicLyricStyle(
-            context,
-            compact: widget.compact,
-            fontSize: widget.fontSize,
-            isDark: isDark,
-            isRtl: isRtl,
-          );
         }
 
         return RepaintBoundary(
@@ -370,7 +476,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
               if (widget.showHeaderControls)
                 _KaraokeToolbar(
                   track: widget.track,
-                  result: result,
+                  result: effectiveResult,
                   offsetMs: offsetMs,
                   showTransliteration: showTransliteration,
                   following: _following,
@@ -387,36 +493,13 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                   },
                 ),
               Expanded(
-                child: (wordByWord && result.isSynced)
-                    ? Stack(
-                        children: [
-                          Positioned.fill(
-                            child: MouseRegion(
-                              cursor: SystemMouseCursors.click,
-                              child: RepaintBoundary(
-                                child: LyricView(
-                                  controller: _lyricController,
-                                  style: _cachedStyle!,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (!_following)
-                            Positioned(
-                              right: 16,
-                              bottom: 16,
-                              child: _ReturnToCurrentPill(
-                                onTap: () {
-                                  _lyricController.stopSelection();
-                                  setState(() => _following = true);
-                                },
-                              ),
-                            ),
-                        ],
-                      )
-                    : RepaintBoundary(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: RepaintBoundary(
                         child: _AppleLineLyricsView(
-                          result: result,
+                          result: effectiveResult,
+                          activeLineListenable: _activeLineIndex,
                           positionListenable: _interpolatedPositionMs,
                           compact: widget.compact,
                           fontSize: widget.fontSize,
@@ -426,10 +509,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                             if (_following) setState(() => _following = false);
                           },
                           onResume: () {
-                            _lyricController.stopSelection();
                             setState(() => _following = true);
                           },
                           onSeekLineMs: (lineMs) {
+                            if (!effectiveResult.isSynced || lineMs <= 0) return;
                             final seekTargetMs = lineMs + _offsetMs;
                             ref.read(playbackServiceProvider.notifier).seek(
                                   Duration(
@@ -438,6 +521,19 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                           },
                         ),
                       ),
+                    ),
+                    if (!_following && effectiveResult.isSynced)
+                      Positioned(
+                        right: 16,
+                        bottom: 16,
+                        child: _ReturnToCurrentPill(
+                          onTap: () {
+                            setState(() => _following = true);
+                          },
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -503,15 +599,6 @@ List<KaraokeWordGroup> groupSyllablesIntoWords(
   return words;
 }
 
-double calculateSyllableProgress(LyricSyllable syl, int posMs) {
-  final startMs = syl.timeMs;
-  final durMs = math.max(1, syl.durationMs);
-  final endMs = startMs + durMs;
-  if (posMs <= startMs) return 0.0;
-  if (posMs >= endMs) return 1.0;
-  return (posMs - startMs) / durMs;
-}
-
 /// Single Lyric Line rendering with Apple Music Karaoke progressive wipe,
 /// blur falloff, and Segoe UI typography.
 class WaveKaraokeLyricLine extends StatefulWidget {
@@ -525,6 +612,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
   final double? fontSize;
   final bool karaoke;
   final bool softenIdle;
+  final double lineOpacity;
 
   const WaveKaraokeLyricLine({
     super.key,
@@ -538,6 +626,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
     this.fontSize,
     this.karaoke = true,
     this.softenIdle = true,
+    this.lineOpacity = 1.0,
   });
 
   @override
@@ -546,12 +635,53 @@ class WaveKaraokeLyricLine extends StatefulWidget {
 
 class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
   bool _isHovered = false;
+  int _lastPos = 0;
+  int _seekGen = 0;
+  LyricLine? _cachedLine;
+  bool? _cachedUseKaraokeWipe;
+  List<LyricSyllable> _cachedSyllables = const [];
+  List<KaraokeWordGroup> _cachedWords = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _lastPos = widget.positionListenable?.value ?? 0;
+    widget.positionListenable?.addListener(_onLineTick);
+  }
+
+  @override
+  void didUpdateWidget(covariant WaveKaraokeLyricLine oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.positionListenable != widget.positionListenable) {
+      oldWidget.positionListenable?.removeListener(_onLineTick);
+      _lastPos = widget.positionListenable?.value ?? 0;
+      widget.positionListenable?.addListener(_onLineTick);
+    }
+    if (oldWidget.line != widget.line ||
+        oldWidget.karaoke != widget.karaoke ||
+        oldWidget.isActive != widget.isActive) {
+      _cachedLine = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.positionListenable?.removeListener(_onLineTick);
+    super.dispose();
+  }
+
+  void _onLineTick() {
+    final pos = widget.positionListenable?.value ?? 0;
+    if (pos < _lastPos - 200) {
+      setState(() => _seekGen++);
+    }
+    _lastPos = pos;
+  }
 
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
-    final reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
 
     final baseFontSize = widget.fontSize ?? (widget.compact ? 28.0 : 36.0);
 
@@ -579,12 +709,18 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     );
 
     // Style for unsung words on the ACTIVE line: identical font metrics to prevent character jitter!
+    // shadows must be explicit: [Text] merges the ambient DefaultTextStyle
+    // (AnimatedDefaultTextStyle above, = activeStyle WITH its glow) into its
+    // style, while the wipe's raw TextPainter never sees the ambient. With
+    // shadows left null the resting word carried the glow and dropped it the
+    // frame the wipe front arrived — a visible dark flash per word.
     final activeUnsungStyle = TextStyle(
       fontSize: baseFontSize,
       fontWeight: FontWeight.w700,
       color: activeTextColor.withValues(alpha: 0.38),
       height: 1.42,
       letterSpacing: -0.3,
+      shadows: const [],
     );
 
     final idleStyle = TextStyle(
@@ -600,56 +736,51 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     Widget content;
 
     final useKaraokeWipe = widget.karaoke && widget.isActive;
-    final effectiveSyllables = useKaraokeWipe
-        ? (widget.line.hasSyllables
-            ? widget.line.syllables
-            : interpolateLineSyllables(
-                text: widget.line.text,
-                startTimeMs: widget.line.timeMs,
-                durationMs: widget.line.durationMs,
-              ))
-        : const <LyricSyllable>[];
+    if (_cachedLine != widget.line || _cachedUseKaraokeWipe != useKaraokeWipe) {
+      _cachedLine = widget.line;
+      _cachedUseKaraokeWipe = useKaraokeWipe;
+      _cachedSyllables = useKaraokeWipe
+          ? (widget.line.hasSyllables
+              ? widget.line.syllables
+              : interpolateLineSyllables(
+                  text: widget.line.text,
+                  startTimeMs: widget.line.timeMs,
+                  durationMs: widget.line.durationMs,
+                ))
+          : const <LyricSyllable>[];
+      _cachedWords = _cachedSyllables.isNotEmpty
+          ? groupSyllablesIntoWords(_cachedSyllables, widget.line.text)
+          : const <KaraokeWordGroup>[];
+    }
 
-    if (effectiveSyllables.isNotEmpty) {
-      final words =
-          groupSyllablesIntoWords(effectiveSyllables, widget.line.text);
-
-      Widget buildSyllableWrap(int posMs) {
-        return Wrap(
-          textDirection:
-              widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            for (final word in words)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                textDirection:
-                    widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
-                children: [
-                  for (final syl in word.syllables)
-                    _KaraokeSyllableWidget(
-                      text: syl.text.trimRight(),
-                      progress: calculateSyllableProgress(syl, posMs),
-                      activeStyle: activeStyle,
-                      idleStyle: activeUnsungStyle,
-                      highlightColor: accent,
-                      isRtl: widget.line.isRtl,
-                    ),
-                  if (word.hasTrailingSpace) Text(' ', style: activeUnsungStyle),
-                ],
-              ),
-          ],
-        );
-      }
-
-      if (widget.positionListenable != null) {
-        content = ValueListenableBuilder<int>(
-          valueListenable: widget.positionListenable!,
-          builder: (context, posMs, _) => buildSyllableWrap(posMs),
-        );
-      } else {
-        content = buildSyllableWrap(widget.positionMs);
-      }
+    if (_cachedWords.isNotEmpty) {
+      content = Wrap(
+        textDirection:
+            widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final word in _cachedWords)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              textDirection:
+                  widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
+              children: [
+                for (final syl in word.syllables)
+                  _KaraokeSyllableWidget(
+                    key: ValueKey('syl_${syl.timeMs}_$_seekGen'),
+                    syllable: syl,
+                    positionListenable: widget.positionListenable,
+                    initialPosMs: widget.positionMs,
+                    activeStyle: activeStyle,
+                    idleStyle: activeUnsungStyle,
+                    highlightColor: accent,
+                    isRtl: widget.line.isRtl,
+                  ),
+                if (word.hasTrailingSpace) Text(' ', style: activeUnsungStyle),
+              ],
+            ),
+        ],
+      );
     } else {
       // Standard line-timed or idle line
       content = Text(
@@ -661,10 +792,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       );
     }
 
-    final showBlur =
-        widget.softenIdle && !widget.isActive && !_isHovered && !reduceMotion;
-
-    Widget body = AnimatedDefaultTextStyle(
+    final Widget body = AnimatedDefaultTextStyle(
       duration: WaveMotion.fast,
       style: widget.isActive ? activeStyle : idleStyle,
       child: Column(
@@ -693,55 +821,63 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       ),
     );
 
-    if (showBlur) {
-      body = ImageFiltered(
-        imageFilter: ImageFilter.blur(
-          sigmaX: widget.karaoke ? 1.15 : 1.8,
-          sigmaY: widget.karaoke ? 1.15 : 1.8,
-        ),
-        child: body,
-      );
-    }
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
-        duration: WaveMotion.normal,
+    return IgnorePointer(
+      ignoring: widget.lineOpacity < 0.05,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        transform: Matrix4.diagonal3Values(
-          widget.isActive ? 1.025 : 1.0,
-          widget.isActive ? 1.025 : 1.0,
-          1.0,
+        opacity: widget.lineOpacity.clamp(0.0, 1.0),
+        child: RepaintBoundary(
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _isHovered = true),
+            onExit: (_) => setState(() => _isHovered = false),
+            child: AnimatedContainer(
+              duration: WaveMotion.normal,
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.diagonal3Values(
+                widget.isActive ? 1.025 : 1.0,
+                widget.isActive ? 1.025 : 1.0,
+                1.0,
+              ),
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.compact ? 8 : 12,
+                vertical: widget.karaoke ? 4 : 8,
+              ),
+              decoration: BoxDecoration(
+                color: _isHovered && !widget.isActive
+                    ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.06)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: body,
+            ),
+          ),
         ),
-        padding: EdgeInsets.symmetric(
-          horizontal: widget.compact ? 8 : 12,
-          vertical: widget.karaoke ? 4 : 8,
-        ),
-        decoration: BoxDecoration(
-          color: _isHovered && !widget.isActive
-              ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.06)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: body,
       ),
     );
   }
 }
 
+enum _SyllableState { idle, singing, sung }
+
+/// Bands used to feather the karaoke wipe edge (alpha steps of 1/N).
+const _wipeFeatherBands = 2;
+
 /// Progressive fill / wipe for an individual syllable with soft anti-aliased edge.
-class _KaraokeSyllableWidget extends StatelessWidget {
-  final String text;
-  final double progress;
+class _KaraokeSyllableWidget extends StatefulWidget {
+  final LyricSyllable syllable;
+  final ValueListenable<int>? positionListenable;
+  final int initialPosMs;
   final TextStyle activeStyle;
   final TextStyle idleStyle;
   final Color highlightColor;
   final bool isRtl;
 
   const _KaraokeSyllableWidget({
-    required this.text,
-    required this.progress,
+    super.key,
+    required this.syllable,
+    this.positionListenable,
+    this.initialPosMs = 0,
     required this.activeStyle,
     required this.idleStyle,
     required this.highlightColor,
@@ -749,39 +885,302 @@ class _KaraokeSyllableWidget extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    if (text.isEmpty) return const SizedBox.shrink();
-    if (progress <= 0.0) {
-      return Text(text, style: idleStyle);
+  State<_KaraokeSyllableWidget> createState() => _KaraokeSyllableWidgetState();
+}
+
+class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
+  _SyllableState _state = _SyllableState.idle;
+  bool _isListening = false;
+
+  int get _startMs => widget.syllable.timeMs;
+  int get _endMs =>
+      widget.syllable.timeMs + math.max(1, widget.syllable.durationMs);
+
+  _SyllableState _stateFor(int pos) {
+    if (pos >= _endMs) return _SyllableState.sung;
+    if (pos >= _startMs) return _SyllableState.singing;
+    return _SyllableState.idle;
+  }
+
+  void _startListening() {
+    if (_isListening || widget.positionListenable == null) return;
+    widget.positionListenable!.addListener(_onPositionTick);
+    _isListening = true;
+  }
+
+  void _stopListening() {
+    if (!_isListening || widget.positionListenable == null) return;
+    widget.positionListenable!.removeListener(_onPositionTick);
+    _isListening = false;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final pos = widget.positionListenable?.value ?? widget.initialPosMs;
+    _state = _stateFor(pos);
+    if (_state != _SyllableState.sung) {
+      _startListening();
     }
-    if (progress >= 1.0) {
-      return Text(text, style: activeStyle);
+  }
+
+  @override
+  void didUpdateWidget(covariant _KaraokeSyllableWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.positionListenable != widget.positionListenable) {
+      if (_isListening) {
+        oldWidget.positionListenable?.removeListener(_onPositionTick);
+        _isListening = false;
+      }
     }
+    final pos = widget.positionListenable?.value ?? widget.initialPosMs;
+    final newState = _stateFor(pos);
+    if (newState != _state) {
+      _state = newState;
+    }
+    if (_state != _SyllableState.sung) {
+      _startListening();
+    } else {
+      _stopListening();
+    }
+  }
 
-    final activeColor = activeStyle.color ?? Colors.white;
-    final idleColor = idleStyle.color ?? const Color(0x61FFFFFF);
+  TextPainter? _idlePainter;
+  TextPainter? _activePainter;
+  List<TextPainter> _featherPainters = const [];
+  String? _cachedText;
+  String? _cachedActiveText;
+  TextStyle? _cachedIdleStyle;
+  TextStyle? _cachedActiveStyle;
+  TextScaler? _cachedScaler;
+  TextScaler? _cachedActiveScaler;
 
-    const feather = 0.035;
-    final stop1 = (progress - feather).clamp(0.0, 1.0);
-    final stop2 = (progress + feather).clamp(0.0, 1.0);
-
-    return ShaderMask(
-      blendMode: BlendMode.srcIn,
-      shaderCallback: (bounds) {
-        return LinearGradient(
-          begin: isRtl ? Alignment.centerRight : Alignment.centerLeft,
-          end: isRtl ? Alignment.centerLeft : Alignment.centerRight,
-          colors: [
-            activeColor,
-            activeColor,
-            idleColor,
-            idleColor,
-          ],
-          stops: [0.0, stop1, stop2, 1.0],
-        ).createShader(bounds);
-      },
-      child: Text(text, style: activeStyle),
+  /// Copy of the active style at `cover` opacity — used for the feather
+  /// bands so glyphs and their glow both fade toward the unsung state.
+  TextStyle _featherStyle(double cover) {
+    final base = widget.activeStyle;
+    final color = base.color;
+    final shadows = base.shadows;
+    return base.copyWith(
+      color: color?.withValues(alpha: color.a * cover),
+      shadows: shadows == null
+          ? null
+          : [
+              for (final s in shadows)
+                Shadow(
+                  color: s.color.withValues(alpha: s.color.a * cover),
+                  blurRadius: s.blurRadius,
+                  offset: s.offset,
+                ),
+            ],
     );
+  }
+
+  void _rebuildFeatherPainters(
+    String text,
+    TextScaler scaler,
+    TextDirection textDirection,
+  ) {
+    for (final p in _featherPainters) {
+      p.dispose();
+    }
+    _featherPainters = [
+      for (var i = 1; i < _wipeFeatherBands; i++)
+        TextPainter(
+          text: TextSpan(
+            text: text,
+            style: _featherStyle(1.0 - i / _wipeFeatherBands),
+          ),
+          textDirection: textDirection,
+          textScaler: scaler,
+        )..layout(),
+    ];
+  }
+
+  void _ensurePainters(BuildContext context) {
+    final text = widget.syllable.text.trimRight();
+    final scaler = MediaQuery.textScalerOf(context);
+    final textDirection = widget.isRtl ? TextDirection.rtl : TextDirection.ltr;
+
+    if (_idlePainter == null ||
+        _cachedText != text ||
+        _cachedIdleStyle != widget.idleStyle ||
+        _cachedScaler != scaler) {
+      _cachedText = text;
+      _cachedIdleStyle = widget.idleStyle;
+      _cachedScaler = scaler;
+      _idlePainter?.dispose();
+      _idlePainter = TextPainter(
+        text: TextSpan(text: text, style: widget.idleStyle),
+        textDirection: textDirection,
+        textScaler: scaler,
+      )..layout();
+    }
+
+    if (_activePainter == null ||
+        _cachedActiveText != text ||
+        _cachedActiveStyle != widget.activeStyle ||
+        _cachedActiveScaler != scaler) {
+      _cachedActiveText = text;
+      _cachedActiveStyle = widget.activeStyle;
+      _cachedActiveScaler = scaler;
+      _activePainter?.dispose();
+      _activePainter = TextPainter(
+        text: TextSpan(text: text, style: widget.activeStyle),
+        textDirection: textDirection,
+        textScaler: scaler,
+      )..layout();
+      _rebuildFeatherPainters(text, scaler, textDirection);
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopListening();
+    _idlePainter?.dispose();
+    _activePainter?.dispose();
+    for (final p in _featherPainters) {
+      p.dispose();
+    }
+    super.dispose();
+  }
+
+  void _onPositionTick() {
+    final listenable = widget.positionListenable;
+    if (listenable == null) return;
+    final pos = listenable.value;
+    final newState = _stateFor(pos);
+
+    // Only rebuild on state transitions (idle -> singing, singing -> sung).
+    // During active wipe (singing), the CustomPainter repaints directly via
+    // Listenable with zero widget rebuild overhead.
+    if (newState != _state) {
+      if (newState == _SyllableState.sung) {
+        _stopListening();
+      }
+      setState(() {
+        _state = newState;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = widget.syllable.text.trimRight();
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    // Fast-path 1: Completed syllable -> Plain Text with active style (zero canvas overhead)
+    if (_state == _SyllableState.sung) {
+      return Text(text, style: widget.activeStyle);
+    }
+
+    // Fast-path 2: Future syllable -> Plain Text with idle style (zero canvas overhead)
+    if (_state == _SyllableState.idle) {
+      return Text(text, style: widget.idleStyle);
+    }
+
+    // Active syllable: Zero-allocation direct canvas clip driven directly by positionListenable
+    _ensurePainters(context);
+    final size = Size(_idlePainter!.width, _idlePainter!.height);
+
+    return RepaintBoundary(
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: CustomPaint(
+          size: size,
+          painter: _KaraokeSyllablePainter(
+            positionListenable: widget.positionListenable,
+            syllable: widget.syllable,
+            initialPosMs: widget.initialPosMs,
+            idlePainter: _idlePainter!,
+            activePainter: _activePainter!,
+            featherPainters: _featherPainters,
+            isRtl: widget.isRtl,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Zero-allocation canvas clip painter for syllable wipe (replaces ShaderMask / saveLayer).
+///
+/// Driven directly by [positionListenable] to isolate repaints to the active syllable
+/// without scheduling widget rebuilds or thrashing the element tree.
+class _KaraokeSyllablePainter extends CustomPainter {
+  final ValueListenable<int>? positionListenable;
+  final LyricSyllable syllable;
+  final int initialPosMs;
+  final TextPainter idlePainter;
+  final TextPainter activePainter;
+  final List<TextPainter> featherPainters;
+  final bool isRtl;
+
+  _KaraokeSyllablePainter({
+    required this.positionListenable,
+    required this.syllable,
+    required this.initialPosMs,
+    required this.idlePainter,
+    required this.activePainter,
+    required this.featherPainters,
+    required this.isRtl,
+  }) : super(repaint: positionListenable);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final pos = positionListenable?.value ?? initialPosMs;
+    final progress = calculateSyllableProgress(syllable, pos);
+
+    // 1. Draw base idle text
+    idlePainter.paint(canvas, Offset.zero);
+
+    if (progress <= 0.0) return;
+
+    // 2. Wipe: hard-clipped active text, then alpha-stepped bands feathering
+    // the leading edge so the fill does not cut a hard line across glyphs.
+    final width = size.width;
+    final front = width * progress.clamp(0.0, 1.0);
+    final feather = math.min(width * 0.08, front * 0.8).clamp(0.0, 18.0);
+    final inner = front - feather;
+
+    Rect dirRect(double s0, double s1) {
+      if (s1 - s0 < 0.05) return Rect.zero;
+      return isRtl
+          ? Rect.fromLTRB(width - s1, 0, width - s0, size.height)
+          : Rect.fromLTRB(s0, 0, s1, size.height);
+    }
+
+    if (inner > 0.05) {
+      canvas.save();
+      canvas.clipRect(dirRect(0, inner));
+      activePainter.paint(canvas, Offset.zero);
+      canvas.restore();
+    }
+
+    if (feather > 0.05 && featherPainters.isNotEmpty) {
+      final step = feather / _wipeFeatherBands;
+      for (var j = 0; j < featherPainters.length; j++) {
+        final s0 = (inner + j * step).clamp(0.0, front);
+        final s1 = (inner + (j + 1) * step).clamp(0.0, front);
+        final rect = dirRect(s0, s1);
+        if (rect == Rect.zero) continue;
+        canvas.save();
+        canvas.clipRect(rect);
+        featherPainters[j].paint(canvas, Offset.zero);
+        canvas.restore();
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_KaraokeSyllablePainter oldDelegate) {
+    return oldDelegate.positionListenable != positionListenable ||
+        oldDelegate.syllable != syllable ||
+        oldDelegate.idlePainter != idlePainter ||
+        oldDelegate.activePainter != activePainter ||
+        oldDelegate.featherPainters != featherPainters ||
+        oldDelegate.isRtl != isRtl;
   }
 }
 
@@ -826,7 +1225,7 @@ class _SourceMenu extends ConsumerWidget {
         ref.read(lyricsExcludedProvidersProvider(queueKey).notifier).state =
             next.excludes;
       }
-      ref.invalidate(waveLyricsProvider(queueKey));
+      ref.invalidate(waveLyricsProvider(track));
     }
 
     return LWTooltip(
@@ -894,6 +1293,10 @@ class _KaraokeToolbar extends ConsumerWidget {
         ref.read(lyricsTransliterationProvider.notifier);
 
     final offsetDisplay = formatOffsetDisplay(offsetMs);
+    // Offset / transliteration / follow all act on lyric content. With no
+    // lyrics (empty or instrumental) they are dead controls, but the
+    // source switcher must stay: a miss is exactly when it is needed.
+    final hasLyrics = !result.isEmpty && !result.isInstrumental;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -943,7 +1346,7 @@ class _KaraokeToolbar extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           // Timing Offset Controls: [-] offset [+] [Reset]
-          Container(
+          if (hasLyrics && result.isSynced) Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             decoration: BoxDecoration(
               color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.10),
@@ -997,9 +1400,9 @@ class _KaraokeToolbar extends ConsumerWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          if (hasLyrics && result.isSynced) const SizedBox(width: 8),
           // Transliteration / Romaji Toggle
-          LWTooltip(
+          if (hasLyrics) LWTooltip(
             message: showTransliteration
                 ? 'Transliteration enabled'
                 : 'Enable transliteration',
@@ -1009,8 +1412,8 @@ class _KaraokeToolbar extends ConsumerWidget {
               onTap: transliterationNotifier.toggle,
             ),
           ),
-          const SizedBox(width: 4),
-          LWTooltip(
+          if (hasLyrics && result.isSynced) const SizedBox(width: 4),
+          if (hasLyrics && result.isSynced) LWTooltip(
             message: following
                 ? 'Pause automatic scrolling'
                 : 'Return to the line being sung',
@@ -1135,6 +1538,7 @@ class _ReturnToCurrentPill extends StatelessWidget {
 /// fully lit. Past and upcoming lines stay dim with a slight blur.
 class _AppleLineLyricsView extends StatefulWidget {
   final LyricsResult result;
+  final ValueNotifier<int> activeLineListenable;
   final ValueNotifier<int> positionListenable;
   final bool compact;
   final double? fontSize;
@@ -1146,6 +1550,7 @@ class _AppleLineLyricsView extends StatefulWidget {
 
   const _AppleLineLyricsView({
     required this.result,
+    required this.activeLineListenable,
     required this.positionListenable,
     required this.compact,
     required this.fontSize,
@@ -1164,17 +1569,57 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
   int _lastIndex = -1;
   bool _pinnedOpening = false;
-  // Row output depends only on (active, following, untimed) — the
-  // per-tick position just selects the active line (plain rows don't
-  // consume posMs for content). Caching skips rebuilding ~60 rows
-  // 30×/sec; scroll side-effects below still run per tick.
-  Widget? _listCache;
-  int _listCacheActive = -2;
-  bool _listCacheFollowing = true;
-  bool _listCacheUntimed = false;
 
-  int _activeIndex(int posMs) =>
-      activeLyricLineIndex(widget.result.lines, posMs);
+  @override
+  void initState() {
+    super.initState();
+    widget.activeLineListenable.addListener(_onActiveLineChanged);
+    _lastIndex = widget.activeLineListenable.value;
+  }
+
+  @override
+  void dispose() {
+    widget.activeLineListenable.removeListener(_onActiveLineChanged);
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AppleLineLyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.activeLineListenable != widget.activeLineListenable) {
+      oldWidget.activeLineListenable.removeListener(_onActiveLineChanged);
+      widget.activeLineListenable.addListener(_onActiveLineChanged);
+    }
+    if (oldWidget.result != widget.result) {
+      _pinnedOpening = false;
+      _lastIndex = -1;
+    }
+    if (widget.following && !oldWidget.following) {
+      final untimed = !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
+      _scrollTo(
+        untimed ? 0 : widget.activeLineListenable.value,
+      );
+    }
+  }
+
+  void _onActiveLineChanged() {
+    final active = widget.activeLineListenable.value;
+    if (widget.following && _scroll.isAttached) {
+      if (active <= 0) {
+        _pinOpeningToTop();
+        _lastIndex = active;
+      } else if (active != _lastIndex) {
+        final wasUninitialized = _lastIndex < 0;
+        _lastIndex = active;
+        _scrollTo(
+          active,
+          animate: !wasUninitialized && active > 0,
+        );
+      }
+    } else {
+      _lastIndex = active;
+    }
+  }
 
   void _scrollTo(int index, {bool animate = true}) {
     if (!_scroll.isAttached) return;
@@ -1184,8 +1629,6 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       compact: widget.compact,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Guarded: a stale index (lyrics swapped mid-flight) throws
-      // RangeError here, which aborts the process via fail-fast.
       runGuarded('karaoke.scroll', () {
         if (!_scroll.isAttached || !mounted) return;
         if (animate) {
@@ -1209,217 +1652,163 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   }
 
   @override
-  void didUpdateWidget(covariant _AppleLineLyricsView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.result != widget.result) {
-      _pinnedOpening = false;
-      _lastIndex = -1;
-      _listCache = null;
-    }
-    if (widget.following && !oldWidget.following) {
-      final untimed = lyricsAreUntimed(widget.result.lines);
-      _scrollTo(
-        untimed ? 0 : _activeIndex(widget.positionListenable.value),
-      );
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final untimed = lyricsAreUntimed(widget.result.lines);
-    if (untimed) {
-      // Do not rebuild on the playback clock — that remounts the list
-      // and hides every line past the first screen.
-      return _buildLineList(posMs: 0, active: -1, untimed: true);
-    }
-
-    return ValueListenableBuilder<int>(
-      valueListenable: widget.positionListenable,
-      builder: (context, posMs, _) {
-        final active = _activeIndex(posMs);
-        if (widget.following && _scroll.isAttached) {
-          if (posMs < 400 || active < 0) {
-            _pinOpeningToTop();
-            _lastIndex = active;
-          } else if (active != _lastIndex) {
-            final wasUninitialized = _lastIndex < 0;
-            _lastIndex = active;
-            _scrollTo(
-              active,
-              animate: !wasUninitialized && active > 0,
-            );
-          }
-        } else if (!widget.following) {
-          _lastIndex = active;
-        }
-
-        if (_listCache == null ||
-            active != _listCacheActive ||
-            widget.following != _listCacheFollowing ||
-            untimed != _listCacheUntimed) {
-          _listCacheActive = active;
-          _listCacheFollowing = widget.following;
-          _listCacheUntimed = untimed;
-          _listCache = _buildLineList(
-            posMs: posMs,
-            active: active,
-            untimed: false,
-          );
-        }
-        return _listCache!;
-      },
+    final untimed = !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
+    final padding = EdgeInsets.fromLTRB(
+      widget.compact ? 12 : 28,
+      widget.compact ? 36 : 64,
+      widget.compact ? 12 : 28,
+      widget.compact ? 80 : 120,
     );
-  }
 
-  Widget _buildLineList({
-    required int posMs,
-    required int active,
-    required bool untimed,
-  }) {
-    Widget lineAt(int i) {
-      final line = widget.result.lines[i];
-      // Isolate each row: without this, the active line's per-tick
-      // repaints (highlight wipe + 16px text shadow) cascade into
-      // sibling rows, re-rasterizing the whole pane ~30×/sec.
-      return RepaintBoundary(
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 4),
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () => widget.onSeekLineMs(line.timeMs),
-              child: WaveKaraokeLyricLine(
-                line: line,
-                positionMs: posMs,
-                isActive: i == active,
-                isPast: !untimed && i < active,
-                compact: widget.compact,
-                fontSize: widget.fontSize,
-                showTransliteration: widget.showTransliteration,
-                karaoke: false,
-                softenIdle: !untimed,
+    if (untimed) {
+      return ShaderMask(
+        shaderCallback: (Rect bounds) {
+          return const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.transparent,
+              Colors.black,
+              Colors.black,
+              Colors.transparent,
+            ],
+            stops: [0.0, 0.14, 0.86, 1.0],
+          ).createShader(bounds);
+        },
+        blendMode: BlendMode.dstIn,
+        child: ListView.builder(
+          physics: const ClampingScrollPhysics(),
+          padding: padding,
+          itemCount: widget.result.lines.length,
+          itemBuilder: (context, i) {
+            final line = widget.result.lines[i];
+            final canSeek = widget.result.isSynced && line.timeMs > 0;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: MouseRegion(
+                cursor: canSeek
+                    ? SystemMouseCursors.click
+                    : SystemMouseCursors.basic,
+                child: GestureDetector(
+                  onTap: canSeek ? () => widget.onSeekLineMs(line.timeMs) : null,
+                  child: WaveKaraokeLyricLine(
+                    line: line,
+                    positionMs: 0,
+                    isActive: false,
+                    isPast: false,
+                    compact: widget.compact,
+                    fontSize: widget.fontSize,
+                    showTransliteration: widget.showTransliteration,
+                    karaoke: false,
+                    softenIdle: false,
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       );
     }
 
-    final padding = EdgeInsets.fromLTRB(
-      widget.compact ? 12 : 28,
-      24,
-      widget.compact ? 12 : 28,
-      80,
+    final initialActive = widget.activeLineListenable.value;
+
+    final list = NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        if (n is ScrollStartNotification && n.dragDetails != null) {
+          widget.onUserScroll();
+        }
+        return false;
+      },
+      child: ValueListenableBuilder<int>(
+        valueListenable: widget.activeLineListenable,
+        builder: (context, active, _) {
+          return ScrollablePositionedList.builder(
+            itemScrollController: _scroll,
+            initialScrollIndex: initialActive > 0 ? initialActive : 0,
+            initialAlignment: lyricFollowAlignment(
+              initialActive > 0 ? initialActive : 0,
+              compact: widget.compact,
+            ),
+            itemCount: widget.result.lines.length,
+            padding: padding,
+            itemBuilder: (context, i) {
+              final line = widget.result.lines[i];
+              final isActive = i == active;
+
+              // Distance-based attenuation when following:
+              // Only lines that safely fit without being edged are shown.
+              // Lines that would touch or get clipped at the edges fade out.
+              double lineOpacity = 1.0;
+              if (widget.following && active >= 0) {
+                final dist = (i - active).abs();
+                if (dist == 0) {
+                  lineOpacity = 1.0;
+                } else if (dist == 1) {
+                  lineOpacity = 0.45;
+                } else if (dist == 2) {
+                  lineOpacity = 0.16;
+                } else {
+                  lineOpacity = 0.0;
+                }
+              }
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: () => widget.onSeekLineMs(line.timeMs),
+                    child: WaveKaraokeLyricLine(
+                      line: line,
+                      positionMs: 0,
+                      positionListenable:
+                          isActive ? widget.positionListenable : null,
+                      isActive: isActive,
+                      isPast: i < active,
+                      compact: widget.compact,
+                      fontSize: widget.fontSize,
+                      showTransliteration: widget.showTransliteration,
+                      karaoke: widget.result.isWordSynced,
+                      softenIdle: true,
+                      lineOpacity: lineOpacity,
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
 
-    final list = untimed
-        ? ListView.builder(
-            physics: const ClampingScrollPhysics(),
-            padding: padding,
-            itemCount: widget.result.lines.length,
-            itemBuilder: (context, i) => lineAt(i),
-          )
-        : NotificationListener<ScrollNotification>(
-            onNotification: (n) {
-              if (n is ScrollStartNotification && n.dragDetails != null) {
-                widget.onUserScroll();
-              }
-              return false;
-            },
-            child: ScrollablePositionedList.builder(
-              itemScrollController: _scroll,
-              initialScrollIndex: active > 0 ? active : 0,
-              initialAlignment: lyricFollowAlignment(active > 0 ? active : 0,
-                  compact: widget.compact),
-              itemCount: widget.result.lines.length,
-              padding: padding,
-              itemBuilder: (context, i) => lineAt(i),
-            ),
-          );
+    final maskedList = ShaderMask(
+      shaderCallback: (Rect bounds) {
+        return const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            Colors.black,
+            Colors.black,
+            Colors.transparent,
+          ],
+          stops: [0.0, 0.18, 0.82, 1.0],
+        ).createShader(bounds);
+      },
+      blendMode: BlendMode.dstIn,
+      child: list,
+    );
 
     return Stack(
       children: [
-        list,
-        if (!untimed && !widget.following)
+        maskedList,
+        if (!widget.following && widget.result.isSynced)
           Positioned(
             right: 16,
             bottom: 16,
             child: _ReturnToCurrentPill(onTap: widget.onResume),
           ),
-      ],
-    );
-  }
-}
-
-class _KaraokePlainLyrics extends StatelessWidget {
-  final String text;
-  final bool compact;
-  final bool showHeaderControls;
-  final VoidCallback? onClose;
-
-  const _KaraokePlainLyrics({
-    required this.text,
-    this.compact = false,
-    this.showHeaderControls = true,
-    this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (showHeaderControls)
-          Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 12 : 24,
-              vertical: 8,
-            ),
-            child: Row(
-              children: [
-                Text(
-                  'PLAIN LYRICS',
-                  style: WaveType.overline.copyWith(
-                    fontSize: 9.5,
-                    color: waveAccent(context),
-                  ),
-                ),
-                const Spacer(),
-                if (onClose != null)
-                  _MiniIconButton(
-                    icon: WaveIcons.close,
-                    onTap: onClose!,
-                  ),
-              ],
-            ),
-          ),
-        Expanded(
-          child: ListView(
-            physics: const ClampingScrollPhysics(),
-            padding: EdgeInsets.all(compact ? 14 : 28),
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: WaveDensity.lyricMax,
-                  ),
-                  child: SelectableText(
-                    text,
-                    style: WaveType.body.copyWith(
-                      height: 1.75,
-                      fontSize: compact ? 18 : 22,
-                      color: dark
-                          ? WaveColors.textPrimary
-                          : WaveColors.lightTextPrimary,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ],
     );
   }

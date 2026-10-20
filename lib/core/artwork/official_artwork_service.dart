@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../diagnostics/memory_probe.dart';
 import '../storage/app_database.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/search/shared_providers.dart';
@@ -102,6 +103,14 @@ class OfficialArtworkService {
     return _cache[_trackCacheKey(artist, title)];
   }
 
+  OfficialArtworkResult? peekAlbum({
+    required String album,
+    required String artist,
+  }) {
+    if (normalizeForSearch(album).isEmpty) return null;
+    return _cache[_albumCacheKey(artist, album)];
+  }
+
   Future<T> _throttle<T>(Future<T> Function() task, {bool priority = false}) {
     final completer = Completer<T>();
     void run() {
@@ -127,7 +136,16 @@ class OfficialArtworkService {
 
   OfficialArtworkService([Dio? dio, AppDatabase? db, InnerTubeMusicApi? tube])
       : _dio = dio ?? _createArtworkDio(),
-        _db = db;
+        _db = db {
+    MemoryProbe.register('art', () => debugGauge);
+  }
+
+  /// Residency of the artwork plumbing: the result cache (bounded), the
+  /// in-flight map, the listener list (a leak here would pin whole
+  /// widget trees) and the concurrency queue.
+  String get debugGauge => 'cache=${_cache.length} inflight=${_inFlight.length} '
+      'listeners=${_listeners.length} queue=${_requestQueue.length} '
+      'active=$_activeRequests';
 
   /// Dedicated client: no debug 403 logger, 4xx does not throw, browser
   /// UA without the LastWave token (Apple Search 403s that).

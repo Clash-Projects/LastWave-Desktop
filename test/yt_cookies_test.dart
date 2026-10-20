@@ -45,4 +45,19 @@ void main() {
     expect(() => InnerTubeMusicApi.normalizeCookies('   '),
         throwsFormatException);
   });
+
+  group('YtMusicLikeTest parity', () {
+    test('like and removeLike use the authenticated rate endpoints', () {
+      expect(InnerTubeMusicApi.likeEndpoint, 'like/like');
+      expect(InnerTubeMusicApi.removeLikeEndpoint, 'like/removelike');
+      expect(InnerTubeMusicApi.likeEndpoint,
+          isNot(InnerTubeMusicApi.removeLikeEndpoint));
+    });
+
+    test('likeTarget carries only the videoId', () {
+      final target = InnerTubeMusicApi.likeTargetBody('dQw4w9WgXcQ');
+      expect(target.keys, ['videoId']);
+      expect(target['videoId'], 'dQw4w9WgXcQ');
+    });
+  });
 }

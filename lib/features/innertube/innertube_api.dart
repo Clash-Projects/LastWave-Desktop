@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import '../../core/audio/stream_models.dart';
+import '../../core/diagnostics/memory_probe.dart';
 import '../../core/matching/match_vocab.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/network/lastfm_crypto.dart';
@@ -489,6 +490,11 @@ class InnerTubeMusicApi {
       'FEmusic_new_releases';
   static const String chartsBrowseId = 'FEmusic_charts';
 
+  static const String likeEndpoint = 'like/like';
+  static const String removeLikeEndpoint = 'like/removelike';
+  static Map<String, dynamic> likeTargetBody(String videoId) =>
+      {'videoId': videoId.trim()};
+
   static const String songsSearchFilter =
       'EgWKAQIIAWoKEAkQBRAKEAMQBA==';
   static const String artistSearchFilter =
@@ -516,9 +522,25 @@ class InnerTubeMusicApi {
   };
 
   static const List<PlayerClient> playerClients = [
-    // Limusic fast order: direct-URL clients first (no cipher/poToken),
-    // ciphered web clients last. The resolver tries VISIONOS alone
-    // first, then at most 2 more fallbacks — never the full table.
+    // Direct-URL clients first (no cipher/poToken botguard blockage).
+    PlayerClient(
+      'ANDROID',
+      '21.26.364',
+      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+      osName: 'Android',
+      osVersion: '11',
+    ),
+    PlayerClient(
+      'IOS',
+      '21.26.4',
+      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
+      'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2;)',
+      osName: 'iPhone',
+      osVersion: '18.3.2.22D82',
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+    ),
     PlayerClient(
       'VISIONOS',
       '0.1',
@@ -580,24 +602,6 @@ class InnerTubeMusicApi {
       '2.0',
       'AIzaSyAO_FJ2SlqAz8GlBg1fA54p0wDE7Xk80mU',
       'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/4.0 Chrome/76.0.3809.146 TV Safari/537.36',
-    ),
-    PlayerClient(
-      'IOS',
-      '21.26.4',
-      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
-      'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2;)',
-      osName: 'iPhone',
-      osVersion: '18.3.2.22D82',
-      deviceMake: 'Apple',
-      deviceModel: 'iPhone16,2',
-    ),
-    PlayerClient(
-      'ANDROID',
-      '21.26.364',
-      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
-      osName: 'Android',
-      osVersion: '11',
     ),
     PlayerClient(
       'ANDROID_CREATOR',
@@ -684,11 +688,14 @@ class InnerTubeMusicApi {
   static const int _maxStreamCacheEntries = 256;
   static const int _streamTtlMs = 4 * 60 * 60 * 1000;
   static const int _maxMatchCacheEntries = 1024;
+  // Memo of the last successful resolve per video. Was unbounded: a long
+  // session (radio / endless play) grew it one entry per track forever.
+  static const int _maxLastResolvedEntries = 256;
   static const int _urlExpiryMarginMs = 2 * 60 * 1000;
   static const int _unknownExpiryTtlMs = 5 * 60 * 1000;
   // Limusic fast path: one preferred direct-URL client first,
   // then at most 2 limited fallbacks. Never fan out to the full table.
-  static const String _fastPreferredClient = 'VISIONOS';
+  static const String _fastPreferredClient = 'ANDROID';
   static const int _maxStreamClients = 3;
   static const Duration _fastClientTimeout = Duration(seconds: 8);
 
@@ -721,7 +728,17 @@ class InnerTubeMusicApi {
   InnerTubeMusicApi(this._dio, this._secure,
       [this._poTokens]) {
     _decipher = SignatureDecipher(_dio);
+    MemoryProbe.register('yt', () => debugGauge);
   }
+
+  /// Long-lived InnerTube memo residency. Every one of these is capped
+  /// ([_maxStreamCacheEntries], [_maxMatchCacheEntries],
+  /// [_maxLastResolvedEntries], [_maxCooldowns]); this gauge is here to
+  /// prove the caps hold over a long listening session rather than to
+  /// find a leak.
+  String get debugGauge => 'stream=${_streamCache.length} '
+      'inflight=${_inflight.length} match=${_matchCache.length} '
+      'resolved=${_lastResolved.length} cooled=${_failedClientsUntil.length}';
 
   /// Attach the persistent disk cache (call once from the provider).
   /// Loads up to 256 recent stream entries + prunes expired rows.
@@ -1113,6 +1130,43 @@ class InnerTubeMusicApi {
     }
   }
 
+  /// Likes a video on the connected YouTube Music account (like/like endpoint).
+  Future<bool> likeVideo(String videoId) => _setVideoLiked(videoId, true);
+
+  /// Clears a like on YouTube Music (like/removelike endpoint).
+  Future<bool> removeVideoLike(String videoId) => _setVideoLiked(videoId, false);
+
+  Future<bool> _setVideoLiked(String videoId, bool liked) async {
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty || !_connection.connected) return false;
+    await _ensureConfig();
+    final endpoint = liked ? likeEndpoint : removeLikeEndpoint;
+    final url = '$musicApi/$endpoint?key=$_apiKey&prettyPrint=false';
+    try {
+      await _post(
+        url,
+        body: {
+          'context': _context(
+            'WEB_REMIX',
+            _clientVersion,
+            visitorData: _visitorData,
+          ),
+          'target': likeTargetBody(cleanId),
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+        authenticated: true,
+      );
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('YtMusic: $endpoint failed for $cleanId: $e');
+      }
+      return false;
+    }
+  }
+
   /// Account YouTube Music watch history, authenticated.
   Future<List<YouTubeMusicTrack>> fetchYtHistory(
       {int limit = 100}) async {
@@ -1391,7 +1445,10 @@ class InnerTubeMusicApi {
       final lists = _parsePlaylistRenderers(root)
           .where((p) =>
               !p.id.startsWith('UC') &&
-              !p.id.startsWith('MPRE'))
+              !p.id.startsWith('MPRE') &&
+              !isLikedMusicId(p.id) &&
+              p.title.toLowerCase() != 'liked music' &&
+              p.title.toLowerCase() != 'liked songs')
           .toList();
       if (kDebugMode) {
         debugPrint(
@@ -3201,6 +3258,100 @@ class InnerTubeMusicApi {
     return out.take(limit).toList();
   }
 
+  /// Plain lyrics from a video's YouTube Music "Lyrics" tab, when it has one.
+  Future<String?> fetchLyricsTabText(String videoId) async {
+    final id = videoId.trim();
+    if (id.isEmpty) return null;
+    await _ensureConfig();
+    try {
+      final next = await _post(
+        '$musicApi/next?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'videoId': id,
+          'isAudioOnly': true,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+      );
+      final tabs = <Map<String, dynamic>>[];
+      _collectObjects(next, 'tabRenderer', tabs);
+      Map<String, dynamic>? lyricsTab;
+      for (final tab in tabs) {
+        final title = _runsText(tab['title']) ?? tab['title']?.toString() ?? '';
+        if (title.toLowerCase().contains('lyrics')) {
+          lyricsTab = tab;
+          break;
+        }
+      }
+      dynamic endpoint = lyricsTab?['endpoint']?['browseEndpoint'];
+      if (endpoint == null && tabs.length > 1) {
+        endpoint = tabs[1]['endpoint']?['browseEndpoint'];
+      }
+      if (endpoint is! Map) return null;
+      final browseId = endpoint['browseId']?.toString();
+      if (browseId == null || browseId.isEmpty) return null;
+      final params = endpoint['params']?.toString();
+
+      final page = await _post(
+        '$musicApi/browse?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'browseId': browseId,
+          if (params != null && params.isNotEmpty) 'params': params,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+      );
+      final shelves = <Map<String, dynamic>>[];
+      _collectObjects(page, 'musicDescriptionShelfRenderer', shelves);
+      for (final shelf in shelves) {
+        final descObj = shelf['description'];
+        final desc = descObj is Map ? _runsText(descObj['runs']) : _runsText(descObj);
+        if (desc != null && desc.trim().isNotEmpty) return desc.trim();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Timed transcript cues from a video, when it has them.
+  Future<List<({int timeMs, String text})>?> fetchTranscriptCues(String videoId) async {
+    final id = videoId.trim();
+    if (id.isEmpty) return null;
+    await _ensureConfig();
+    try {
+      final idBytes = utf8.encode(id);
+      final paramBytes = [0x0A, idBytes.length, ...idBytes];
+      final params = base64.encode(paramBytes);
+      final res = await _post(
+        '$musicApi/get_transcript?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'params': params,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+      );
+      final cues = <Map<String, dynamic>>[];
+      _collectObjects(res, 'transcriptCueRenderer', cues);
+      final lines = <({int timeMs, String text})>[];
+      for (final cue in cues) {
+        final startOffset = int.tryParse(cue['startOffsetMs']?.toString() ?? '');
+        if (startOffset == null) continue;
+        final cueObj = cue['cue'];
+        final text = (cueObj is Map ? _runsText(cueObj['runs']) : _runsText(cueObj)) ??
+            cueObj?.toString() ?? '';
+        if (text.trim().isEmpty) continue;
+        lines.add((timeMs: startOffset, text: text.trim()));
+      }
+      if (lines.isNotEmpty) return lines;
+    } catch (_) {}
+    return null;
+  }
+
   /// Parse one `musicTwoRowItemRenderer`.
   ///
   /// [kind] defaults to [YouTubeEntityKind.album] because every caller
@@ -3304,10 +3455,16 @@ class InnerTubeMusicApi {
 
   // -- matching (mirror Android exactly) --------------------------------------------
 
-  static String normalize(String s) {
+static String normalize(String s) {
+    // Standardize unicode curly quotes, apostrophes, and hyphens/dashes
+    var v = s
+        .replaceAll(RegExp(r"[\u2018\u2019\u201A\u201B`]"), "'")
+        .replaceAll(RegExp(r"[\u201C\u201D\u201E\u201F]"), '"')
+        .replaceAll(RegExp(r"[\u2013\u2014\u2212]"), '-');
+
     // NFD first (like Android Normalizer.Form.NFD), so precomposed
     // characters decompose and diacritics can be stripped.
-    var v = unorm.nfd(s.toLowerCase());
+    v = unorm.nfd(v.toLowerCase());
     v = v.replaceAll(_diacritics, '');
     // Currency symbol '$' in artist/track names is universally stylized 's'
     // (e.g. KR$NA -> krsna, Ke$ha -> kesha, A$AP -> asap, Ty Dolla $ign -> ty dolla sign).
@@ -3631,6 +3788,10 @@ class InnerTubeMusicApi {
       // v2 re-validates rows written by the old scorer: a cached remix
       // for a non-remix request is dropped and re-resolved below.
       if (_cachedRowStillFaithful(cached, title, cleanArtist)) {
+        // Touch for LRU: re-insert so [_trimOldest] evicts the coldest
+        // row, not the hottest.
+        _matchCache.remove(cacheKey);
+        _matchCache[cacheKey] = cached;
         return cached;
       }
       _matchCache.remove(cacheKey);
@@ -3704,9 +3865,10 @@ class InnerTubeMusicApi {
       throw NoReliableMatchException(
           'No reliable YouTube Music match found for $title by $artist');
     }
-    if (_matchCache.length > _maxMatchCacheEntries) {
-      _matchCache.clear();
-    }
+    // FIFO trim, not a wipe: `clear()` threw away the entire hot working
+    // set (recently played tracks are exactly what gets re-resolved on
+    // repeat/skip-back), forcing a burst of fresh YTM searches.
+    _trimOldest(_matchCache, _maxMatchCacheEntries);
     _matchCache[cacheKey] = best;
     // Persist for instant reuse (disk cache).
     try {
@@ -4019,6 +4181,7 @@ class InnerTubeMusicApi {
               videoId, candidate, client.key, authScope, DateTime.now());
           _lastResolved[videoId] =
               _ResolvedRef(client.key, authScope);
+          _trimOldest(_lastResolved, _maxLastResolvedEntries);
           _logStream('resolved',
               videoId: videoId,
               client: client.key,
@@ -4029,10 +4192,7 @@ class InnerTubeMusicApi {
           return candidate.stream;
         }
       } catch (e) {
-        _failedClientsUntil[
-                '$videoId|${client.key}|$authScope'] =
-            DateTime.now()
-                .add(Duration(milliseconds: _clientCooldownMs));
+        _coolClient(videoId, client.key, authScope);
         _logStream('client-resolve-failed',
             videoId: videoId,
             client: client.key,
@@ -4201,14 +4361,10 @@ class InnerTubeMusicApi {
       if (url == null || url.isEmpty) continue;
       url = appendPot(url, gvsPoToken);
       final mime = format['mimeType']?.toString() ?? '';
-      if (!mime.toLowerCase().startsWith('audio/')) continue;
       final codec = _extractCodec(mime);
+      if (!_isCompatibleAudio(mime, codec)) continue;
       final bitrate =
           (format['bitrate'] as num?)?.toInt() ?? 0;
-      if (!_isCompatibleAudio(
-          mime.split(';').first, codec)) {
-        continue;
-      }
       final urlExpiry = _urlExpiryMs(url);
       DateTime? expiresAt;
       final options = [
@@ -4230,10 +4386,11 @@ class InnerTubeMusicApi {
                   ? 'AAC'
                   : 'AUDIO');
       final itag = (format['itag'] as num?)?.toInt() ?? -1;
+      final cleanMime = mime.split(';').first.trim();
       candidates.add(_Candidate(
         stream: ResolvedStream(
           url: url,
-          mimeType: mime.split(';').first,
+          mimeType: cleanMime,
           bitrateKbps: (bitrate / 1000).round(),
           audioCodec: codecLabel,
           cacheKey:
@@ -4249,7 +4406,7 @@ class InnerTubeMusicApi {
     }
     candidates.sort((a, b) {
       final adaptiveOrder =
-          (a.adaptive ? 1 : 0).compareTo(b.adaptive ? 1 : 0);
+          (b.adaptive ? 1 : 0).compareTo(a.adaptive ? 1 : 0);
       if (adaptiveOrder != 0) return adaptiveOrder;
       return b.bitrate.compareTo(a.bitrate);
     });
@@ -4331,15 +4488,17 @@ class InnerTubeMusicApi {
             }();
             if (url == null) continue;
             final mime = f['mimeType']?.toString() ?? '';
-            if (!mime.toLowerCase().startsWith('audio/')) {
+            final codec = _extractCodec(mime);
+            if (!_isCompatibleAudio(mime, codec)) {
               continue;
             }
             final bitrate =
                 (f['bitrate'] as num?)?.toInt() ?? 0;
+            final cleanMime = mime.split(';').first.trim();
             collected.add(_Candidate(
               stream: ResolvedStream(
                 url: url,
-                mimeType: mime.split(';').first,
+                mimeType: cleanMime,
                 bitrateKbps: (bitrate / 1000).round(),
                 audioCodec: 'AUDIO',
                 cacheKey: 'yt-dl:$videoId:${f['itag']}',
@@ -4535,9 +4694,18 @@ class InnerTubeMusicApi {
     return cooling;
   }
 
-  void _coolClient(String videoId, String clientKey) {
-    _failedClientsUntil['$videoId|$clientKey|${_playbackAuthScope()}'] =
+  void _coolClient(String videoId, String clientKey, [String? authScope]) {
+    _failedClientsUntil[
+            '$videoId|$clientKey|${authScope ?? _playbackAuthScope()}'] =
         DateTime.now().add(Duration(milliseconds: _clientCooldownMs));
+    // Cooldowns are only 60s but the memo was never swept globally — only
+    // the videos being queried right now got their expired rows dropped.
+    // Long sessions accumulated a row per failed client per track forever.
+    if (_failedClientsUntil.length > 128) {
+      final now = DateTime.now();
+      _failedClientsUntil.removeWhere((_, until) => !now.isBefore(until));
+      _trimOldest(_failedClientsUntil, 128);
+    }
   }
 
   void reportPlaybackFailure(String videoId) {
@@ -4547,9 +4715,7 @@ class InnerTubeMusicApi {
     } catch (_) {}
     final ref = _lastResolved.remove(videoId);
     if (ref != null) {
-      _failedClientsUntil[
-              '$videoId|${ref.clientProfile}|${ref.authScope}'] =
-          DateTime.now().add(Duration(milliseconds: _clientCooldownMs));
+      _coolClient(videoId, ref.clientProfile, ref.authScope);
       _logStream('report-failure',
           videoId: videoId, client: ref.clientProfile);
     } else {
@@ -4557,6 +4723,18 @@ class InnerTubeMusicApi {
         _coolClient(videoId, c.key);
       }
       _logStream('report-failure', videoId: videoId);
+    }
+  }
+
+  /// FIFO trim for the plain insertion-ordered caches: drop the oldest
+  /// entries until [max] remain. Cheaper and far less disruptive than
+  /// `clear()`, which dropped the whole hot working set.
+  static void _trimOldest<K, V>(Map<K, V> cache, int max) {
+    if (cache.length <= max) return;
+    final doomed =
+        cache.keys.take(cache.length - max).toList(growable: false);
+    for (final k in doomed) {
+      cache.remove(k);
     }
   }
 
@@ -4678,27 +4856,54 @@ class InnerTubeMusicApi {
   static String _take40(String s) =>
       s.length <= 40 ? s : s.substring(0, 40);
 
+  static bool _hasVideoCodec(String mime) {
+    final lower = mime.toLowerCase();
+    return lower.contains('avc1') ||
+        lower.contains('avc3') ||
+        lower.contains('hvc1') ||
+        lower.contains('hev1') ||
+        lower.contains('vp8') ||
+        lower.contains('vp9') ||
+        lower.contains('vp09') ||
+        lower.contains('av01') ||
+        lower.contains('mp4v') ||
+        lower.contains('theora');
+  }
+
   static bool _isCompatibleAudio(String mime, String? codec) {
     final m = mime.toLowerCase();
     final c = (codec ?? '').toLowerCase();
-    if (m == 'audio/webm') {
+    if (_hasVideoCodec(m) || _hasVideoCodec(c)) return false;
+    if (m.startsWith('video/')) return false;
+    final base = m.split(';').first.trim();
+    if (base == 'audio/webm') {
       return c.isEmpty || c.contains('opus') || c.contains('vorbis');
     }
-    if (m == 'audio/mp4' || m == 'audio/m4a') {
+    if (base == 'audio/mp4' || base == 'audio/m4a') {
       return c.isEmpty || c.contains('mp4a') || c.contains('aac');
     }
-    if (m == 'audio/ogg') {
+    if (base == 'audio/ogg') {
       return c.isEmpty || c.contains('opus') || c.contains('vorbis');
     }
-    if (m == 'audio/mpeg') return true;
+    if (base == 'audio/mpeg') return true;
     return false;
   }
 
   static String? _extractCodec(String mime) {
     final m = _codecPattern.firstMatch(mime)?.group(1);
     if (m == null) return null;
-    final first = m.split(',').first.trim();
-    return first.isEmpty ? null : first;
+    final parts =
+        m.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty);
+    for (final p in parts) {
+      final lp = p.toLowerCase();
+      if (lp.contains('mp4a') ||
+          lp.contains('aac') ||
+          lp.contains('opus') ||
+          lp.contains('vorbis')) {
+        return p;
+      }
+    }
+    return parts.isEmpty ? null : parts.first;
   }
 
   static int? _urlExpiryMs(String url) {

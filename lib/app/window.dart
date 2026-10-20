@@ -54,12 +54,23 @@ Future<void> _setupAcrylic() async {
   }
 }
 
-/// Switch the native material when the pearl/midnight theme changes.
-Future<void> applyWindowMaterial({required bool isLight}) async {
+/// Switch the native material when the pearl/midnight/AMOLED theme
+/// changes. AMOLED collapses the window background to pure black so the
+/// OS-painted frame (visible during resize / before the first Flutter
+/// frame) matches the black scaffold instead of flashing graphite.
+Future<void> applyWindowMaterial({
+  required bool isLight,
+  bool amoled = false,
+}) async {
   try {
     await Window.setEffect(
       effect: WindowEffect.mica,
       dark: !isLight,
+    );
+    await windowManager.setBackgroundColor(
+      isLight
+          ? const Color(0xFFF3F3F3)
+          : (amoled ? const Color(0xFF000000) : const Color(0xFF0E0E0E)),
     );
   } catch (_) {}
 }

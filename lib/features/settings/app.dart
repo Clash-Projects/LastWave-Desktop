@@ -94,8 +94,10 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
   @override
   Widget build(BuildContext context) {
     ref.listen(
-        themeControllerProvider.select((t) => t.isLight),
-        (_, light) => applyWindowMaterial(isLight: light));
+        themeControllerProvider
+            .select((t) => (t.isLight, t.amoled)),
+        (_, mode) =>
+            applyWindowMaterial(isLight: mode.$1, amoled: mode.$2));
     // Live auth state drives the gate (login, logout, guest entry,
     // session expiry). Guests count as inside.
     ref.listen(
@@ -108,6 +110,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     final darkTheme = buildWaveFluentTheme(
       accent: theme.accent,
       isLight: false,
+      amoled: theme.amoled,
     );
     final lightTheme = buildWaveFluentTheme(
       accent: theme.accent,

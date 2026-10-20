@@ -3,10 +3,14 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import '../../core/network/dio_factory.dart';
+import '../innertube/innertube_api.dart';
 import 'lyrics_models.dart';
 import 'lyrics_providers.dart';
+
+final _diacriticsRegex = RegExp(r'\p{M}+', unicode: true);
 
 /// Lyrics orchestrator with Apple Music lyrics via Lyrically.
 ///
@@ -21,20 +25,23 @@ String cleanSongTitle(String title) {
   var t = title;
   t = t.replaceAll(
       RegExp(
-          r'\s*\([^)]*(?:official|video|audio|remaster|feat|ft\.|live|version|edit|visualizer|lyrics?)[^)]*\)',
+          r'\s*\([^)]*(?:official|video|audio|remaster|feat\b|ft\.?|featuring\b|live|version|edit|visualizer|lyrics?|hd|hq|4k|1080p|mv|m/v|full\s*song|full\s*video|full\s*audio|explicit|clean|deluxe|bonus|with|prod)[^)]*\)',
           caseSensitive: false),
       '');
   t = t.replaceAll(
       RegExp(
-          r'\s*\[[^\]]*(?:official|video|audio|remaster|feat|ft\.|live|version|edit|visualizer|lyrics?)[^\]]*\]',
+          r'\s*\[[^\]]*(?:official|video|audio|remaster|feat\b|ft\.?|featuring\b|live|version|edit|visualizer|lyrics?|hd|hq|4k|1080p|mv|m/v|full\s*song|full\s*video|full\s*audio|explicit|clean|deluxe|bonus|with|prod)[^\]]*\]',
           caseSensitive: false),
       '');
   t = t.replaceAll(
       RegExp(
-          r'\s*-\s*(?:official|video|audio|remaster|live|remastered|lyrics?).*$',
+          r'\s*[-–—|/:]\s*(?:official|video|audio|remaster|live|remastered|lyrics?|hd|hq|4k|1080p|mv|m/v|deluxe|bonus|visualizer|music\s*video|lyric\s*video|full\s*(?:song|video|audio)|prod).*$',
           caseSensitive: false),
       '');
-  t = t.replaceAll(RegExp(r'[\s\-–—]+$'), '').trim();
+  t = t.replaceAll(
+      RegExp(r'\s+(?:feat\.?|ft\.?|featuring)\b.*$', caseSensitive: false),
+      '');
+  t = t.replaceAll(RegExp(r'[\s\-–—|/:]+$'), '').trim();
   return t.isNotEmpty ? t : title;
 }
 
@@ -42,22 +49,30 @@ String cleanSongArtist(String artist) {
   var a = artist;
   a = a.replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '');
   a = a.replaceAll(
-      RegExp(r'\s*(?:feat\.|ft\.|featuring).*$', caseSensitive: false), '');
+      RegExp(r'\s*[\(\[]\s*(?:feat\.?|ft\.?|featuring\b|with\b|prod\.?|produced by\b)[^\)\]]*[\)\]]', caseSensitive: false),
+      '');
+  a = a.replaceAll(
+      RegExp(r'\s*(?:feat\.?|ft\.?|featuring\b|with\b).*$', caseSensitive: false),
+      '');
   return a.trim().isNotEmpty ? a.trim() : artist;
 }
 
 /// Drop featuring clauses, bracketed noise, and punctuation so "ALL CAPS"
 /// and "All Caps [Official Audio]" compare equal.
 String normalizeLyricsTitle(String s) {
-  var t = s.toLowerCase();
+  var t = s
+      .replaceAll(RegExp(r"[\u2018\u2019\u201A\u201B`']"), '')
+      .replaceAll(RegExp(r'[\u201C\u201D\u201E\u201F"]'), ' ')
+      .replaceAll(RegExp(r'[\u2013\u2014\u2212-]'), ' ');
+  t = unorm.nfd(t.toLowerCase());
+  t = t.replaceAll(_diacriticsRegex, '');
   t = t.replaceAll(RegExp(r'\$(?=\d)'), '');
   t = t.replaceAll(r'$', 's');
   t = t.replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
   t = t.replaceAll(RegExp(r'\b(?:feat\.?|ft\.?|featuring)\b.*$'), ' ');
   t = t.replaceAll(RegExp(r'\(\s*\)'), ' ');
   t = t.replaceAll(RegExp(r'[\(\[]\s*$'), ' ');
-  t = t.replaceAll(RegExp(r'[‘’`]'), "'");
-  t = t.replaceAll(RegExp(r"[^\w\s()'&]"), ' ');
+  t = t.replaceAll(RegExp(r"[^\w\s()&]"), ' ');
   t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
   return t;
 }
@@ -73,18 +88,51 @@ String _lyricsCoreTitle(String normalized) {
 /// Substring matches ("All Caps" ⊂ "Scene Three"? no; "All" ⊂ "All Caps"?
 /// also no) are rejected so a different track cannot steal lyrics.
 bool lyricsTitlesMatch(String query, String candidate) {
-  final q = normalizeLyricsTitle(query);
-  final c = normalizeLyricsTitle(candidate);
+  // Version gate: recording versions (live, remix, acoustic, cover, interlude, etc.) must agree.
+  // Gated first so cleaning packaging never causes alternate cuts to compare equal.
+  if (!lyricsSameVersion(query, candidate)) return false;
+
+  final cleanQ = cleanSongTitle(query);
+  final cleanC = cleanSongTitle(candidate);
+  var q = normalizeLyricsTitle(cleanQ);
+  var c = normalizeLyricsTitle(cleanC);
   if (q.isEmpty || c.isEmpty) return false;
   if (q == c) return true;
-  final qCore = _lyricsCoreTitle(q);
-  final cCore = _lyricsCoreTitle(c);
-  if (qCore.isEmpty || cCore.isEmpty || qCore != cCore) return false;
-  final qExtra = q.replaceAll(qCore, '').trim();
-  final cExtra = c.replaceAll(cCore, '').trim();
-  // Query named a specific cut the candidate does not have
-  // ("Song (Interlude)" must not match "Song").
+
+  var qCore = _lyricsCoreTitle(q);
+  var cCore = _lyricsCoreTitle(c);
+  if (qCore.isEmpty || cCore.isEmpty || qCore != cCore) {
+    final qStrip = normalizeLyricsTitle(stripLeadingArtistPrefix(cleanQ));
+    final cStrip = normalizeLyricsTitle(stripLeadingArtistPrefix(cleanC));
+    if (qStrip != q || cStrip != c) {
+      final qStripCore = _lyricsCoreTitle(qStrip);
+      final cStripCore = _lyricsCoreTitle(cStrip);
+      if (qStripCore.isNotEmpty && qStripCore == cStripCore) {
+        q = qStrip;
+        c = cStrip;
+        qCore = qStripCore;
+        cCore = cStripCore;
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  String stripPackaging(String s) {
+    var v = s.toLowerCase();
+    v = v.replaceAll(
+      RegExp(r'\b(official|video|audio|remaster(?:ed)?|feat|ft|featuring|with|prod|live|version|edit|visualizer|lyrics?|hd|hq|4k|mv|deluxe|bonus|clean|explicit|album|single|original)\b', caseSensitive: false),
+      ' ',
+    );
+    return v.replaceAll(RegExp(r"[^\w]"), '').trim();
+  }
+
+  final qExtra = stripPackaging(q.replaceAll(qCore, ''));
+  final cExtra = stripPackaging(c.replaceAll(cCore, ''));
   if (qExtra.isNotEmpty && cExtra.isEmpty) return false;
+  if (qExtra.isEmpty && cExtra.isNotEmpty) return false;
   if (qExtra.isNotEmpty && cExtra.isNotEmpty && qExtra != cExtra) {
     return false;
   }
@@ -92,25 +140,64 @@ bool lyricsTitlesMatch(String query, String candidate) {
 }
 
 String _normalizeLyricsArtist(String s) {
-  var v = s.toLowerCase();
+  var v = s
+      .replaceAll(RegExp(r"[\u2018\u2019\u201A\u201B`']"), '')
+      .replaceAll(RegExp(r'[\u201C\u201D\u201E\u201F"]'), ' ')
+      .replaceAll(RegExp(r'[\u2013\u2014\u2212-]'), ' ');
+  v = unorm.nfd(v.toLowerCase());
+  v = v.replaceAll(_diacriticsRegex, '');
   v = v.replaceAll(RegExp(r'\$(?=\d)'), '');
   v = v.replaceAll(r'$', 's');
   return v;
 }
 
-/// Artists match when equal, or the shorter name is a full token in the
-/// longer billing ("Madvillain" in "Madvillain & MF DOOM").
+Set<String> _extractArtistEntities(String rawArtist) {
+  final cleaned = cleanSongArtist(rawArtist);
+  final normalized = _normalizeLyricsArtist(cleaned).trim();
+  final entities = <String>{};
+  if (normalized.isNotEmpty) entities.add(normalized);
+  final parts = normalized.split(
+    RegExp(r'\s*[,/;&+]\s*|\s+(?:feat\.?|ft\.?|featuring|with|vs\.?|x)\s+',
+        caseSensitive: false),
+  );
+  for (final p in parts) {
+    final t = p.trim();
+    if (t.isNotEmpty) entities.add(t);
+  }
+  return entities;
+}
+
+/// Artists match when equal, or collaborating entities match across delimiters
+/// (&, /, ,, +, with, feat, vs, x) while preventing false positives.
 bool lyricsArtistsMatch(String query, String candidate) {
   final q = _normalizeLyricsArtist(cleanSongArtist(query)).trim();
   final c = _normalizeLyricsArtist(cleanSongArtist(candidate)).trim();
   if (q.isEmpty || c.isEmpty) return false;
   if (q == c) return true;
+
+  final qEntities = _extractArtistEntities(query);
+  final cEntities = _extractArtistEntities(candidate);
+
+  for (final qe in qEntities) {
+    if (qe.length < 2) continue;
+    for (final ce in cEntities) {
+      if (ce.length < 2) continue;
+      if (qe == ce) return true;
+    }
+  }
+
   final shorter = q.length <= c.length ? q : c;
   final longer = q.length <= c.length ? c : q;
-  if (shorter.length < 2) return false;
-  return RegExp(
-    '(^|[\\s&/,;+])${RegExp.escape(shorter)}(\$|[\\s&/,;+])',
-  ).hasMatch(longer);
+  if (shorter.length >= 2) {
+    final pattern =
+        r'(^|(?:\s*[,&/;+]\s*|\s+(?:with|feat\.?|ft\.?|featuring|vs\.?|x)\s+))' +
+        RegExp.escape(shorter) +
+        r'($|(?:\s*[,&/;+]\s*|\s+(?:with|feat\.?|ft\.?|featuring|vs\.?|x)\s+))';
+    if (RegExp(pattern, caseSensitive: false).hasMatch(longer)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool lyricsIsAlternateRecording(String title, {String album = ''}) {
@@ -132,8 +219,8 @@ bool lyricsDurationPlausible(int? querySeconds, num? candidateSeconds) {
   final candidate = candidateSeconds.round();
   if (candidate <= 0) return true;
   final diff = (candidate - querySeconds).abs();
-  if (diff <= 12) return true;
-  return diff / querySeconds <= 0.2;
+  if (diff <= 25) return true;
+  return diff <= 45 && (diff / querySeconds <= 0.18);
 }
 
 int lyricsUniqueLineCount(LyricsResult result) {
@@ -239,6 +326,7 @@ LyricsResult lyricsForDisplayMode(
 
 class LyricsRepository {
   final Dio _dio;
+  final InnerTubeMusicApi? _tube;
 
   /// Bounded LRU (insertion-ordered map): one entry per unique track
   /// incl. full karaoke syllable trees, so an unbounded map leaks
@@ -256,9 +344,18 @@ class LyricsRepository {
     Dio? dio,
     this.preferredHeadStart = const Duration(seconds: 4),
     this.raceTotal = const Duration(seconds: 12),
-  ]) : _dio = dio ?? DioFactory.create();
+    InnerTubeMusicApi? tube,
+  ])  : _dio = dio ?? DioFactory.create(),
+        _tube = tube;
 
-  void _store(String key, LyricsResult value) {
+  void _store(String key, LyricsResult value, {String queryTitle = ''}) {
+    if (value.isEmpty) return;
+    final existing = _cache[key];
+    if (existing != null && !existing.isEmpty) {
+      if (isBetterCandidate(existing, value, queryTitle: queryTitle)) {
+        return;
+      }
+    }
     _cache
       ..remove(key)
       ..[key] = value;
@@ -297,12 +394,19 @@ class LyricsRepository {
         '${_key(title, artist, album)}|${durationSeconds ?? 0}|$wordByWord|${preferred.id}|${sortedExcludes.join(',')}';
     if (!forceRefresh) {
       final cached = _lookup(key);
-      // Empty results are never stored (see below), so any cache hit
-      // is usable: serve it. Falling through here would refetch on
-      // every rebuild and could overwrite a good entry with empty.
+      // Empty results are never stored, so any cache hit is usable.
+      // If word-by-word was requested, only return from cache immediately
+      // if the cached entry is word-synced (or instrumental).
+      // If the cached entry is only line-synced, stream it as an immediate
+      // partial so the UI has lyrics instantly, but allow the race below
+      // to seek a true word-synced version.
       if (cached != null) {
-        onPartialResult?.call(cached);
-        return lyricsForDisplayMode(cached, wordByWord: wordByWord);
+        if (!wordByWord || cached.isWordSynced || cached.isInstrumental) {
+          onPartialResult?.call(cached);
+          return lyricsForDisplayMode(cached, wordByWord: wordByWord);
+        } else {
+          onPartialResult?.call(lyricsForDisplayMode(cached, wordByWord: wordByWord));
+        }
       }
     }
 
@@ -347,20 +451,24 @@ class LyricsRepository {
           );
     }
 
-    // Preferred LRCLIB goes first so the explicit choice is honored.
-    // A word-sync hit from anywhere later still wins.
+    // Preferred non-word provider (LRCLIB, Musixmatch, Megalobiz, YouTube, Genius)
+    // goes first so explicit choice is honored. A word-sync hit from anywhere later
+    // can still supersede unless line mode was requested.
     var lrclibAttempted = false;
     LyricsResult? preferredFallback;
-    if (preferred == LyricsProviderId.lrclib) {
-      lrclibAttempted = true;
-      final first = normalize(await attempt('lrclib'));
+    if (preferred != LyricsProviderId.auto &&
+        !preferred.isWordProvider &&
+        !excludes.contains(preferred.id)) {
+      if (preferred == LyricsProviderId.lrclib) lrclibAttempted = true;
+      final first = normalize(await attempt(preferred.id));
       if (first != null) {
-        if (first.isWordSynced || (first.isInstrumental && wantsAlt)) {
-          _store(key, first);
+        if (first.isWordSynced || first.isSynced || (first.isInstrumental && wantsAlt) || !wordByWord) {
+          _store(key, first, queryTitle: title);
           return display(first);
         }
         if (plausible(first)) {
           preferredFallback = first;
+          lineFallback = first;
           onPartialResult?.call(display(first));
         }
       }
@@ -387,15 +495,14 @@ class LyricsRepository {
         single = null;
       }
       if (single != null && plausible(single)) {
-        if (single.isWordSynced && wordByWord) {
-          _store(key, single);
-          return display(single);
-        }
-        if (single.isInstrumental && wantsAlt) {
-          _store(key, single);
+        if ((single.isWordSynced && wordByWord) ||
+            (single.isSynced && !wordByWord) ||
+            (single.isInstrumental && wantsAlt)) {
+          _store(key, single, queryTitle: title);
           return display(single);
         }
         preferredFallback = single;
+        lineFallback = single;
         onPartialResult?.call(display(single));
       }
     }
@@ -421,9 +528,14 @@ class LyricsRepository {
       LyricsResult? raceWord;
       final pending = <Future<LyricsResult?>>[
         for (final id in const [
+          'lastwave',
           'lrc_red',
           'apple_music',
           'better_lyrics',
+          'better_lyrics_portato',
+          'bini_lyrics',
+          'lyrics_plus',
+          'unison',
           'kugou',
           'simp_music',
           'lrclib',
@@ -438,8 +550,11 @@ class LyricsRepository {
           if (result == null || result.isEmpty) continue;
           if (raceWord != null) continue;
           if (result.isWordSynced && plausible(result)) {
-            raceWord = result;
-            return;
+            if (!lyricsLooksLikePlaceholder(result) &&
+                !lyricsLooksLikeThinLoop(result)) {
+              raceWord = result;
+              return;
+            }
           }
           if (!plausible(result)) continue;
           if (result.isInstrumental && !wantsAlt) continue;
@@ -460,18 +575,30 @@ class LyricsRepository {
       }
       final won = raceWord;
       if (won != null) {
-        _store(key, won);
+        _store(key, won, queryTitle: title);
         return display(won);
       }
     } else {
-      // Line mode: Apple + LRCLIB race for line sources under the same
-      // deadline (pre-port behavior), with the explicit pick above
-      // outranking whatever they find.
-      final pending = <Future<LyricsResult?>>[attempt('apple_music')];
-      if (!lrclibAttempted) {
-        lrclibAttempted = true;
-        pending.add(attempt('lrclib'));
-      }
+      // Line mode: race all candidate providers for line sources under the deadline.
+      final pending = <Future<LyricsResult?>>[
+        for (final id in const [
+          'lastwave',
+          'lrc_red',
+          'apple_music',
+          'better_lyrics',
+          'better_lyrics_portato',
+          'bini_lyrics',
+          'lyrics_plus',
+          'unison',
+          'kugou',
+          'simp_music',
+          'lrclib',
+        ])
+          if (id != 'simp_music' || (videoId?.isNotEmpty ?? false))
+            if (id != 'lrclib' || !lrclibAttempted)
+              attempt(id),
+      ];
+      if (!lrclibAttempted) lrclibAttempted = true;
       try {
         await drainRace(pending).timeout(raceTotal);
       } on TimeoutException {
@@ -482,29 +609,65 @@ class LyricsRepository {
     // Explicit choice outranks any other line-sync source.
     final preferredSettled = preferredFallback;
     if (preferredSettled != null) {
-      _store(key, preferredSettled);
+      _store(key, preferredSettled, queryTitle: title);
       return display(preferredSettled);
     }
     final lineSettled = lineFallback;
-    if (lineSettled != null) {
-      _store(key, lineSettled);
+    if (lineSettled != null && lineSettled.isSynced) {
+      _store(key, lineSettled, queryTitle: title);
       return display(lineSettled);
     }
-    // Extra line-sync catalogue after the race.
+    // Extra line-sync & plain catalogue after the race.
     final mxm = normalize(await attempt('musixmatch'));
-    if (mxm != null && plausible(mxm)) {
-      _store(key, mxm);
+    if (mxm != null && mxm.isSynced && plausible(mxm)) {
+      _store(key, mxm, queryTitle: title);
       return display(mxm);
+    }
+
+    final mb = normalize(await attempt('megalobiz'));
+    if (mb != null && mb.isSynced && plausible(mb)) {
+      _store(key, mb, queryTitle: title);
+      return display(mb);
+    }
+
+    if (videoId?.isNotEmpty ?? false) {
+      final captions = normalize(await attempt('youtube_captions'));
+      if (captions != null && captions.isSynced && plausible(captions)) {
+        _store(key, captions, queryTitle: title);
+        return display(captions);
+      }
     }
 
     // LRCLIB line fallback (skipped when already tried as preferred).
     if (!lrclibAttempted) {
       final lrc = normalize(await attempt('lrclib'));
-      if (lrc != null) {
-        _store(key, lrc);
+      if (lrc != null && lrc.isSynced && plausible(lrc)) {
+        _store(key, lrc, queryTitle: title);
         return display(lrc);
       }
     }
+
+    // Unsynced fallback if any provider returned unsynced/plain text earlier.
+    if (lineSettled != null && !lineSettled.isEmpty) {
+      _store(key, lineSettled, queryTitle: title);
+      return display(lineSettled);
+    }
+
+    if (videoId?.isNotEmpty ?? false) {
+      final ytm = normalize(await attempt('youtube_music'));
+      if (ytm != null && plausible(ytm)) {
+        _store(key, ytm, queryTitle: title);
+        return display(ytm);
+      }
+    }
+
+    // Genius static text fallback.
+    final gn = normalize(await attempt('genius'));
+    if (gn != null && plausible(gn)) {
+      _store(key, gn, queryTitle: title);
+      return display(gn);
+    }
+
     // Nothing usable: return empty WITHOUT caching it, so a later
     // retry (or the next rebuild) actually refetches instead of
     // replaying this miss.
@@ -523,6 +686,14 @@ class LyricsRepository {
   }) async {
     try {
       switch (providerId) {
+        case 'lastwave':
+          return await fetchLastWaveLyrics(
+            _dio,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+          );
         case 'lrc_red':
           return await fetchLrcRed(
             _dio,
@@ -532,9 +703,42 @@ class LyricsRepository {
             durationSeconds: durationSeconds,
           );
         case 'apple_music':
-          return await _fetchAppleWordByWord(title, artist, album, durationSeconds);
+          return await _fetchAppleWordByWord(
+              title, artist, album, durationSeconds);
         case 'better_lyrics':
           return await fetchBetterLyrics(
+            _dio,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+          );
+        case 'better_lyrics_portato':
+          return await fetchPortatoLyrics(
+            _dio,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+          );
+        case 'bini_lyrics':
+          return await fetchBiniLyrics(
+            _dio,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+          );
+        case 'lyrics_plus':
+          return await fetchLyricsPlus(
+            _dio,
+            title: title,
+            artist: artist,
+            album: album,
+            durationSeconds: durationSeconds,
+          );
+        case 'unison':
+          return await fetchUnisonLyrics(
             _dio,
             title: title,
             artist: artist,
@@ -567,12 +771,63 @@ class LyricsRepository {
                 ? 'Video-Match (Word-Sync)'
                 : 'Video-Match (Line-Sync)',
           );
+        case 'youtube_captions':
+          if (videoId == null || videoId.isEmpty || _tube == null) return null;
+          final cues = await _tube.fetchTranscriptCues(videoId);
+          if (cues == null || cues.isEmpty) return null;
+          final lines = [
+            for (final c in cues)
+              LyricLine(
+                timeMs: c.timeMs,
+                text: c.text,
+              ),
+          ];
+          if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
+          return LyricsResult(
+            lines: lines,
+            isSynced: true,
+            isWordSynced: false,
+            plainLyrics: lines.map((l) => l.text).join('\n'),
+            source: 'YouTube Captions',
+          );
+        case 'youtube_music':
+          if (videoId == null || videoId.isEmpty || _tube == null) return null;
+          final text = await _tube.fetchLyricsTabText(videoId);
+          if (text == null || text.trim().isEmpty) return null;
+          final rawLines = text
+              .split('\n')
+              .map((l) => l.trim())
+              .where((l) => l.isNotEmpty)
+              .toList();
+          return LyricsResult(
+            lines: [
+              for (final line in rawLines)
+                LyricLine(timeMs: 0, text: line),
+            ],
+            isSynced: false,
+            isWordSynced: false,
+            plainLyrics: text.trim(),
+            source: 'YouTube Music',
+          );
         case 'musixmatch':
           return await fetchMusixmatch(
             _dio,
             title: title,
             artist: artist,
             durationSeconds: durationSeconds,
+          );
+        case 'megalobiz':
+          return await fetchMegalobizLyrics(
+            _dio,
+            title: title,
+            artist: artist,
+            durationSeconds: durationSeconds,
+          );
+        case 'genius':
+          return await fetchGeniusLyrics(
+            _dio,
+            title: title,
+            artist: artist,
           );
         case 'lrclib':
           return await _fetchLrclib(title, artist, album, durationSeconds);
@@ -599,25 +854,24 @@ class LyricsRepository {
     if (!newPlaceholder && curPlaceholder) return true;
     if (newPlaceholder && !curPlaceholder) return false;
 
-    // 3. Sample-hook loops lose to real verses (Overdue / Anthonio)
+    // 3. Timed lyrics always beat static text: static lines can never
+    // highlight or follow, no matter how complete or title-matched.
+    if (newRes.isSynced && !current.isSynced) return true;
+    if (!newRes.isSynced && current.isSynced) return false;
+
+    // 4. Sample-hook loops lose to real verses (Overdue / Anthonio)
     final newThin = lyricsLooksLikeThinLoop(newRes);
     final curThin = lyricsLooksLikeThinLoop(current);
     if (!newThin && curThin) return true;
     if (newThin && !curThin) return false;
 
-    // 4. Distinctive title mentioned in the lyric body
+    // 5. Distinctive title mentioned in the lyric body
     if (queryTitle.trim().isNotEmpty) {
       final newMentions = lyricsMentionsTitle(queryTitle, newRes);
       final curMentions = lyricsMentionsTitle(queryTitle, current);
       if (newMentions && !curMentions) return true;
       if (!newMentions && curMentions) return false;
     }
-
-    // 5. Timed lyrics always beat static text: static lines can never
-    // highlight or follow, no matter how complete. Length/richness
-    // below only compare like with like.
-    if (newRes.isSynced && !current.isSynced) return true;
-    if (!newRes.isSynced && current.isSynced) return false;
 
     // 6. Complete text beats a shorter cut of the same sync kind
     final newLen = lyricsBodyLength(newRes);
@@ -734,6 +988,12 @@ class LyricsRepository {
     }
     if (cleanT != title || cleanA != artist) {
       for (final hit in await _lrclibSearchHits(title, artist, durationSeconds)) {
+        addRecord(hit);
+      }
+    }
+    final primaryA = _extractArtistEntities(cleanA).firstOrNull;
+    if (primaryA != null && primaryA != cleanA && records.isEmpty) {
+      for (final hit in await _lrclibSearchHits(cleanT, primaryA, durationSeconds)) {
         addRecord(hit);
       }
     }
@@ -933,8 +1193,29 @@ class LyricsRepository {
         ),
       );
       final decoded = jsonDecode(res.data ?? '');
-      final results =
+      var results =
           decoded is Map<String, dynamic> ? decoded['results'] : null;
+      if (results is! List || results.isEmpty) {
+        final primaryArtist = _extractArtistEntities(artist).firstOrNull;
+        if (primaryArtist != null && primaryArtist != artist) {
+          final res2 = await _dio.get<String>(
+            'https://itunes.apple.com/search',
+            queryParameters: {
+              'term': '$primaryArtist $title',
+              'media': 'music',
+              'entity': 'song',
+              'limit': '10',
+            },
+            options: Options(
+              headers: {'User-Agent': DioFactory.desktopUserAgent},
+              responseType: ResponseType.plain,
+            ),
+          );
+          final decoded2 = jsonDecode(res2.data ?? '');
+          results =
+              decoded2 is Map<String, dynamic> ? decoded2['results'] : null;
+        }
+      }
       if (results is! List || results.isEmpty) return const [];
 
       final wantsAlt = lyricsIsAlternateRecording(title);
@@ -1042,9 +1323,12 @@ class LyricsRepository {
         syllables: syllables,
       ));
     }
-    if (parsed.isEmpty) return null;
     final timed = parsed.any((p) => p.start > 0 || p.duration > 0);
-    final wordSynced = timed && (type == 'syllable' || sawMultiWordLine);
+    final wordSynced = timed &&
+        (type == 'syllable' ||
+            type == 'word' ||
+            sawMultiWordLine ||
+            parsed.any((p) => p.syllables.length > 1));
     final rawLines = [
       for (final p in parsed)
         LyricLine(
@@ -1076,5 +1360,11 @@ class LyricsRepository {
   }
 }
 
-final lyricsRepositoryProvider =
-    Provider<LyricsRepository>((_) => LyricsRepository());
+final lyricsRepositoryProvider = Provider<LyricsRepository>((ref) {
+  return LyricsRepository(
+    null,
+    const Duration(seconds: 4),
+    const Duration(seconds: 12),
+    ref.watch(innerTubeProvider),
+  );
+});

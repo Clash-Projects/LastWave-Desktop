@@ -107,6 +107,22 @@ class _WaveArtworkState extends State<WaveArtwork> {
   void initState() {
     super.initState();
     OfficialArtworkService.instance.addListener(_onArtworkCache);
+    _checkSynchronousArtwork();
+  }
+
+  void _checkSynchronousArtwork() {
+    if (_kind == ArtworkKind.artist) return;
+    final title = widget.title.isNotEmpty ? widget.title : widget.label;
+    final artist = widget.artist;
+    if (title.isEmpty) return;
+    final hit = _kind == ArtworkKind.album
+        ? OfficialArtworkService.instance.peekAlbum(album: title, artist: artist)
+        : OfficialArtworkService.instance.peekTrack(title: title, artist: artist);
+    if (hit != null && hit.artworkUrl.isNotEmpty) {
+      _resolvedUrl = hit.artworkUrl;
+      _resolveFailed = false;
+      _isResolving = false;
+    }
   }
 
   @override
@@ -122,10 +138,9 @@ class _WaveArtworkState extends State<WaveArtwork> {
     final title = widget.title.isNotEmpty ? widget.title : widget.label;
     final artist = widget.artist;
     if (title.isEmpty) return;
-    final hit = OfficialArtworkService.instance.peekTrack(
-      title: title,
-      artist: artist,
-    );
+    final hit = _kind == ArtworkKind.album
+        ? OfficialArtworkService.instance.peekAlbum(album: title, artist: artist)
+        : OfficialArtworkService.instance.peekTrack(title: title, artist: artist);
     if (hit == null || hit.artworkUrl.isEmpty) return;
     if (_resolvedUrl == hit.artworkUrl) return;
     setState(() {
@@ -180,6 +195,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
         _isResolving = false;
         _upgradeAttempted = false;
         _resolveFailed = false;
+        _checkSynchronousArtwork();
       }
       _rebuildChain(_lastDpr);
     }
@@ -195,9 +211,9 @@ class _WaveArtworkState extends State<WaveArtwork> {
     _lastDpr = dpr;
     final target = (widget.size * dpr).clamp(64, 1024).toDouble();
     final candidates = [
+      if (_resolvedUrl != null && _resolvedUrl!.isNotEmpty) _resolvedUrl!,
       widget.url,
       ...widget.fallbackUrls,
-      ?_resolvedUrl,
     ];
     final req = ArtworkRequest(
       kind: _kind,
@@ -447,29 +463,49 @@ class _WaveArtworkState extends State<WaveArtwork> {
     final index = _chainIndex;
     final attempt = _attempt;
     final currentUrl = _chain[_chainIndex];
-    final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
-    final pixels = (widget.size * dpr).clamp(64, 1024).toInt();
-    // Rows ≈96 backing px, grids ≈300–450, Now Playing ≈640–900.
-    // Disk tiers track backing pixels without 4x overfetch.
-    final diskCache = pixels <= 128
-        ? 256
-        : pixels <= 320
-            ? 512
-            : 1024;
+    // Tiered, DPR-aware decode bucketing.
+    //
+    // Previously every tile larger than 220 logical px decoded at the
+    // CDN's native resolution — and official covers ship at 1400×1400
+    // (≈7.8 MB RGBA each), even though the largest tile in the app is a
+    // ~480px now-playing hero. That pinned the 128 MiB imageCache to a
+    // handful of entries and made scrolling re-decode constantly.
+    //
+    // Buckets snap UP to 320 / 640 / 1024 physical px so a given tier
+    // keeps one stable cache key regardless of the tile's exact size.
+    // Only tiles wanting >1024 physical px fall through to native.
+    final double logicalExtent = widget.size;
+    final double dpr =
+        MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
+    final int targetPhysical = (logicalExtent * dpr).ceil();
+    final int? targetCacheWidth = targetPhysical <= 320
+        ? 320
+        : targetPhysical <= 640
+            ? 640
+            : targetPhysical <= 1024
+                ? 1024
+                : null;
+    // On-disk copy must never be smaller than the decode bucket, or the
+    // 640 tier would decode by upscaling a 512px file. Keeps the original
+    // 512/1024 split for every tier.
+    final int diskCache = targetPhysical <= 320 ? 512 : 1024;
     final isSmall = widget.size <= 56;
+    final isResolved = _resolvedUrl != null;
     final image = RepaintBoundary(
       child: CachedNetworkImage(
-        key: ValueKey('$currentUrl|$_attempt'),
+        key: ValueKey('artwork|$_attempt'),
         imageUrl: currentUrl,
         width: widget.size,
         height: widget.size,
-        memCacheWidth: pixels,
-        memCacheHeight: pixels,
+        memCacheWidth: targetCacheWidth,
+        memCacheHeight: targetCacheWidth,
         maxWidthDiskCache: diskCache,
         maxHeightDiskCache: diskCache,
         fit: BoxFit.cover,
-        fadeInDuration: isSmall ? Duration.zero : WaveMotion.fast,
-        fadeOutDuration: WaveMotion.fast,
+        useOldImageOnUrlChange: true,
+        fadeInDuration: (isSmall || isResolved) ? Duration.zero : WaveMotion.fast,
+        fadeOutDuration: (isSmall || isResolved) ? Duration.zero : WaveMotion.fast,
+        placeholderFadeInDuration: Duration.zero,
         placeholder: (context, _) => _fallback(context, dark),
         errorWidget: (context, _, _) {
           WidgetsBinding.instance.addPostFrameCallback(

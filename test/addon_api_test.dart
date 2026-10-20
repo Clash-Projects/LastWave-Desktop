@@ -38,10 +38,24 @@ void main() {
       expect(p?.root, 'https://x.test/a/${_hex('d')}/');
     });
 
-    test('bare domain rejected', () {
-      expect(
-          AddonApi.parseAddonUrl('https://x.test/'), isNull);
-      expect(AddonApi.parseAddonUrl('https://x.test'), isNull);
+    test('bare domain accepted as root', () {
+      final p1 = AddonApi.parseAddonUrl('https://x.test/');
+      expect(p1?.root, 'https://x.test/');
+      expect(p1?.token, '');
+
+      final p2 = AddonApi.parseAddonUrl('https://x.test');
+      expect(p2?.root, 'https://x.test/');
+      expect(p2?.token, '');
+
+      final p3 = AddonApi.parseAddonUrl(
+          'https://l-bitches.clashgram.workers.dev');
+      expect(p3?.root, 'https://l-bitches.clashgram.workers.dev/');
+      expect(p3?.token, '');
+
+      final p4 = AddonApi.parseAddonUrl(
+          'https://l-bitches.clashgram.workers.dev/manifest.json');
+      expect(p4?.root, 'https://l-bitches.clashgram.workers.dev/');
+      expect(p4?.token, '');
     });
 
     test('short/non-hex tokens rejected', () {
@@ -123,11 +137,16 @@ void main() {
           'high');
     });
 
-    test('never requests atmos', () {
+    test('never requests atmos for stereo tiers', () {
       for (final t in [5, 6, 7, 27, -1, 0, 99]) {
         expect(AddonApi.serverQualitiesForTier(t),
             isNot(contains('atmos')));
       }
+    });
+
+    test('tier 28 requests atmos first and steps down', () {
+      expect(AddonApi.serverQualitiesForTier(28),
+          ['atmos', 'hi_res', 'lossless', 'high']);
     });
 
     test('search knob mirrors Android per tier', () {
@@ -138,6 +157,69 @@ void main() {
       expect(AddonApi.serverQualitiesForTier(7).first, 'hi_res');
       expect(AddonApi.serverQualitiesForTier(6).first, 'lossless');
       expect(AddonApi.serverQualitiesForTier(5).first, 'high');
+    });
+  });
+
+  group('Atmos helpers', () {
+    test('isAtmosCodec recognizes spatial codecs', () {
+      expect(AddonApi.isAtmosCodec('ec-3'), isTrue);
+      expect(AddonApi.isAtmosCodec('eac3-joc'), isTrue);
+      expect(AddonApi.isAtmosCodec('ac-3'), isTrue);
+      expect(AddonApi.isAtmosCodec('DOLBY ATMOS'), isTrue);
+      expect(AddonApi.isAtmosCodec('flac'), isFalse);
+      expect(AddonApi.isAtmosCodec('mp3'), isFalse);
+    });
+
+    test('isAtmosStreamUrl identifies spatial URLs', () {
+      expect(AddonApi.isAtmosStreamUrl('https://example.com/media/track_atmos.mpd'), isTrue);
+      expect(AddonApi.isAtmosStreamUrl('https://example.com/stream/eac3_track.m4a'), isTrue);
+      expect(AddonApi.isAtmosStreamUrl('https://example.com/stream/regular.flac'), isFalse);
+    });
+
+    test('isAtmosCandidate identifies spatial candidate tracks', () {
+      expect(
+        AddonApi.isAtmosCandidate(const AddonTrack(
+          id: '1',
+          title: 'Song',
+          atmos: true,
+        )),
+        isTrue,
+      );
+      expect(
+        AddonApi.isAtmosCandidate(const AddonTrack(
+          id: '2',
+          title: 'Song (Dolby Atmos)',
+        )),
+        isTrue,
+      );
+      expect(
+        AddonApi.isAtmosCandidate(const AddonTrack(
+          id: '3',
+          title: 'Song',
+          audioMode: 'DOLBY_ATMOS',
+        )),
+        isTrue,
+      );
+      expect(
+        AddonApi.isAtmosCandidate(const AddonTrack(
+          id: '4',
+          title: 'Regular Song',
+        )),
+        isFalse,
+      );
+    });
+
+    test('isFaithfulVersion allows atmos only when allowAtmos is true', () {
+      expect(
+        AddonApi.isFaithfulVersion('Song (Dolby Atmos)',
+            title: 'Song', artist: 'Artist', allowAtmos: true),
+        isTrue,
+      );
+      expect(
+        AddonApi.isFaithfulVersion('Song (Dolby Atmos)',
+            title: 'Song', artist: 'Artist', allowAtmos: false),
+        isFalse,
+      );
     });
   });
 
@@ -595,8 +677,14 @@ void main() {
   });
 
   group('AddonApi gating', () {
-    test('unconfigured without bases or secret', () {
+    test('unconfigured without bases', () {
       expect(AddonApi(const []).isConfigured, isFalse);
+    });
+
+    test('configured with bases even without secret', () {
+      expect(
+          AddonApi(['https://l-bitches.clashgram.workers.dev/']).isConfigured,
+          isTrue);
     });
   });
 
@@ -604,6 +692,7 @@ void main() {
     test('one mint blip recovers without falling through', () async {
       if (AppEnv.addonClientSecret.isEmpty) {
         markTestSkipped('addon secret not configured in this env');
+        return;
       }
       final token = _hex('f');
       final dio = Dio();
@@ -630,6 +719,7 @@ void main() {
     test('quota 429 throws immediately (no pointless retry)', () async {
       if (AppEnv.addonClientSecret.isEmpty) {
         markTestSkipped('addon secret not configured in this env');
+        return;
       }
       final token = _hex('f');
       final dio = Dio();
@@ -656,6 +746,7 @@ void main() {
       // than dropping to YouTube.
       if (AppEnv.addonClientSecret.isEmpty) {
         markTestSkipped('addon secret not configured in this env');
+        return;
       }
       final token = _hex('f');
       final dio = Dio();
@@ -692,6 +783,7 @@ void main() {
       // original) rather than play the remix in lossless.
       if (AppEnv.addonClientSecret.isEmpty) {
         markTestSkipped('addon secret not configured in this env');
+        return;
       }
       final token = _hex('f');
       final dio = Dio();
@@ -731,6 +823,7 @@ void main() {
       // and the faithful check must let it fetch.
       if (AppEnv.addonClientSecret.isEmpty) {
         markTestSkipped('addon secret not configured in this env');
+        return;
       }
       final token = _hex('f');
       final dio = Dio();
@@ -762,6 +855,7 @@ void main() {
       // server filtered hi_res-only entries out of desktop's pool.
       if (AppEnv.addonClientSecret.isEmpty) {
         markTestSkipped('addon secret not configured in this env');
+        return;
       }
       final token = _hex('f');
       final dio = Dio();
@@ -780,6 +874,7 @@ void main() {
     test('searchTracks defaults to lossless knob', () async {
       if (AppEnv.addonClientSecret.isEmpty) {
         markTestSkipped('addon secret not configured in this env');
+        return;
       }
       final token = _hex('f');
       final dio = Dio();
