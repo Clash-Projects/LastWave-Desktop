@@ -440,7 +440,7 @@ class _RecentlySearched extends StatelessWidget {
             WaveLink(
               onPressed: onClear,
               child: Text('Clear',
-                  style: WaveType.label.copyWith(color: WaveColors.danger)),
+                  style: WaveType.label.copyWith(color: waveAccent(context))),
             ),
           ],
         ),
