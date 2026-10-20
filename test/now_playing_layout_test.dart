@@ -80,13 +80,10 @@ Future<void> _pumpNowPlaying(WidgetTester tester, {required Size size}) async {
   await tester.pump(const Duration(seconds: 1));
 }
 
-Rect _upNextPillRect(WidgetTester tester) {
-  final pill = find.ancestor(
-    of: find.text('UP NEXT'),
-    matching: find.byType(WaveGlass),
-  );
-  expect(pill, findsOneWidget);
-  return tester.getRect(pill);
+Rect _upNextRowRect(WidgetTester tester) {
+  final row = find.byKey(const ValueKey('now-playing-up-next'));
+  expect(row, findsOneWidget);
+  return tester.getRect(row);
 }
 
 void main() {
@@ -97,8 +94,17 @@ void main() {
     await _pumpNowPlaying(tester, size: size);
 
     expect(find.text('Do Numbari (From "Mirzapur The Movie")'), findsOneWidget);
-    expect(find.text('HI-RES FLAC · 4608 kbps'), findsOneWidget);
-    expect(_upNextPillRect(tester).bottom, lessThanOrEqualTo(size.height));
+    expect(find.text('HI-RES'), findsOneWidget);
+    expect(find.text('FLAC · 4608 kbps'), findsOneWidget);
+    expect(
+      find.ancestor(of: find.text('HI-RES'), matching: find.byType(WaveGlass)),
+      findsNothing,
+    );
+    expect(
+      find.ancestor(of: find.text('UP NEXT'), matching: find.byType(WaveGlass)),
+      findsNothing,
+    );
+    expect(_upNextRowRect(tester).bottom, lessThanOrEqualTo(size.height));
   });
 
   testWidgets('narrow metadata and UP NEXT fit without scrolling', (
@@ -111,6 +117,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Do Numbari (From "Mirzapur The Movie")'), findsOneWidget);
-    expect(_upNextPillRect(tester).bottom, lessThanOrEqualTo(size.height));
+    expect(
+      find.ancestor(of: find.text('UP NEXT'), matching: find.byType(WaveGlass)),
+      findsNothing,
+    );
+    expect(_upNextRowRect(tester).bottom, lessThanOrEqualTo(size.height));
   });
 }
