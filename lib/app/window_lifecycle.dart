@@ -68,6 +68,12 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
       }).timeout(const Duration(seconds: 4), onTimeout: () {});
     } catch (_) {}
     try {
+      trayManager.removeListener(this);
+    } catch (_) {}
+    try {
+      await trayManager.destroy();
+    } catch (_) {}
+    try {
       windowManager.removeListener(this);
     } catch (_) {}
     try {
@@ -88,7 +94,7 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
       try {
         return ref.read(prefsProvider).closeToTray;
       } catch (_) {
-        return true;
+        return false;
       }
     }();
     if (toTray && !_quitting) {

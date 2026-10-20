@@ -147,6 +147,6 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
       final gain = gains[i];
       filters.add('equalizer=f=$freq:t=o:w=1:g=${gain.toStringAsFixed(1)}');
     }
-    return 'lavfi=[${filters.join(",")}]';
+    return 'format=floatp,lavfi=[${filters.join(",")}]';
   }
 }

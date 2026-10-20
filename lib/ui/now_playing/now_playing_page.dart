@@ -261,8 +261,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                             ? _DesktopDualPane(
                                 track: current,
                                 lyricsVisible: _lyricsVisible,
-                                maxHeight: constraints.maxHeight - 64,
-                                maxWidth: constraints.maxWidth,
                               )
                             : _NarrowCenteredPane(
                                 track: current,
@@ -491,121 +489,133 @@ class _VisibleTicker extends ConsumerWidget {
 class _DesktopDualPane extends StatelessWidget {
   final PlayableTrack track;
   final bool lyricsVisible;
-  final double maxHeight;
-  final double maxWidth;
 
   const _DesktopDualPane({
     required this.track,
     required this.lyricsVisible,
-    required this.maxHeight,
-    required this.maxWidth,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Symmetrical desktop dual pane layout:
-    // When lyrics are visible, media column and lyrics column have harmonious, balanced
-    // widths, leaving identical horizontal margins (emptiness) on both sides.
-    final colWidth = lyricsVisible
-        ? math.min(maxWidth * 0.36, maxHeight * 0.48).clamp(340.0, 420.0)
-        : math.min(maxWidth * 0.55, maxHeight * 0.52).clamp(360.0, 480.0);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final maxHeight = math.max(0.0, constraints.maxHeight - 24.0);
 
-    final gap = lyricsVisible ? (maxWidth * 0.04).clamp(40.0, 64.0) : 0.0;
+        // Symmetrical desktop dual pane layout:
+        // When lyrics are visible, media column and lyrics column have harmonious, balanced
+        // widths, leaving identical horizontal margins (emptiness) on both sides.
+        final colWidth = lyricsVisible
+            ? math.min(maxWidth * 0.36, maxHeight * 0.48).clamp(340.0, 420.0)
+            : math.min(maxWidth * 0.55, maxHeight * 0.52).clamp(360.0, 480.0);
 
-    // Harmonized lyrics column width, balancing the visual weight of the left column
-    final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
-    final maxAllowedLyricsWidth = math.max(320.0, maxWidth - colWidth - gap - 48.0);
-    final lyricsWidth = lyricsVisible
-        ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
-        : 0.0;
+        final gap = lyricsVisible ? (maxWidth * 0.04).clamp(40.0, 64.0) : 0.0;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 24),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          physics: const ClampingScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minWidth: maxWidth),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Left Column (Media Player)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeInOutCubic,
-                  width: colWidth,
-                  child: RepaintBoundary(
-                    child: SingleChildScrollView(
-                      physics: const ClampingScrollPhysics(),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: lyricsVisible
-                          ? CrossAxisAlignment.start
-                          : CrossAxisAlignment.center,
-                      children: [
-                        // Artwork Card
-                        _HeroArtworkCard(
-                          track: track,
-                          size: colWidth,
-                        ),
-                        const SizedBox(height: 20),
+        // Harmonized lyrics column width, balancing the visual weight of the left column
+        final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
+        final maxAllowedLyricsWidth = math.max(320.0, maxWidth - colWidth - gap - 48.0);
+        final lyricsWidth = lyricsVisible
+            ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
+            : 0.0;
 
-                        // Track Info — crossfades on track change.
-                        _TrackSwap(
-                          child: _TrackMetadataSection(
-                            key: ValueKey(track.queueKey),
-                            track: track,
-                            alignCenter: !lyricsVisible,
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: SizedBox(
+              height: maxHeight,
+              child: Row(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Left Column (Media Player) — the metadata keeps its
+                  // intrinsic height; artwork takes whatever remains.
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeInOutCubic,
+                    width: colWidth,
+                    height: maxHeight,
+                    child: RepaintBoundary(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.max,
+                        crossAxisAlignment: lyricsVisible
+                            ? CrossAxisAlignment.start
+                            : CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, artConstraints) {
+                                final artSize = math.max(
+                                  0.0,
+                                  math.min(
+                                    artConstraints.maxWidth,
+                                    artConstraints.maxHeight,
+                                  ),
+                                );
+                                if (artSize <= 0) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Center(
+                                  child: _HeroArtworkCard(
+                                    track: track,
+                                    size: artSize,
+                                  ),
+                                );
+                              },
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 10),
+                          const SizedBox(height: 16),
 
-                        // Up Next Pill
-                        _UpNextPill(alignCenter: !lyricsVisible),
-                      ],
+                          // Track Info & Badges — crossfades on track change.
+                          _TrackSwap(
+                            child: _TrackMetadataSection(
+                              key: ValueKey(track.queueKey),
+                              track: track,
+                              alignCenter: !lyricsVisible,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ),
 
-                // Gap
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeInOutCubic,
-                  width: gap,
-                ),
+                  // Gap
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeInOutCubic,
+                    width: gap,
+                  ),
 
-                // Right Column (Apple Music Karaoke Lyrics Pane)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeInOutCubic,
-                  width: lyricsWidth,
-                  child: ClipRect(
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 350),
-                      curve: Curves.easeInOutCubic,
-                      opacity: lyricsVisible ? 1.0 : 0.0,
-                      child: ExcludeFocus(
-                        excluding: !lyricsVisible,
-                        child: IgnorePointer(
-                          ignoring: !lyricsVisible,
-                          child: SizedBox(
-                            height: maxHeight,
-                            width: lyricsWidth,
-                            child: Offstage(
-                              offstage: !lyricsVisible,
-                              child: _VisibleTicker(
-                                enabled: lyricsVisible,
-                                child: RepaintBoundary(
-                                  child: WaveKaraokeLyricsView(
-                                    track: track,
-                                    compact: false,
-                                    showHeaderControls: true,
-                                    fontSize: 36.0,
-                                    isActive: lyricsVisible,
+                  // Right Column (Apple Music Karaoke Lyrics Pane)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeInOutCubic,
+                    width: lyricsWidth,
+                    height: maxHeight,
+                    child: ClipRect(
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 350),
+                        curve: Curves.easeInOutCubic,
+                        opacity: lyricsVisible ? 1.0 : 0.0,
+                        child: ExcludeFocus(
+                          excluding: !lyricsVisible,
+                          child: IgnorePointer(
+                            ignoring: !lyricsVisible,
+                            child: SizedBox(
+                              height: maxHeight,
+                              width: lyricsWidth,
+                              child: Offstage(
+                                offstage: !lyricsVisible,
+                                child: _VisibleTicker(
+                                  enabled: lyricsVisible,
+                                  child: RepaintBoundary(
+                                    child: WaveKaraokeLyricsView(
+                                      track: track,
+                                      compact: false,
+                                      showHeaderControls: true,
+                                      fontSize: 36.0,
+                                      isActive: lyricsVisible,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -615,12 +625,12 @@ class _DesktopDualPane extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -637,21 +647,38 @@ class _NarrowCenteredPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final coverArtSubtree = SingleChildScrollView(
-      physics: const ClampingScrollPhysics(),
+    final coverArtSubtree = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: MainAxisSize.max,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _HeroArtworkCard(
-                track: track,
-                size: 260,
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final artSize = math.max(
+                      0.0,
+                      math.min(
+                        math.min(constraints.maxWidth, constraints.maxHeight),
+                        360.0,
+                      ),
+                    );
+                    if (artSize <= 0) {
+                      return const SizedBox.shrink();
+                    }
+                    return Center(
+                      child: _HeroArtworkCard(
+                        track: track,
+                        size: artSize,
+                      ),
+                    );
+                  },
+                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               _TrackSwap(
                 child: _TrackMetadataSection(
                   key: ValueKey(track.queueKey),
@@ -659,8 +686,6 @@ class _NarrowCenteredPane extends StatelessWidget {
                   alignCenter: true,
                 ),
               ),
-              const SizedBox(height: 12),
-              const _UpNextPill(alignCenter: true),
             ],
           ),
         ),
@@ -861,6 +886,44 @@ class _TrackSwap extends StatelessWidget {
   }
 }
 
+const _metadataShadow = [Shadow(color: Color(0x59000000), blurRadius: 10)];
+
+/// Split the stream spec into a tier ("HI-RES") and a quieter detail
+/// ("FLAC · 4608 kbps") without repeating the tier inside the codec.
+({String tier, String detail})? _streamQualityParts(ResolvedStream stream) {
+  final badge = stream.qualityBadge.trim().toUpperCase();
+  final codec = stream.audioCodec.trim().toUpperCase();
+
+  String tier;
+  String? codecDetail;
+  if (badge.isEmpty) {
+    tier = codec;
+  } else {
+    tier = badge;
+    if (codec.isNotEmpty && codec != badge) {
+      if (codec.contains(badge)) {
+        final remainder = codec
+            .replaceFirst(badge, '')
+            .replaceFirst(RegExp(r'^[\s·\-]+'), '')
+            .trim();
+        if (remainder.isNotEmpty) codecDetail = remainder;
+      } else if (!badge.contains(codec)) {
+        codecDetail = codec;
+      }
+    }
+  }
+
+  final detailParts = <String>[
+    ?codecDetail,
+    if (stream.bitrateKbps > 0) '${stream.bitrateKbps} kbps',
+  ];
+  if (tier.isEmpty && detailParts.isEmpty) return null;
+  return (
+    tier: tier.isEmpty ? 'AUDIO' : tier,
+    detail: detailParts.join(' · '),
+  );
+}
+
 class _TrackMetadataSection extends ConsumerWidget {
   final PlayableTrack track;
   final bool alignCenter;
@@ -873,12 +936,24 @@ class _TrackMetadataSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final dark = waveIsDark(context);
     final stream = ref.watch(
       playbackServiceProvider.select((s) => s.stream),
     );
+    final quality = stream == null ? null : _streamQualityParts(stream);
+
+    final showDistinctAlbum = track.album.isNotEmpty &&
+        track.album.toLowerCase().trim() != track.title.toLowerCase().trim();
+
+    final artistStyle = WaveType.meta.copyWith(
+      fontSize: 14,
+      height: 1.45,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.1,
+      shadows: _metadataShadow,
+    );
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment:
           alignCenter ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       children: [
@@ -888,138 +963,249 @@ class _TrackMetadataSection extends ConsumerWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: alignCenter ? TextAlign.center : TextAlign.start,
           style: WaveType.pageTitle.copyWith(
-            fontSize: 26,
+            fontSize: 25,
+            height: 1.12,
             fontWeight: FontWeight.w700,
-            letterSpacing: -0.4,
+            letterSpacing: -0.5,
             color: Colors.white,
-            shadows: const [
-              Shadow(color: Color(0x66000000), blurRadius: 10),
-            ],
+            shadows: _metadataShadow,
           ),
         ),
-        const SizedBox(height: 4),
-        GestureDetector(
-          onTap: () => context.go(
-            '/search?q=${Uri.encodeComponent(track.artist)}',
-          ),
-          child: Text(
-            track.artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: alignCenter ? TextAlign.center : TextAlign.start,
-            style: WaveType.body.copyWith(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.94),
-              shadows: const [
-                Shadow(color: Color(0x66000000), blurRadius: 10),
-              ],
+        const SizedBox(height: 5),
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () => context.go(
+              '/search?q=${Uri.encodeComponent(track.artist)}',
             ),
-          ),
-        ),
-        if (track.album.isNotEmpty) ...[
-          const SizedBox(height: 2),
-          Text(
-            track.album,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: alignCenter ? TextAlign.center : TextAlign.start,
-            style: WaveType.meta.copyWith(
-              fontSize: 13,
-              color: Colors.white.withValues(alpha: 0.78),
-              shadows: const [
-                Shadow(color: Color(0x66000000), blurRadius: 10),
-              ],
-            ),
-          ),
-        ],
-        if (stream != null) ...[
-          const SizedBox(height: 8),
-          WaveGlass(
-            blur: false,
-            borderRadius: WaveRadius.controlsRadius,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Text(
-              '${stream.qualityBadge} · ${stream.audioCodec}${stream.bitrateKbps > 0 ? ' · ${stream.bitrateKbps} kbps' : ''}',
-              style: WaveType.overline.copyWith(
-                fontSize: 9.5,
-                fontWeight: FontWeight.w700,
-                color: dark
-                    ? WaveColors.textPrimary
-                    : WaveColors.lightTextPrimary,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: track.artist,
+                    style: artistStyle.copyWith(
+                      color: Colors.white.withValues(alpha: 0.86),
+                    ),
+                  ),
+                  if (showDistinctAlbum) ...[
+                    TextSpan(
+                      text: '  ·  ',
+                      style: artistStyle.copyWith(
+                        color: Colors.white.withValues(alpha: 0.30),
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                    TextSpan(
+                      text: track.album,
+                      style: artistStyle.copyWith(
+                        color: Colors.white.withValues(alpha: 0.56),
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ],
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: alignCenter ? TextAlign.center : TextAlign.start,
             ),
           ),
+        ),
+        if (quality != null) ...[
+          const SizedBox(height: 10),
+          _QualitySpecLine(quality: quality, centered: alignCenter),
         ],
+        _UpNextRow(centered: alignCenter),
       ],
     );
   }
 }
 
-class _UpNextPill extends ConsumerWidget {
-  final bool alignCenter;
+class _QualitySpecLine extends StatelessWidget {
+  final ({String tier, String detail}) quality;
+  final bool centered;
 
-  const _UpNextPill({this.alignCenter = false});
+  const _QualitySpecLine({required this.quality, required this.centered});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final dark = waveIsDark(context);
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: centered ? Alignment.center : Alignment.centerLeft,
+      child: Row(
+        key: const ValueKey('now-playing-quality'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            WaveIcons.equalizer,
+            size: 11,
+            color: waveAccent(context).withValues(alpha: 0.62),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            quality.tier,
+            style: WaveType.overline.copyWith(
+              fontSize: 9.5,
+              letterSpacing: 1.05,
+              fontWeight: FontWeight.w700,
+              color: Colors.white.withValues(alpha: 0.94),
+              shadows: _metadataShadow,
+            ),
+          ),
+          if (quality.detail.isNotEmpty) ...[
+            const SizedBox(width: 7),
+            Text(
+              '·',
+              style: WaveType.label.copyWith(
+                fontSize: 10.5,
+                color: Colors.white.withValues(alpha: 0.32),
+                shadows: _metadataShadow,
+              ),
+            ),
+            const SizedBox(width: 7),
+            Text(
+              quality.detail,
+              style: WaveType.label.copyWith(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.1,
+                color: Colors.white.withValues(alpha: 0.68),
+                shadows: _metadataShadow,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _UpNextRow extends ConsumerStatefulWidget {
+  final bool centered;
+
+  const _UpNextRow({required this.centered});
+
+  @override
+  ConsumerState<_UpNextRow> createState() => _UpNextRowState();
+}
+
+class _UpNextRowState extends ConsumerState<_UpNextRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
     final queue = ref.watch(playbackServiceProvider.select((s) => s.queue));
-    final index = ref.watch(playbackServiceProvider.select((s) => s.currentIndex));
+    final index = ref.watch(
+      playbackServiceProvider.select((s) => s.currentIndex),
+    );
 
     final hasNext = index >= 0 && index + 1 < queue.length;
     if (!hasNext) return const SizedBox.shrink();
 
     final nextTrack = queue[index + 1];
+    final nextStyle = WaveType.meta.copyWith(
+      fontSize: 11.5,
+      color: Colors.white.withValues(alpha: 0.62),
+      shadows: _metadataShadow,
+    );
 
-    return Align(
-      alignment: alignCenter ? Alignment.center : Alignment.centerLeft,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: () => ref.read(playbackServiceProvider.notifier).next(),
-          child: WaveGlass(
-            blur: false,
-            borderRadius: BorderRadius.circular(20),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'UP NEXT',
-                  style: WaveType.overline.copyWith(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    color: waveAccent(context),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 180),
-                  child: Text(
-                    '${nextTrack.title} · ${nextTrack.artist}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.meta.copyWith(
-                      fontSize: 11,
-                      color: dark
-                          ? WaveColors.textPrimary
-                          : WaveColors.lightTextPrimary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(
-                  FluentIcons.chevron_right,
-                  size: 10,
-                  color: dark
-                      ? WaveColors.textSecondary
-                      : WaveColors.lightTextSecondary,
-                ),
-              ],
+    final nextLabel = Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: nextTrack.title,
+            style: WaveType.trackTitle.copyWith(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: Colors.white.withValues(alpha: 0.92),
+              shadows: _metadataShadow,
             ),
           ),
+          TextSpan(
+            text: '  ·  ',
+            style: nextStyle.copyWith(
+              color: Colors.white.withValues(alpha: 0.30),
+            ),
+          ),
+          TextSpan(
+            text: nextTrack.artist,
+            style: nextStyle,
+          ),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+
+    final content = Row(
+      mainAxisSize: widget.centered ? MainAxisSize.min : MainAxisSize.max,
+      children: [
+        Text(
+          'UP NEXT',
+          style: WaveType.overline.copyWith(
+            fontSize: 8.5,
+            letterSpacing: 1.2,
+            fontWeight: FontWeight.w700,
+            color: waveAccent(context).withValues(alpha: 0.82),
+            shadows: _metadataShadow,
+          ),
         ),
+        const SizedBox(width: 10),
+        if (widget.centered)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 270),
+            child: nextLabel,
+          )
+        else
+          Expanded(child: nextLabel),
+        const SizedBox(width: 8),
+        AnimatedSlide(
+          duration: WaveMotion.fast,
+          curve: WaveMotion.standard,
+          offset: _hovered ? const Offset(0.18, 0) : Offset.zero,
+          child: Icon(
+            FluentIcons.chevron_right,
+            size: 11,
+            color: _hovered
+                ? waveAccent(context)
+                : Colors.white.withValues(alpha: 0.42),
+          ),
+        ),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        crossAxisAlignment:
+            widget.centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 28,
+            height: 1,
+            color: Colors.white.withValues(alpha: 0.16),
+          ),
+          const SizedBox(height: 4),
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => ref.read(playbackServiceProvider.notifier).next(),
+              child: AnimatedContainer(
+                key: const ValueKey('now-playing-up-next'),
+                duration: WaveMotion.fast,
+                curve: WaveMotion.standard,
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: _hovered ? 0.06 : 0.0),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: content,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
