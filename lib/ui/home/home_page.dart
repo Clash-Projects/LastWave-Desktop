@@ -246,6 +246,11 @@ class WaveHomePage extends ConsumerWidget {
     final ytShelves = ref.watch(ytHomeShelvesProvider).valueOrNull ?? const [];
     for (final shelf in ytShelves) {
       if (!shelf.isRenderable || shelf.title.isEmpty) continue;
+      // A shelf is a taste, not a library: cap what one section pulls onto the
+      // page. Row shelves match the hand-built lists here (six), card and
+      // entity shelves get ten — and the header count is the capped length, so
+      // the number can never promise something the row does not hold.
+      final cap = shelf.isTrackShelf ? 6 : 10;
       // The shelf's playable tracks, if it has any — a shelf of albums or
       // artists has nothing to queue, so it keeps the bare count.
       final shelfTracks = <GeneratedTrack>[
@@ -269,7 +274,8 @@ class WaveHomePage extends ConsumerWidget {
               videoId: t.videoId,
               durationSeconds: t.durationSeconds,
             ),
-      ];
+      ].take(cap).toList();
+      final shelfEntities = shelf.entities.take(cap).toList();
       gap(26);
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
@@ -282,7 +288,7 @@ class WaveHomePage extends ConsumerWidget {
               title: shelf.title,
               count: shelfTracks.isNotEmpty
                   ? shelfTracks.length
-                  : shelf.entities.length,
+                  : shelfEntities.length,
               actionLabel: shelfTracks.isEmpty ? null : 'Play',
               actionIcon: WaveIcons.play,
               onAction: shelfTracks.isEmpty
@@ -331,7 +337,7 @@ class WaveHomePage extends ConsumerWidget {
         slivers.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side, top: 10),
           sliver: SliverToBoxAdapter(
-            child: _YtShelfRow(entities: shelf.entities),
+            child: _YtShelfRow(entities: shelfEntities),
           ),
         ));
       }
