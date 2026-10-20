@@ -359,6 +359,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                                   WaveOverflowButton(
                                     tooltip: 'More',
                                     items: waveTrackMenuItems(
+                                      context: context,
                                       ref: ref,
                                       title: a.title,
                                       artist: a.artist,

@@ -452,6 +452,7 @@ class _TrendCell extends ConsumerWidget {
     final accent = waveAccent(context);
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
+        context: context,
         ref: ref,
         title: track.name,
         artist: track.artist,

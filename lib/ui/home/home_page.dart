@@ -1336,6 +1336,7 @@ class _QuickTileState extends ConsumerState<_QuickTile> {
     );
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
+        context: context,
         ref: ref,
         title: widget.track.name,
         artist: widget.track.artist,
@@ -1398,6 +1399,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
         sourceLabel: widget.source);
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
+        context: context,
         ref: ref,
         title: widget.track.name,
         artist: widget.track.artist,
@@ -1588,6 +1590,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
         sourceLabel: widget.title);
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
+        context: context,
         ref: ref,
         title: widget.track.name,
         artist: widget.track.artist,
@@ -1902,6 +1905,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                           child: WaveOverflowButton(
                             tooltip: 'More',
                             items: waveTrackMenuItems(
+                              context: context,
                               ref: ref,
                               title: widget.track.name,
                               artist: widget.track.artist,
@@ -1930,6 +1934,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
     );
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
+        context: context,
         ref: ref,
         title: widget.track.name,
         artist: widget.track.artist,
@@ -1960,6 +1965,7 @@ class _ChartRow extends ConsumerWidget {
     final accent = waveAccent(context);
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
+        context: context,
         ref: ref,
         title: track.name,
         artist: track.artist,
@@ -2056,6 +2062,7 @@ class _FreshRowState extends ConsumerState<_FreshRow> {
         sourceLabel: sourceLabel);
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
+        context: context,
         ref: ref,
         title: track.name,
         artist: track.artist,

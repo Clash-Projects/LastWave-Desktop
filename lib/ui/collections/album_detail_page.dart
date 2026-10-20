@@ -263,6 +263,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                               overflowItems: order.isEmpty
                                   ? const []
                                   : waveTrackMenuItems(
+                                      context: context,
                                       ref: ref,
                                       title: order.first.name,
                                       artist: order.first.artist,

@@ -284,6 +284,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
                         tooltip: 'More',
                         icon: WaveIcons.more,
                         menuItems: waveTrackMenuItems(
+                          context: context,
                           ref: ref,
                           title: widget.title,
                           artist: widget.artist,
@@ -325,6 +326,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
 
     return WaveContextMenu(
       items: () => waveTrackMenuItems(
+        context: context,
         ref: ref,
         title: widget.title,
         artist: widget.artist,

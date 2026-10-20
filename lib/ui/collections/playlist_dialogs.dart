@@ -51,6 +51,47 @@ Future<void> showWaveCreatePlaylist(
   }
 }
 
+/// "Add to playlist → New playlist…": names a playlist, creates it and files
+/// [track] in it, without leaving the page the menu was opened on.
+///
+/// The picker dialogs in this file all assume at least one playlist already
+/// exists; this is the entry point for the library that has none yet.
+Future<void> showWaveAddToNewPlaylist(
+  BuildContext context,
+  WidgetRef ref,
+  StoredTrack track,
+) async {
+  final controller = TextEditingController();
+  final name = await showDialog<String>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('New playlist'),
+      content: TextBox(
+        controller: controller,
+        placeholder: 'Playlist name',
+        autofocus: true,
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        WaveButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        WaveFilledButton(
+          onPressed: () =>
+              Navigator.of(context).pop(controller.text.trim()),
+          child: const Text('Create'),
+        ),
+      ],
+    ),
+  );
+  controller.dispose();
+  if (name == null || name.isEmpty) return;
+  final library = ref.read(playlistRepositoryProvider.notifier);
+  final created = await library.createCustom(name);
+  await library.addTrack(created.id, track);
+}
+
 Future<void> showWaveRenamePlaylist(
   BuildContext context,
   WidgetRef ref,

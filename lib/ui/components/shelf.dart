@@ -313,6 +313,7 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
       items: widget.artist.isEmpty && widget.videoId.isEmpty
           ? () => const []
           : () => waveTrackMenuItems(
+                context: context,
                 ref: ref,
                 title: widget.artist.isEmpty
                     ? widget.title

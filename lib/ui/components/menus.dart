@@ -12,6 +12,7 @@ import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/shared_providers.dart';
 import '../app_shell/wave_hotkeys.dart';
+import '../collections/playlist_dialogs.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip, WaveButton, WaveFilledButton;
@@ -101,6 +102,7 @@ class WaveMenuSubmenu extends WaveMenuEntry {
 /// [WaveFlyoutPanel] (right-click menus). Plugin DropDownButtons keep
 /// their own inline item lists and are unaffected.
 List<WaveMenuEntry> waveTrackMenuItems({
+  required BuildContext context,
   required WidgetRef ref,
   required String title,
   required String artist,
@@ -168,25 +170,14 @@ List<WaveMenuEntry> waveTrackMenuItems({
       ),
     ),
   ];
-  if (playlists.isNotEmpty) {
-    items.add(
-      WaveMenuSubmenu(
-        leading: const Icon(FluentIcons.list_mirrored, size: 15),
-        label: 'Add to playlist',
-        items: () => [
-          for (final p in playlists.where((p) => !p.isLikedSongs))
-            WaveMenuAction(
-              leading: const Icon(
-                FluentIcons.list_mirrored,
-                size: 15,
-              ),
-              label: p.title,
-              onPressed: () => library.addTrack(p.id, stored()),
-            ),
-        ],
-      ),
-    );
-  }
+  items.add(
+    waveAddToPlaylistEntry(
+      context: context,
+      ref: ref,
+      playlists: playlists,
+      track: stored(),
+    ),
+  );
   items.add(const WaveMenuSeparator());
   items.add(
     WaveMenuAction(
@@ -824,6 +815,46 @@ class WaveOverflowButton extends StatelessWidget {
   }
 }
 
+/// "Add to playlist" cascade: one row per custom playlist, then the way to
+/// make a new one.
+///
+/// Liked Songs is the repository's own row, not a place to file a track by
+/// hand, so it never appears. The create row is what makes the cascade worth
+/// opening on a fresh library: without it the submenu had no entries at all,
+/// so hovering "Add to playlist" opened an empty panel and a new account had
+/// no route into a playlist.
+WaveMenuSubmenu waveAddToPlaylistEntry({
+  required BuildContext context,
+  required WidgetRef ref,
+  required List<SavedPlaylist> playlists,
+  required StoredTrack track,
+}) {
+  final library = ref.read(playlistRepositoryProvider.notifier);
+  final userPlaylists =
+      playlists.where((p) => !p.isLikedSongs).toList();
+  return WaveMenuSubmenu(
+    leading: const Icon(FluentIcons.list_mirrored, size: 15),
+    label: 'Add to playlist',
+    items: () => [
+      for (final p in userPlaylists)
+        WaveMenuAction(
+          leading: const Icon(
+            FluentIcons.list_mirrored,
+            size: 15,
+          ),
+          label: p.title,
+          onPressed: () => library.addTrack(p.id, track),
+        ),
+      if (userPlaylists.isNotEmpty) const WaveMenuSeparator(),
+      WaveMenuAction(
+        leading: const Icon(FluentIcons.add, size: 15),
+        label: 'New playlist…',
+        onPressed: () => showWaveAddToNewPlaylist(context, ref, track),
+      ),
+    ],
+  );
+}
+
 /// Add-to-playlist picker dialog (Fluent ContentDialog).
 Future<void> showWaveAddToPlaylist(
   BuildContext context,
@@ -835,6 +866,16 @@ Future<void> showWaveAddToPlaylist(
 }) async {
   final playlists = ref.read(playlistRepositoryProvider);
   if (playlists.isEmpty) return;
+  final stored = StoredTrack(
+    name: title,
+    artist: artist,
+    artworkUrl: artworkUrl,
+    videoId: videoId,
+  );
+  // Liked Songs is not a target; a library with nothing else would otherwise
+  // open a dialog of one Cancel button (the same empty dead end the track menu
+  // had). The create row closes with -1 — ids are epoch millis, never negative.
+  final userPlaylists = playlists.where((p) => !p.isLikedSongs).toList();
   final selected = await showDialog<int>(
     context: context,
     builder: (context) => ContentDialog(
@@ -845,7 +886,7 @@ Future<void> showWaveAddToPlaylist(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (final p in playlists.where((p) => !p.isLikedSongs))
+            for (final p in userPlaylists)
               ListTile.selectable(
                 shape: RoundedRectangleBorder(
                   borderRadius: WaveRadius.controlsRadius,
@@ -861,6 +902,17 @@ Future<void> showWaveAddToPlaylist(
                 onPressed: () =>
                     Navigator.of(context).pop(p.id),
               ),
+            if (userPlaylists.isEmpty)
+              ListTile.selectable(
+                shape: RoundedRectangleBorder(
+                  borderRadius: WaveRadius.controlsRadius,
+                ),
+                title: const Text('New playlist…'),
+                leading: const Icon(FluentIcons.add, size: 15),
+                selectionMode: ListTileSelectionMode.single,
+                selected: false,
+                onPressed: () => Navigator.of(context).pop(-1),
+              ),
           ],
         ),
       ),
@@ -872,17 +924,12 @@ Future<void> showWaveAddToPlaylist(
       ],
     ),
   );
-  if (selected != null) {
-    await ref.read(playlistRepositoryProvider.notifier).addTrack(
-          selected,
-          StoredTrack(
-            name: title,
-            artist: artist,
-            artworkUrl: artworkUrl,
-            videoId: videoId,
-          ),
-        );
+  if (selected == null) return;
+  if (selected < 0) {
+    if (context.mounted) await showWaveAddToNewPlaylist(context, ref, stored);
+    return;
   }
+  await ref.read(playlistRepositoryProvider.notifier).addTrack(selected, stored);
 }
 
 /// Like toggle helper for the new layer (no legacy toast host).
