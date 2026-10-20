@@ -934,9 +934,20 @@ class _FeaturedHero extends ConsumerWidget {
     final width = MediaQuery.sizeOf(context).width;
     final narrow = width < 860;
     final tint = ref.watch(_homeTintProvider(track.artworkUrl)).valueOrNull;
-    final wash = tint != null
-        ? tint.withValues(alpha: 0.12)
-        : (dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03));
+    // Light comes off the cover, not from the panel: a flat 12% fill across
+    // the whole block read as a dirty pane, so the tint is a bloom centred on
+    // the artwork that dies out well before the divider.
+    final tintBase = tint ?? (dark ? Colors.white : Colors.black);
+    final wash = RadialGradient(
+      center: const Alignment(-0.72, 0),
+      radius: 0.95,
+      stops: const [0, 0.55, 1],
+      colors: [
+        tintBase.withValues(alpha: tint != null ? 0.22 : 0.05),
+        tintBase.withValues(alpha: tint != null ? 0.06 : 0.02),
+        tintBase.withValues(alpha: 0),
+      ],
+    );
     final artSize = narrow ? 132.0 : 176.0;
 
     final left = Row(
@@ -1047,7 +1058,7 @@ class _FeaturedHero extends ConsumerWidget {
       return Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: wash,
+          gradient: wash,
           borderRadius: WaveRadius.floatingRadius,
         ),
         child: left,
@@ -1058,7 +1069,7 @@ class _FeaturedHero extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: wash,
+        gradient: wash,
         borderRadius: WaveRadius.floatingRadius,
       ),
       child: Row(
