@@ -903,6 +903,9 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
   }
 
   void _seekBy(Duration base, Duration total, int seconds) {
+    // No total means nothing to seek along: a step would clamp to zero and
+    // yank a playing track back to the start.
+    if (total <= Duration.zero) return;
     final target = base + Duration(seconds: seconds);
     final clamped = target.isNegative
         ? Duration.zero
@@ -932,7 +935,11 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
       color: dark ? WaveColors.textTertiary : WaveColors.lightTextTertiary,
     );
     final totalMs = clock.duration.inMilliseconds;
-    final hoverLabel = _hoverRatio == null || totalMs <= 0
+    // mpv reports no duration until the source is open — a restored session
+    // or a freshly-resolved stream sits at zero for a beat. Printing that as
+    // "0:00" claimed a zero-length track and pinned the thumb to the start.
+    final hasDuration = totalMs > 0;
+    final hoverLabel = _hoverRatio == null || !hasDuration
         ? null
         : _fmt(Duration(
             milliseconds: (_hoverRatio! * totalMs).round()));
@@ -969,9 +976,12 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
               return KeyEventResult.ignored;
             },
             child: LWTooltip(
-              message: hoverLabel ?? 'Seek (←/→ ±5s)',
+              message: hoverLabel ??
+                  (hasDuration ? 'Seek (←/→ ±5s)' : 'Waiting for the stream'),
               child: MouseRegion(
-                cursor: SystemMouseCursors.click,
+                cursor: hasDuration
+                    ? SystemMouseCursors.click
+                    : SystemMouseCursors.basic,
                 onExit: (_) =>
                     setState(() => _hoverRatio = null),
                 onHover: (e) {
@@ -1001,6 +1011,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                               progress: clock.position,
                               buffered: clock.buffered,
                               total: clock.duration,
+                              showThumb: hasDuration,
                               onSeek: notifier.seek,
                               baseColor: (dark ? Colors.white : Colors.black)
                                   .withValues(alpha: 0.12),
@@ -1018,7 +1029,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                               total: clock.duration,
                               onSeek: notifier.seek,
                               barHeight: 3,
-                              thumbRadius: 5,
+                              thumbRadius: hasDuration ? 5 : 0,
                               thumbColor: dark ? Colors.white : Colors.black,
                               thumbGlowColor:
                                   accent.withValues(alpha: 0.25),
@@ -1043,7 +1054,8 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
         if (showTimes)
           SizedBox(
             width: 38,
-            child: Text(_fmt(clock.duration), style: timeStyle),
+            child: Text(hasDuration ? _fmt(clock.duration) : '--:--',
+                style: timeStyle),
           ),
       ],
     );
@@ -1065,6 +1077,7 @@ class _WaveTimeline extends StatelessWidget {
     required this.progress,
     required this.buffered,
     required this.total,
+    required this.showThumb,
     required this.onSeek,
     required this.baseColor,
     required this.bufferedColor,
@@ -1076,6 +1089,10 @@ class _WaveTimeline extends StatelessWidget {
   final Duration progress;
   final Duration buffered;
   final Duration total;
+
+  /// False until the player knows a length: no thumb on a bar with nothing
+  /// to scrub.
+  final bool showThumb;
   final ValueChanged<Duration>? onSeek;
   final Color baseColor;
   final Color bufferedColor;
@@ -1117,6 +1134,7 @@ class _WaveTimeline extends StatelessWidget {
                 painter: _WaveTimelinePainter(
                   progress: _ratio(progress),
                   buffered: _ratio(buffered),
+                  showThumb: showThumb,
                   baseColor: baseColor,
                   bufferedColor: bufferedColor,
                   progressColor: progressColor,
@@ -1136,6 +1154,7 @@ class _WaveTimelinePainter extends CustomPainter {
   const _WaveTimelinePainter({
     required this.progress,
     required this.buffered,
+    required this.showThumb,
     required this.baseColor,
     required this.bufferedColor,
     required this.progressColor,
@@ -1145,6 +1164,7 @@ class _WaveTimelinePainter extends CustomPainter {
 
   final double progress;
   final double buffered;
+  final bool showThumb;
   final Color baseColor;
   final Color bufferedColor;
   final Color progressColor;
@@ -1185,6 +1205,7 @@ class _WaveTimelinePainter extends CustomPainter {
       canvas.restore();
     }
 
+    if (!showThumb) return;
     final thumbY = mid +
         math.sin(progressWidth / _wavelength * 2 * math.pi) * _amplitude;
     final thumb = Offset(
@@ -1210,6 +1231,7 @@ class _WaveTimelinePainter extends CustomPainter {
   bool shouldRepaint(covariant _WaveTimelinePainter old) =>
       old.progress != progress ||
       old.buffered != buffered ||
+      old.showThumb != showThumb ||
       old.baseColor != baseColor ||
       old.bufferedColor != bufferedColor ||
       old.progressColor != progressColor ||
