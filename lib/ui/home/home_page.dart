@@ -1073,8 +1073,10 @@ class _FeaturedHero extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Not "up next": the queue panel already means the queue by
+                // that name. These three come after Play, not after this song.
                 Text(
-                  'UP NEXT FOR YOU',
+                  'MORE FOR YOU',
                   style: WaveType.overline.copyWith(
                     fontSize: 9.5,
                     color: waveTextTertiary(context),
@@ -1116,7 +1118,7 @@ class _HeroCompanionState extends ConsumerState<_HeroCompanion> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: () => playGenerated(ref, context, widget.track,
-            sourceLabel: 'For you · up next'),
+            sourceLabel: 'For you · more'),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 6),
           decoration: BoxDecoration(
@@ -1170,8 +1172,6 @@ class _HeroCompanionState extends ConsumerState<_HeroCompanion> {
                   ],
                 ),
               ),
-              Icon(WaveIcons.chevronRight,
-                  size: 13, color: waveTextTertiary(context)),
             ],
           ),
         ),
