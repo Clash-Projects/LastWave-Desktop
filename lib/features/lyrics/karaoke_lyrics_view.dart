@@ -794,7 +794,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     }
 
     final Widget body = AnimatedDefaultTextStyle(
-      duration: WaveMotion.fast,
+      duration: waveMotion(context, WaveMotion.fast),
       style: widget.isActive ? activeStyle : idleStyle,
       child: Column(
         crossAxisAlignment:
@@ -825,7 +825,8 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     return IgnorePointer(
       ignoring: widget.lineOpacity < 0.05,
       child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 220),
+        duration:
+            waveMotion(context, const Duration(milliseconds: 220)),
         curve: Curves.easeOutCubic,
         opacity: widget.lineOpacity.clamp(0.0, 1.0),
         child: RepaintBoundary(
@@ -833,7 +834,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
             onEnter: (_) => setState(() => _isHovered = true),
             onExit: (_) => setState(() => _isHovered = false),
             child: AnimatedContainer(
-              duration: WaveMotion.normal,
+              duration: waveMotion(context, WaveMotion.normal),
               curve: Curves.easeOutCubic,
               transform: Matrix4.diagonal3Values(
                 widget.isActive ? 1.025 : 1.0,
@@ -1635,7 +1636,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           _scroll.scrollTo(
             index: index,
             alignment: alignment,
-            duration: WaveMotion.normal,
+            duration: waveMotion(context, WaveMotion.normal),
             curve: Curves.easeOutCubic,
           );
         } else {
