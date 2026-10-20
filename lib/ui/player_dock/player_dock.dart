@@ -26,7 +26,7 @@ import '../theme/wave_icons.dart';
 /// LEFT (290px): 56px artwork r6 + title 13.5/600 + artist 12 secondary +
 /// like + more (truncate). CENTER (max 560): shuffle/prev/play/next/repeat
 /// 18px + 3px timeline + tabular 11px timestamps. RIGHT (300px): quality
-/// overline badge + lyrics + queue + device + 84px volume + expand +
+/// overline badge + lyrics + queue + output + 84px volume + expand +
 /// overflow (speed/sleep/download/Open Now Playing).
 ///
 /// Always visible — placeholder when nothing is playing, never collapses.
@@ -273,7 +273,7 @@ class WavePlayerDock extends ConsumerWidget {
                     ),
                   ),
                   // RIGHT — priority groups, never icon soup (spec §7–8).
-                  // HIGH: queue + volume + lyrics · MEDIUM: device + quality ·
+                  // HIGH: queue + volume + lyrics · MEDIUM: output + quality ·
                   // LOW: expand + mini + extras → overflow. No control ever
                   // leaves the viewport; secondary actions collapse into More.
                   Builder(builder: (context) {
@@ -282,7 +282,7 @@ class WavePlayerDock extends ConsumerWidget {
                     final showLyrics = dockW >= 560;
                     final showQuality =
                         dockW >= 900 && player.stream != null;
-                    final showDevice = dockW >= 800;
+                    final showOutput = dockW >= 800;
                     final showVolumeSlider = dockW >= 800;
                     final showExpand = dockW >= 850;
                     final showMini = dockW >= 950;
@@ -298,7 +298,7 @@ class WavePlayerDock extends ConsumerWidget {
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          if (showQuality) ...[
+                          if (showQuality)
                             Padding(
                               padding:
                                   const EdgeInsets.only(right: 2),
@@ -306,8 +306,6 @@ class WavePlayerDock extends ConsumerWidget {
                                 stream: player.stream!,
                               ),
                             ),
-                            const _StreamPathGlyph(),
-                          ],
                           if (showLyrics)
                             _Glyph(
                               tooltip: 'Lyrics (Ctrl+L)',
@@ -328,7 +326,7 @@ class WavePlayerDock extends ConsumerWidget {
                               active: equalizerActive,
                               onTap: onToggleEqualizer!,
                             ),
-                          if (showDevice) const _DeviceGlyph(),
+                          if (showOutput) const _OutputGlyph(),
                           if (showVolumeSlider)
                             const _VolumeSection()
                           else
@@ -349,7 +347,7 @@ class WavePlayerDock extends ConsumerWidget {
                             showLyricsItem: !showLyrics,
                             showQualityItem: !showQuality &&
                                 player.stream != null,
-                            showDeviceItem: !showDevice,
+                            showOutputItem: !showOutput,
                             showExpandItem: !showExpand,
                             showMiniItem: !showMini,
                             onToggleLyrics: onToggleLyrics,
@@ -527,65 +525,99 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
   }
 }
 
-/// Compact WASAPI / bit-perfect path — WinUI 3 MenuFlyout, dock-sized.
-class _StreamPathGlyph extends ConsumerWidget {
-  const _StreamPathGlyph();
+/// Output — where the sound goes and in what shape, as one control.
+///
+/// The dock used to carry two glyphs side by side: a stream-path status menu
+/// (source → endpoint → bit-perfect) and a separate endpoint picker. They
+/// answer one question between them, so they are one glyph now: the accent
+/// tint is still the bit-perfect status, the tooltip names the endpoint, and
+/// the menu opens on the endpoints before the path detail.
+class _OutputGlyph extends ConsumerWidget {
+  const _OutputGlyph();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final path = ref.watch(audioOutputProvider.select((s) => s.path));
-    final outputLabel = path.outputLabel;
+    final output = ref.watch(audioOutputProvider);
+    final path = output.path;
+    final name = output.selected?.displayName ?? 'System default';
     return _Glyph(
-      tooltip: path.bitPerfect
-          ? '$outputLabel · Bit-Perfect'
-          : '$outputLabel · Stream path',
-      icon: WaveIcons.streamPath,
+      tooltip: path.bitPerfect ? '$name · Bit-Perfect' : '$name · Stream path',
+      icon: WaveIcons.speaker,
       active: path.bitPerfect,
-      menuItems: [
-        WaveMenuAction(
-          leading: const Icon(WaveIcons.music, size: 15),
-          label: 'Source · ${path.sourceLabel}',
-          onPressed: () {},
-        ),
-        WaveMenuAction(
-          leading: const Icon(WaveIcons.device, size: 15),
-          label: 'Output · ${path.outputLabel}',
-          onPressed: () {},
-        ),
-        WaveMenuAction(
-          leading: const Icon(WaveIcons.speaker, size: 15),
-          label: Platform.isWindows ? (
-            path.exclusiveActive
-                ? 'WASAPI · Exclusive'
-                : 'WASAPI · Shared') : 'Output · System Default',
-          onPressed: () {},
-        ),
-        WaveMenuAction(
-          leading: const Icon(WaveIcons.volume, size: 15),
-          label: path.hardwareVolume
-              ? 'Volume · DAC hardware'
-              : (path.softwareVolume
-                  ? 'Volume · Software'
-                  : 'Volume · Unity'),
-          onPressed: () {},
-        ),
-        const WaveMenuSeparator(),
-        WaveMenuAction(
-          leading: Icon(
-            path.bitPerfect ? WaveIcons.likedFill : WaveIcons.streamPath,
-            size: 15,
-          ),
-          label: path.bitPerfect ? 'Bit-Perfect' : path.reason.label,
-          onPressed: () {},
-        ),
-        WaveMenuAction(
-          leading: const Icon(WaveIcons.settings, size: 15),
-          label: 'Output settings',
-          onPressed: () => context.go('/settings?section=audio'),
-        ),
-      ],
+      menuItems: _outputEntries(context, ref, output),
     );
   }
+}
+
+/// Endpoints + path detail, shared by [_OutputGlyph] and the narrow-width More
+/// menu so the two can never drift. The current endpoint is tinted with the
+/// accent — the same signal the glyph itself carries when the path is
+/// bit-perfect.
+List<WaveMenuEntry> _outputEntries(
+  BuildContext context,
+  WidgetRef ref,
+  AudioOutputState output,
+) {
+  final path = output.path;
+  final accent = waveAccent(context);
+  void select(String id) =>
+      ref.read(audioOutputProvider.notifier).selectDevice(id);
+  return [
+    WaveMenuAction(
+      leading: Icon(
+        WaveIcons.device,
+        size: 15,
+        color: output.selectedId.isEmpty ? accent : null,
+      ),
+      label: 'System default',
+      onPressed: () => select(''),
+    ),
+    for (final d in output.devices.take(8))
+      WaveMenuAction(
+        leading: Icon(
+          WaveIcons.device,
+          size: 15,
+          color: d.id == output.selectedId ? accent : null,
+        ),
+        label: d.displayName,
+        onPressed: () => select(d.id),
+      ),
+    const WaveMenuSeparator(),
+    WaveMenuAction(
+      leading: const Icon(WaveIcons.music, size: 15),
+      label: 'Source · ${path.sourceLabel}',
+      onPressed: () {},
+    ),
+    WaveMenuAction(
+      leading: const Icon(WaveIcons.streamPath, size: 15),
+      label: Platform.isWindows
+          ? (path.exclusiveActive ? 'WASAPI · Exclusive' : 'WASAPI · Shared')
+          : 'System output',
+      onPressed: () {},
+    ),
+    WaveMenuAction(
+      leading: const Icon(WaveIcons.volume, size: 15),
+      label: path.hardwareVolume
+          ? 'Volume · DAC hardware'
+          : (path.softwareVolume ? 'Volume · Software' : 'Volume · Unity'),
+      onPressed: () {},
+    ),
+    const WaveMenuSeparator(),
+    WaveMenuAction(
+      leading: Icon(
+        path.bitPerfect ? WaveIcons.check : WaveIcons.info,
+        size: 15,
+        color: path.bitPerfect ? accent : null,
+      ),
+      label: path.bitPerfect ? 'Bit-Perfect' : path.reason.label,
+      onPressed: () {},
+    ),
+    WaveMenuAction(
+      leading: const Icon(WaveIcons.settings, size: 15),
+      label: 'Output settings',
+      onPressed: () => context.go('/settings?section=audio'),
+    ),
+  ];
 }
 
 /// Plain glyph button — no coloured square wrapping.
@@ -1269,45 +1301,6 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
   }
 }
 
-/// Output device — WASAPI endpoints from the isolated engine.
-class _DeviceGlyph extends ConsumerWidget {
-  const _DeviceGlyph();
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final output = ref.watch(audioOutputProvider);
-    final name = output.selected?.displayName ?? 'System default';
-    return _Glyph(
-      tooltip: 'Output: $name',
-      icon: WaveIcons.device,
-      menuItems: [
-        WaveMenuAction(
-          leading: const Icon(WaveIcons.device, size: 15),
-          label: 'System Default',
-          onPressed: () =>
-              ref.read(audioOutputProvider.notifier).selectDevice(''),
-        ),
-        for (final d in output.devices.take(8))
-          WaveMenuAction(
-            leading: Icon(
-              WaveIcons.device,
-              size: 15,
-              color: d.id == output.selectedId ? waveAccent(context) : null,
-            ),
-            label: d.displayName,
-            onPressed: () =>
-                ref.read(audioOutputProvider.notifier).selectDevice(d.id),
-          ),
-        const WaveMenuSeparator(),
-        WaveMenuAction(
-          leading: const Icon(WaveIcons.settings, size: 15),
-          label: 'Output settings',
-          onPressed: () => context.go('/settings'),
-        ),
-      ],
-    );
-  }
-}
-
 /// Isolated volume section — owns the volume select so drags never rebuild
 /// the whole dock (perf audit).
 class _VolumeSection extends ConsumerWidget {
@@ -1461,7 +1454,7 @@ class _VolumeFlyoutGlyphState extends ConsumerState<_VolumeFlyoutGlyph> {
 class _DockOverflow extends ConsumerWidget {
   final bool showLyricsItem;
   final bool showQualityItem;
-  final bool showDeviceItem;
+  final bool showOutputItem;
   final bool showExpandItem;
   final bool showMiniItem;
   final VoidCallback onToggleLyrics;
@@ -1471,7 +1464,7 @@ class _DockOverflow extends ConsumerWidget {
   const _DockOverflow({
     this.showLyricsItem = false,
     this.showQualityItem = false,
-    this.showDeviceItem = false,
+    this.showOutputItem = false,
     this.showExpandItem = false,
     this.showMiniItem = false,
     required this.onToggleLyrics,
@@ -1492,10 +1485,13 @@ class _DockOverflow extends ConsumerWidget {
         ref.watch(playbackServiceProvider.select((s) => s.speed));
     final speedLabel =
         speed == speed.roundToDouble() ? '${speed.toInt()}' : '$speed';
+    final output = ref.watch(audioOutputProvider);
+    final outputName = output.selected?.displayName ?? 'System default';
+    final outputEntries = _outputEntries(context, ref, output);
     final hasCollapsed =
         showLyricsItem ||
         showQualityItem ||
-        showDeviceItem ||
+        showOutputItem ||
         showExpandItem ||
         showMiniItem;
     return _Glyph(
@@ -1516,19 +1512,11 @@ class _DockOverflow extends ConsumerWidget {
             label: '${stream.qualityBadge} · ${stream.audioCodec}',
             onPressed: () => context.go('/settings'),
           ),
-        if (showQualityItem)
-          WaveMenuAction(
-            leading: const Icon(WaveIcons.streamPath, size: 15),
-            label: ref.watch(audioOutputProvider.select((s) => s.path.bitPerfect))
-                ? 'Stream path · Bit-Perfect'
-                : 'Stream path',
-            onPressed: () => context.go('/settings'),
-          ),
-        if (showDeviceItem)
-          WaveMenuAction(
-            leading: const Icon(WaveIcons.device, size: 15),
-            label: 'Output: System default',
-            onPressed: () {},
+        if (showOutputItem)
+          WaveMenuSubmenu(
+            leading: const Icon(WaveIcons.speaker, size: 15),
+            label: 'Output · $outputName',
+            items: () => outputEntries,
           ),
         if (showExpandItem)
           WaveMenuAction(
