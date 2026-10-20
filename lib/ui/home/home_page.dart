@@ -19,6 +19,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/menus.dart';
 import '../components/shelf.dart';
+import '../collections/yt_shelf_page.dart';
 import '../components/states.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
@@ -247,10 +248,10 @@ class WaveHomePage extends ConsumerWidget {
     for (final shelf in ytShelves) {
       if (!shelf.isRenderable || shelf.title.isEmpty) continue;
       // A shelf is a taste, not a library: cap what one section pulls onto the
-      // page. Row shelves match the hand-built lists here (six), card and
-      // entity shelves get ten — and the header count is the capped length, so
-      // the number can never promise something the row does not hold.
-      final cap = shelf.isTrackShelf ? 6 : 10;
+      // page at six, like every other Home shelf. The header counts the whole
+      // shelf and See all opens the rest, so the rail stays a summary without
+      // the number going stale.
+      const cap = 6;
       // The shelf's playable tracks, if it has any — a shelf of albums or
       // artists has nothing to queue, so it keeps the bare count.
       final shelfTracks = <GeneratedTrack>[
@@ -286,20 +287,15 @@ class WaveHomePage extends ConsumerWidget {
             child: _SectionHead(
               kicker: 'YouTube Music',
               title: shelf.title,
-              count: shelfTracks.isNotEmpty
-                  ? shelfTracks.length
-                  : shelfEntities.length,
-              actionLabel: shelfTracks.isEmpty ? null : 'Play',
-              actionIcon: WaveIcons.play,
-              onAction: shelfTracks.isEmpty
-                  ? null
-                  : () => playGenerated(
-                        ref,
-                        context,
-                        shelfTracks.first,
-                        sourceLabel: shelf.title,
-                        queueAll: shelfTracks,
-                      ),
+              // The rail is capped; the header counts the whole shelf, and
+              // See all is where the rest of it lives.
+              count: shelf.isTrackShelf
+                  ? shelf.tracks.length
+                  : shelf.isTrackCardShelf
+                      ? shelf.trackCards.length
+                      : shelf.entities.length,
+              actionLabel: 'See all',
+              actionPath: '/ytshelf/${Uri.encodeComponent(shelf.title)}',
             ),
           ),
         ),
@@ -708,34 +704,6 @@ class _YtShelfRow extends StatelessWidget {
 
   const _YtShelfRow({required this.entities});
 
-  static void _open(BuildContext context, YouTubeMusicEntity e) {
-    final id = e.browseId.isNotEmpty ? e.browseId : e.playlistId;
-    if (id.isEmpty) return;
-    switch (e.kind) {
-      case YouTubeEntityKind.artist:
-        waveOpen(context, '/artist/${Uri.encodeComponent(e.name)}');
-      case YouTubeEntityKind.album:
-        // Albums are MPRE ids; anything else here is a misclassified
-        // playlist id (recap-style cards) and belongs on the playlist
-        // page instead of a dead Empty album.
-        if (id.startsWith('MPRE')) {
-          waveOpen(
-              context,
-              waveAlbumLocation(
-                browseId: id,
-                title: e.name,
-                artist: e.artist.isNotEmpty ? e.artist : e.subtitle,
-                artworkUrl: e.artworkUrl,
-              ));
-        } else {
-          waveOpen(context, '/ytplaylist/${Uri.encodeComponent(id)}');
-        }
-      case YouTubeEntityKind.playlist:
-      case YouTubeEntityKind.mix:
-        waveOpen(context, '/ytplaylist/${Uri.encodeComponent(id)}');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return WaveRail(
@@ -751,7 +719,7 @@ class _YtShelfRow extends StatelessWidget {
             subtitle: e.subtitle,
             titleFallback: e.name,
             artworkUrl: e.artworkUrl,
-            onTap: () => _open(context, e),
+            onTap: () => openYtEntity(context, e),
           ),
         );
       },
@@ -813,19 +781,12 @@ class _SectionHead extends StatelessWidget {
   final int? count;
   final String? actionLabel;
   final String? actionPath;
-
-  /// Action that is not a route — "Play" on a generated shelf, which has no
-  /// page to navigate to. Wins over [actionPath] when both are set.
-  final VoidCallback? onAction;
-  final IconData actionIcon;
   const _SectionHead({
     required this.kicker,
     required this.title,
     this.count,
     this.actionLabel,
     this.actionPath,
-    this.onAction,
-    this.actionIcon = WaveIcons.chevronRight,
   });
 
   @override
@@ -864,11 +825,11 @@ class _SectionHead extends StatelessWidget {
             ],
           ),
         ),
-        if (actionLabel != null && (onAction != null || actionPath != null))
+        if (actionLabel != null && actionPath != null)
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
-            onTap: onAction ?? () => context.go(actionPath!),
+            onTap: () => context.go(actionPath!),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -881,7 +842,7 @@ class _SectionHead extends StatelessWidget {
                 ),
                 const SizedBox(width: 2),
                 Icon(
-                  actionIcon,
+                  WaveIcons.chevronRight,
                   size: 13,
                   color: waveTextTertiary(context),
                 ),
