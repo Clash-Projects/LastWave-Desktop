@@ -121,16 +121,21 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
 
     if (current == null) {
-      return Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: WaveEmpty(
-            icon: WaveIcons.music,
-            title: 'Nothing playing',
-            subtitle:
-                'Pick something from Home, Discover or Search and it will take centre stage here.',
-            actionLabel: 'Browse music',
-            onAction: () => context.go('/home'),
+      // Same stage as the playing page, for the same reason: this route must
+      // not depend on whatever happens to be behind it.
+      return ColoredBox(
+        color: waveBackground(context),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: WaveEmpty(
+              icon: WaveIcons.music,
+              title: 'Nothing playing',
+              subtitle:
+                  'Pick something from Home, Discover or Search and it will take centre stage here.',
+              actionLabel: 'Browse music',
+              onAction: () => context.go('/home'),
+            ),
           ),
         ),
       );
@@ -204,6 +209,16 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
         onHover: (_) => _resetIdleTimer(),
         child: Stack(
           children: [
+            // The stage belongs to the page. Without a background of its own
+            // the black was borrowed from whatever sat behind the route, so
+            // closing faded the ambient out over a backdrop that could not
+            // fade with it — and then the backdrop vanished the instant the
+            // route did. Painting it here keeps the whole screen, backdrop
+            // included, inside the page's own transition.
+            Positioned.fill(
+              child: ColoredBox(color: waveBackground(context)),
+            ),
+
             // Background Visualizer
             Positioned.fill(
               child: RepaintBoundary(
