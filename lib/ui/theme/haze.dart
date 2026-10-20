@@ -21,10 +21,16 @@ enum WaveHazeIntensity { low, medium, high }
 class WaveHazeScope extends InheritedWidget {
   final WaveMaterialMode material;
   final WaveHazeIntensity intensity;
+
+  /// Experimental "Extra translucency": panels keep less fill and carry a
+  /// wider blur. Set from Settings, read by [WaveHaze] / [WaveGlass].
+  final bool liquidGlass;
+
   const WaveHazeScope({
     super.key,
     required this.material,
     required this.intensity,
+    this.liquidGlass = false,
     required super.child,
   });
 
@@ -51,9 +57,21 @@ class WaveHazeScope extends InheritedWidget {
         WaveHazeIntensity.high => 1.25,
       };
 
+  /// Fill multiplier for translucent surfaces: extra translucency keeps 15%
+  /// less surface under the blur. 1.0 when the experiment is off.
+  static double fillScale(BuildContext context) =>
+      of(context).liquidGlass ? 0.85 : 1.0;
+
+  /// Extra-translucency blur multiplier (1.0 when the experiment is off).
+  /// The thinner fill needs a wider filter to still read as glass.
+  static double liquidBlurScale(BuildContext context) =>
+      of(context).liquidGlass ? 1.45 : 1.0;
+
   @override
   bool updateShouldNotify(WaveHazeScope old) =>
-      material != old.material || intensity != old.intensity;
+      material != old.material ||
+      intensity != old.intensity ||
+      liquidGlass != old.liquidGlass;
 }
 
 /// Haze material container honouring the user's material setting.
@@ -125,6 +143,8 @@ class WaveHaze extends StatelessWidget {
       border: border,
       shadow: shadow,
       enableBlur: enableBlur ?? WaveHazeScope.blurEnabled(context),
+      blurScale: WaveHazeScope.liquidBlurScale(context),
+      alphaScale: WaveHazeScope.fillScale(context),
       child: child,
     );
   }
@@ -164,7 +184,13 @@ class WaveGlass extends StatelessWidget {
     // rest of the chrome (it used to be a fixed #121212 / #F4F4F4, which
     // sat *above* the AMOLED base instead of lifting from it).
     final base = dark ? waveSurface(context) : WaveColors.lightBackground;
-    final fill = base.withValues(alpha: blurOn ? 0.46 : 0.78);
+    // "Extra translucency" thins the fill and widens the filter; only
+    // meaningful while blurring — without a backdrop there is nothing to
+    // let through, so the opaque fallback keeps its density.
+    final liquid = WaveHazeScope.of(context).liquidGlass;
+    final fill = base.withValues(
+      alpha: blurOn ? (liquid ? 0.32 : 0.46) : 0.78,
+    );
     final edge = (dark ? Colors.white : Colors.black)
         .withValues(alpha: dark ? 0.16 : 0.10);
 
@@ -179,14 +205,14 @@ class WaveGlass extends StatelessWidget {
     );
 
     if (!blurOn) return content;
+    final sigma = 18 *
+        WaveHazeScope.blurScale(context) *
+        WaveHazeScope.liquidBlurScale(context);
     return RepaintBoundary(
       child: ClipRRect(
         borderRadius: borderRadius,
         child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: 18 * WaveHazeScope.blurScale(context),
-            sigmaY: 18 * WaveHazeScope.blurScale(context),
-          ),
+          filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
           child: content,
         ),
       ),

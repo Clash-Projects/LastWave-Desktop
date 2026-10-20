@@ -69,6 +69,12 @@ class LwHaze extends StatelessWidget {
   final bool enableBlur;
   final Alignment alignment;
 
+  /// Multipliers for the "Extra translucency" experiment: a thinner fill
+  /// ([alphaScale] < 1) under a wider blur ([blurScale] > 1). Defaults keep
+  /// the spec exactly as designed.
+  final double blurScale;
+  final double alphaScale;
+
   const LwHaze({
     super.key,
     required this.level,
@@ -80,6 +86,8 @@ class LwHaze extends StatelessWidget {
     this.shadow,
     this.enableBlur = true,
     this.alignment = Alignment.center,
+    this.blurScale = 1.0,
+    this.alphaScale = 1.0,
   });
 
   /// L1 chrome (rail / title / dock).
@@ -93,7 +101,9 @@ class LwHaze extends StatelessWidget {
     this.enableBlur = true,
   })  : level = LwHazeLevel.l1,
         borderRadius = BorderRadius.zero,
-        alignment = Alignment.center;
+        alignment = Alignment.center,
+        blurScale = 1.0,
+        alphaScale = 1.0;
 
   /// L2 panel (queue / suggestion / floating cluster).
   const LwHaze.panel({
@@ -106,7 +116,9 @@ class LwHaze extends StatelessWidget {
     this.enableBlur = true,
   })  : level = LwHazeLevel.l2,
         borderRadius = BorderRadius.zero,
-        alignment = Alignment.center;
+        alignment = Alignment.center,
+        blurScale = 1.0,
+        alphaScale = 1.0;
 
   /// L3 flyout (menu / dialog / popover).
   const LwHaze.flyout({
@@ -119,7 +131,9 @@ class LwHaze extends StatelessWidget {
     this.enableBlur = true,
   })  : level = LwHazeLevel.l3,
         borderRadius = const BorderRadius.all(Radius.circular(WaveRadius.menu)),
-        alignment = Alignment.center;
+        alignment = Alignment.center,
+        blurScale = 1.0,
+        alphaScale = 1.0;
 
   @override
   Widget build(BuildContext context) {
@@ -134,7 +148,9 @@ class LwHaze extends StatelessWidget {
     final alpha = !useBlur && level == LwHazeLevel.l1
         ? (dark ? 0.94 : 0.96)
         : (dark ? spec.darkAlpha : spec.lightAlpha);
-    var fill = resolvedBase.withValues(alpha: alpha);
+    var fill = resolvedBase.withValues(
+      alpha: (alpha * alphaScale).clamp(0.0, 1.0),
+    );
     if (artworkTint != null && level != LwHazeLevel.l0) {
       // Low-saturation atmosphere: mix tint at ≤12%, never flood.
       final tint = artworkTint!.withValues(alpha: spec.tintCap);
@@ -157,8 +173,8 @@ class LwHaze extends StatelessWidget {
             : BorderRadius.zero,
         child: BackdropFilter(
           filter: ImageFilter.blur(
-            sigmaX: spec.blurSigma,
-            sigmaY: spec.blurSigma,
+            sigmaX: spec.blurSigma * blurScale,
+            sigmaY: spec.blurSigma * blurScale,
           ),
           child: content,
         ),

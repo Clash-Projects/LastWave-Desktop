@@ -11,6 +11,15 @@ class ThemeState {
   final String hazeMaterial;
   final String hazeIntensity;
   final String accentSource;
+
+  /// Experimental: panels sit further off the surface — thinner fill, wider
+  /// blur. Threaded into [WaveHazeScope], so every WaveHaze / WaveGlass
+  /// follows the switch without reading prefs itself.
+  final bool liquidGlass;
+
+  /// Experimental: the dock timeline is drawn as a wave instead of a bar.
+  final bool wavySeekbar;
+
   const ThemeState({
     required this.accent,
     required this.amoled,
@@ -18,6 +27,8 @@ class ThemeState {
     this.hazeMaterial = 'automatic',
     this.hazeIntensity = 'medium',
     this.accentSource = 'custom',
+    this.liquidGlass = false,
+    this.wavySeekbar = false,
   });
 }
 
@@ -31,6 +42,8 @@ class ThemeController extends StateNotifier<ThemeState> {
           hazeMaterial: _prefs.hazeMaterial,
           hazeIntensity: _prefs.hazeIntensity,
           accentSource: _prefs.accentSource,
+          liquidGlass: _prefs.liquidGlass,
+          wavySeekbar: _prefs.wavySeekbar,
         ));
 
   void refresh() {
@@ -41,6 +54,8 @@ class ThemeController extends StateNotifier<ThemeState> {
       hazeMaterial: _prefs.hazeMaterial,
       hazeIntensity: _prefs.hazeIntensity,
       accentSource: _prefs.accentSource,
+      liquidGlass: _prefs.liquidGlass,
+      wavySeekbar: _prefs.wavySeekbar,
     );
   }
 
