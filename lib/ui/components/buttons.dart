@@ -657,7 +657,8 @@ class LWProgressSlider extends StatelessWidget {
   }
 }
 
-/// Canonical volume slider: 3px track, configurable width (defaults to 84px), 10px thumb on hover only.
+/// Canonical volume slider: 3px track, configurable width (defaults to 84px),
+/// 8px knob at rest growing to 10px on hover/drag/focus.
 class LWVolumeSlider extends StatelessWidget {
   final double value;
   final ValueChanged<double>? onChanged;
@@ -726,7 +727,12 @@ class _WaveSliderBaseState extends State<_WaveSliderBase> {
     final base = dark ? Colors.white : Colors.black;
     final fill =
         dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary;
-    final showThumb = _hover || _dragging || _focus.hasFocus;
+    final active = _hover || _dragging || _focus.hasFocus;
+    // A level you cannot see is not a control: at 100% the fill is the whole
+    // track, so a knob that only appeared on hover left a plain hairline
+    // between two glyphs. Any non-zero value keeps its knob; hover grows it.
+    final thumbSize = active ? 10.0 : 8.0;
+    final showThumb = active || widget.value > 0.001;
     final slider = MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
@@ -786,9 +792,10 @@ class _WaveSliderBaseState extends State<_WaveSliderBase> {
                       widget.value.clamp(0.0, 1.0).toDouble();
                   final width = constraints.maxWidth;
                   final fillWidth = width * fraction;
-                  final maxThumbLeft =
-                      (width - 10).clamp(0.0, double.infinity).toDouble();
-                  final thumbLeft = (fillWidth - 5)
+                  final maxThumbLeft = (width - thumbSize)
+                      .clamp(0.0, double.infinity)
+                      .toDouble();
+                  final thumbLeft = (fillWidth - thumbSize / 2)
                       .clamp(0.0, maxThumbLeft)
                       .toDouble();
                   return SizedBox(
@@ -817,9 +824,12 @@ class _WaveSliderBaseState extends State<_WaveSliderBase> {
                         if (showThumb)
                           Positioned(
                             left: thumbLeft,
-                            child: Container(
-                              width: 10,
-                              height: 10,
+                            child: AnimatedContainer(
+                              duration:
+                                  waveMotion(context, WaveMotion.fast),
+                              curve: Curves.easeOutCubic,
+                              width: thumbSize,
+                              height: thumbSize,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: fill,
