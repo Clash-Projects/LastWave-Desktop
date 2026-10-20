@@ -1,9 +1,7 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:palette_generator/palette_generator.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../app/track_actions.dart'
@@ -16,6 +14,7 @@ import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/player/playback_service.dart';
+import '../components/ambient.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/menus.dart';
@@ -25,26 +24,6 @@ import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
-
-/// Artwork-derived tint, cached per URL so palette work runs once.
-/// Wash is capped at 12% alpha at the call site — never a color flood.
-final _homeTintProvider =
-    FutureProvider.autoDispose.family<Color?, String>((ref, url) async {
-  if (url.isEmpty) return null;
-  ref.keepAlive();
-  try {
-    final provider = CachedNetworkImageProvider(url,
-        maxWidth: 128, maxHeight: 128);
-    final palette = await PaletteGenerator.fromImageProvider(
-      provider,
-      size: const Size(64, 64),
-      maximumColorCount: 8,
-    );
-    return palette.dominantColor?.color;
-  } catch (_) {
-    return null;
-  }
-});
 
 /// Rich editorial Home — every section has a distinct representation.
 ///
@@ -909,8 +888,8 @@ class _SectionHead extends StatelessWidget {
 }
 
 /// Editorial hero: LEFT large personal pick (artwork 35–45% + metadata +
-/// Play/Radio) + RIGHT 2–4 compact companions. Haze wash ≤12%, never a
-/// grey placeholder — real artwork always.
+/// Play/Radio) + RIGHT 2–4 compact companions. The cover lights its own
+/// halo, never a colour flood — real artwork always.
 class _FeaturedHero extends ConsumerWidget {
   final GeneratedTrack track;
   final List<GeneratedTrack> upNext;
@@ -933,39 +912,77 @@ class _FeaturedHero extends ConsumerWidget {
     final dark = waveIsDark(context);
     final width = MediaQuery.sizeOf(context).width;
     final narrow = width < 860;
-    final tint = ref.watch(_homeTintProvider(track.artworkUrl)).valueOrNull;
-    // Light comes off the cover, not from the panel: a flat 12% fill across
-    // the whole block read as a dirty pane, so the tint is a bloom centred on
-    // the artwork that dies out well before the divider.
-    final tintBase = tint ?? (dark ? Colors.white : Colors.black);
-    final wash = RadialGradient(
-      center: const Alignment(-0.72, 0),
-      radius: 0.95,
-      stops: const [0, 0.55, 1],
-      colors: [
-        tintBase.withValues(alpha: tint != null ? 0.22 : 0.05),
-        tintBase.withValues(alpha: tint != null ? 0.06 : 0.02),
-        tintBase.withValues(alpha: 0),
-      ],
-    );
+    final tint = ref.watch(artworkPaletteProvider(track.artworkUrl));
+    final palette = tint.valueOrNull;
+    // The glow is the cover's most vivid tone, not its dominant one: dominant
+    // is dark for most artwork, which is why a fill seeded from it vanished
+    // into the page.
+    final glow = dark
+        ? (palette?.vibrant ?? ArtworkPalette.fallback.vibrant)
+        : (palette?.lightVibrant ?? ArtworkPalette.fallback.lightVibrant);
+    // The panel is structure only. Any tint anchored to its edges leaves a
+    // straight line of colour wherever the box ends — that was the stain.
+    final panel = dark
+        ? Colors.white.withValues(alpha: 0.035)
+        : Colors.black.withValues(alpha: 0.025);
     final artSize = narrow ? 132.0 : 176.0;
+    final halo = artSize + 150;
 
     final left = Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: WaveRadius.artworkRadius,
-            boxShadow: WaveElevation.artwork(dark),
-          ),
-          child: WaveArtwork(
-            url: track.artworkUrl,
-            videoId: track.videoId,
-            size: artSize,
-            radius: WaveRadius.artwork,
-            title: track.name,
-            artist: track.artist,
-            label: track.name,
+        SizedBox(
+          width: artSize,
+          height: artSize,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // Halo: bigger than the cell and allowed to paint outside it, so
+              // the light spills past the panel instead of stopping at an edge.
+              Positioned(
+                left: -(halo - artSize) / 2,
+                top: -(halo - artSize) / 2,
+                width: halo,
+                height: halo,
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: palette == null ? 0 : 1,
+                    duration: waveMotion(context, WaveMotion.slow),
+                    curve: WaveMotion.standard,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          stops: const [0, 0.55, 1],
+                          colors: [
+                            glow.withValues(alpha: 0.34),
+                            glow.withValues(alpha: 0.12),
+                            glow.withValues(alpha: 0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: WaveRadius.artworkRadius,
+                    boxShadow: WaveElevation.artwork(dark),
+                  ),
+                  child: WaveArtwork(
+                    url: track.artworkUrl,
+                    videoId: track.videoId,
+                    size: artSize,
+                    radius: WaveRadius.artwork,
+                    title: track.name,
+                    artist: track.artist,
+                    label: track.name,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(width: 20),
@@ -1058,7 +1075,7 @@ class _FeaturedHero extends ConsumerWidget {
       return Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          gradient: wash,
+          color: panel,
           borderRadius: WaveRadius.floatingRadius,
         ),
         child: left,
@@ -1069,7 +1086,7 @@ class _FeaturedHero extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: wash,
+        color: panel,
         borderRadius: WaveRadius.floatingRadius,
       ),
       child: Row(
