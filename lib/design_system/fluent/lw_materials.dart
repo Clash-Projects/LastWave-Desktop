@@ -76,6 +76,15 @@ class LwHaze extends StatelessWidget {
   final double blurScale;
   final double alphaScale;
 
+  /// Absolute fill alpha, overriding the level's spec alpha.
+  ///
+  /// Only applied while the filter is actually on: a surface thinned to 40%
+  /// with nothing to frost would be unreadable, so Solid / reduced-transparency
+  /// falls back to the level's tonal alpha. Used by the surfaces that have to
+  /// match a hand-tuned frost recipe (the expanded rail wearing the lyrics
+  /// drawer's tint) rather than a spec level.
+  final double? fillAlpha;
+
   const LwHaze({
     super.key,
     required this.level,
@@ -89,6 +98,7 @@ class LwHaze extends StatelessWidget {
     this.alignment = Alignment.center,
     this.blurScale = 1.0,
     this.alphaScale = 1.0,
+    this.fillAlpha,
   });
 
   /// L1 chrome (rail / title / dock).
@@ -100,6 +110,7 @@ class LwHaze extends StatelessWidget {
     this.border,
     this.shadow,
     this.enableBlur = true,
+    this.fillAlpha,
   })  : level = LwHazeLevel.l1,
         borderRadius = BorderRadius.zero,
         alignment = Alignment.center,
@@ -115,6 +126,7 @@ class LwHaze extends StatelessWidget {
     this.border,
     this.shadow,
     this.enableBlur = true,
+    this.fillAlpha,
   })  : level = LwHazeLevel.l2,
         borderRadius = BorderRadius.zero,
         alignment = Alignment.center,
@@ -130,6 +142,7 @@ class LwHaze extends StatelessWidget {
     this.border,
     this.shadow,
     this.enableBlur = true,
+    this.fillAlpha,
   })  : level = LwHazeLevel.l3,
         borderRadius = const BorderRadius.all(Radius.circular(WaveRadius.menu)),
         alignment = Alignment.center,
@@ -148,9 +161,10 @@ class LwHaze extends StatelessWidget {
         !reduceT &&
         spec.blurSigma > 0 &&
         level != LwHazeLevel.l0;
+    final specAlpha = dark ? spec.darkAlpha : spec.lightAlpha;
     final alpha = !useBlur && level == LwHazeLevel.l1
         ? (dark ? 0.94 : 0.96)
-        : (dark ? spec.darkAlpha : spec.lightAlpha);
+        : (useBlur ? (fillAlpha ?? specAlpha) : specAlpha);
     var fill = resolvedBase.withValues(
       alpha: (alpha * alphaScale).clamp(0.0, 1.0),
     );

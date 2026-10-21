@@ -72,9 +72,15 @@ class _WaveSideRailState extends State<WaveSideRail> {
     // the 60px collapsed strip), so it has to frost what it covers; the
     // collapsed strip has the shell behind it and blurring it would buy
     // nothing. Haze=Solid still short-circuits the filter upstream.
+    //
+    // Expanded it wears the lyrics drawer's frost verbatim — L2's 20px blur
+    // under a 40% tint (60% in light themes, matching that panel's fill)
+    // instead of L1's 88% fill. At 88% the drawer read as an opaque slab
+    // parked next to a translucent panel that covers the same page.
     return WaveHaze(
-      level: LwHazeLevel.l1,
+      level: expanded ? LwHazeLevel.l2 : LwHazeLevel.l1,
       enableBlur: expanded,
+      fillAlpha: expanded ? (dark ? 0.40 : 0.60) : null,
       base: dark
           ? waveRailTranslucent(context)
           : WaveColors.lightNavBackground.withValues(alpha: 0.92),

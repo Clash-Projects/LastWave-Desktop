@@ -104,6 +104,11 @@ class WaveHaze extends StatelessWidget {
   final List<BoxShadow>? shadow;
   final bool? enableBlur;
 
+  /// Absolute fill alpha for surfaces that have to match a hand-tuned frost
+  /// recipe instead of a spec level (see [LwHaze.fillAlpha]). Ignored when the
+  /// filter is off — Solid / reduced transparency keeps the tonal alpha.
+  final double? fillAlpha;
+
   const WaveHaze({
     super.key,
     required this.level,
@@ -114,6 +119,7 @@ class WaveHaze extends StatelessWidget {
     this.border,
     this.shadow,
     this.enableBlur,
+    this.fillAlpha,
   });
 
   const WaveHaze.chrome({
@@ -124,6 +130,7 @@ class WaveHaze extends StatelessWidget {
     this.border,
     this.shadow,
     this.enableBlur,
+    this.fillAlpha,
   })  : level = LwHazeLevel.l1,
         borderRadius = BorderRadius.zero;
 
@@ -135,6 +142,7 @@ class WaveHaze extends StatelessWidget {
     this.border,
     this.shadow,
     this.enableBlur,
+    this.fillAlpha,
   })  : level = LwHazeLevel.l2,
         borderRadius = BorderRadius.zero;
 
@@ -146,6 +154,7 @@ class WaveHaze extends StatelessWidget {
     this.border,
     this.shadow,
     this.enableBlur,
+    this.fillAlpha,
   })  : level = LwHazeLevel.l3,
         borderRadius = const BorderRadius.all(Radius.circular(WaveRadius.menu));
 
@@ -165,6 +174,7 @@ class WaveHaze extends StatelessWidget {
           WaveHazeScope.allowsBlur(context, level),
       blurScale: WaveHazeScope.liquidBlurScale(context),
       alphaScale: WaveHazeScope.fillScale(context),
+      fillAlpha: fillAlpha,
       child: child,
     );
   }
