@@ -104,6 +104,16 @@ double _scrimBoost(ArtworkPalette palette) {
 /// dulling dark ones. Must wrap both paths — solid mode skips the
 /// mesh painter (and its baked-in scrim) entirely, which is why text
 /// used to vanish there while automatic looked fine.
+///
+/// Base alphas are deliberately light: the stage is the hero artwork's
+/// colour and the page reads as "too dark" when the scrim eats it. The
+/// [boost] term, not the base, is what guarantees contrast on pale covers.
+///
+/// The gradient carries no steps — but 8-bit alpha does. The dark ramp runs
+/// 0.28 → 0.54, i.e. ~66 distinct levels stretched over the window height,
+/// so a contour lands every ~13px and reads as banding on a dark stage.
+/// Neither Flutter nor Skia dithers gradients, so [_DitherPainter] adds the
+/// noise by hand on top of it (and therefore on top of the aura as well).
 class _StageScrim extends StatelessWidget {
   final bool isDark;
   final double boost;
@@ -112,8 +122,8 @@ class _StageScrim extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final b = boost.clamp(0.0, 1.0);
-    final topAlpha = (isDark ? 0.35 : 0.40) + b * 0.25;
-    final bottomAlpha = (isDark ? 0.60 : 0.65) + b * 0.28;
+    final topAlpha = (isDark ? 0.28 : 0.34) + b * 0.25;
+    final bottomAlpha = (isDark ? 0.54 : 0.60) + b * 0.28;
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -126,8 +136,83 @@ class _StageScrim extends StatelessWidget {
           ],
         ),
       ),
+      // Painted after the decoration above, so the noise dithers the scrim's
+      // contours rather than being darkened by them. Still under page content.
+      child: const CustomPaint(
+        painter: _DitherPainter(),
+        child: SizedBox.expand(),
+      ),
     );
   }
+}
+
+/// Shared dithering noise: a 128x128 grayscale tile, built once per process.
+///
+/// Deliberately *not* baked per artwork (unlike [auraImageProvider]): the
+/// pattern is unrelated to the cover, and a process-wide tile costs one 64 KiB
+/// texture that is never worth freeing.
+final ui.Image _ditherTile = _buildDitherTile();
+
+ui.Image _buildDitherTile() {
+  const size = 128;
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final paint = Paint()..isAntiAlias = false;
+  // Fixed seed: a stable pattern between runs, and stable between repaints so
+  // the stage never shimmers when something above it re-rasterizes.
+  final rnd = math.Random(0x5EED);
+  for (var y = 0; y < size; y++) {
+    for (var x = 0; x < size; x++) {
+      final v = rnd.nextInt(256);
+      paint.color = Color.fromARGB(255, v, v, v);
+      canvas.drawRect(Rect.fromLTWH(x.toDouble(), y.toDouble(), 1, 1), paint);
+    }
+  }
+  final picture = recorder.endRecording();
+  try {
+    // Rasterizes asynchronously in the engine, but the handle is usable
+    // immediately and this is not on a hot path.
+    return picture.toImageSync(size, size);
+  } finally {
+    picture.dispose();
+  }
+}
+
+/// Tiles [_ditherTile] over the stage at a couple of percent alpha.
+///
+/// An 8-bit dither only has to nudge a pixel by about one level to break a
+/// contour, so this stays well below anything that reads as grain — or as haze
+/// over the artwork.
+class _DitherPainter extends CustomPainter {
+  const _DitherPainter();
+
+  static const double _alpha = 0.02;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final area = Offset.zero & size;
+    final paint = Paint()
+      ..shader = ImageShader(
+        _ditherTile,
+        TileMode.repeated,
+        TileMode.repeated,
+        Matrix4.identity().storage,
+        filterQuality: FilterQuality.none,
+      )
+      // Alpha as a matrix, not `Paint.color`: image/shader draws are allowed
+      // to ignore the paint colour (see [_AuraPainter]).
+      ..colorFilter = const ColorFilter.matrix(<double>[
+        1, 0, 0, 0, 0, //
+        0, 1, 0, 0, 0, //
+        0, 0, 1, 0, 0, //
+        0, 0, 0, _alpha, 0, //
+      ]);
+    canvas.drawRect(area, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DitherPainter oldDelegate) => false;
 }
 
 double _colorDistance(Color a, Color b) {
@@ -965,10 +1050,20 @@ class _AuraPainter extends CustomPainter {
     final paint = Paint()
       ..isAntiAlias = false
       ..filterQuality = FilterQuality.low
-      // Wash, not wallpaper: 0.40 keeps the palette's hue on stage
-      // while the scrim + cover carry contrast. 0.70 blew bright
+      // Wash, not wallpaper: this is the stage's colour, so it has to read as
+      // the cover's palette without turning into a second copy of the sleeve.
+      // 0.40 under the scrim photographed as "too dark"; 0.70 blew bright
       // covers out into an overexposed double image.
-      ..color = Colors.white.withValues(alpha: 0.40);
+      //
+      // Opacity as an alpha matrix rather than `Paint.color`: image draws are
+      // allowed to ignore the paint colour (Impeller does), and this has to
+      // look identical on both backends.
+      ..colorFilter = const ColorFilter.matrix(<double>[
+        1, 0, 0, 0, 0, //
+        0, 1, 0, 0, 0, //
+        0, 0, 1, 0, 0, //
+        0, 0, 0, 0.52, 0, //
+      ]);
     canvas.drawImageRect(image, src, Offset.zero & size, paint);
   }
 
