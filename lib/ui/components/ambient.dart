@@ -866,7 +866,7 @@ class WaveAmbientMesh extends ConsumerWidget {
 }
 
 /// Apple Music / monochrome artwork aura: a baked blur texture painted
-/// once, statically. No rotation, no shader recompiles, no vsync ticks.
+/// once, statically. No rotation, no shader, no vsync ticks.
 class _AppleArtworkAura extends ConsumerWidget {
   final String artworkUrl;
 
@@ -883,68 +883,23 @@ class _AppleArtworkAura extends ConsumerWidget {
   }
 }
 
-/// Static aura layer with a cached shader.
+/// Static aura layer.
 ///
-/// The `ImageShader` holds the cover scale + image-origin centering and is
-/// built once per (image, layout size). No animation: the painter draws a
-/// single still rect, so the stage rasterizes exactly once per change.
+/// Paints the baked texture at half resolution and lets [FittedBox] upscale
+/// it: the aura is a blur wash, so painting at 0.5x is visually identical
+/// while the cached layer holds a quarter of the pixels. Full-window retained
+/// layers are the dominant RSS cost on Windows ANGLE.
 ///
-/// Half-resolution retained surface: the aura is a blur wash, so painting
-/// at 0.5x and upscaling is visually identical while the cached layer
-/// holds a quarter of the pixels. Full-window retained layers are the
-/// dominant RSS cost on Windows ANGLE.
-class _AuraLayers extends StatefulWidget {
+/// Deliberately a plain image draw, not an `ImageShader` with a tile mode:
+/// the shader (plus the `ImageShader` object it had to keep alive per size)
+/// was the most expensive sampling path in the stage, so any future animation
+/// that lands a transform on this subtree paid for it per frame. A single
+/// `drawImageRect` of an already-blurred texture is the cheap path, and the
+/// 2.3x zoom is just a smaller source rect (see [_AuraPainter]).
+class _AuraLayers extends StatelessWidget {
   final ui.Image image;
 
   const _AuraLayers({required this.image});
-
-  @override
-  State<_AuraLayers> createState() => _AuraLayersState();
-}
-
-class _AuraLayersState extends State<_AuraLayers> {
-  ImageShader? _shader;
-  Size? _shaderKey;
-
-  ImageShader _shaderFor(Size size) {
-    if (_shader == null || _shaderKey != size) {
-      _shader?.dispose();
-      // Zoomed-in crop (2.3× cover): the aura reads as abstract color
-      // wash, not a second copy of the sleeve. A tight crop plus low
-      // opacity keeps bright covers from blowing out the stage.
-      final coverScale = math.max(size.width, size.height) /
-          widget.image.width *
-          2.3;
-      final matrix = Matrix4.identity()
-        ..scaleByDouble(coverScale, coverScale, 1, 1)
-        ..translateByDouble(
-            -widget.image.width / 2, -widget.image.height / 2, 0, 1);
-      _shader = ImageShader(
-        widget.image,
-        TileMode.mirror,
-        TileMode.mirror,
-        matrix.storage,
-      );
-      _shaderKey = size;
-    }
-    return _shader!;
-  }
-
-  @override
-  void didUpdateWidget(covariant _AuraLayers oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.image != widget.image) {
-      _shader?.dispose();
-      _shader = null;
-      _shaderKey = null;
-    }
-  }
-
-  @override
-  void dispose() {
-    _shader?.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -964,10 +919,7 @@ class _AuraLayersState extends State<_AuraLayers> {
                 child: CustomPaint(
                   isComplex: false,
                   willChange: false,
-                  painter: _AuraPainter(
-                    shader: _shaderFor(half),
-                    canvasSize: half,
-                  ),
+                  painter: _AuraPainter(image: image, canvasSize: half),
                 ),
               ),
             ),
@@ -979,33 +931,50 @@ class _AuraLayersState extends State<_AuraLayers> {
 }
 
 class _AuraPainter extends CustomPainter {
-  final ImageShader shader;
+  final ui.Image image;
   final Size canvasSize;
 
   _AuraPainter({
-    required this.shader,
+    required this.image,
     required this.canvasSize,
   });
+
+  /// Cover zoom: a tight crop reads as an abstract colour wash instead of a
+  /// second copy of the sleeve, and keeps bright covers from blowing the
+  /// stage out.
+  static const double _zoom = 2.3;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-    // Single static wash: no rotation, no per-frame transform. The
-    // cached shader is painted once per (image, size) change.
+    final imageW = image.width.toDouble();
+    final imageH = image.height.toDouble();
+    if (imageW <= 0 || imageH <= 0) return;
+
+    // Same framing the old shader sampled: cover-fit, zoomed [_zoom]x, starting
+    // at the cover's centre and running toward its bottom-right corner.
+    final pxPerImagePx = math.max(size.width, size.height) / imageW * _zoom;
+    final src = Rect.fromLTWH(
+      imageW / 2,
+      imageH / 2,
+      size.width / pxPerImagePx,
+      size.height / pxPerImagePx,
+    ).intersect(Rect.fromLTWH(0, 0, imageW, imageH));
+    if (src.isEmpty) return;
+
     final paint = Paint()
       ..isAntiAlias = false
       ..filterQuality = FilterQuality.low
       // Wash, not wallpaper: 0.40 keeps the palette's hue on stage
       // while the scrim + cover carry contrast. 0.70 blew bright
       // covers out into an overexposed double image.
-      ..color = Colors.white.withValues(alpha: 0.40)
-      ..shader = shader;
-    canvas.drawRect(Offset.zero & size, paint);
+      ..color = Colors.white.withValues(alpha: 0.40);
+    canvas.drawImageRect(image, src, Offset.zero & size, paint);
   }
 
   @override
   bool shouldRepaint(covariant _AuraPainter old) {
-    return old.shader != shader || old.canvasSize != canvasSize;
+    return old.image != image || old.canvasSize != canvasSize;
   }
 }
 

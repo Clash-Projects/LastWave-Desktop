@@ -484,20 +484,65 @@ class _FsIconButtonState extends State<_FsIconButton> {
   }
 }
 
-/// Mutes karaoke tickers while the window is minimized/tray-hidden, on
-/// top of the lyrics-open gate. Side-by-side (unfocused but visible)
-/// keeps ticking. Framework TickerMode: auto-resumes on restore, clock
-/// resyncs from the snapshot. Scoped ConsumerWidget so visibility flips
-/// rebuild only this leaf, never the page.
-class _VisibleTicker extends ConsumerWidget {
+/// Mutes karaoke tickers while the window is minimized/tray-hidden, on top of
+/// the lyrics-open gate, and while this route is still animating in or out.
+/// Side-by-side (unfocused but visible) keeps ticking. Framework TickerMode:
+/// auto-resumes on restore, clock resyncs from the snapshot. Scoped
+/// ConsumerWidget so visibility flips rebuild only this leaf, never the page.
+///
+/// The transition gate keeps the lyrics engine's ~60 Hz repaints out of a
+/// half-transparent layer: nothing is readable while the page fades, and on
+/// the way out those repaints compete with the transition's last frames. It
+/// listens to the route animation's *status*, never its value, so a navigation
+/// costs two rebuilds instead of one per frame.
+class _VisibleTicker extends ConsumerStatefulWidget {
   final bool enabled;
   final Widget child;
   const _VisibleTicker({required this.enabled, required this.child});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_VisibleTicker> createState() => _VisibleTickerState();
+}
+
+class _VisibleTickerState extends ConsumerState<_VisibleTicker> {
+  Animation<double>? _routeAnimation;
+  bool _routeSettled = true;
+
+  /// A freshly pushed route reports `forward` on its first build, so the
+  /// initial state comes from [Animation.isAnimating] rather than assuming
+  /// settled.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final animation = ModalRoute.of(context)?.animation;
+    if (animation == _routeAnimation) return;
+    _routeAnimation?.removeStatusListener(_onRouteStatus);
+    _routeAnimation = animation;
+    animation?.addStatusListener(_onRouteStatus);
+    _routeSettled = !(animation?.isAnimating ?? false);
+  }
+
+  void _onRouteStatus(AnimationStatus status) {
+    final settled = status == AnimationStatus.completed ||
+        status == AnimationStatus.dismissed;
+    if (settled != _routeSettled && mounted) {
+      setState(() => _routeSettled = settled);
+    }
+  }
+
+  @override
+  void dispose() {
+    _routeAnimation?.removeStatusListener(_onRouteStatus);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final visible = ref.watch(windowVisibleProvider);
-    return TickerMode(enabled: enabled && visible, child: child);
+    return TickerMode(
+      enabled: widget.enabled && visible && _routeSettled,
+      child: widget.child,
+    );
   }
 }
 

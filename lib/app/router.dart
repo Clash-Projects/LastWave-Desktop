@@ -30,25 +30,78 @@ import '../ui/theme/tokens.dart';
 
 /// High-refresh-rate navigation transition: crisp 110ms crossfade without
 /// matrix translation overhead for immediate, zero-jank page changes.
-Page<void> _page(Widget child) {
+Page<void> _page(Widget child) => _fadePage(
+      child,
+      duration: WaveMotion.fast,
+      curve: Curves.easeOutCubic,
+    );
+
+/// The one crossfade builder. Both directions are always explicit: go_router
+/// defaults `reverseTransitionDuration` to **300 ms regardless of**
+/// `transitionDuration`, so every route used to push in 110 ms and pop out
+/// 300 ms — the exit (a stage has no incoming animation to mask it) read as a
+/// long slow dissolve while the entrance was instant.
+///
+/// [curve] is applied in both directions by `CurvedAnimation` when no
+/// `reverseCurve` is given, so an asymmetric curve (easeOut) also reads
+/// backwards: the exit holds near-full opacity and then drops, instead of
+/// mirroring the entrance. Pass a symmetric curve wherever the two have to
+/// look the same.
+Page<void> _fadePage(
+  Widget child, {
+  required Duration duration,
+  required Curve curve,
+}) {
   return CustomTransitionPage(
     child: child,
     transitionsBuilder:
         (context, animation, secondaryAnimation, child) {
       return FadeTransition(
-        opacity: CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-        ),
+        opacity: CurvedAnimation(parent: animation, curve: curve),
         child: child,
       );
     },
-    transitionDuration: WaveMotion.fast,
+    transitionDuration: duration,
+    reverseTransitionDuration: duration,
+  );
+}
+
+/// Entrance for the two full-window stages (Now Playing, Lyrics): the plain
+/// crossfade, explicitly NOT the anchored scale of [_anchoredPage].
+///
+/// A `ScaleTransition` animates a transform over the entire route, and the
+/// raster cache keys pictures on the accumulated matrix — so every frame of
+/// the entrance *and* the exit re-rasterizes the whole page. On Now Playing
+/// that page is the app's most expensive surface (full-window baked-blur aura,
+/// scrim gradients, cover shadows, a live motion-art texture), so the close
+/// re-rasterized a window-sized scene per frame for the length of the
+/// transition — visible jank plus ~2GB of transient ANGLE surfaces — while the
+/// same page with the ambient stage off cost nothing. A fade changes no
+/// matrix: the page's rasters stay cached and the compositor only blends them.
+///
+/// Closing still reads right: while a route animates Flutter marks it
+/// non-opaque, so the destination page is painted underneath and the stage
+/// crossfades into it instead of cutting to the shell background.
+///
+/// The press anchor is consumed (and dropped) so a dock-cover tap that opened
+/// a stage cannot linger in [WaveRouteOrigin] and be inherited by the next
+/// route.
+///
+/// 180 ms with a symmetric curve, deliberately: the old 110 ms in / 300 ms out
+/// pair was neither even nor mirror-able, and this stage has no incoming
+/// animation on the way out to hide it — the closing dissolve is the whole
+/// gesture. `easeInOutCubic` makes the exit the exact reverse of the entrance.
+Page<void> _stagePage(Widget child) {
+  WaveRouteOrigin.consume();
+  return _fadePage(
+    child,
+    duration: WaveMotion.normal,
+    curve: Curves.easeInOutCubic,
   );
 }
 
 /// Pointer-anchored entrance for routes opened from a surface the user pressed
-/// (a card, a cover, the dock).
+/// (a card, a cover).
 ///
 /// The destination grows out of the recorded press point — a 0.96 → 1 scale
 /// anchored at the pressed *height* (see [WaveRouteOrigin.alignmentIn] for why
@@ -87,6 +140,9 @@ Page<void> _anchoredPage(Widget child) {
       );
     },
     transitionDuration: WaveMotion.normal,
+    // Same bug as [_page]: go_router would otherwise pop this in 300 ms while
+    // it entered in 180.
+    reverseTransitionDuration: WaveMotion.normal,
   );
 }
 
@@ -283,12 +339,12 @@ GoRouter buildRouter({required AuthGate gate}) {
               GoRoute(
                 path: '/now',
                 pageBuilder: (c, s) =>
-                    _anchoredPage(const WaveNowPlayingPage()),
+                    _stagePage(const WaveNowPlayingPage()),
               ),
               GoRoute(
                 path: '/lyrics',
                 pageBuilder: (c, s) =>
-                    _anchoredPage(const WaveLyricsScreen()),
+                    _stagePage(const WaveLyricsScreen()),
               ),
               GoRoute(
                 path: '/friends',

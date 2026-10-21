@@ -564,8 +564,8 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     _applyRoute(path);
   }
 
-  /// Opens Now Playing *on top* of the current page, so the dock cover it grew
-  /// out of is still underneath when it closes back over it (see waveOpen).
+  /// Opens Now Playing *on top* of the current page, so the page the user was
+  /// on is still underneath when it crossfades closed over it (see waveOpen).
   void _openNowPlaying() {
     // Already there (the dock is on every view, Now Playing included).
     if (widget.location.startsWith('/now')) return;
@@ -581,10 +581,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   void _goBack() {
     // A page that was opened on top of another (an album, an artist, a
-    // playlist, Now Playing) closes back over the surface it grew out of —
-    // the reverse of its entrance. Location history is only replayed once
-    // there is nothing left to pop. Mirror it into forward history so the
-    // pair stays symmetric.
+    // playlist) closes back over the surface it grew out of — the reverse of
+    // its entrance. Location history is only replayed once there is nothing
+    // left to pop. Mirror it into forward history so the pair stays symmetric.
     if (context.canPop()) {
       _forwardStack.add(widget.location);
       _historyLocked = true;
