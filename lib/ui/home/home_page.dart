@@ -1419,7 +1419,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
           onTapCancel: () => setState(() => _pressed = false),
           onTap: play,
           child: SizedBox(
-            width: 140,
+            width: 152,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1440,7 +1440,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                       children: [
                         WaveArtwork(
                           url: widget.track.artworkUrl,
-                          size: 140,
+                          size: 152,
                           radius: WaveRadius.artwork,
                           title: widget.track.name,
                           artist: widget.track.artist,
