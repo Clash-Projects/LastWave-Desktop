@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/diagnostics/memory_probe.dart';
+import '../../core/diagnostics/trace_crumb.dart';
 import '../audio_output/pcm_format.dart';
 import '../audio_output/wasapi_engine.dart';
 import '../downloads/download_manager.dart';
@@ -113,6 +114,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   final Map<String, Future<ResolvedStream?>> _resolveInflight = {};
   final Set<String> _prefetchInflight = {};
   String _prefetchSeedKey = '';
+  /// Speculative resolves are chained, never parallel. Three concurrent
+  /// DASH assemblies (prev + next + next+1, ~35 MB each) pushed the
+  /// playing track's first byte to 1.4-1.8s and its assembly 8-10s out
+  /// (measured 2026-10-23); one at a time keeps the link for the track
+  /// the user is actually hearing.
+  Future<void> _prefetchChain = Future<void>.value();
 
   // -- first-audio clock (debug timing only) -------------------------------
   //
@@ -166,29 +173,22 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   DateTime _lastCrossfadeResolveAttempt =
       DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// Crash-surviving breadcrumb file (`<temp>/lastwave/mpv-ops.log`).
+  /// Crash-surviving breadcrumb (`<temp>/lastwave/mpv-ops.log`).
   /// Written synchronously with flush BEFORE each native op, so the
   /// last line names the call that killed the process. Never logs
   /// URLs, cookies, or headers — op names and stream shapes only.
-  String? _crumbPath;
-
-  void _crumb(String line) {
-    try {
-      final path = _crumbPath;
-      if (path == null) return;
-      File(path).writeAsStringSync(
-        '${DateTime.now().toIso8601String()}$line\n',
-        mode: FileMode.append,
-        flush: true,
-      );
-    } catch (_) {}
-  }
+  void _crumb(String line) => TraceCrumb.write(line);
 
   /// Debug-only per-stage timing breadcrumb. Shape/timing only —
-  /// never URLs, headers, or tokens. Correlate stages by [key].
+  /// never URLs, headers, or tokens. Correlate stages by `key`.
+  ///
+  /// Also mirrored into the crumb file: resolve latency spans the
+  /// player and the addon client, and stdout is unavailable once the
+  /// app runs detached from a terminal.
   void _logTiming(String line) {
     if (!kDebugMode) return;
     debugPrint('LastWave-Timing $line');
+    TraceCrumb.write('timing $line');
   }
 
   /// Fires once per resolve: the first position tick past zero is the
@@ -201,13 +201,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// exactly the `time_to_audio_ms=7 post_open_ms=-1` ghost.
   void _maybeLogFirstAudio(Duration position) {
     try {
-      if (!kDebugMode) return;
       if (position <= Duration.zero) return;
       if (_audioClockGeneration != _resolveGeneration) return;
       if (_audioOpenDoneAt == null) return;
       final start = _audioClockStart;
       if (start == null || _audioClockKey.isEmpty) return;
       if (state.current?.queueKey != _audioClockKey) return;
+      // Audio is flowing, so the current track's own first-byte wait is
+      // over and speculative work can no longer delay it. Measured
+      // 2026-10-23: prefetch asked for its first segments 10-100ms after
+      // `open`, i.e. 1.4-1.8s before this track's first byte.
+      _audioClockGeneration = -1;
+      _prefetchNeighbors();
+      if (!kDebugMode) return;
       final now = DateTime.now();
       final totalMs = now.difference(start).inMilliseconds;
       final openDone = _audioOpenDoneAt;
@@ -215,7 +221,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           openDone != null ? now.difference(openDone).inMilliseconds : -1;
       _logTiming('audio key=$_audioClockKey time_to_audio_ms=$totalMs '
           'post_open_ms=$postOpenMs');
-      _audioClockGeneration = -1;
     } catch (_) {}
   }
 
@@ -317,16 +322,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     // appends one line per native op — both outlive a segfault,
     // unlike stdout. All best-effort; never blocks startup.
     try {
-      final trailDir = Directory(
-          '${Directory.systemTemp.path}${Platform.pathSeparator}lastwave');
+      final trailDir = Directory(TraceCrumb.directory);
       trailDir.createSync(recursive: true);
-      _crumbPath =
-          '${trailDir.path}${Platform.pathSeparator}mpv-ops.log';
-      try {
-        File(_crumbPath!).writeAsStringSync(
-            '--- player created ${DateTime.now().toIso8601String()} ---\n',
-            flush: true);
-      } catch (_) {}
+      // Fresh timeline per session (also names the run in crash logs).
+      TraceCrumb.reset(
+          '--- player created ${DateTime.now().toIso8601String()} ---');
       try {
         final dyn = created.platform as dynamic;
         await dyn.setProperty('log-file',
@@ -1392,7 +1392,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         return;
       }
       _beginScrobbleWindow(track);
-      _prefetchNeighbors();
+      // Neighbour prefetch deliberately runs after this track is open
+      // (bottom of this method / local branch): starting three
+      // speculative resolves before the current one subscribed the
+      // link, which measured +1s on search/mint and ~2.5s on the
+      // current track's first byte.
       final local = _localStream(track);
       if (local != null) {
         _resolving = false;
@@ -1409,11 +1413,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         // Cut audio fast, but serialized: a stop racing an in-flight
         // open corrupts the Windows libmpv heap.
         _crumb('stop requested resolve=$index key=$wantedQueueKey');
+        // Separates mpv teardown from the resolve chain in the trail:
+        // a stop that drags on is not an addon problem.
+        final stopSw = Stopwatch()..start();
         try {
           await _serializedMpv(() async {
             await _player?.stop();
           });
         } catch (_) {}
+        stopSw.stop();
+        _crumb('stop done key=$wantedQueueKey '
+            'ms=${stopSw.elapsedMilliseconds}');
       }
       final resolveSw = Stopwatch()..start();
       final stream = cached ??
@@ -1462,7 +1472,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           'mpv_open_ms=${openSw.elapsedMilliseconds} '
           'total_ms=${totalSw.elapsedMilliseconds}');
 
-      _prefetchNeighbors();
       _maybeRefillRadio();
     } catch (e) {
       // Strictly ignore errors from outdated skip requests
@@ -1534,8 +1543,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _resolveInflight[cacheKey] = future;
     try {
       final stream = await future;
-      if (stream != null &&
-          (stream.isLossless || forceYoutube || !_prefs.preferLossless)) {
+      if (stream != null) {
+        // Cache every resolved stream, not just lossless. A prefetched
+        // YouTube fallback used to be thrown away, so clicking that
+        // track re-ran the entire lossless chain (measured 5-12s) for a
+        // result the prefetcher already had. ResolvedStreamCache drops
+        // entries 2 minutes before their signed URL expires, so a stale
+        // hit can never reach mpv.
         _playCache.put(cacheKey, stream);
       }
       return stream;
@@ -1580,6 +1594,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         title: track.title,
         artist: track.artist,
         album: track.album,
+        // The row's own length separates the album cut from a short/
+        // long variant of the same title (the addon gate is ±8s); zero
+        // when the source never carried it — the matcher then falls
+        // back to catalog consensus.
+        expectedDurationSeconds: track.duration.inSeconds,
         preferredQuality: _prefs.losslessQuality,
       );
       losslessSw.stop();
@@ -1717,9 +1736,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {}
   }
 
-  /// Warm previous, next, and next+1 stream URLs plus studio artwork.
-  /// Does not open mpv and never injects a playlist item.
-  void _prefetchNeighbors() {
+  /// Warm the queue around the current track: `next`/`prev` stream URLs
+  /// plus studio artwork, never opening mpv or injecting a queue item.
+  /// `next+1` is only warm-started once the current track is past
+  /// halfway ([lookahead]), because a third speculative assembly
+  /// competes with the playing track's own segments on the same link.
+  /// Work is queued on [_prefetchChain] so neighbours resolve one at a
+  /// time, and the first kick-off waits for the current track's first
+  /// audio (see [_maybeLogFirstAudio]).
+  void _prefetchNeighbors({bool lookahead = false}) {
     try {
       final indices = <int>{};
       void add(int? i) {
@@ -1728,9 +1753,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
       add(_neighborIndex(1));
       add(_neighborIndex(-1));
-      add(_neighborIndex(2));
+      if (lookahead) add(_neighborIndex(2));
       for (final i in indices) {
-        unawaited(_prefetchIndex(i));
+        _prefetchChain = _prefetchChain.then((_) => _prefetchIndex(i));
       }
     } catch (_) {}
   }
@@ -1775,8 +1800,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     if (!_prefetchInflight.add(track.queueKey)) return;
+    // Marks speculative work: a `resolve cache=miss` right after this
+    // line came from the prefetcher, not from a click.
+    final prefetchSw = Stopwatch()..start();
+    _crumb('prefetch start key=${track.queueKey} index=$index');
     try {
       final stream = await _resolveRemote(track);
+      prefetchSw.stop();
+      _crumb('prefetch done key=${track.queueKey} '
+          'ms=${prefetchSw.elapsedMilliseconds} hit=${stream != null}');
       if (stream != null && stream.artworkUrl.isNotEmpty) {
         OfficialArtworkService.instance.rememberTrack(
           title: track.title,
@@ -1814,7 +1846,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     final key = state.current?.queueKey ?? '';
     if (key.isEmpty || key == _prefetchSeedKey) return;
     _prefetchSeedKey = key;
-    _prefetchNeighbors();
+    // Past halfway the third (lookahead) slot is finally cheap enough
+    // to fetch: this track's own segments are mostly on disk by now.
+    _prefetchNeighbors(lookahead: true);
   }
 
   Future<void> _open(PlayableTrack track, ResolvedStream stream,
