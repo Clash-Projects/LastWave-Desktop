@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/addons/local_media_server.dart';
+import 'package:lastwave_desktop/features/addons/mp4_boxes.dart';
 
 const _manifest = '''
 <MPD type="static" mediaPresentationDuration="PT4M7S">
@@ -121,7 +122,63 @@ Future<void> _scrub(String cacheName) async {
           .delete();
     } catch (_) {}
   }
+  // Fragment-size memo (feeds the front index on repeat plays).
+  try {
+    await File(
+            '${Directory.systemTemp.path}${Platform.pathSeparator}lastwave_addon${Platform.pathSeparator}layout${Platform.pathSeparator}$cacheName.json')
+        .delete();
+  } catch (_) {}
 }
+
+// -- fMP4 fixtures (shape-compatible with the addon CDNs) ----------------
+
+List<int> _be32(int v) =>
+    [(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF];
+
+List<int> _box(String type, List<int> payload) =>
+    [..._be32(8 + payload.length), ...type.codeUnits, ...payload];
+
+List<int> _initSegment({int trackId = 2, int timescale = 96000}) => [
+      ..._box('ftyp', [...'iso6'.codeUnits, ..._be32(1)]),
+      ..._box('moov', [
+        ..._box('mvex', _box('trex', [0, 0, 0, 0, ...List.filled(20, 0)])),
+        ..._box('trak', [
+          ..._box('tkhd', [
+            0, 0, 0, 0,
+            ..._be32(0),
+            ..._be32(0),
+            ..._be32(trackId),
+            ...List.filled(68, 0),
+          ]),
+          ..._box('mdia', [
+            ..._box('mdhd', [
+              0, 0, 0, 0,
+              ..._be32(0),
+              ..._be32(0),
+              ..._be32(timescale),
+              ..._be32(0),
+            ]),
+            ..._box('hdlr', [0, 0, 0, 0, ..._be32(0), ...'soun'.codeUnits]),
+          ]),
+        ]),
+      ]),
+    ];
+
+List<int> _mediaSegment(int ticks, {int payload = 64}) => [
+      ..._box('styp', [...'msdh'.codeUnits]),
+      ..._box('moof', [
+        ..._box('mfhd', [0, 0, 0, 0, ..._be32(1)]),
+        ..._box('traf', [
+          ..._box('tfhd', [0, 0, 0, 0, ..._be32(2)]),
+          ..._box('tfdt', [
+            1, 0, 0, 0,
+            ..._be32(ticks >> 32),
+            ..._be32(ticks),
+          ]),
+        ]),
+      ]),
+      ..._box('mdat', List.filled(payload, 7)),
+    ];
 
 void main() {
   group('LocalMediaServer', () {
@@ -259,6 +316,65 @@ void main() {
       } finally {
         client.close();
       }
+    });
+
+    test('indexed layout puts a file-covering sidx after the init', () async {
+      // The whole point of the index: ffmpeg's mov demuxer stops
+      // scanning after the first fragment instead of walking to the
+      // last byte, so audio starts while the rest is still downloading.
+      const manifest = '''
+<MPD type="static"><Period><AdaptationSet contentType="audio" mimeType="audio/mp4">
+<Representation bandwidth="1500000"><SegmentTemplate timescale="96000"
+  initialization="https://cdn.test/i/0.mp4"
+  media="https://cdn.test/i/\$Number\$.mp4" startNumber="1">
+<SegmentTimeline><S d="576000" r="2"/><S d="288000"/></SegmentTimeline>
+</SegmentTemplate></Representation></AdaptationSet></Period></MPD>
+''';
+      final init = _initSegment(trackId: 2, timescale: 96000);
+      final segments = [
+        for (var i = 0; i < 4; i++)
+          _mediaSegment(576000 * i, payload: 100 + i),
+      ];
+      final bodies = <String, List<int>>{
+        'https://cdn.test/i/0.mp4': init,
+        for (var i = 0; i < 4; i++)
+          'https://cdn.test/i/${i + 1}.mp4': segments[i],
+      };
+      final dio = Dio();
+      dio.httpClientAdapter = _StubAdapter(bodies);
+      final server = LocalMediaServer(dio: dio);
+      addTearDown(server.close);
+      addTearDown(() => _scrub('srv-test-index'));
+      final uri = await server.urlFor(
+          manifestXml: manifest, cacheName: 'srv-test-index');
+      final out = await _get(uri!);
+      expect(out.first, HttpStatus.ok);
+      final served = Uint8List.fromList(out.sublist(1));
+
+      expect(served.sublist(0, init.length), init);
+      final boxes = readMp4Boxes(served);
+      final sidx = boxes.firstWhere((b) => b.type == 'sidx');
+      expect(sidx.start, init.length);
+
+      final view = ByteData.sublistView(served);
+      expect(view.getUint32(sidx.payloadStart + 4), 2); // reference_ID
+      expect(view.getUint32(sidx.payloadStart + 8), 96000); // timescale
+      expect(view.getUint32(sidx.payloadStart + 16), 0); // first_offset
+      final count = view.getUint16(sidx.payloadStart + 22);
+      expect(count, segments.length);
+
+      // Offsets + durations must reconstruct the file exactly: the
+      // demuxer only trusts an index whose references end at EOF.
+      var cursor = sidx.start + sidx.size;
+      for (var i = 0; i < count; i++) {
+        final ref = sidx.payloadStart + 24 + i * 12;
+        expect(view.getUint32(ref), segments[i].length);
+        expect(view.getUint32(ref + 4), i == 3 ? 288000 : 576000);
+        expect(served.sublist(cursor, cursor + segments[i].length),
+            segments[i]);
+        cursor += segments[i].length;
+      }
+      expect(cursor, served.length);
     });
   });
 }

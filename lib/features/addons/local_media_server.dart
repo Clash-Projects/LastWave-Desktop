@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
 import '../../core/network/dio_factory.dart';
 import 'dash_assembler.dart';
+import 'mp4_boxes.dart';
 
-/// Loopback origin server for assembled addon audio.///
+/// Loopback origin server for assembled addon audio.
+///
 /// Two problems meet here. (1) Addon DASH manifests can never reach
 /// libmpv: the bundled Windows mpv 0.36 demuxer opens the first MPD
 /// per process fine, then dies opening the second (ntdll 0xc0000005).
@@ -16,10 +20,25 @@ import 'dash_assembler.dart';
 ///
 /// So mpv opens `http://127.0.0.1:<port>/a/<name>.m4a` and this server
 /// streams init + segments in arrival order (chunked) while teeing the
-/// same bytes to the on-disk assembled file. First audio lands after
-/// init + segment 1 (~2 RTTs); replays serve the finished file with
-/// full Range support. The init segment carries `mehd`, so mpv still
-/// learns the real duration immediately.
+/// same bytes to the on-disk assembled file. The init segment carries
+/// `mehd`, so mpv still learns the real duration immediately.
+///
+/// **The front index is why first audio is fast.** Streaming alone was
+/// never enough: ffmpeg's `mov` demuxer walks every top-level atom
+/// before its first packet unless the fragment index is complete, so a
+/// growing fragmented MP4 was read *fragment by fragment all the way to
+/// the tail* — mpv.log shows ~50 `stream level seek` hops marching to
+/// the last byte of a 59MB track, i.e. playback could only start once
+/// the whole download finished (~18s from click). Measured against
+/// `mpv-ops.log`, the assembly itself was never the bottleneck; the
+/// scan was. We now write a `sidx` covering the file exactly, which
+/// makes `frag_index.complete` true: the demuxer stops after the first
+/// fragment and seeks come off the index instead of a linear walk.
+///
+/// The index needs every fragment's byte length up front, so the layout
+/// is [init][sidx][seg0][seg1]… and the size pass runs beside the init
+/// fetch. Sizes are memoized per track+quality, so repeat plays pay one
+/// RTT instead of one per fragment.
 ///
 /// Loopback only — nothing leaves the machine, no firewall prompt.
 /// Process singleton: sessions outlive any one AddonApi generation.
@@ -29,6 +48,12 @@ class LocalMediaServer {
   static LocalMediaServer? _instance;
 
   static LocalMediaServer get instance => _instance ??= LocalMediaServer();
+
+  /// Set when an indexed layout turns out to disagree with the CDN
+  /// (fragment length ≠ probed length). Seeking off a wrong index is
+  /// worse than a slow open, so the rest of the process assembles
+  /// without one; the memo is dropped so the next attempt re-probes.
+  static bool _sidxDisabled = false;
 
   final Dio _dio;
   HttpServer? _server;
@@ -103,6 +128,12 @@ class LocalMediaServer {
       'lastwave_addon${Platform.pathSeparator}assembled'
       '${Platform.pathSeparator}$safeName.${part ? 'part' : 'm4a'}';
 
+  /// Per-track fragment-size memos (`layout/<name>.json`).
+  static String sizeCachePathFor(String safeName) =>
+      '${Directory.systemTemp.path}${Platform.pathSeparator}'
+      'lastwave_addon${Platform.pathSeparator}layout'
+      '${Platform.pathSeparator}$safeName.json';
+
   Future<void> _route(HttpRequest req) async {
     try {
       // 1. Enforce GET method
@@ -176,14 +207,22 @@ class _Session {
   final Completer<void> _completion = Completer<void>();
   bool _firstByteLogged = false;
 
-  /// Exact assembled size once known (init + all segment bodies).
-  /// Null until the background size-discovery pass finishes; null
-  /// afterwards means discovery failed and ranges must fall back to
-  /// the safe complete-file wait (never serve `/*` — ffmpeg maps an
-  /// unknown total to filesize -1 and the mov demuxer then fails its
-  /// tail probe with "moov atom not found").
+  /// Exact assembled size once known (init + optional index + every
+  /// segment body). Null until the size pass finishes; null afterwards
+  /// means discovery failed and ranges must fall back to the safe
+  /// complete-file wait (never serve `/*` — ffmpeg maps an unknown
+  /// total to filesize -1 and the mov demuxer then fails its tail
+  /// probe with "moov atom not found").
   int? _totalBytes;
   final Completer<void> _totalReady = Completer<void>();
+
+  /// Fragments probed in flight at once. Each probe is a HEAD (~0.5s
+  /// RTT on the addon CDNs measured), so the old 12-wide batching paid
+  /// one RTT per 12 fragments — 2.8s for a 53-fragment track. This is
+  /// the single biggest first-byte cost after the demuxer scan.
+  static const int _probeWindow = 48;
+
+  static const int _sizeCacheVersion = 1;
 
   /// Live readers holding the partial open. The publish rename waits
   /// for zero — blind retries starve when a reader cycles ticks.
@@ -225,20 +264,48 @@ class _Session {
       _slog('plan $name segments=${plan.segmentCount}');
       final part = File(_partPath);
       await part.parent.create(recursive: true);
+
+      // Both of these gate the first byte, so overlap them:
+      //  - init (~1KB) is the `moov` mpv needs before anything else;
+      //  - the size pass yields the real total (mpv will not use a
+      //    range without one) *and* the per-fragment lengths the front
+      //    index must describe.
+      // Segment 0 is pulled here because it is the first media byte mpv
+      // reads anyway and its `tfdt` seeds the index presentation time.
+      final sizesFuture = _resolveSizes(plan);
+      final init = await DashAssembler.fetchInit(_dio, plan.initUrl);
+      if (init == null) throw StateError('init fetch failed');
+      _slog('init $name ${init.length}b');
+      final firstSegment =
+          await DashAssembler.fetchBytes(
+              _dio,
+              DashAssembler.segmentUrlFor(
+                  plan.mediaTemplate, plan.startNumber));
+      if (firstSegment == null) throw StateError('segment fetch failed');
+      final sizes = await sizesFuture;
+
       final sink = part.openWrite(mode: FileMode.write);
       try {
-        final init =
-            await DashAssembler.fetchInit(_dio, plan.initUrl);
-        if (init == null) throw StateError('init fetch failed');
         sink.add(init);
+        // Front index: turns the demuxer's whole-file scan into a
+        // single-fragment read (see the class doc). Null whenever the
+        // layout can't be proven exactly — the file still assembles.
+        final index = _frontIndex(plan, init, firstSegment, sizes);
+        if (index != null) sink.add(index);
+        if (sizes != null) {
+          var sum = 0;
+          for (final n in sizes) {
+            sum += n;
+          }
+          _totalBytes = init.length + (index?.length ?? 0) + sum;
+          if (!_totalReady.isCompleted) _totalReady.complete();
+          _slog('size $name total=$_totalBytes index=${index?.length ?? 0}b');
+        }
+        // Flush init + index + segment 0 before the rest downloads:
+        // that prefix is enough for mpv to open and start audio.
+        _assertSegmentSize(0, firstSegment, sizes);
+        sink.add(firstSegment);
         await sink.flush();
-        _slog('init $name ${init.length}b');
-        // Size discovery races the body fetch: init (the first byte
-        // mpv needs) is already on disk, and the total is usually
-        // ready before mpv's first probe Range (~100ms after open).
-        // Ranges arriving before it wait briefly (see _awaitTotal);
-        // a failed discovery falls back to complete-file semantics.
-        unawaited(_discoverTotal(plan, init.length));
         final slots =
             List<List<int>?>.filled(plan.segmentCount, null);
         // 120s overall budget (healthy assembles finish in ~3-28s):
@@ -249,12 +316,14 @@ class _Session {
           mediaTemplate: plan.mediaTemplate,
           startNumber: plan.startNumber,
           count: plan.segmentCount,
+          from: 1,
           totalTimeout: const Duration(seconds: 120),
           onSegment: (i, bytes) => slots[i] = bytes,
           onBatch: (base, end) async {
             for (var i = base; i < end; i++) {
               final chunk = slots[i];
               if (chunk != null) {
+                _assertSegmentSize(i, chunk, sizes);
                 sink.add(chunk);
                 // Null out immediately after writing so GC can reclaim the memory
                 slots[i] = null;
@@ -303,6 +372,9 @@ class _Session {
     } finally {
       _manifestXml = null;
       _activePartials.remove(name);
+      // Always release range waiters: an uncompleted `_totalReady`
+      // parks every probe Range for the full 15s grace.
+      if (!_totalReady.isCompleted) _totalReady.complete();
       if (!_completion.isCompleted) _completion.complete();
     }
   }
@@ -420,38 +492,134 @@ class _Session {
     await res.close();
   }
 
-  /// Background size discovery: HEAD (fallback Range 0-0) every
-  /// segment URL so progressive ranges can advertise the real total.
-  /// Runs beside the body fetch; never throws. Null total afterwards
-  /// means the host won't tell us sizes — callers fall back to the
-  /// complete-file wait rather than serving an unknown total.
-  Future<void> _discoverTotal(
-    ({String initUrl, String mediaTemplate, int startNumber, int segmentCount})
-        plan,
-    int initLength,
-  ) async {
-    try {
-      final sizes = List<int?>.filled(plan.segmentCount, null);
-      for (var base = 0; base < plan.segmentCount; base += 12) {
-        final end = (base + 12).clamp(0, plan.segmentCount);
-        final batch = <Future<void>>[];
-        for (var i = base; i < end; i++) {
-          final index = i;
-          batch.add(_probeLength(DashAssembler.segmentUrlFor(
-                  plan.mediaTemplate, plan.startNumber + index))
-              .then((n) => sizes[index] = n));
-        }
-        await Future.wait(batch);
-        if (failed || done) return;
-      }
-      if (sizes.any((n) => n == null || n <= 0)) return;
-      _totalBytes = initLength + sizes.fold<int>(0, (a, b) => a + b!);
-      _slog('size $name total=$_totalBytes');
-    } catch (_) {
-      // Null total = fallback path; never fail the assembly for this.
-    } finally {
-      if (!_totalReady.isCompleted) _totalReady.complete();
+  /// Per-fragment byte lengths: from the on-disk memo when this
+  /// track+quality was assembled before, else one HEAD per fragment.
+  /// Null means the layout can't be exactly described — the caller
+  /// then assembles without a front index (slow open, still correct).
+  Future<List<int>?> _resolveSizes(DashPlan plan) async {
+    if (LocalMediaServer._sidxDisabled) return null;
+    final cached = await _readSizeCache(plan);
+    if (cached != null) {
+      _slog('size-memo hit $name segments=${cached.length}');
+      return cached;
     }
+    final sizes = await _probeSizes(plan);
+    if (sizes != null) unawaited(_writeSizeCache(plan, sizes));
+    return sizes;
+  }
+
+  Future<List<int>?> _probeSizes(DashPlan plan) async {
+    final sizes = List<int?>.filled(plan.segmentCount, null);
+    for (var base = 0; base < plan.segmentCount; base += _probeWindow) {
+      if (failed) return null;
+      final end = min(base + _probeWindow, plan.segmentCount);
+      await Future.wait([
+        for (var i = base; i < end; i++)
+          _probeLength(DashAssembler.segmentUrlFor(
+                  plan.mediaTemplate, plan.startNumber + i))
+              .then((n) => sizes[i] = n),
+      ]);
+    }
+    if (sizes.any((n) => n == null || n <= 0)) return null;
+    return sizes.cast<int>();
+  }
+
+  /// A `sidx` describing the whole assembled file, or null when the
+  /// layout can't be proven exactly. Keeping this all-or-nothing is the
+  /// safety valve: a wrong index silently degrades to the demuxer scan
+  /// (ffmpeg ignores an index it can't validate) while a wrong *length*
+  /// would seek into the wrong fragment.
+  Uint8List? _frontIndex(
+    DashPlan plan,
+    List<int> init,
+    List<int> firstSegment,
+    List<int>? sizes,
+  ) {
+    if (sizes == null || LocalMediaServer._sidxDisabled) return null;
+    if (sizes.length != plan.segmentCount) return null;
+    final info = parseFragmentInit(Uint8List.fromList(init));
+    if (info == null) return null;
+    final durations = _mediaDurations(plan, info.timescale);
+    if (durations == null) return null;
+    final firstTick =
+        parseFragmentDecodeTime(Uint8List.fromList(firstSegment)) ?? 0;
+    final index = buildSegmentIndex(
+      trackId: info.trackId,
+      timescale: info.timescale,
+      earliestPresentationTime: firstTick,
+      references: [
+        for (var i = 0; i < sizes.length; i++)
+          SidxReference(size: sizes[i], duration: durations[i]),
+      ],
+    );
+    if (index != null) {
+      _slog('index $name track=${info.trackId} ts=${info.timescale} '
+          'entries=${sizes.length} bytes=${index.length}');
+    }
+    return index;
+  }
+
+  /// Manifest timeline rescaled into the media timescale the index
+  /// speaks. Null when the timeline can't be matched to the segments.
+  List<int>? _mediaDurations(DashPlan plan, int mediaTimescale) {
+    final raw = plan.durations;
+    if (raw.length != plan.segmentCount || plan.timescale <= 0) return null;
+    if (plan.timescale == mediaTimescale) return raw;
+    return [
+      for (final d in raw) (d * mediaTimescale / plan.timescale).round(),
+    ];
+  }
+
+  /// The index is only valid while every fragment's length matches the
+  /// measured one. A mismatch (CDN re-encode, stale memo) breaks the
+  /// offset arithmetic, so fail the session: the retry drops the memo
+  /// and assembles an unindexed file that still plays.
+  void _assertSegmentSize(int index, List<int> bytes, List<int>? expected) {
+    if (expected == null || index >= expected.length) return;
+    if (bytes.length == expected[index]) return;
+    LocalMediaServer._sidxDisabled = true;
+    unawaited(_dropSizeCache());
+    _slog('size-mismatch $name index=$index '
+        'expected=${expected[index]} got=${bytes.length}');
+    throw StateError('segment size mismatch');
+  }
+
+  Future<List<int>?> _readSizeCache(DashPlan plan) async {
+    try {
+      final f = File(LocalMediaServer.sizeCachePathFor(name));
+      if (!await f.exists()) return null;
+      final raw = jsonDecode(await f.readAsString());
+      if (raw is! Map) return null;
+      if (raw['v'] != _sizeCacheVersion) return null;
+      if (raw['segments'] != plan.segmentCount) return null;
+      final list = raw['sizes'];
+      if (list is! List) return null;
+      final sizes = [for (final e in list) if (e is num) e.toInt() else -1];
+      if (sizes.length != plan.segmentCount) return null;
+      if (sizes.any((n) => n <= 0)) return null;
+      return sizes;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeSizeCache(DashPlan plan, List<int> sizes) async {
+    try {
+      final f = File(LocalMediaServer.sizeCachePathFor(name));
+      await f.parent.create(recursive: true);
+      await f.writeAsString(jsonEncode({
+        'v': _sizeCacheVersion,
+        'segments': plan.segmentCount,
+        'sizes': sizes,
+      }));
+    } catch (_) {}
+  }
+
+  Future<void> _dropSizeCache() async {
+    try {
+      final f = File(LocalMediaServer.sizeCachePathFor(name));
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
   }
 
   /// Single size probe: HEAD content-length, else the total parsed

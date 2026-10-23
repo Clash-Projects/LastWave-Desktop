@@ -4,6 +4,20 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
 
+/// Segment layout of one addon DASH manifest.
+///
+/// [timescale]/[durations] are the manifest's own `SegmentTimeline`
+/// units — the loopback server rescales them into the media timescale
+/// when it writes a `sidx` (per-fragment seek durations).
+typedef DashPlan = ({
+  String initUrl,
+  String mediaTemplate,
+  int startNumber,
+  int segmentCount,
+  int timescale,
+  List<int> durations,
+});
+
 /// Assembles server DASH manifests into one progressive fMP4 file.
 ///
 /// Server manifests (inline `manifestXml` or remote `.mpd`) can never
@@ -22,22 +36,20 @@ class DashAssembler {
   /// Refuse absurd manifests instead of downloading the internet.
   static const int maxSegments = 512;
 
-  /// Segment fetch parallelism (bounded to 6 to prevent memory spikes).
-  static const int parallelDownloads = 6;
+  /// Segment fetch parallelism. 6 left the pipe idle on high-latency
+  /// CDNs (a 59MB hi-res track took ~17s at ~3.4MB/s); 10 keeps the
+  /// link busy while staying under ~12MB of in-flight segment memory.
+  static const int parallelDownloads = 10;
 
   /// Assembled-file cache caps (hi-res tracks are ~50–100MB each).
   static const int maxCachedFiles = 16;
   static const int maxCachedBytes = 1024 * 1024 * 1024;
 
   /// Pure manifest plan (unit-tested): init URL, media template,
-  /// first segment number, total segment count. Null when the
-  /// manifest isn't the supported audio/numbered shape.
-  static ({
-    String initUrl,
-    String mediaTemplate,
-    int startNumber,
-    int segmentCount,
-  })? planForManifest(String manifestXml) {
+  /// first segment number, total segment count, plus the segment
+  /// timeline in the manifest's own timescale ([timescale]/[durations])
+  /// which the file index needs for per-fragment seek durations.
+  static DashPlan? planForManifest(String manifestXml) {
     try {
       final doc = XmlDocument.parse(manifestXml);
       final adaptations = doc
@@ -72,11 +84,25 @@ class DashAssembler {
               1;
       final timeline = template.getElement('SegmentTimeline');
       if (timeline == null) return null;
+      final timescale =
+          int.tryParse(template.getAttribute('timescale') ?? '') ?? 1;
       var count = 0;
+      final durations = <int>[];
+      var lastDuration = 0;
       for (final s in timeline.findElements('S')) {
-        final repeat =
-            int.tryParse(s.getAttribute('r') ?? '0') ?? 0;
+        final d = int.tryParse(s.getAttribute('d') ?? '') ?? lastDuration;
+        if (d <= 0) break;
+        lastDuration = d;
+        final repeat = int.tryParse(s.getAttribute('r') ?? '0') ?? 0;
+        // r="-1" (repeat until the period ends) can't be expanded from
+        // the manifest alone: stop here so the count and the timeline
+        // stay in lockstep. The index then simply isn't emitted.
+        if (repeat < 0) break;
+        for (var i = 0; i <= repeat; i++) {
+          durations.add(d);
+        }
         count += repeat + 1;
+        if (count > maxSegments) break;
       }
       if (count <= 0 || count > maxSegments) return null;
       return (
@@ -84,6 +110,8 @@ class DashAssembler {
         mediaTemplate: media,
         startNumber: start,
         segmentCount: count,
+        timescale: timescale > 0 ? timescale : 1,
+        durations: durations,
       );
     } catch (_) {
       return null;
@@ -140,6 +168,9 @@ class DashAssembler {
   /// (arrival order varies); [onBatch] fires after each fully-arrived
   /// batch so callers can flush contiguous prefixes. False on any miss.
   ///
+  /// [from] skips already-fetched leading segments (the assembler pulls
+  /// segment 0 on its own: its `tfdt` seeds the file index).
+  ///
   /// [totalTimeout] bounds the whole fetch: a stalled CDN must fail
   /// fast into the caller's fallback (same-tier retry, then YouTube),
   /// never wedge the session while the player reads a partial file.
@@ -151,9 +182,10 @@ class DashAssembler {
     required void Function(int index, List<int> bytes) onSegment,
     Future<void> Function(int base, int end)? onBatch,
     Duration? totalTimeout,
+    int from = 0,
   }) async {
     Future<bool> run() async {
-      for (var base = 0; base < count; base += parallelDownloads) {
+      for (var base = from; base < count; base += parallelDownloads) {
         final end = (base + parallelDownloads).clamp(0, count);
         final batch = <Future<bool>>[];
         for (var i = base; i < end; i++) {
