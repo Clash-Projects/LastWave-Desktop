@@ -34,12 +34,13 @@ Future<void> main(List<String> args) async {
   // Desktop image cache budget: 64 MiB / 500 images.
   //
   // The previous 128 MiB was chosen when oversized tiles decoded at
-  // native size; after the DPR-aware bucketing (320 / 640 / 1024) a long
-  // session was observed filling that ceiling at roughly 5 MiB per
-  // track, i.e. up to 128 MiB of pure decoded-artwork residency that
-  // only ever ratchets. 64 MiB still holds ~150 320px tiles or ~39 640px
-  // tiles, so it comfortably covers a visible grid; the cost of going
-  // below that is re-decodes while scrolling large collections.
+  // native size; after DPR-aware decode sizing (each tile decodes at
+  // `size × dpr` snapped to a 16px grid — see WaveArtwork) a long session
+  // was observed filling that ceiling at roughly 5 MiB per track, i.e. up
+  // to 128 MiB of pure decoded-artwork residency that only ever ratchets.
+  // 64 MiB still holds ~150 tiles at a 320px decode or ~39 at 640px, so it
+  // comfortably covers a visible grid; the cost of going below that is
+  // re-decodes while scrolling large collections.
   PaintingBinding.instance.imageCache.maximumSize = 500;
   PaintingBinding.instance.imageCache.maximumSizeBytes =
       64 << 20; // 64 MiB

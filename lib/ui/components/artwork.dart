@@ -453,6 +453,24 @@ class _WaveArtworkState extends State<WaveArtwork> {
     }
   }
 
+  /// Grid the requested decode edge snaps up to, in physical pixels.
+  static const int _decodeStep = 16;
+
+  /// Decode edge for [needed] physical px, snapped up to [_decodeStep].
+  ///
+  /// Snapping keeps a stable cache key per tile size instead of a new
+  /// decode for every fractional layout width, while staying within one
+  /// step of what the tile can actually paint — which is what keeps
+  /// `debugInvertOversizedImages` quiet (see the comment in [build]).
+  /// Never capped: the display size is the correct memory bound, and a
+  /// cap below it would leave the CDN's 1400px master to be decoded at
+  /// full size (the exact waste this replaces).
+  static int? _decodeBucket(int needed) {
+    if (needed <= 0) return null;
+    final snapped = ((needed + _decodeStep - 1) ~/ _decodeStep) * _decodeStep;
+    return snapped < _decodeStep ? _decodeStep : snapped;
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
@@ -463,31 +481,34 @@ class _WaveArtworkState extends State<WaveArtwork> {
     final index = _chainIndex;
     final attempt = _attempt;
     final currentUrl = _chain[_chainIndex];
-    // Tiered, DPR-aware decode bucketing.
+    // DPR-aware decode sizing: decode at most the pixels we can paint.
     //
-    // Previously every tile larger than 220 logical px decoded at the
-    // CDN's native resolution — and official covers ship at 1400×1400
-    // (≈7.8 MB RGBA each), even though the largest tile in the app is a
-    // ~480px now-playing hero. That pinned the 128 MiB imageCache to a
+    // Never decode at the CDN's native size — official covers ship at
+    // 1400×1400 (≈7.8 MB RGBA each) even though the largest tile in the
+    // app is a ~480px now-playing hero; that pinned the imageCache to a
     // handful of entries and made scrolling re-decode constantly.
     //
-    // Buckets snap UP to 320 / 640 / 1024 physical px so a given tier
-    // keeps one stable cache key regardless of the tile's exact size.
-    // Only tiles wanting >1024 physical px fall through to native.
+    // The requested edge is `size × dpr` snapped UP to [_decodeStep] so
+    // neighbouring sizes share a cache key. The step is deliberately fine
+    // (16px) rather than the old 320 / 640 / 1024 ladder: the ladder's
+    // 320px floor made a 112px artist tile decode 9× the pixels it can
+    // ever show, and that is exactly what Flutter's debug
+    // `debugInvertOversizedImages` ("Highlight oversized images" in
+    // DevTools / the rendering debug toggles) punishes — every image that
+    // decodes with ≥128 KB more than its display size is painted colour-
+    // inverted and mirrored. Artists For You, the artist grid and the
+    // artist page hero are all small tiles, so they flipped while larger
+    // covers mostly stayed under the allowance. Snapping to a 16px grid
+    // bounds the overshoot at ~32 × edge px², well inside the 32 768 px²
+    // (128 KB) allowance, so the toggle now highlights nothing.
     final double logicalExtent = widget.size;
     final double dpr =
         MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
     final int targetPhysical = (logicalExtent * dpr).ceil();
-    final int? targetCacheWidth = targetPhysical <= 320
-        ? 320
-        : targetPhysical <= 640
-            ? 640
-            : targetPhysical <= 1024
-                ? 1024
-                : null;
+    final int? targetCacheWidth = _decodeBucket(targetPhysical);
     // On-disk copy must never be smaller than the decode bucket, or the
-    // 640 tier would decode by upscaling a 512px file. Keeps the original
-    // 512/1024 split for every tier.
+    // smallest tier would decode by upscaling a 512px file. Keeps the
+    // original 512/1024 split.
     final int diskCache = targetPhysical <= 320 ? 512 : 1024;
     final isSmall = widget.size <= 56;
     final isResolved = _resolvedUrl != null;
