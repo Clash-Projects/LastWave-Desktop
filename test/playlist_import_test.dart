@@ -24,6 +24,11 @@ class _FakeSource implements PlaylistTrackSource {
     findMatchCalled = true;
     return matches['$title|$artist'];
   }
+
+  final Map<String, YouTubeMusicTrack?> songs = {};
+
+  @override
+  Future<YouTubeMusicTrack?> fetchSong(String videoId) async => songs[videoId];
 }
 
 class _FakeWriter implements PlaylistWriter {
@@ -177,4 +182,7 @@ class _HangingSource implements PlaylistTrackSource {
   @override
   Future<YouTubeMusicTrack?> findMatch(String title, String artist) async =>
       null;
+
+  @override
+  Future<YouTubeMusicTrack?> fetchSong(String videoId) async => null;
 }
