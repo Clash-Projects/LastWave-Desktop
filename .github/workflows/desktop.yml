@@ -340,7 +340,7 @@ jobs:
 
       # The single-file installer is release-only (v* tags): PR/push
       # builds stop at the raw Release folder above.
-      - name: Build installer
+      - name: Build Inno Setup installer
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
@@ -351,12 +351,37 @@ jobs:
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$ver" "/DMyAppVersionNum=$verNum" windows\installer.iss
           Get-ChildItem build\windows\installer\
 
+      - name: Build WiX MSI installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
+          $ver = '${{ github.ref_name }}'.TrimStart('v')
+          $verNum = ($ver -replace '[^0-9.].*$', '')
+          if (-not $verNum) { $verNum = '1.0.0.0' }
+          while ($verNum.Split('.').Count -lt 3) { $verNum += '.0' }
+          wix build -arch x64 windows\installer.wxs -d Version=$verNum -d SourceDir="build\windows\x64\runner\Release" -o "build\windows\installer\lastwave_${ver}_windows-x86_64.msi"
+          Get-ChildItem build\windows\installer\
+
+      - name: Add PE Checksum and Self-Signed Cert
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=LastWave" -CertStoreLocation Cert:\CurrentUser\My
+          Get-ChildItem -Path "build\windows\installer\*" -File | Where-Object { $_.Extension -in '.exe', '.msi' } | ForEach-Object {
+            Write-Host "Signing $($_.FullName)..."
+            Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert -HashAlgorithm SHA256
+          }
+
       - name: Upload Windows Installer
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Windows-Installer
-          path: build\windows\installer\lastwave_*.exe
+          path: |
+            build\windows\installer\lastwave_*.exe
+            build\windows\installer\lastwave_*.msi
 
       # Portable zip is release-only (v* tags): the raw Release folder
       # above zipped as-is (lastwave_desktop.exe + bundled DLLs/data),
