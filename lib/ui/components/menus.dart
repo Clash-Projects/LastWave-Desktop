@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
@@ -300,15 +301,18 @@ class WaveFlyoutPanel extends StatefulWidget {
   final List<WaveMenuEntry>? entries;
   final Widget? child;
   final double maxWidth;
+  final double? maxHeight;
   const WaveFlyoutPanel.items({
     super.key,
     required this.entries,
     this.maxWidth = 280,
+    this.maxHeight,
   }) : child = null;
   const WaveFlyoutPanel.child({
     super.key,
     required this.child,
     this.maxWidth = 280,
+    this.maxHeight,
   }) : entries = null;
   @override
   State<WaveFlyoutPanel> createState() => _WaveFlyoutPanelState();
@@ -318,9 +322,18 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
   int _highlight = -1;
   FlyoutController? _openSubmenu;
   final Map<int, GlobalKey<_WaveSubmenuRowState>> _subKeys = {};
+  final Map<int, GlobalKey> _rowKeys = {};
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+  }
 
   @override
   void dispose() {
+    _scrollController.dispose();
     // Cascaded submenu is its own route: close it with the parent.
     // Guarded + caught: dispose order vs. the child route is not
     // contractual, and close() asserts attached+open in debug.
@@ -348,6 +361,19 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
       _highlight = at < 0
           ? (dir > 0 ? stops.first : stops.last)
           : stops[(at + dir) % stops.length];
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final key = _rowKeys[_highlight];
+      final ctx = key?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 100),
+          curve: Curves.easeOutCubic,
+        );
+      }
     });
   }
 
@@ -393,14 +419,18 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
       final rows = <Widget>[];
       for (var i = 0; i < widget.entries!.length; i++) {
         final entry = widget.entries![i];
+        final rowKey = _rowKeys.putIfAbsent(i, () => GlobalKey());
         if (entry is WaveMenuSeparator) {
           // Same spec as the plugin separator: 5px bottom pad, zero-margin
           // divider. Built inline — the plugin's is not a Widget.
-          rows.add(const Padding(
-            padding: EdgeInsetsDirectional.only(bottom: 5, top: 5),
-            child: Divider(
-              style: DividerThemeData(
-                  horizontalMargin: EdgeInsetsDirectional.zero),
+          rows.add(KeyedSubtree(
+            key: rowKey,
+            child: const Padding(
+              padding: EdgeInsetsDirectional.only(bottom: 5, top: 5),
+              child: Divider(
+                style: DividerThemeData(
+                    horizontalMargin: EdgeInsetsDirectional.zero),
+              ),
             ),
           ));
         } else if (entry is WaveMenuSubmenu) {
@@ -421,6 +451,7 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
         } else if (entry is WaveMenuAction) {
           final onPressed = entry.onPressed;
           rows.add(WaveMenuRow(
+            key: rowKey,
             selected: i == _highlight,
             icon: entry.leading,
             text: Text(
@@ -441,12 +472,23 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
           ));
         }
       }
-      body = Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: rows,
+      body = Scrollbar(
+        controller: _scrollController,
+        interactive: true,
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          physics: const ClampingScrollPhysics(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: rows,
+          ),
+        ),
       );
     }
+
+    final screenH = MediaQuery.maybeSizeOf(context)?.height ?? 600;
+    final effectiveMaxHeight = widget.maxHeight ?? math.min(screenH * 0.65, 380.0);
 
     final panel = Container(
       decoration: BoxDecoration(
@@ -459,13 +501,19 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
         border: Border.all(color: waveDivider(context)),
         boxShadow: WaveElevation.flyout(theme.brightness == Brightness.dark),
       ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: widget.maxWidth),
-        child: Padding(
-          // [WaveMenuRow.inset]: keeps row fills clear of the panel's
-          // rounded edge, and is what the row radius is measured against.
-          padding: const EdgeInsetsDirectional.all(WaveMenuRow.inset),
-          child: body,
+      child: ClipRRect(
+        borderRadius: WaveRadius.menuRadius,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: widget.maxWidth,
+            maxHeight: effectiveMaxHeight,
+          ),
+          child: Padding(
+            // [WaveMenuRow.inset]: keeps row fills clear of the panel's
+            // rounded edge, and is what the row radius is measured against.
+            padding: const EdgeInsetsDirectional.all(WaveMenuRow.inset),
+            child: body,
+          ),
         ),
       ),
     );
@@ -763,6 +811,9 @@ class _WaveMenuButtonState extends State<WaveMenuButton> {
     _controller.showFlyout(
       barrierColor: Colors.transparent,
       placementMode: widget.placement,
+      autoModeConfiguration: FlyoutAutoConfiguration(
+        preferredMode: widget.placement,
+      ),
       transitionDuration: const Duration(milliseconds: 90),
       transitionBuilder: fastFlyoutTransition,
       builder: (context) => WaveFlyoutPanel.items(

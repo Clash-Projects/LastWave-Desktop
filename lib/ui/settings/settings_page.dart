@@ -37,6 +37,7 @@ import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
 import '../../features/equalizer/equalizer_controller.dart';
 import '../../features/equalizer/equalizer_models.dart';
+import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/telemetry/live_telemetry_service.dart';
 import 'diagnostics_actions.dart';
@@ -72,16 +73,30 @@ class WaveSettingsPage extends ConsumerStatefulWidget {
 
 class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
   late String _section;
+  late final ScrollController _contentScrollController;
+  late final ScrollController _narrowScrollController;
+  late final ScrollController _railScrollController;
 
   @override
   void initState() {
     super.initState();
+    _contentScrollController = ScrollController();
+    _narrowScrollController = ScrollController();
+    _railScrollController = ScrollController();
     final initial = widget.initialSection;
     _section =
         initial != null &&
                 _waveSettingsSections.any((s) => s.$1 == initial)
             ? initial
             : 'general';
+  }
+
+  @override
+  void dispose() {
+    _contentScrollController.dispose();
+    _narrowScrollController.dispose();
+    _railScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _update(Future<void> Function(Prefs) fn) async {
@@ -98,36 +113,41 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
         // width, unlike MediaQuery window width (+200 rail error).
         final narrow = constraints.maxWidth < 900;
         if (narrow) {
-          return ListView(
-            physics: const ClampingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            children: [
-              Text(
-                'SYSTEM',
-                style: WaveType.overline.copyWith(color: waveAccent(context)),
-              ),
-              const Text('Settings', style: WaveType.pageTitle),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final s in _waveSettingsSections)
-                    ToggleButton(
-                      checked: _section == s.$1,
-                      onChanged: (_) => setState(() => _section = s.$1),
-                      child: Text(s.$2),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SectionSwap(
-                child: RepaintBoundary(
-                  key: ValueKey(_section),
-                  child: _SectionBody(section: _section, onUpdate: _update),
+          return Scrollbar(
+            controller: _narrowScrollController,
+            interactive: true,
+            child: ListView(
+              controller: _narrowScrollController,
+              physics: const ClampingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              children: [
+                Text(
+                  'SYSTEM',
+                  style: WaveType.overline.copyWith(color: waveAccent(context)),
                 ),
-              ),
-            ],
+                const Text('Settings', style: WaveType.pageTitle),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final s in _waveSettingsSections)
+                      ToggleButton(
+                        checked: _section == s.$1,
+                        onChanged: (_) => setState(() => _section = s.$1),
+                        child: Text(s.$2),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _SectionSwap(
+                  child: RepaintBoundary(
+                    key: ValueKey(_section),
+                    child: _SectionBody(section: _section, onUpdate: _update),
+                  ),
+                ),
+              ],
+            ),
           );
         }
         return Row(
@@ -135,54 +155,64 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
           children: [
             SizedBox(
               width: 220,
-              child: SingleChildScrollView(
-                physics: const ClampingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(24, 20, 12, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'SYSTEM',
-                      style: WaveType.overline.copyWith(
-                        color: waveAccent(context),
-                      ),
-                    ),
-                    const Text('Settings', style: WaveType.pageTitle),
-                    const SizedBox(height: 12),
-                    for (final s in _waveSettingsSections)
-                      ListTile.selectable(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: WaveRadius.controlsRadius,
+              child: Scrollbar(
+                controller: _railScrollController,
+                interactive: true,
+                child: SingleChildScrollView(
+                  controller: _railScrollController,
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(24, 20, 12, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'SYSTEM',
+                        style: WaveType.overline.copyWith(
+                          color: waveAccent(context),
                         ),
-                        selected: _section == s.$1,
-                        selectionMode: ListTileSelectionMode.single,
-                        leading: Icon(s.$3, size: 15),
-                        title: Text(s.$2),
-                        onPressed: () => setState(() => _section = s.$1),
                       ),
-                  ],
+                      const Text('Settings', style: WaveType.pageTitle),
+                      const SizedBox(height: 12),
+                      for (final s in _waveSettingsSections)
+                        ListTile.selectable(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: WaveRadius.controlsRadius,
+                          ),
+                          selected: _section == s.$1,
+                          selectionMode: ListTileSelectionMode.single,
+                          leading: Icon(s.$3, size: 15),
+                          title: Text(s.$2),
+                          onPressed: () => setState(() => _section = s.$1),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
             Container(width: 1, color: waveDivider(context)),
             Expanded(
-              child: ListView(
-                physics: const ClampingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 640),
-                    child: _SectionSwap(
-                      child: RepaintBoundary(
-                        key: ValueKey(_section),
-                        child: _SectionBody(
-                          section: _section,
-                          onUpdate: _update,
+              child: Scrollbar(
+                controller: _contentScrollController,
+                interactive: true,
+                child: ListView(
+                  controller: _contentScrollController,
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 640),
+                      child: _SectionSwap(
+                        child: RepaintBoundary(
+                          key: ValueKey(_section),
+                          child: _SectionBody(
+                            section: _section,
+                            onUpdate: _update,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
@@ -606,9 +636,12 @@ class _Audio extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
-          title: 'Equalizer & Studio Master Clarity',
+          title: 'Equalizer & Sound FX',
           subtitle: '10-band ISO curves with acoustic & stage compensation',
-          child: const _EqualizerSettingsSummary(),
+          child: const SizedBox(
+            height: 560,
+            child: WaveEqualizerPanel(embedded: true),
+          ),
         ),
       ],
     );

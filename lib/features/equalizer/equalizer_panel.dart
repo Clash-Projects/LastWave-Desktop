@@ -10,8 +10,13 @@ import 'equalizer_models.dart';
 ///
 /// Designed with slide-over drawer styling matching LastWave design tokens.
 class WaveEqualizerPanel extends ConsumerStatefulWidget {
-  final VoidCallback onClose;
-  const WaveEqualizerPanel({super.key, required this.onClose});
+  final VoidCallback? onClose;
+  final bool embedded;
+  const WaveEqualizerPanel({
+    super.key,
+    this.onClose,
+    this.embedded = false,
+  });
 
   @override
   ConsumerState<WaveEqualizerPanel> createState() => _WaveEqualizerPanelState();
@@ -19,6 +24,22 @@ class WaveEqualizerPanel extends ConsumerStatefulWidget {
 
 class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
   int _selectedTab = 0; // 0 = 10-Band EQ, 1 = Studio Master Clarity
+  late final ScrollController _eqScrollController;
+  late final ScrollController _clarityScrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _eqScrollController = ScrollController();
+    _clarityScrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _eqScrollController.dispose();
+    _clarityScrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,12 +52,19 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
       height: double.infinity,
       decoration: BoxDecoration(
         color: dark ? waveSurface(context) : WaveColors.lightSurface,
-        border: Border(
-          left: BorderSide(
-            color: waveDivider(context).withValues(alpha: dark ? 0.35 : 0.6),
-            width: 1,
-          ),
-        ),
+        border: widget.embedded
+            ? Border.all(
+                color: waveDivider(context).withValues(alpha: dark ? 0.35 : 0.6),
+                width: 1,
+              )
+            : Border(
+                left: BorderSide(
+                  color: waveDivider(context).withValues(alpha: dark ? 0.35 : 0.6),
+                  width: 1,
+                ),
+              ),
+        borderRadius:
+            widget.embedded ? BorderRadius.circular(WaveRadius.menu) : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -138,19 +166,21 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
               onPressed: notifier.reset,
             ),
           ),
-          const SizedBox(width: 4),
-          // Close button
-          LWTooltip(
-            message: 'Close panel',
-            child: IconButton(
-              icon: Icon(
-                FluentIcons.chrome_close,
-                size: 12,
-                color: waveTextSecondary(context),
+          if (widget.onClose != null) ...[
+            const SizedBox(width: 4),
+            // Close button
+            LWTooltip(
+              message: 'Close panel',
+              child: IconButton(
+                icon: Icon(
+                  FluentIcons.chrome_close,
+                  size: 12,
+                  color: waveTextSecondary(context),
+                ),
+                onPressed: widget.onClose,
               ),
-              onPressed: widget.onClose,
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -200,28 +230,33 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     EqualizerState eq,
     EqualizerNotifier notifier,
   ) {
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      children: [
-        // Frequency response visualizer
-        _buildVisualizer(context, dark, eq),
-        const SizedBox(height: 12),
+    return Scrollbar(
+      controller: _eqScrollController,
+      interactive: true,
+      child: ListView(
+        controller: _eqScrollController,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        children: [
+          // Frequency response visualizer
+          _buildVisualizer(context, dark, eq),
+          const SizedBox(height: 12),
 
-        // Presets chip selector
-        _buildPresetSelector(context, dark, eq, notifier),
-        const SizedBox(height: 14),
+          // Presets chip selector
+          _buildPresetSelector(context, dark, eq, notifier),
+          const SizedBox(height: 14),
 
-        // 10-band custom vertical bar rack
-        _buildSliderRack(context, dark, eq, notifier),
-        const SizedBox(height: 12),
+          // 10-band custom vertical bar rack
+          _buildSliderRack(context, dark, eq, notifier),
+          const SizedBox(height: 12),
 
-        // Quick toolbar
-        _buildQuickToolbar(context, dark, eq, notifier),
-        const SizedBox(height: 12),
+          // Quick toolbar
+          _buildQuickToolbar(context, dark, eq, notifier),
+          const SizedBox(height: 12),
 
-        // Footer status note
-        _buildFooterNote(context, dark, eq),
-      ],
+          // Footer status note
+          _buildFooterNote(context, dark, eq),
+        ],
+      ),
     );
   }
 
@@ -232,9 +267,13 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     EqualizerNotifier notifier,
   ) {
     final active = eq.studioClarityEnabled;
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      children: [
+    return Scrollbar(
+      controller: _clarityScrollController,
+      interactive: true,
+      child: ListView(
+        controller: _clarityScrollController,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        children: [
         // Studio Master Clarity hero card
         Container(
           decoration: BoxDecoration(
