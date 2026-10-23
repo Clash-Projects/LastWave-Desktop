@@ -560,6 +560,96 @@ void main() {
           ),
           isNull);
     });
+
+    test('mashup half never stands in for a plain request', () {
+      // Real pool regression: "Sooraj Dooba Hain-Subha Hone Na De" was
+      // served for "Subha Hone Na De" because its dash half scored as
+      // an exact title. The other half is Latin (another song), so the
+      // composite is a mashup, not a bilingual billing.
+      expect(
+          AddonApi.bestMatch(
+            [
+              t('1', 'Sooraj Dooba Hain-Subha Hone Na De',
+                  'Nakash Aziz, Aditi Singh Sharma, Pritam', 288),
+            ],
+            title: 'Subha Hone Na De',
+            artist: 'Pritam',
+          ),
+          isNull);
+    });
+
+    test('soundtrack billing "(From "Film")" is stripped for the title gate',
+        () {
+      // Raw dice is only ~87 against the plain request, so without the
+      // strip the canonical master never reaches the artist gate and a
+      // composite that halves to the title wins by default.
+      expect(
+          AddonApi.bestMatch(
+            [
+              t('1', 'Subha Hone Na De (From "Desi Boyz")',
+                  'Mika Singh, Shefali Alvares', 289),
+              t('2', 'Sooraj Dooba Hain-Subha Hone Na De', 'Pritam', 288),
+            ],
+            title: 'Subha Hone Na De',
+            artist: 'Mika Singh',
+          )?.id,
+          '1');
+    });
+
+    test('composer-billed soundtrack row resolves by album, never a mashup',
+        () {
+      // The queue bills the film composer ("Pritam") while the catalog
+      // credits the performers, so the artist gate can never pass; the
+      // mashup is the only entry naming Pritam and used to win. The film
+      // is the identity — and without it there is none, so the lookup
+      // must yield nothing (YouTube fallback) rather than the mashup.
+      final pool = [
+        t('mash', 'Sooraj Dooba Hain-Subha Hone Na De',
+            'Nakash Aziz, Aditi Singh Sharma, Pritam', 288),
+        t('real', 'Subha Hone Na De (From "Desi Boyz")',
+            'Mika Singh, Shefali Alvares', 289),
+        t('cover', 'Subha hone na de', 'Gioconda Vessichelli', 97),
+      ];
+      expect(
+          AddonApi.bestMatch(pool,
+                  title: 'Subha Hone Na De',
+                  artist: 'Pritam',
+                  album: 'Desi Boyz')
+              ?.id,
+          'real');
+      expect(
+          AddonApi.bestMatch(pool,
+              title: 'Subha Hone Na De', artist: 'Pritam'),
+          isNull);
+    });
+
+    test('duration consensus rejects a short variant that leads the pool', () {
+      // Real pool regression: a clean-titled 158s entry was served for
+      // "Besharmi Ki Height" because it merely came back first. Between
+      // equal title/feat/raw candidates the length the catalog agrees on
+      // wins, and a known queue length filters the outlier outright.
+      final pool = [
+        t('short', 'Besharmi Ki Height', 'Benny Dayal, Shalmali Kholgade',
+            158),
+        t('real', 'Besharmi Ki Height', 'Benny Dayal, Shalmali Kholgade', 289),
+        t('alt', 'Besharmi Ki Height (From "Main Tera Hero")',
+            'Benny Dayal, Shalmali Kholgade', 289),
+        t('remix', 'Besharmi Ki Height (Remix)',
+            'Benny Dayal, Shalmali Kholgade, Dj Notorious', 251),
+      ];
+      expect(
+          AddonApi.bestMatch(pool,
+                  title: 'Besharmi Ki Height', artist: 'Benny Dayal')
+              ?.id,
+          'real');
+      expect(
+          AddonApi.bestMatch(pool,
+                  title: 'Besharmi Ki Height',
+                  artist: 'Benny Dayal',
+                  expectedDurationSeconds: 289)
+              ?.id,
+          'real');
+    });
   });
 
   group('isFaithfulVersion', () {
@@ -885,6 +975,133 @@ void main() {
       expect(rec.searchQualities, ['lossless']);
     });
   });
+  group('resolve latency contracts', () {
+    test('a matching first query does not fan out', () async {
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+        return;
+      }
+      final dio = Dio();
+      final rec = _CountingAdapter(answerPool: true);
+      dio.httpClientAdapter = rec;
+      final api = AddonApi(['https://x.test/a/${_hex('f')}/'], dio);
+      final stream = await api.resolveStream(title: 'Song', artist: 'Singer');
+      expect(stream, isNotNull);
+      expect(stream!.url, 'https://cdn.test/song.flac');
+      // The host serializes per token (~530ms/query, measured), so a
+      // first query that already matches must be the only one paid.
+      expect(rec.queries, hasLength(1));
+    });
+
+    test('recall fallback still runs when the first query misses', () async {
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+        return;
+      }
+      final dio = Dio();
+      final rec = _CountingAdapter(answerPool: false);
+      dio.httpClientAdapter = rec;
+      final api = AddonApi(['https://x.test/a/${_hex('f')}/'], dio);
+      expect(
+        await api.resolveStream(title: 'Song', artist: 'Singer'),
+        isNull,
+      );
+      expect(rec.queries.length, greaterThan(1));
+    });
+
+    test('a completed miss is memoized: the replay sends nothing', () async {
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+        return;
+      }
+      final dio = Dio();
+      final rec = _CountingAdapter(answerPool: false);
+      dio.httpClientAdapter = rec;
+      final api = AddonApi(['https://x.test/a/${_hex('f')}/'], dio);
+      expect(
+        await api.resolveStream(title: 'Song', artist: 'Singer'),
+        isNull,
+      );
+      final searches = rec.queries.length;
+      final streams = rec.streamIds.length;
+      // The second attempt used to re-pay the whole 3-tier mint walk
+      // (measured 5-12s) before falling back to YouTube.
+      expect(
+        await api.resolveStream(title: 'Song', artist: 'Singer'),
+        isNull,
+      );
+      expect(rec.queries.length, searches);
+      expect(rec.streamIds.length, streams);
+    });
+
+    test('invalidateStream clears the memo so a retry re-resolves', () async {
+      if (AppEnv.addonClientSecret.isEmpty) {
+        markTestSkipped('addon secret not configured in this env');
+        return;
+      }
+      final dio = Dio();
+      final rec = _CountingAdapter(answerPool: false);
+      dio.httpClientAdapter = rec;
+      final api = AddonApi(['https://x.test/a/${_hex('f')}/'], dio);
+      expect(
+        await api.resolveStream(title: 'Song', artist: 'Singer'),
+        isNull,
+      );
+      final searches = rec.queries.length;
+      api.invalidateStream(title: 'Song', artist: 'Singer');
+      expect(
+        await api.resolveStream(title: 'Song', artist: 'Singer'),
+        isNull,
+      );
+      expect(rec.queries.length, greaterThan(searches));
+    });
+  });
+}
+
+/// Stub Dio adapter: records search queries and stream mints; answers an
+/// empty pool or a single faithful match, and succeeds on mint.
+class _CountingAdapter implements HttpClientAdapter {
+  _CountingAdapter({required this.answerPool});
+
+  final bool answerPool;
+  final List<String> queries = [];
+  final List<String> streamIds = [];
+
+  ResponseBody _json(Map<String, dynamic> payload) =>
+      ResponseBody.fromString(
+        jsonEncode(payload),
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options,
+      Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+    final path = options.uri.path;
+    if (path.contains('/search')) {
+      queries.add(options.queryParameters['q']?.toString() ?? '');
+      if (!answerPool) return _json({'tracks': const []});
+      return _json({
+        'tracks': [
+          {'id': 't1', 'title': 'Song', 'artist': 'Singer'},
+        ],
+      });
+    }
+    if (path.contains('/stream/')) {
+      streamIds.add(path.split('/').last);
+      return _json({
+        'url': 'https://cdn.test/song.flac',
+        'bitDepth': 16,
+        'sampleRate': 44100,
+      });
+    }
+    return ResponseBody.fromString('nope', 404);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 /// Stub Dio adapter: records the `quality` param of every /search call,

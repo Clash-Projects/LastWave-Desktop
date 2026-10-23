@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../../core/diagnostics/trace_crumb.dart';
 import '../../core/env/app_env.dart';
 import '../../core/matching/match_vocab.dart';
 import '../../core/network/dio_factory.dart';
@@ -40,6 +41,16 @@ class AddonApi implements LosslessSource {
   final ResolvedStreamCache _streamCache = ResolvedStreamCache(maxEntries: 16);
   final Map<String, Future<ResolvedStream?>> _inflight = {};
   final Map<String, ({AddonManifest manifest, DateTime at})> _manifests = {};
+
+  /// Tracks whose lossless chain completed without a stream. That chain
+  /// is the most expensive thing in a cold start — search plus up to six
+  /// mints at ~1.4s each (measured 5-12s) — and the outcome is stable
+  /// for minutes, so replaying the track must not re-pay it. Misses are
+  /// not permanent: [invalidateStream] (player failure / manual retry)
+  /// clears them, and the TTL bounds a transient backend outage.
+  final Map<String, DateTime> _misses = {};
+  static const Duration _missTtl = Duration(minutes: 10);
+  static const int _maxMisses = 64;
 
   /// Last-known quota per addon root (from stream-response headers).
   /// Read by the Sources settings page; unknown until first playback.
@@ -276,6 +287,16 @@ class AddonApi implements LosslessSource {
       r'\s+(?:-\s+)?(?:explicit|clean|single version|single|radio edit|radio|edit|live|acoustic|demo|remaster(?:ed)?(?: \d{4})?|mono|stereo|slowed|sped up|nightcore)\s*$',
       caseSensitive: false);
 
+  /// Soundtrack-source billing: `(From "Desi Boyz")`,
+  /// `[From the movie X]`, `(Music From ...)`, trailing `- From "X"`.
+  /// It names the film the song belongs to, never a different
+  /// recording, so it must not push a canonical catalog entry below
+  /// the title gate ("Subha Hone Na De (From "Desi Boyz")" used to
+  /// score 87 against the request and lose to a mashup).
+  static final RegExp _fromClause = RegExp(
+      r'''(?:[\(\[]\s*(?:music |songs |original motion picture soundtrack |original soundtrack )?from\b[^\)\]]*[\)\]]|\s+-\s+from\b.*$)''',
+      caseSensitive: false);
+
   /// Bare trailing "feat. X" without brackets ("Dracula feat JENNIE").
   static final RegExp _trailingFeat = RegExp(
       r'\s+(?:feat(?:uring)?|ft)\.?\s+.+$',
@@ -308,8 +329,26 @@ class AddonApi implements LosslessSource {
     return '';
   }
 
-  /// Feature fidelity bonus: distinguishes the remix from the original
-  /// when stripping equates them ("dracula" == "dracula (feat jennie)").
+  /// Film/series name from a soundtrack billing clause ("desi boyz" from
+  /// `Subha Hone Na De (From "Desi Boyz")`). Empty when the title carries
+  /// none. Used to identify composer-billed soundtrack rows whose catalog
+  /// entry credits the performers instead.
+  static String _fromPart(String title) {
+    final m = _fromClause.firstMatch(title);
+    if (m == null) return '';
+    var inner = m.group(0)!;
+    inner = inner.replaceAll(RegExp(r'^[\(\[]\s*'), '');
+    inner = inner.replaceAll(RegExp(r'[\)\]]\s*$'), '');
+    inner = inner.replaceAll(RegExp(r'^\s*-\s*'), '');
+    inner = inner.replaceAll(
+        RegExp(
+            r'^\s*(?:music|songs|original motion picture soundtrack|original soundtrack)?\s*from\s+',
+            caseSensitive: false),
+        '');
+    return _clean(inner);
+  }
+
+  /// Feature fidelity bonus: distinguishes the remix from the original.
   /// Wanted-feat must match candidate-feat; otherwise the player serves
   /// the original when the user queued the remix (or vice versa).
   /// A *different* featured artist ranks lowest: it is a different
@@ -363,14 +402,32 @@ class AddonApi implements LosslessSource {
   /// romaji catalog entry exactly even when the request carries kana.
   static ({int raw, int stripped, bool exact}) _titleScore(
       String candidateTitle, String wantedTitle) {
-    final wantStrippedForms =
-        _titleForms(wantedTitle).map(_strippedTitle).toList();
+    final wantForms = _titleForms(wantedTitle);
+    final compositeRequest = wantForms.length > 1;
+    final candForms = _titleForms(candidateTitle);
+    bool isLatin(String s) => RegExp(r'[A-Za-z]').hasMatch(s);
+    // A candidate half is a bilingual device: it may stand in when the
+    // other half is written in a different script ("kana - Yoake no
+    // uta"). When the remaining billing is Latin it is another song
+    // title instead, and the composite is a mashup — serving "Sooraj
+    // Dooba Hain-Subha Hone Na De" for "Subha Hone Na De" is exactly
+    // the wrong recording this guards against. A composite request
+    // (both halves queued) keeps splitting on both sides.
+    bool halfMayStandIn(String cf) {
+      if (compositeRequest || cf == candidateTitle) return true;
+      return candForms
+          .where((h) => h != candidateTitle && h != cf)
+          .every((h) => !isLatin(h));
+    }
+
+    final wantStrippedForms = wantForms.map(_strippedTitle).toList();
     var raw = 0;
     var stripped = 0;
     var exact = false;
-    for (final wf in _titleForms(wantedTitle)) {
+    for (final wf in wantForms) {
       final cleanW = _clean(wf);
-      for (final cf in _titleForms(candidateTitle)) {
+      for (final cf in candForms) {
+        if (!halfMayStandIn(cf)) continue;
         final cleanC = _clean(cf);
         raw = max(raw, dice(cleanC, cleanW));
         final strippedC = _strippedTitle(cf);
@@ -406,10 +463,19 @@ class AddonApi implements LosslessSource {
         .split(' ')
         .where((t) => t.isNotEmpty)
         .toSet();
+    // Soundtrack billing is stripped from the comparison title, so its
+    // tokens would otherwise land in the residual and make the canonical
+    // entry ("Subha Hone Na De (From "Desi Boyz")") look like a
+    // different recording. It names the film, never a version.
+    final fromToks = <String>{
+      for (final m in _fromClause.allMatches(title))
+        ..._clean(m.group(0)!).split(' ').where((t) => t.isNotEmpty)
+    };
     final residual = cleanToks
         .difference(stripped)
         .difference(feat)
-        .difference(_versionNeutralWords);
+        .difference(_versionNeutralWords)
+        .difference(fromToks);
     // Bracket-independent version billing: the strip regexes only catch
     // bracketed/bare-tail spellings, so a bare "Song Remix" or
     // "Song Slowed + Reverb" would otherwise leave zero residual and
@@ -457,6 +523,7 @@ class AddonApi implements LosslessSource {
   static String _strippedTitle(String s) {
     var v = s.replaceAll(_featClause, ' ');
     v = v.replaceAll(_versionClause, ' ');
+    v = v.replaceAll(_fromClause, ' ');
     v = v.replaceAll(_trailingFeat, ' ');
     var prev = '';
     v = _clean(v);
@@ -498,10 +565,10 @@ class AddonApi implements LosslessSource {
   /// Verified match: title dice ≥ 90 on raw OR stripped comparison
   /// (stripped-exact always passes), artist token-compatible (with
   /// primary-artist retry + title feature-credit fallback), duration
-  /// within 8s when both known. Ranking is (title, feat fidelity, raw,
-  /// album): the JENNIE remix beats the original when the queue asked
-  /// for the remix, and vice versa. Strict — a wrong track is worse
-  /// than falling through to YouTube — but feat/version noise no
+  /// within 8s when both known. Ranking is (title, feat fidelity,
+  /// duration, raw, album): the JENNIE remix beats the original when the
+  /// queue asked for the remix, and vice versa. Strict — a wrong track is
+  /// worse than falling through to YouTube — but feat/version noise no
   /// longer counts as a different song.
   static AddonTrack? bestMatch(
     List<AddonTrack> candidates, {
@@ -546,35 +613,68 @@ class AddonApi implements LosslessSource {
       final titleScore =
           rawScore > ts.stripped ? rawScore : ts.stripped;
       if (!ts.exact && titleScore < 90) continue;
-      if (!_artistOkFeatAware(
+      final feat = _featBonus(c.title, title);
+      var albumBonus = 0;
+      if (wantAlbum.isNotEmpty) {
+        final cal = _clean(c.album);
+        final fromTitle = _fromPart(c.title);
+        if (cal == wantAlbum || fromTitle == wantAlbum) {
+          albumBonus = 2;
+        } else if (cal.isNotEmpty &&
+            (cal.contains(wantAlbum) || wantAlbum.contains(cal))) {
+          albumBonus = 1;
+        }
+      }
+      // Soundtrack rows are often billed to the film's composer
+      // ("Subha Hone Na De" / Pritam, album "Desi Boyz") while the
+      // catalog entry credits the performers (Mika Singh, Shefali
+      // Alvares), so the artist gate can never pass. The film is then
+      // the identity - but only on an exact album match: the title gate
+      // still rejects other songs from it, and the version gate still
+      // rejects a remix of this one.
+      final artistOk = _artistOkFeatAware(
         cTitle: c.title,
         cArtist: c.artist,
         wantTitle: title,
         wantArtist: artist,
-      )) {
-        continue;
-      }
+      );
+      if (!artistOk && albumBonus < 2) continue;
       if (expectedDurationSeconds > 0 && c.durationSeconds > 0) {
         if ((c.durationSeconds - expectedDurationSeconds).abs() > 8) {
           continue;
         }
       }
-      final feat = _featBonus(c.title, title);
-      var albumBonus = 0;
-      if (wantAlbum.isNotEmpty && c.album.isNotEmpty) {
-        final cal = _clean(c.album);
-        if (cal == wantAlbum) {
-          albumBonus = 2;
-        } else if (cal.contains(wantAlbum) || wantAlbum.contains(cal)) {
-          albumBonus = 1;
-        }
-      }
       scored.add(
           (track: c, title: titleScore, feat: feat, raw: rawScore, album: albumBonus));
     }
+    // Duration proximity. With a known length it separates the album
+    // cut from the radio edit. Without one, trust catalog consensus:
+    // the canonical master is the length most entries agree on, so a
+    // lone 158s entry in a pool of 289s entries (Besharmi Ki Height)
+    // loses instead of winning by pool order. Ranked after feat
+    // fidelity and before the raw score, so it can never beat a better
+    // title match.
+    final knownDurations = [
+      for (final e in scored)
+        if (e.track.durationSeconds > 0) e.track.durationSeconds
+    ]..sort();
+    final durTarget = expectedDurationSeconds > 0
+        ? expectedDurationSeconds
+        : (knownDurations.isEmpty
+            ? 0
+            : knownDurations[knownDurations.length ~/ 2]);
+    int durScore(AddonTrack t) {
+      if (durTarget <= 0) return 0;
+      if (t.durationSeconds <= 0) return -600;
+      return -(t.durationSeconds - durTarget).abs();
+    }
+
     scored.sort((a, b) {
       if (a.title != b.title) return b.title.compareTo(a.title);
       if (a.feat != b.feat) return b.feat.compareTo(a.feat);
+      final ad = durScore(a.track);
+      final bd = durScore(b.track);
+      if (ad != bd) return bd.compareTo(ad);
       if (a.raw != b.raw) return b.raw.compareTo(a.raw);
       return b.album.compareTo(a.album);
     });
@@ -754,6 +854,20 @@ class AddonApi implements LosslessSource {
     return v.contains('pranks-cdn') || v.contains('definatelynagato');
   }
 
+  /// A mint that has not answered by now is treated as a miss. The host
+  /// normally answers in 0.5-0.9s; the measured cold-path outliers
+  /// (6.1s and 10.1s on 2026-10-23) held the whole resolve chain and the
+  /// prefetcher for the price of an Opus fallback. The miss memo retries
+  /// the mint on a later play.
+  static const Duration _mintTimeout = Duration(seconds: 4);
+
+  /// Ceiling for all mint attempts of one resolve (every tier, candidate
+  /// and base). Without it a host that stalls once stalls again on the
+  /// next tier, and the matrix stacks 4s waits (`_mintTimeout` is per
+  /// request, the loop walks up to 3 tiers x 2 candidates). YouTube
+  /// answers from cache in ~0.7s, so a spent budget ends the search.
+  static const Duration _mintBudget = Duration(seconds: 6);
+
   Future<ResolvedStream?> _fetchTrack(
     String root,
     String trackId,
@@ -762,13 +876,15 @@ class AddonApi implements LosslessSource {
     required bool isAtmosPreferred,
     required String title,
     required String artist,
+    Duration timeout = _mintTimeout,
   }) async {
     final path = '${Uri.parse(root).path}stream/$trackId';
     Map<String, dynamic>? data;
     // One retry on transient mint failures (network blip, slow
     // server): cold first plays otherwise fall back to Opus for no
     // reason and only succeed on manual replay. 429/quota is
-    // definitive and never retries.
+    // definitive and never retries; a timeout already burned the whole
+    // budget and never retries.
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
         final res = await _dio.get<Map<String, dynamic>>(
@@ -778,23 +894,34 @@ class AddonApi implements LosslessSource {
             'atmos': wantAtmos ? 'auto' : 'none',
           },
           options: Options(headers: _signHeaders('GET', root, path)),
-        ).timeout(const Duration(seconds: 15));
+        ).timeout(timeout);
         _recordQuota(root, res.headers);
         data = res.data ?? const {};
         break;
+      } on TimeoutException {
+        TraceCrumb.write('resolve stage=stream-timeout tier=$serverQuality '
+            'budget_ms=${timeout.inMilliseconds}');
+        return null;
       } on DioException catch (e) {
         _recordQuota(root, e.response?.headers);
         if (e.response?.statusCode == 429) {
           throw AddonQuotaException.fromResponse(e.response);
         }
         if (attempt == 0) {
-          await Future.delayed(const Duration(milliseconds: 600));
+          // One quick retry: a transient mint failure clears on the
+          // second request, and the host answers in ~0.5s. The old
+          // fixed 600ms wait was pure dead time on the cold path.
+          TraceCrumb.write('resolve stage=stream-retry tier=$serverQuality '
+              'after_ms=150');
+          await Future.delayed(const Duration(milliseconds: 150));
           continue;
         }
         return null;
       } catch (_) {
         if (attempt == 0) {
-          await Future.delayed(const Duration(milliseconds: 600));
+          TraceCrumb.write('resolve stage=stream-retry tier=$serverQuality '
+              'after_ms=150');
+          await Future.delayed(const Duration(milliseconds: 150));
           continue;
         }
         return null;
@@ -846,6 +973,8 @@ class AddonApi implements LosslessSource {
     required String title,
     required String artist,
   }) async {
+    final mlabel = 'key=${_clean(title)}|${_clean(artist)} '
+        'server=$serverQuality';
     final urls = [
       data['url'],
       data['dataUrl'],
@@ -978,11 +1107,17 @@ class AddonApi implements LosslessSource {
       // of seconds — so mpv streams the assembly live from loopback
       // while the same bytes tee to disk. Null only when the
       // manifest can't be served at all (callers fall through).
+      TraceCrumb.write('resolve stage=manifest $mlabel '
+          'inline=true bytes=${inlineManifest.length}');
+      final serverSw = Stopwatch()..start();
       final uri = await LocalMediaServer.instance.urlFor(
         manifestXml: inlineManifest,
         cacheName:
             '${Uri.tryParse(root)?.host ?? 'addon'}_${trackId}_$serverQuality',
       );
+      serverSw.stop();
+      TraceCrumb.write('resolve stage=server $mlabel '
+          'ms=${serverSw.elapsedMilliseconds} hit=${uri != null}');
       if (uri == null) return null;
       return ResolvedStream(
         url: uri.toString(),
@@ -1011,7 +1146,16 @@ class AddonApi implements LosslessSource {
     if (isMpd) {
       // Same rule as inline manifests: stream the assembly from
       // loopback, never hand mpv an MPD.
+      final manifestSw = Stopwatch()..start();
       final xmlText = await _manifestText(direct);
+      manifestSw.stop();
+      // No inline XML in the payload → this is a second round-trip
+      // after the mint. That hop is often the hidden cost of a cold
+      // resolve (the addon returns a `.mpd` URL instead of the body).
+      TraceCrumb.write('resolve stage=manifest $mlabel '
+          'inline=false ms=${manifestSw.elapsedMilliseconds} '
+          'hit=${xmlText != null}');
+      final serverSw = Stopwatch()..start();
       final uri = xmlText != null
           ? await LocalMediaServer.instance.urlFor(
               manifestXml: xmlText,
@@ -1019,6 +1163,9 @@ class AddonApi implements LosslessSource {
                   '${Uri.tryParse(root)?.host ?? 'addon'}_${trackId}_$serverQuality',
             )
           : null;
+      serverSw.stop();
+      TraceCrumb.write('resolve stage=server $mlabel '
+          'ms=${serverSw.elapsedMilliseconds} hit=${uri != null}');
       if (uri == null) return null;
       return ResolvedStream(
         url: uri.toString(),
@@ -1069,21 +1216,28 @@ class AddonApi implements LosslessSource {
 
   // -- LosslessSource ---------------------------------------------------------------
 
-  // v2: pre-fix rows could memoize a different recording version
-  // (remix served for an original) under the same key. Old keys miss
-  // and re-resolve through the same-version gate.
-  String _streamCacheKey(String title, String artist, int tier) =>
-      'addon:v2:${_clean(title)}|${_clean(artist)}|$tier';
+  // v3: the album is part of the identity for composer-billed soundtrack
+  // rows (same title+artist resolves differently with and without the
+  // film), and pre-v3 rows could memoize a different recording version
+  // (remix/mashup served for an original) under the same key. Old keys
+  // miss and re-resolve through the same-version gate.
+  String _streamCacheKey(String title, String artist, int tier,
+          [String album = '']) =>
+      'addon:v3:${_clean(title)}|${_clean(artist)}|$tier|${_clean(album)}';
 
   @override
   void invalidateStream(
       {required String title, required String artist}) {
-    final prefix = 'addon:v2:${_clean(title)}|${_clean(artist)}|';
+    final prefix = 'addon:v3:${_clean(title)}|${_clean(artist)}|';
     _streamCache.invalidateWhere((key) => key.startsWith(prefix));
+    _misses.removeWhere((key, _) => key.startsWith(prefix));
   }
 
   @override
-  void clearStreamCache() => _streamCache.clear();
+  void clearStreamCache() {
+    _streamCache.clear();
+    _misses.clear();
+  }
 
   @override
   Future<ResolvedStream?> resolveStream({
@@ -1097,11 +1251,33 @@ class AddonApi implements LosslessSource {
     if (preferredQuality == -1) return null;
     if (title.trim().isEmpty || artist.trim().isEmpty) return null;
     final cacheKey =
-        _streamCacheKey(title, artist, preferredQuality);
+        _streamCacheKey(title, artist, preferredQuality, album);
+    // Latency trail: the resolve chain (search → stream → manifest) is
+    // the whole cold-start cost, and these lines are the only way to
+    // see where it goes after the fact (`<temp>/lastwave/mpv-ops.log`).
+    final label = 'key=${_clean(title)}|${_clean(artist)} '
+        'q=$preferredQuality';
     final cached = _streamCache.get(cacheKey);
-    if (cached != null) return cached;
+    if (cached != null) {
+      TraceCrumb.write('resolve $label cache=hit');
+      return cached;
+    }
+    final missedAt = _misses[cacheKey];
+    if (missedAt != null) {
+      if (DateTime.now().difference(missedAt) < _missTtl) {
+        // Known miss: skip the 5-12s chain and let YouTube answer.
+        TraceCrumb.write('resolve $label cache=negative');
+        return null;
+      }
+      _misses.remove(cacheKey);
+    }
     final pending = _inflight[cacheKey];
-    if (pending != null) return pending;
+    if (pending != null) {
+      TraceCrumb.write('resolve $label cache=inflight');
+      return pending;
+    }
+    TraceCrumb.write('resolve $label cache=miss');
+    final totalSw = Stopwatch()..start();
     final future = _resolveStreamUncached(
       title: title,
       artist: artist,
@@ -1112,11 +1288,29 @@ class AddonApi implements LosslessSource {
     _inflight[cacheKey] = future;
     try {
       final stream = await future;
-      if (stream != null) _streamCache.put(cacheKey, stream);
+      if (stream != null) {
+        _streamCache.put(cacheKey, stream);
+        _misses.remove(cacheKey);
+      } else {
+        _rememberMiss(cacheKey);
+      }
+      TraceCrumb.write('resolve $label '
+          'result=${stream == null ? 'miss' : 'hit'} '
+          'total_ms=${totalSw.elapsedMilliseconds}');
       return stream;
     } finally {
       _inflight.remove(cacheKey);
     }
+  }
+
+  void _rememberMiss(String key) {
+    try {
+      _misses.remove(key);
+      _misses[key] = DateTime.now();
+      while (_misses.length > _maxMisses) {
+        _misses.remove(_misses.keys.first);
+      }
+    } catch (_) {}
   }
 
   /// Search queries for a resolve: the two cleaned orders plus the raw
@@ -1155,17 +1349,22 @@ class AddonApi implements LosslessSource {
     required int expectedDurationSeconds,
     required int preferredQuality,
   }) async {
-    // Three queries, highest solo-hit-rate first: six concurrent
-    // requests still shared the host throttle (~2.3s slowest), while
-    // the dropped permutations (primary-artist, stripped-only,
-    // title-only, title+album) almost never win the pooled ranking —
-    // bestMatches re-ranks the union anyway, so recall is preserved.
-    // A bilingual half-query joins them (see [searchQueries]).
+    // Same key shape the player logs, so the two trails join up.
+    final label = 'key=${_clean(title)}|${_clean(artist)} '
+        'q=$preferredQuality';
+    final totalSw = Stopwatch()..start();
+    // One query first. The addon host serializes per token, so 3-4
+    // queries issued concurrently still cost 3-4 round trips (measured
+    // 1.5-2.0s at ~530ms each) and search ends up ~60% of a successful
+    // cold resolve. The cleaned "artist title" pairing carries the
+    // right recording in nearly every resolve; the remaining queries
+    // (reversed billing, bilingual halves, raw) are a recall fallback
+    // that only runs when the first pass yields no faithful version.
     final queries = searchQueries(title, artist);
-    // Pool candidates across ALL queries, then rank once: per-query
-    // winners with stripped-only scoring re-introduce the exact bug
-    // being fixed (original beats remix). bestMatch already ranks by
-    // (title, feat fidelity, raw, album), so one call over the pool
+    // Pool candidates across every query that ran, then rank once:
+    // per-query winners with stripped-only scoring re-introduce the
+    // exact bug being fixed (original beats remix). bestMatches ranks
+    // by (title, feat fidelity, raw, album), so one call over the pool
     // picks the right version and survives 30-item page burial.
     final pool = <AddonTrack>[];
     final seenIds = <String>{};
@@ -1178,38 +1377,74 @@ class AddonApi implements LosslessSource {
         ? 'lossless'
         : serverQualitiesForTier(preferredQuality).first;
     final searchSw = Stopwatch()..start();
-    // Fan out all queries concurrently: sequential round-trips were the
-    // whole first-play delay (~4s of search). Results merge in query
-    // order so the ranking input is identical to the old sequential
-    // version; per-query failures still contribute nothing, and a quota
-    // rejection still aborts the resolve like before.
-    final queryList = queries.toList();
-    final searched = await Future.wait(
-      queryList.map((q) async {
-        try {
-          final items = await searchTracks(q,
-              limit: 30,
-              quality: searchQuality,
-              atmos: isAtmosPreferred);
-          return (true, items);
-        } on AddonQuotaException {
-          rethrow;
-        } catch (_) {
-          return (false, const <AddonTrack>[]);
-        }
-      }),
-    );
-    for (final (ok, items) in searched) {
-      if (!ok) continue;
-      queriesOk++;
-      for (final item in items) {
-        if (seenIds.add(item.id)) {
-          pool.add(item);
+
+    // Runs [batch] concurrently and merges into the pool in query order.
+    // Per-query failures contribute nothing; a quota rejection still
+    // aborts the resolve. Returns how many queries answered.
+    Future<int> searchAll(Iterable<String> batch) async {
+      final list = batch.toList();
+      if (list.isEmpty) return 0;
+      final searched = await Future.wait(
+        list.map((q) async {
+          try {
+            final items = await searchTracks(q,
+                limit: 30,
+                quality: searchQuality,
+                atmos: isAtmosPreferred);
+            return (true, items);
+          } on AddonQuotaException {
+            rethrow;
+          } catch (_) {
+            return (false, const <AddonTrack>[]);
+          }
+        }),
+      );
+      var ok = 0;
+      for (final (good, items) in searched) {
+        if (!good) continue;
+        ok++;
+        for (final item in items) {
+          if (seenIds.add(item.id)) pool.add(item);
         }
       }
+      return ok;
+    }
+
+    List<AddonTrack> rankedPool() => bestMatches(
+          pool,
+          title: title,
+          artist: artist,
+          album: album,
+          expectedDurationSeconds: expectedDurationSeconds,
+        ).toList();
+
+    List<AddonTrack> faithfulOf(List<AddonTrack> ranked) => ranked
+        .where((c) => isFaithfulVersion(c.title,
+            title: title, artist: artist, allowAtmos: isAtmosPreferred))
+        .take(isAtmosPreferred ? 4 : 3)
+        .toList();
+
+    queriesOk += await searchAll(queries.take(1));
+    var ranked = rankedPool();
+    var matches = faithfulOf(ranked);
+    if (matches.isEmpty && queries.length > 1) {
+      // Recall fallback: fan out the rest, then re-rank the union once
+      // (exactly the old all-at-once semantics). Costs one extra round
+      // trip only on tracks the addon does not carry.
+      queriesOk += await searchAll(queries.skip(1));
+      ranked = rankedPool();
+      matches = faithfulOf(ranked);
+      TraceCrumb.write('resolve stage=search-fallback $label '
+          'queries=${queries.length} ok=$queriesOk '
+          'kept=${matches.length}');
     }
     searchSw.stop();
     final searchMs = searchSw.elapsedMilliseconds;
+    // Search is a fan-out at one throttled host: `queries` vs `ms` is
+    // the number that says whether the fan-out is the cold-start cost.
+    TraceCrumb.write('resolve stage=search $label ms=$searchMs '
+        'queries=${queries.length} ok=$queriesOk '
+        'pool=${pool.length} bases=${bases.length}');
     if (kDebugMode && pool.isEmpty) {
       // No candidates at all: search failed/empty, not a gate reject
       // (bestMatch stays silent on empty input by design).
@@ -1228,13 +1463,6 @@ class AddonApi implements LosslessSource {
     // wrong song, while a miss falls through to YouTube's (correct) match.
     // This is the actual "Don’t Let Me Down" bug: the top
     // `swap_` entry 502’d and the walk degraded into a remix.
-    final ranked = bestMatches(
-      pool,
-      title: title,
-      artist: artist,
-      album: album,
-      expectedDurationSeconds: expectedDurationSeconds,
-    ).toList();
     if (ranked.isEmpty) {
       if (kDebugMode) {
         debugPrint('LastWave-Timing addon title="$title" '
@@ -1243,11 +1471,6 @@ class AddonApi implements LosslessSource {
       return null;
     }
     final top = ranked.first;
-    final matches = ranked
-        .where((c) => isFaithfulVersion(c.title,
-            title: title, artist: artist, allowAtmos: isAtmosPreferred))
-        .take(isAtmosPreferred ? 4 : 3)
-        .toList();
     if (matches.isEmpty) {
       if (kDebugMode) {
         debugPrint('LastWaveAddon stage=version-skip title="$title" '
@@ -1274,8 +1497,15 @@ class AddonApi implements LosslessSource {
             ...matches.where(isAtmosCandidate),
           ];
 
+    TraceCrumb.write('resolve stage=match $label pool=${pool.length} '
+        'ranked=${ranked.length} kept=${matches.length} '
+        'at_ms=${totalSw.elapsedMilliseconds}');
     var fetchAttempts = 0;
     final fetchSw = Stopwatch()..start();
+    // All mint attempts of this resolve share one budget; each request
+    // gets whatever is left, so a stalling host costs one wait, not a
+    // matrix of them.
+    final mintSw = Stopwatch()..start();
     for (final serverQuality in serverQualitiesForTier(preferredQuality)) {
       final wantAtmos = serverQuality == 'atmos';
       final targetCandidates = wantAtmos
@@ -1289,7 +1519,17 @@ class AddonApi implements LosslessSource {
       for (final match in targetCandidates.take(wantAtmos ? 3 : 2)) {
         for (final root in bases) {
           try {
+            final remaining = _mintBudget - mintSw.elapsed;
+            if (remaining <= const Duration(milliseconds: 400)) {
+              TraceCrumb.write('resolve stage=stream-budget $label '
+                  'spent_ms=${mintSw.elapsedMilliseconds} '
+                  'attempts=$fetchAttempts result=exhausted');
+              return null;
+            }
+            final timeout =
+                remaining < _mintTimeout ? remaining : _mintTimeout;
             fetchAttempts++;
+            final fetchOneSw = Stopwatch()..start();
             final stream = await _fetchTrack(
               root,
               match.id,
@@ -1298,7 +1538,15 @@ class AddonApi implements LosslessSource {
               isAtmosPreferred: isAtmosPreferred,
               title: title,
               artist: artist,
+              timeout: timeout,
             );
+            fetchOneSw.stop();
+            // One line per mint: which tier, how many attempts, how
+            // long, and whether it produced a playable stream.
+            TraceCrumb.write('resolve stage=stream $label '
+                'tier=$serverQuality attempt=$fetchAttempts '
+                'ms=${fetchOneSw.elapsedMilliseconds} '
+                'result=${stream == null ? 'miss' : 'hit'}');
             if (stream != null) {
               fetchSw.stop();
               if (kDebugMode) {
@@ -1309,8 +1557,12 @@ class AddonApi implements LosslessSource {
               return stream;
             }
           } on AddonQuotaException {
+            TraceCrumb.write('resolve stage=stream $label '
+                'tier=$serverQuality result=quota');
             rethrow;
           } catch (_) {
+            TraceCrumb.write('resolve stage=stream $label '
+                'tier=$serverQuality attempt=$fetchAttempts result=error');
             continue;
           }
         }
