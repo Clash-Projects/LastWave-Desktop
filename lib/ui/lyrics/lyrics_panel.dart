@@ -37,9 +37,26 @@ final waveLyricsProvider = StreamProvider.autoDispose
       : 0;
   final results = StreamController<LyricsResult>();
   var disposed = false;
+  // The controller is closed by the first fetch that produced content,
+  // while a second fetch (the duration-arrival refetch) may still be in
+  // flight. `disposed` alone does not cover that: closing here used to
+  // throw "Cannot add event after closing" from a late result.
+  var closed = false;
   var hasEmittedContent = false;
+  void emit(LyricsResult result) {
+    if (disposed || closed || results.isClosed) return;
+    results.add(result);
+  }
+
+  void finish() {
+    if (disposed || closed) return;
+    closed = true;
+    unawaited(results.close());
+  }
+
   ref.onDispose(() {
     disposed = true;
+    closed = true;
     unawaited(results.close());
   });
 
@@ -56,30 +73,32 @@ final waveLyricsProvider = StreamProvider.autoDispose
       onPartialResult: (result) {
         if (!disposed && !result.isEmpty) {
           hasEmittedContent = true;
-          results.add(result);
+          emit(result);
         }
       },
     ).then((result) {
       if (!disposed) {
         if (!result.isEmpty) {
           hasEmittedContent = true;
-          results.add(result);
+          emit(result);
         } else if (!hasEmittedContent && (secs == null || secs <= 0)) {
           final curSecs = ref.read(playbackServiceProvider).duration.inSeconds;
           if (curSecs > 0) {
             runFetch(curSecs);
             return;
           }
-          results.add(result);
+          emit(result);
         } else if (!hasEmittedContent) {
-          results.add(result);
+          emit(result);
         }
       }
     }, onError: (Object error, StackTrace stack) {
-      if (!disposed) results.addError(error, stack);
+      if (!disposed && !closed && !results.isClosed) {
+        results.addError(error, stack);
+      }
     }).whenComplete(() {
       if (!disposed && (hasEmittedContent || (secs != null && secs > 0))) {
-        unawaited(results.close());
+        finish();
       }
     }));
   }
