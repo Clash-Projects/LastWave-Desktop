@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'diagnostics_log.dart';
+
 /// Crash-surviving breadcrumb sink shared by the player and the addon
 /// resolver: `<temp>/lastwave/mpv-ops.log`.
 ///
@@ -9,6 +11,10 @@ import 'dart:io';
 /// nothing to stdout. The resolver writes its latency stages into the
 /// same timeline, which is the only measurement surface that survives
 /// an app restart (debugPrint does not).
+///
+/// Every line is mirrored into [DiagnosticsLog] as well, because the temp
+/// trail is truncated per player creation and temp gets cleaned: the
+/// session files are what a user can still export tomorrow.
 ///
 /// Never logs URLs, cookies, headers, or tokens — op names, stream
 /// shapes, and timing numbers only.
@@ -38,7 +44,15 @@ class TraceCrumb {
 
   /// Append one line, best-effort. [line] carries its own prefix
   /// (`open …`, `resolve …`, `timing …`).
+  ///
+  /// The temp mirror and the session log are independent: a broken temp
+  /// file must not cost the session trail (or the other way round).
   static void write(String line) {
+    _mirror(line);
+    DiagnosticsLog.raw(line);
+  }
+
+  static void _mirror(String line) {
     if (_failed) return;
     try {
       final file = path;
@@ -55,8 +69,14 @@ class TraceCrumb {
   }
 
   /// Start a fresh per-session timeline. Player creation truncates the
-  /// file so a crash report only carries the run that died.
+  /// temp file so a crash report only carries the run that died; the
+  /// session log keeps the whole run and only gets a divider.
   static void reset(String header) {
+    _resetMirror(header);
+    DiagnosticsLog.divider(header);
+  }
+
+  static void _resetMirror(String header) {
     if (_failed) return;
     try {
       final file = path;

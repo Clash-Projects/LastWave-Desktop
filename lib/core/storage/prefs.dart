@@ -308,6 +308,14 @@ class Prefs {
   Future<void> setDiscordRichPresence(bool v) =>
       _sp.setBool('lw_discord_rich_presence', v);
 
+  // -- Diagnostics -----------------------------------------------------------
+  /// Per-request detail in the session log (stream clients, audio probes).
+  /// Off by default: the always-on lines already name every stage, and
+  /// verbose adds a few lines per player request.
+  bool get verboseLogs => _sp.getBool('lw_verbose_logs') ?? false;
+
+  Future<void> setVerboseLogs(bool v) => _sp.setBool('lw_verbose_logs', v);
+
   // -- Addon sources (personal addon URLs) ----------------------------------
   /// User-pasted addon roots (`{base}/a/<token>/`), JSON-encoded.
   List<String> get addonUrls {

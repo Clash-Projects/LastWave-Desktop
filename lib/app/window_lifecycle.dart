@@ -6,6 +6,7 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../core/artwork/animated_artwork_session.dart';
+import '../core/diagnostics/diagnostics_log.dart';
 import '../core/network/network_monitor.dart';
 import '../core/storage/prefs.dart';
 import '../features/player/playback_service.dart';
@@ -81,6 +82,9 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
       // with prevent-close still armed would re-fire onWindowClose.
       await windowManager.setPreventClose(false);
     } catch (_) {}
+    // Deliberate shutdown: the next boot then reports `previous_exit:
+    // clean` instead of flagging this run as a crash in the log export.
+    DiagnosticsLog.markCleanExit();
     try {
       await windowManager.close();
     } catch (_) {}

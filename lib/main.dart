@@ -1,14 +1,18 @@
+import 'dart:io';
+
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app/window.dart';
 import 'core/artwork/artwork_resolver.dart';
 import 'core/artwork/official_artwork_service.dart';
-import 'core/error/fatal_crumbs.dart';
+import 'core/diagnostics/diagnostics_log.dart';
 import 'core/diagnostics/memory_probe.dart';
+import 'core/error/fatal_crumbs.dart';
 import 'core/platform/allocator_tuning.dart';
 import 'core/storage/app_database.dart';
 import 'core/storage/prefs.dart';
@@ -69,6 +73,19 @@ Future<void> main(List<String> args) async {
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
 
+  // Session log (Settings → General → Export diagnostic logs): one file
+  // per run under the app-support root, beside the library database.
+  // Started before anything else logs so boot crumbs land in it; the
+  // verbose level follows prefs and is applied once they are read below.
+  try {
+    final support = await getApplicationSupportDirectory();
+    DiagnosticsLog.init(
+      Directory('${support.path}${Platform.pathSeparator}logs'),
+    );
+  } catch (_) {
+    // Diagnostics must never block startup.
+  }
+
   // Secrets are compiled in (obfuscated) via `dart tool/obfuscate_secrets.dart`.
   //
   // These three are independent — prefs (a JSON read), the SQLite cache
@@ -81,6 +98,9 @@ Future<void> main(List<String> args) async {
   final databaseFuture = AppDatabase.open();
   final windowFuture = setupWindow();
   final prefs = await prefsFuture;
+  // Verbose logging is a saved preference: without this the toggle would
+  // only take effect on the next launch.
+  DiagnosticsLog.verbose = prefs.verboseLogs;
   final database = await databaseFuture;
   OfficialArtworkService.instance.init(db: database);
   await windowFuture;

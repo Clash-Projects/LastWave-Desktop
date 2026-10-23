@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import '../../core/diagnostics/diagnostics_log.dart';
 import 'dac_device.dart';
 
 /// Dart client for the isolated Windows WASAPI engine.
@@ -144,5 +145,8 @@ class WasapiEngine {
 }
 
 void wasapiLog(String message) {
+  // Verbose: probes fire per device/format, so this only lands in the
+  // exported session log when the user enables verbose logging.
+  DiagnosticsLog.detail('wasapi $message');
   developer.log(message, name: 'WASAPI');
 }

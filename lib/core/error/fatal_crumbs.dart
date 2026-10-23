@@ -6,6 +6,8 @@ library;
 
 import 'dart:io';
 
+import '../diagnostics/diagnostics_log.dart';
+
 /// One single-line, bounded breadcrumb for a fatal error.
 String fatalCrumb(Object error, [StackTrace? stack]) {
   final type = error.runtimeType.toString();
@@ -35,6 +37,9 @@ void writeFatalCrumb(String line) {
       flush: true,
     );
   } catch (_) {}
+  // Also into the session log: a fatal crumb is the single most useful
+  // line in an exported bundle, and temp may be gone by then.
+  DiagnosticsLog.raw(line);
 }
 
 /// Runs [body] and converts a synchronous throw into a crumb instead

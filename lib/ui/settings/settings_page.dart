@@ -13,7 +13,9 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../app/window.dart';
 import '../../app/auth_gate.dart';
+import '../../core/app_info.dart';
 import '../../core/audio/stream_models.dart';
+import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/env/app_env.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/addons/addon_api.dart';
@@ -37,6 +39,7 @@ import '../../features/equalizer/equalizer_controller.dart';
 import '../../features/equalizer/equalizer_models.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/telemetry/live_telemetry_service.dart';
+import 'diagnostics_actions.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
@@ -2462,7 +2465,7 @@ class _About extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('LastWave Desktop · v1.5.0', style: WaveType.trackTitle),
+          Text('LastWave Desktop · v$appVersion', style: WaveType.trackTitle),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -2557,6 +2560,52 @@ class _General extends ConsumerWidget {
                 title: 'Close button minimize to tray.',
                 subtitle:
                     'Keep the player running in the background when closed.',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Diagnostics live on the General page on purpose: a user with a
+        // problem finds them without knowing what "Advanced" means, and
+        // the export is the only thing we ever ask them to send.
+        _Group(
+          title: 'Diagnostics',
+          subtitle: 'Local logs for troubleshooting — nothing is uploaded',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SwitchRow(
+                value: prefs.verboseLogs,
+                onChanged: (v) async {
+                  await onUpdate((p) => p.setVerboseLogs(v));
+                  DiagnosticsLog.verbose = v;
+                },
+                title: 'Verbose logging',
+                subtitle: 'Adds per-request detail (stream clients, audio '
+                    'probes). Reproduce the problem with it on.',
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  WaveFilledButton(
+                    onPressed: () => exportDiagnostics(context, ref),
+                    child: const Text('Export diagnostic logs'),
+                  ),
+                  const SizedBox(width: 8),
+                  WaveButton(
+                    onPressed: openLogFolder,
+                    child: const Text('Open log folder'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Packages the last 5 runs and the crash trail into one zip. '
+                'URLs, cookies and tokens are stripped; track titles are kept '
+                'so a wrong-song report stays actionable.',
+                style: WaveType.meta.copyWith(
+                  color: waveTextSecondary(context),
+                ),
               ),
             ],
           ),

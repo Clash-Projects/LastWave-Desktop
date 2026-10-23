@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
+import '../../core/diagnostics/trace_crumb.dart';
 import '../../core/network/dio_factory.dart';
 import 'dash_assembler.dart';
 import 'mp4_boxes.dart';
@@ -181,18 +182,10 @@ class LocalMediaServer {
 final Set<String> _activePartials = <String>{};
 
 /// Server breadcrumb log, shared timeline with the playback ops log
-/// (`<temp>/lastwave/mpv-ops.log`). Names and shapes only — never URLs.
-void _slog(String line) {
-  try {
-    final path =
-        '${Directory.systemTemp.path}${Platform.pathSeparator}lastwave${Platform.pathSeparator}mpv-ops.log';
-    File(path).writeAsStringSync(
-      '${DateTime.now().toIso8601String()} addon-server $line\n',
-      mode: FileMode.append,
-      flush: true,
-    );
-  } catch (_) {}
-}
+/// (`<temp>/lastwave/mpv-ops.log`) and mirrored into the session log that
+/// Settings -> General -> Export diagnostic logs bundles. Names and
+/// shapes only — never URLs.
+void _slog(String line) => TraceCrumb.write('addon-server $line');
 
 class _Session {
   _Session(this._dio, this.name, String manifestXml)

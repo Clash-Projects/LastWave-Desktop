@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import '../../core/audio/stream_models.dart';
+import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/diagnostics/memory_probe.dart';
 import '../../core/matching/match_vocab.dart';
 import '../../core/network/dio_factory.dart';
@@ -25,6 +26,10 @@ import 'signature_decipher.dart';
 /// Structured stream debug log. Mirrors Android `STREAM_LOG_TAG`
 /// fields (stage/videoId/client/itag/mime/expiry/retry/http).
 /// NEVER logs URLs, cookies, tokens or auth headers.
+///
+/// Verbose level: it fires per player request, so it only reaches the
+/// exported session log when the user turns on "Verbose logging" — the
+/// stage/error ones are what a support report usually needs.
 void _logStream(
   String stage, {
   String videoId = '',
@@ -36,11 +41,11 @@ void _logStream(
   int http = 0,
   String detail = '',
 }) {
-  if (!kDebugMode) return;
   final d = detail.length > 80 ? detail.substring(0, 80) : detail;
-  debugPrint(
-      'LastWaveStream stage=$stage videoId=$videoId client=$client '
-      'itag=$itag mime=$mime expiry=$expiry retry=$retry http=$http $d');
+  final line = 'stream stage=$stage videoId=$videoId client=$client '
+      'itag=$itag mime=$mime expiry=$expiry retry=$retry http=$http $d';
+  DiagnosticsLog.detail(line);
+  if (kDebugMode) debugPrint('LastWaveStream $line');
 }
 
 class InnerTubeHttpException implements Exception {

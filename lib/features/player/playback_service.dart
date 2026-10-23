@@ -179,15 +179,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// URLs, cookies, or headers — op names and stream shapes only.
   void _crumb(String line) => TraceCrumb.write(line);
 
-  /// Debug-only per-stage timing breadcrumb. Shape/timing only —
-  /// never URLs, headers, or tokens. Correlate stages by `key`.
+  /// Per-stage timing breadcrumb. Shape/timing only — never URLs,
+  /// headers, or tokens. Correlate stages by `key`.
   ///
-  /// Also mirrored into the crumb file: resolve latency spans the
-  /// player and the addon client, and stdout is unavailable once the
-  /// app runs detached from a terminal.
+  /// Recorded in release too (the session log is what a user can export
+  /// when the app is slow on *their* machine — these are the numbers that
+  /// split a cold open into resolve/assembly/render); the console copy
+  /// stays debug-only so a release build stays quiet on stdout.
   void _logTiming(String line) {
-    if (!kDebugMode) return;
-    debugPrint('LastWave-Timing $line');
+    if (kDebugMode) debugPrint('LastWave-Timing $line');
     TraceCrumb.write('timing $line');
   }
 
