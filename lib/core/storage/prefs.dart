@@ -151,6 +151,12 @@ class Prefs {
   Future<void> resetDownloadDir() =>
       _sp.remove('lw_download_dir');
 
+  /// KHInsider file format, `flac` (default) or `mp3`. Albums without
+  /// FLAC fall back to MP3.
+  String get khinsiderFormat => _sp.getString('lw_khinsider_format') ?? 'flac';
+  Future<void> setKhinsiderFormat(String v) =>
+      _sp.setString('lw_khinsider_format', v);
+
   // -- Lyrics --------------------------------------------------------------
   bool get wordByWord => _sp.getBool('lw_word_by_word') ?? true;
   Future<void> setWordByWord(bool v) => _sp.setBool('lw_word_by_word', v);

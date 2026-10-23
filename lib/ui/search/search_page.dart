@@ -19,6 +19,7 @@ import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../components/desktop_table.dart';
 import '../components/states.dart';
+import '../khinsider/khinsider_search.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -113,6 +114,9 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
   String _submitted = '';
   int _suggestIndex = -1;
   bool _suggestDismissed = false;
+
+  /// "Video game soundtracks" mode: KHInsider instead of YouTube Music.
+  bool _kh = false;
 
   @override
   void initState() {
@@ -215,7 +219,8 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
     final suggestions =
         ref.watch(waveSuggestionsProvider(_suggestQuery)).valueOrNull ??
             const <SearchSuggestion>[];
-    final showSuggestions = _query.isNotEmpty &&
+    final showSuggestions = !_kh &&
+        _query.isNotEmpty &&
         _submitted != _query &&
         !_suggestDismissed &&
         suggestions.isNotEmpty;
@@ -249,7 +254,9 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
                 controller: _controller,
                 focusNode: _focus,
                 autofocus: true,
-                placeholder: 'Songs, artists, albums…',
+                placeholder: _kh
+                    ? 'Game soundtracks on KHInsider…'
+                    : 'Songs, artists, albums…',
                 prefix: Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: Icon(WaveIcons.search,
@@ -271,6 +278,22 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
                 },
               ),
             ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            children: [
+              ToggleButton(
+                checked: !_kh,
+                onChanged: (_) => setState(() => _kh = false),
+                child: const Text('Music'),
+              ),
+              ToggleButton(
+                checked: _kh,
+                onChanged: (_) => setState(() => _kh = true),
+                child: const Text('Video game soundtracks'),
+              ),
+            ],
           ),
           if (showSuggestions) ...[
             const SizedBox(height: 6),
@@ -296,7 +319,10 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
               ),
             ),
           ],
-          if (_submitted.isEmpty) ...[
+          if (_kh) ...[
+            const SizedBox(height: 20),
+            WaveKhInsiderSearch(query: _submitted),
+          ] else if (_submitted.isEmpty) ...[
             if (history.isNotEmpty) ...[
               const SizedBox(height: 28),
               _RecentlySearched(

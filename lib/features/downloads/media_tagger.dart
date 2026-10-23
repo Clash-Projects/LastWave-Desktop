@@ -36,6 +36,9 @@ class DownloadTags {
   final Uint8List? coverBytes;
   final String coverMime;
 
+  /// Position on the album; 0 = not written. FLAC and MP3 only.
+  final int trackNumber;
+
   const DownloadTags({
     this.title = '',
     this.artist = '',
@@ -43,6 +46,7 @@ class DownloadTags {
     this.lyrics = '',
     this.coverBytes,
     this.coverMime = '',
+    this.trackNumber = 0,
   });
 
   bool get hasCover =>
@@ -970,6 +974,9 @@ class MediaTagger {
     if (tags.album.trim().isNotEmpty) {
       comments.add('ALBUM=${tags.album.trim()}');
     }
+    if (tags.trackNumber > 0) {
+      comments.add('TRACKNUMBER=${tags.trackNumber}');
+    }
     final lyrics = tags.lyrics.replaceAll('\r\n', '\n').trim();
     if (lyrics.isNotEmpty) comments.add('LYRICS=$lyrics');
     comments.add('ENCODER=LastWave Desktop');
@@ -1029,6 +1036,7 @@ class MediaTagger {
       _id3Text('TIT2', tags.title),
       _id3Text('TPE1', tags.artist),
       _id3Text('TALB', tags.album),
+      if (tags.trackNumber > 0) _id3Text('TRCK', '${tags.trackNumber}'),
     ];
     final lyrics = tags.lyrics.replaceAll('\r\n', '\n').trim();
     if (lyrics.isNotEmpty) {

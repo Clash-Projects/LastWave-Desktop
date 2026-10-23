@@ -285,11 +285,18 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     }
   }
 
+  /// [directSource] skips the lossless/YouTube lookup and saves that stream
+  /// as is (KHInsider files), into `<folder>/<fileName>.<ext>` when given,
+  /// tagged with [trackNumber].
   Future<void> downloadTrack({
     required String title,
     required String artist,
     String album = '',
     String artworkUrl = '',
+    Future<ResolvedStream?> Function()? directSource,
+    String folder = '',
+    String fileName = '',
+    int trackNumber = 0,
   }) async {
     final key = keyOf(title, artist);
     if (_active.contains(key) || isDownloaded(title, artist)) return;
@@ -310,7 +317,12 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       var fromAddon = false;
       var ytCodecHint = '';
 
-      if (_prefs.preferLossless &&
+      if (directSource != null) {
+        stream = await directSource();
+        if (stream == null) throw Exception('No playable source found');
+        isLossless = stream.isLossless;
+        ytCodecHint = stream.audioCodec.toUpperCase();
+      } else if (_prefs.preferLossless &&
           _prefs.downloadQuality !=
               AudioQualityTiers.youtubeOnly &&
           _lossless.isConfigured) {
@@ -354,15 +366,19 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       // Lyrics + cover in parallel: sidecar text, embeddable plain
       // text, and cover bytes for the container tag.
       final fetched = await Future.wait([
-        _lyrics
-            .getLyrics(
-              title: title,
-              artist: artist,
-              album: album,
-              wordByWord: false,
-            )
-            .timeout(const Duration(seconds: 20),
-                onTimeout: () => const LyricsResult.empty()),
+        // Direct sources are game soundtracks: no lyrics to look up.
+        if (directSource != null)
+          Future.value(const LyricsResult.empty())
+        else
+          _lyrics
+              .getLyrics(
+                title: title,
+                artist: artist,
+                album: album,
+                wordByWord: false,
+              )
+              .timeout(const Duration(seconds: 20),
+                  onTimeout: () => const LyricsResult.empty()),
         _fetchCoverBytes(title, artist, artworkUrl),
       ]);
       final lyrics = fetched[0] as LyricsResult;
@@ -406,6 +422,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         lyrics: lyricsText,
         coverBytes: cover?.bytes,
         coverMime: cover?.mime ?? '',
+        trackNumber: trackNumber,
       );
       final container = MediaTagger.detectContainer(audioBytes);
       var finalExt = 'webm';
@@ -471,9 +488,13 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
             : (ytCodecHint.isNotEmpty ? ytCodecHint : 'AUDIO');
       }
 
-      final dir = await _musicDir();
-      final file = File(p.join(
-          dir.path, '${_sanitize('$artist - $title')}.$finalExt'));
+      var dir = await _musicDir();
+      if (folder.trim().isNotEmpty) {
+        dir = Directory(p.join(dir.path, _sanitize(folder)));
+        await dir.create(recursive: true);
+      }
+      final stem = fileName.trim().isNotEmpty ? fileName : '$artist - $title';
+      final file = File(p.join(dir.path, '${_sanitize(stem)}.$finalExt'));
       await file.writeAsBytes(outBytes, flush: true);
 
       var lrcPath = '';
