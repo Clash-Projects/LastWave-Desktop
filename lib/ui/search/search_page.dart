@@ -90,6 +90,7 @@ PlayableTrack playableFromSearch(SearchResultItem e) => PlayableTrack(
       album: e.subtitle,
       artworkUrl: e.artworkUrl,
       videoId: e.videoId,
+      duration: Duration(seconds: e.durationSeconds),
     );
 
 /// Search — live results when a query is submitted; empty state is

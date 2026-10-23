@@ -129,6 +129,8 @@ Future<PlaylistImportPreview> previewPlaylistLinkWith(
             artist: t.artist,
             artworkUrl: t.artworkUrl,
             videoId: t.videoId,
+            album: t.album,
+            durationSeconds: t.durationSeconds,
           ),
       ],
     );
@@ -165,6 +167,8 @@ Future<PlaylistImportPreview> previewPlaylistLinkWith(
         artist: row.artist,
         artworkUrl: match.artworkUrl,
         videoId: match.videoId,
+        album: match.album,
+        durationSeconds: match.durationSeconds,
       ));
     }
   }

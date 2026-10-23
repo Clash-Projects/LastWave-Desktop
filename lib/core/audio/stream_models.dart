@@ -58,6 +58,13 @@ class PlayableTrack {
   final String playbackUrl;
   final String playbackMimeType;
 
+  /// Length the source advertised for this track, when known. Carried so
+  /// the lossless matcher can separate the album cut from a radio edit /
+  /// short variant of the same title (the addon duration gate is ±8s);
+  /// zero when the row never had it (saved playlists imported before it
+  /// was stored, local files).
+  final Duration duration;
+
   const PlayableTrack({
     required this.title,
     required this.artist,
@@ -66,6 +73,7 @@ class PlayableTrack {
     this.videoId = '',
     this.playbackUrl = '',
     this.playbackMimeType = '',
+    this.duration = Duration.zero,
   });
 
   String get mediaId {
@@ -85,6 +93,7 @@ class PlayableTrack {
         'videoId': videoId,
         'playbackUrl': playbackUrl,
         'playbackMimeType': playbackMimeType,
+        'durationMs': duration.inMilliseconds,
       };
 
   factory PlayableTrack.fromJson(Map<String, dynamic> json) =>
@@ -96,6 +105,9 @@ class PlayableTrack {
         videoId: json['videoId']?.toString() ?? '',
         playbackUrl: json['playbackUrl']?.toString() ?? '',
         playbackMimeType: json['playbackMimeType']?.toString() ?? '',
+        duration: Duration(
+          milliseconds: int.tryParse('${json['durationMs'] ?? 0}') ?? 0,
+        ),
       );
 
   PlayableTrack copyWith({
@@ -106,6 +118,7 @@ class PlayableTrack {
     String? videoId,
     String? playbackUrl,
     String? playbackMimeType,
+    Duration? duration,
   }) =>
       PlayableTrack(
         title: title ?? this.title,
@@ -115,6 +128,7 @@ class PlayableTrack {
         videoId: videoId ?? this.videoId,
         playbackUrl: playbackUrl ?? this.playbackUrl,
         playbackMimeType: playbackMimeType ?? this.playbackMimeType,
+        duration: duration ?? this.duration,
       );
 
   @override

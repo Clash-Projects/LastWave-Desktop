@@ -1298,6 +1298,8 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
             artist: widget.track.artist,
             artworkUrl: widget.track.artworkUrl,
             videoId: widget.track.videoId,
+            album: widget.track.album,
+            durationSeconds: widget.track.duration.inSeconds,
           ),
         );
   }

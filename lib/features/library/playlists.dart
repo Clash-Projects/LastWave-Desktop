@@ -17,11 +17,20 @@ class StoredTrack {
   final String artworkUrl;
   final String videoId;
 
+  /// Album / length from the source row. Persisted so a track queued from
+  /// a saved playlist still reaches the lossless matcher with the film
+  /// (soundtrack rows billed to the composer) and its real duration.
+  /// Rows written before this existed simply read back empty/zero.
+  final String album;
+  final int durationSeconds;
+
   const StoredTrack({
     required this.name,
     required this.artist,
     this.artworkUrl = '',
     this.videoId = '',
+    this.album = '',
+    this.durationSeconds = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -29,6 +38,8 @@ class StoredTrack {
         'artist': artist,
         'artworkUrl': artworkUrl,
         'videoId': videoId,
+        'album': album,
+        'durationSeconds': durationSeconds,
       };
 
   factory StoredTrack.fromJson(Map<String, dynamic> json) =>
@@ -39,13 +50,18 @@ class StoredTrack {
         videoId: json['videoId']?.toString() ??
             json['youtubeVideoId']?.toString() ??
             '',
+        album: json['album']?.toString() ?? '',
+        durationSeconds:
+            int.tryParse('${json['durationSeconds'] ?? 0}') ?? 0,
       );
 
   PlayableTrack toPlayable() => PlayableTrack(
         title: name,
         artist: artist,
+        album: album,
         artworkUrl: artworkUrl,
         videoId: videoId,
+        duration: Duration(seconds: durationSeconds),
       );
 }
 
@@ -159,15 +175,27 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
     refresh();
   }
 
+  /// Creation id for a playlist row. Millisecond timestamps collide when
+  /// two rows are created inside the same millisecond (library seeding
+  /// plus an immediate "New playlist"), which the primary key rejects;
+  /// keep it monotonic against what the table already holds.
+  int _newId() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final row = _db.raw.select('SELECT MAX(id) AS m FROM saved_playlists;').first;
+    final maxId = (row['m'] as int?) ?? 0;
+    return now > maxId ? now : maxId + 1;
+  }
+
   Future<SavedPlaylist> ensureLikedSongs() async {
     collapseDuplicateLikedRows();
     final existing = state.where((p) => p.isLikedSongs);
     if (existing.isNotEmpty) return existing.first;
+    final id = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
     _db.raw.execute(
       'INSERT INTO saved_playlists(id, title, subtitle, mode, tracks_json, created_at_millis, is_pinned) '
       'VALUES(?, ?, ?, ?, ?, ?, 1);',
-      [now, SavedPlaylist.likedTitle, 'Your loved tracks', SavedPlaylist.likedMode, '[]', now],
+      [id, SavedPlaylist.likedTitle, 'Your loved tracks', SavedPlaylist.likedMode, '[]', now],
     );
     refresh();
     return state.firstWhere((p) => p.isLikedSongs);
@@ -192,14 +220,15 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
         p.mode == 'custom' && p.title.toLowerCase() == clean.toLowerCase());
     if (existing.isNotEmpty) return existing.first;
 
+    final id = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
     _db.raw.execute(
       'INSERT INTO saved_playlists(id, title, mode, tracks_json, created_at_millis) '
       'VALUES(?, ?, ?, ?, ?);',
-      [now, clean, 'custom', '[]', now],
+      [id, clean, 'custom', '[]', now],
     );
     refresh();
-    return state.firstWhere((p) => p.id == now);
+    return state.firstWhere((p) => p.id == id);
   }
 
   Future<void> rename(int id, String title) async {

@@ -108,6 +108,8 @@ List<WaveMenuEntry> waveTrackMenuItems({
   required String artist,
   String artworkUrl = '',
   String videoId = '',
+  String album = '',
+  int durationSeconds = 0,
   PlayableTrack? playable,
   String? removeLabel,
   VoidCallback? onRemove,
@@ -117,8 +119,10 @@ List<WaveMenuEntry> waveTrackMenuItems({
       PlayableTrack(
         title: title,
         artist: artist,
+        album: album,
         artworkUrl: artworkUrl,
         videoId: videoId,
+        duration: Duration(seconds: durationSeconds),
       );
   final library = ref.read(playlistRepositoryProvider.notifier);
   final liked = library.likedKeys().contains(track.queueKey);
@@ -130,6 +134,8 @@ List<WaveMenuEntry> waveTrackMenuItems({
         artist: artist,
         artworkUrl: artworkUrl,
         videoId: track.videoId,
+        album: album,
+        durationSeconds: durationSeconds,
       );
 
   final items = <WaveMenuEntry>[
@@ -863,6 +869,8 @@ Future<void> showWaveAddToPlaylist(
   required String artist,
   String artworkUrl = '',
   String videoId = '',
+  String album = '',
+  int durationSeconds = 0,
 }) async {
   final playlists = ref.read(playlistRepositoryProvider);
   if (playlists.isEmpty) return;
@@ -871,6 +879,8 @@ Future<void> showWaveAddToPlaylist(
     artist: artist,
     artworkUrl: artworkUrl,
     videoId: videoId,
+    album: album,
+    durationSeconds: durationSeconds,
   );
   // Liked Songs is not a target; a library with nothing else would otherwise
   // open a dialog of one Cancel button (the same empty dead end the track menu
@@ -939,6 +949,8 @@ Future<bool> waveToggleLike(
   required String artist,
   String artworkUrl = '',
   String videoId = '',
+  String album = '',
+  int durationSeconds = 0,
 }) {
   return ref.read(playlistRepositoryProvider.notifier).toggleLiked(
         StoredTrack(
@@ -946,6 +958,8 @@ Future<bool> waveToggleLike(
           artist: artist,
           artworkUrl: artworkUrl,
           videoId: videoId,
+          album: album,
+          durationSeconds: durationSeconds,
         ),
       );
 }

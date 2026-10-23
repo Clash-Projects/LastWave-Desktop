@@ -156,12 +156,19 @@ Future<void> goToAlbumOfTrack(
   }
 }
 
+/// Feed / mix / radio row → queue item. The generated row already knows
+/// the album and length; dropping them here is what left the lossless
+/// matcher with nothing but title+artist, so soundtrack rows billed to
+/// the composer could not be identified (and the ±8s duration gate never
+/// ran).
 PlayableTrack playableFromGenerated(GeneratedTrack t) =>
     PlayableTrack(
       title: t.name,
       artist: t.artist,
+      album: t.album,
       artworkUrl: t.artworkUrl,
       videoId: t.videoId,
+      duration: Duration(seconds: t.durationSeconds),
     );
 
 String formatDuration(Duration d) {

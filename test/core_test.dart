@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lastwave_desktop/core/audio/stream_models.dart';
 import 'package:lastwave_desktop/core/network/lastfm_crypto.dart';
 import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
 import 'package:lastwave_desktop/features/innertube/signature_decipher.dart';
+import 'package:lastwave_desktop/features/library/playlists.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_models.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_repository.dart';
 
@@ -373,6 +375,47 @@ void main() {
     test('detects Arabic text', () {
       expect(isRtlText('مرحبا بالعالم'), isTrue);
       expect(isRtlText('Hello world'), isFalse);
+    });
+  });
+
+  group('queue metadata round-trip', () {
+    test('PlayableTrack keeps album and duration through the session', () {
+      const t = PlayableTrack(
+        title: 'Subha Hone Na De',
+        artist: 'Pritam',
+        album: 'Desi Boyz',
+        videoId: 'abc',
+        duration: Duration(seconds: 289),
+      );
+      final back = PlayableTrack.fromJson(t.toJson());
+      expect(back.album, 'Desi Boyz');
+      expect(back.duration, const Duration(seconds: 289));
+    });
+
+    test('old session rows without durationMs read back as zero', () {
+      final back = PlayableTrack.fromJson({
+        'title': 'Subha Hone Na De',
+        'artist': 'Pritam',
+        'album': 'Desi Boyz',
+        'videoId': 'abc',
+      });
+      expect(back.duration, Duration.zero);
+      expect(back.album, 'Desi Boyz');
+    });
+
+    test('StoredTrack keeps album and duration into the queue', () {
+      const s = StoredTrack(
+        name: 'Besharmi Ki Height',
+        artist: 'Benny Dayal',
+        album: 'Main Tera Hero',
+        durationSeconds: 289,
+      );
+      final back = StoredTrack.fromJson(s.toJson());
+      expect(back.album, 'Main Tera Hero');
+      expect(back.durationSeconds, 289);
+      final playable = back.toPlayable();
+      expect(playable.album, 'Main Tera Hero');
+      expect(playable.duration, const Duration(seconds: 289));
     });
   });
 }

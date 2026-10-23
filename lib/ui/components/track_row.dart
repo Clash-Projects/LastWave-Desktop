@@ -276,6 +276,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
                                     artist: widget.artist,
                                     artworkUrl: widget.artworkUrl,
                                     videoId: widget.videoId,
+                                    album: widget.album,
                                   ),
                                 );
                           },
@@ -290,6 +291,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
                           artist: widget.artist,
                           artworkUrl: widget.artworkUrl,
                           videoId: widget.videoId,
+                          album: widget.album,
                           playable: widget.playable,
                           removeLabel: widget.removeLabel,
                           onRemove: widget.onRemove,
