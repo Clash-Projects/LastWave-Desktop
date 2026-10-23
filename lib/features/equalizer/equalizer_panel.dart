@@ -398,8 +398,9 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildTargetOptionCard(
     BuildContext context,
