@@ -39,14 +39,13 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\build\windows\installer
 OutputBaseFilename=lastwave_{#MyAppVersion}_windows-x86_64-setup
-; lzma2/max with SolidCompression=no prevents deep-learning AV heuristics
-; (e.g. DeepInstinct) from mistaking solid packed overlays for malware droppers.
-Compression=lzma2/max
+Compression=none
 SolidCompression=no
+LZMAUseSeparateProcess=no
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile=runner\resources\app_icon.ico
+; SetupIconFile=runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 DisableProgramGroupPage=yes
 VersionInfoVersion={#MyAppVersionNum}
