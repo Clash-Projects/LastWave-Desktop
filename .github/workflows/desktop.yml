@@ -346,7 +346,9 @@ jobs:
         run: |
           choco install innosetup --no-progress -y
           $ver = '${{ github.ref_name }}'.TrimStart('v')
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$ver" windows\installer.iss
+          $verNum = ($ver -replace '[^0-9.].*$', '')
+          if (-not $verNum) { $verNum = '1.0.0.0' }
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$ver" "/DMyAppVersionNum=$verNum" windows\installer.iss
           Get-ChildItem build\windows\installer\
 
       - name: Upload Windows Installer

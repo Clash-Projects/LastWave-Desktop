@@ -1,4 +1,4 @@
-﻿; LastWave - Windows installer (Inno Setup 6).
+; LastWave - Windows installer (Inno Setup 6).
 ;
 ; Built ONLY for releases (v* tags); see .github/workflows/desktop.yml.
 ; Version is injected by CI: ISCC /DMyAppVersion=1.0.0
@@ -10,6 +10,9 @@
 
 #ifndef MyAppVersion
   #define MyAppVersion "1.0.0-dev"
+#endif
+#ifndef MyAppVersionNum
+  #define MyAppVersionNum "1.0.0.0"
 #endif
 #define MyAppName "LastWave"
 #define MyAppPublisher "Clash-Projects"
@@ -36,15 +39,24 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\build\windows\installer
 OutputBaseFilename=lastwave_{#MyAppVersion}_windows-x86_64-setup
-Compression=lzma2/ultra64
-SolidCompression=yes
+; lzma2/max with SolidCompression=no prevents deep-learning AV heuristics
+; (e.g. DeepInstinct) from mistaking solid packed overlays for malware droppers.
+Compression=lzma2/max
+SolidCompression=no
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+SetupIconFile=runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 DisableProgramGroupPage=yes
-; No LicenseFile/SetupIconFile yet: no license text or .ico asset in
-; the repo. Add both when they land.
+VersionInfoVersion={#MyAppVersionNum}
+VersionInfoTextVersion={#MyAppVersion}
+VersionInfoProductVersion={#MyAppVersionNum}
+VersionInfoProductTextVersion={#MyAppVersion}
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription={#MyAppName} Setup
+VersionInfoCopyright=Copyright (C) 2026 {#MyAppPublisher}
+VersionInfoProductName={#MyAppName}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
