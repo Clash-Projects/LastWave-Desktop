@@ -440,7 +440,9 @@ List<LyricLine> parseBetterKaraoke(String raw) {
     ));
   }
   rows.sort((a, b) => a.timeMs.compareTo(b.timeMs));
-  return rows;
+  return stripLyricCreditLines(
+    LyricsResult(lines: rows, isSynced: true, isWordSynced: true),
+  ).lines;
 }
 
 // -- Lrc.Red (lrc.red/api/v1, Bini-compatible) -------------------------------
@@ -713,6 +715,9 @@ final _krcCreditRegex = RegExp(
 
 bool _isKugouCreditLine(String text, bool isFirstLine) {
   if (_krcCreditRegex.hasMatch(text)) return true;
+  if (isLyricCreditLine(text, index: isFirstLine ? 0 : 1, totalLines: 10)) {
+    return true;
+  }
   if (isFirstLine &&
       (text.contains(' - ') ||
           text.contains(' – ') ||
@@ -823,6 +828,43 @@ int _kugouDurationDelta(
   return (candMs - durationSeconds * 1000).abs();
 }
 
+final _krcMetaTiRegex =
+    RegExp(r'^\[ti:\s*(.*?)\s*\]$', caseSensitive: false);
+final _krcMetaAlRegex =
+    RegExp(r'^\[al:\s*(.*?)\s*\]$', caseSensitive: false);
+
+final _djMixTagRegex = RegExp(
+  r'[\(\[]\s*(?:mixed|dj\s+mix)\s*[\)\]]',
+  caseSensitive: false,
+);
+
+/// Verify that internal KRC `[ti:...]` and `[al:...]` tags are not a DJ Mix /
+/// `(Mixed)` transition cut when the requested track is the standard release
+/// (e.g. rejecting `[ti:Am I Dreaming (Mixed)]` or
+/// `[al:Vol.1:Afrocity Champs (DJ Mix)]` when querying `"Am I Dreaming"`).
+bool kugouKrcMatchesTrack(String krcText, {required String title}) {
+  if (title.trim().isEmpty) return true;
+  if (_djMixTagRegex.hasMatch(title)) return true;
+  for (final raw in krcText.split('\n')) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) continue;
+    final tiMatch = _krcMetaTiRegex.firstMatch(trimmed);
+    if (tiMatch != null) {
+      final krcTitle = tiMatch.group(1)?.trim() ?? '';
+      if (_djMixTagRegex.hasMatch(krcTitle)) return false;
+      continue;
+    }
+    final alMatch = _krcMetaAlRegex.firstMatch(trimmed);
+    if (alMatch != null) {
+      final krcAlbum = alMatch.group(1)?.trim() ?? '';
+      if (_djMixTagRegex.hasMatch(krcAlbum)) return false;
+      continue;
+    }
+    if (_krcLineRegex.hasMatch(trimmed)) break;
+  }
+  return true;
+}
+
 /// Search Kugou, download the best text-matched KRC, decrypt + parse.
 /// Text match is mandatory: duration alone never selects a candidate.
 Future<LyricsResult?> fetchKugou(
@@ -837,6 +879,11 @@ Future<LyricsResult?> fetchKugou(
     final cleanedArtist = _kugouCleanArtist(artist);
     var searchTitle = stripLeadingArtistPrefix(cleanedTitle);
     if (searchTitle.isEmpty) searchTitle = cleanedTitle;
+    final hasKnownDuration = durationSeconds != null && durationSeconds > 0;
+    final isShortTrackQuery = RegExp(
+      r'\b(intro|outro|interlude|skit|short)\b',
+      caseSensitive: false,
+    ).hasMatch(title);
 
     final searchRes = await dio.get<Map<String, dynamic>>(
       'https://lyrics.kugou.com/search',
@@ -845,9 +892,7 @@ Future<LyricsResult?> fetchKugou(
         'man': 'yes',
         'client': 'pc',
         'keyword': '$cleanedArtist - $searchTitle',
-        'duration': durationSeconds != null && durationSeconds > 0
-            ? '${durationSeconds * 1000}'
-            : '',
+        'duration': hasKnownDuration ? '${durationSeconds * 1000}' : '',
         'hash': '',
       },
       options: Options(headers: {'User-Agent': _kugouUserAgent}),
@@ -859,6 +904,15 @@ Future<LyricsResult?> fetchKugou(
       final song = cand['song']?.toString() ?? '';
       // Never serve the wrong recording (live/remix/cover/etc.).
       if (!lyricsSameVersion(title, song)) return false;
+      final candDurMs = (cand['duration'] as num?)?.toInt() ?? 0;
+      // When track duration is unknown, reject <55s ringtone / DJ-mix snippets
+      // unless the query title itself asks for an intro/skit/interlude.
+      if (!hasKnownDuration &&
+          !isShortTrackQuery &&
+          candDurMs > 0 &&
+          candDurMs < 55000) {
+        return false;
+      }
       final candSinger = _kugouCleanArtist(cand['singer']?.toString() ?? '');
       final candSong = lyricsForSearchTitle(song);
       if (!_artistMatchesLoose(candSinger, cleanedArtist)) return false;
@@ -876,42 +930,47 @@ Future<LyricsResult?> fetchKugou(
         .compareTo(_kugouDurationDelta(b, durationSeconds)));
     if (matched.isEmpty) return null;
 
-    Map<String, dynamic>? pick(int maxDelta) {
-      for (final c in matched) {
-        if (_kugouDurationDelta(c, durationSeconds) <= maxDelta) return c;
-      }
-      return null;
+    // When durationSeconds is known, require the Kugou candidate to be within
+    // 30s of the track duration — never fall back to `matched.first` when it's
+    // a 34-second snippet for a 4-minute song.
+    final viable = hasKnownDuration
+        ? [
+            for (final c in matched)
+              if (_kugouDurationDelta(c, durationSeconds) <= 30000) c,
+          ]
+        : matched;
+    if (viable.isEmpty) return null;
+
+    for (final candidate in viable.take(3)) {
+      final downloadRes = await dio.get<Map<String, dynamic>>(
+        'https://lyrics.kugou.com/download',
+        queryParameters: {
+          'ver': '1',
+          'client': 'pc',
+          'id': '${candidate['id']}',
+          'accesskey': '${candidate['accesskey']}',
+          'fmt': 'krc',
+          'charset': 'utf8',
+        },
+        options: Options(headers: {'User-Agent': _kugouUserAgent}),
+      );
+      final rawBase64 = downloadRes.data?['content']?.toString();
+      if (rawBase64 == null || rawBase64.isEmpty) continue;
+      final krcText = decryptKugouKrc(rawBase64);
+      if (krcText == null) continue;
+      if (!kugouKrcMatchesTrack(krcText, title: title)) continue;
+      final lines = parseKugouKrc(krcText);
+      if (lines.isEmpty) continue;
+      if (!lyricsPlausibleDuration(lines, durationSeconds)) continue;
+      return LyricsResult(
+        lines: lines,
+        isSynced: true,
+        isWordSynced: lines.any((l) => l.hasSyllables),
+        plainLyrics: lines.map((l) => l.text).join('\n'),
+        source: 'Kugou KRC (Word-Sync)',
+      );
     }
-
-    final candidate =
-        pick(8000) ?? pick(30000) ?? matched.first;
-
-    final downloadRes = await dio.get<Map<String, dynamic>>(
-      'https://lyrics.kugou.com/download',
-      queryParameters: {
-        'ver': '1',
-        'client': 'pc',
-        'id': '${candidate['id']}',
-        'accesskey': '${candidate['accesskey']}',
-        'fmt': 'krc',
-        'charset': 'utf8',
-      },
-      options: Options(headers: {'User-Agent': _kugouUserAgent}),
-    );
-    final rawBase64 = downloadRes.data?['content']?.toString();
-    if (rawBase64 == null || rawBase64.isEmpty) return null;
-    final krcText = decryptKugouKrc(rawBase64);
-    if (krcText == null) return null;
-    final lines = parseKugouKrc(krcText);
-    if (lines.isEmpty) return null;
-    if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
-    return LyricsResult(
-      lines: lines,
-      isSynced: true,
-      isWordSynced: lines.any((l) => l.hasSyllables),
-      plainLyrics: lines.map((l) => l.text).join('\n'),
-      source: 'Kugou KRC (Word-Sync)',
-    );
+    return null;
   } catch (_) {
     return null;
   }
@@ -1498,20 +1557,40 @@ Future<LyricsResult?> fetchLyricsPlus(
           final words = syllablesRaw != null
               ? mergeSyllables(syllablesRaw)
               : const <LyricSyllable>[];
+          final rawItemText = item['text']?.toString().trim() ?? '';
+          if (rawItemText.isNotEmpty &&
+              isLyricCreditLine(
+                rawItemText,
+                index: lines.isEmpty ? 0 : lines.length,
+                totalLines: rawLines.length,
+                title: title,
+                artist: artist,
+              )) {
+            continue;
+          }
           if (words.isNotEmpty) {
+            final joinedWords = words.map((w) => w.text).join(' ');
+            if (isLyricCreditLine(
+              joinedWords,
+              index: lines.isEmpty ? 0 : lines.length,
+              totalLines: rawLines.length,
+              title: title,
+              artist: artist,
+            )) {
+              continue;
+            }
             lines.add(LyricLine(
               timeMs: math.min(time, words.first.timeMs),
               durationMs: duration > 0 ? duration : 0,
-              text: words.map((w) => w.text).join(' '),
+              text: joinedWords,
               syllables: words,
             ));
           } else {
-            final text = item['text']?.toString().trim() ?? '';
-            if (text.isNotEmpty) {
+            if (rawItemText.isNotEmpty) {
               lines.add(LyricLine(
                 timeMs: time,
                 durationMs: duration > 0 ? duration : 0,
-                text: text,
+                text: rawItemText,
               ));
             }
           }
