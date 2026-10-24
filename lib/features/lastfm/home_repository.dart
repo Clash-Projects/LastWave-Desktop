@@ -240,6 +240,40 @@ class HomeRepository {
     }
   }
 
+  Future<List<({String name, String artist, int playCount, String artworkUrl})>> fetchTopAlbums({
+    String? viewingAs,
+    String period = '7day',
+    int limit = 20,
+  }) async {
+    final user = _effectiveUser(viewingAs);
+    if (user == null) return const [];
+    try {
+      final json = await _api.get({
+        'method': 'user.gettopalbums',
+        'user': user,
+        'api_key': _apiKey,
+        'period': period,
+        'limit': '$limit',
+      });
+      return _asList(_asMap(json['topalbums'])['album'])
+          .map((a) {
+            final artist = _asMap(a['artist'])['name']?.toString() ??
+                a['artist']?.toString() ??
+                '';
+            return (
+              name: a['name']?.toString() ?? '',
+              artist: artist,
+              playCount: int.tryParse(a['playcount']?.toString() ?? '') ?? 0,
+              artworkUrl: _bestImage(a['image']),
+            );
+          })
+          .where((a) => a.name.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<List<FriendEntry>> fetchFriends({String? viewingAs}) async {
     final user = _effectiveUser(viewingAs);
     if (user == null) {

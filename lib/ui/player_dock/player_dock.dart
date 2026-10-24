@@ -14,6 +14,7 @@ import '../../features/player/playback_service.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../../features/settings/theme_controller.dart';
 import '../components/ambient.dart';
+import '../components/artist_line.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, LWVolumeSlider, WaveLink;
 import '../components/menus.dart';
@@ -169,8 +170,8 @@ class WavePlayerDock extends ConsumerWidget {
                                               fontWeight: FontWeight.w600,
                                             ),
                                           ),
-                                          Text(
-                                            current.artist,
+                                          WaveArtistLine(
+                                            artist: current.artist,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: WaveType.meta.copyWith(

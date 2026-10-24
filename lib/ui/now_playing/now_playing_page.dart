@@ -15,6 +15,7 @@ import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
+import '../components/artist_line.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
@@ -1037,44 +1038,30 @@ class _TrackMetadataSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 5),
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: () => context.go(
-              '/search?q=${Uri.encodeComponent(track.artist)}',
-            ),
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: track.artist,
-                    style: artistStyle.copyWith(
-                      color: Colors.white.withValues(alpha: 0.86),
-                    ),
-                  ),
-                  if (showDistinctAlbum) ...[
-                    TextSpan(
-                      text: '  ·  ',
-                      style: artistStyle.copyWith(
-                        color: Colors.white.withValues(alpha: 0.30),
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
-                    TextSpan(
-                      text: track.album,
-                      style: artistStyle.copyWith(
-                        color: Colors.white.withValues(alpha: 0.56),
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: alignCenter ? TextAlign.center : TextAlign.start,
-            ),
+        WaveArtistLine(
+          artist: track.artist,
+          textAlign: alignCenter ? TextAlign.center : TextAlign.start,
+          style: artistStyle.copyWith(
+            color: Colors.white.withValues(alpha: 0.86),
           ),
+          extraTrailingSpans: [
+            if (showDistinctAlbum) ...[
+              TextSpan(
+                text: '  ·  ',
+                style: artistStyle.copyWith(
+                  color: Colors.white.withValues(alpha: 0.30),
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              TextSpan(
+                text: track.album,
+                style: artistStyle.copyWith(
+                  color: Colors.white.withValues(alpha: 0.56),
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ],
+          ],
         ),
         if (quality != null) ...[
           const SizedBox(height: 10),

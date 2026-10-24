@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/track_actions.dart';
+import '../../core/audio/artist_parser.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/home/home_providers.dart';
@@ -198,14 +199,28 @@ List<WaveMenuEntry> waveTrackMenuItems({
       ),
     ),
   );
-  items.add(
-    WaveMenuAction(
-      leading: const Icon(FluentIcons.microphone, size: 15),
-      label: 'Go to artist',
-      onPressed: () => waveOpen(
-          ref.context, '/artist/${Uri.encodeComponent(artist)}'),
-    ),
-  );
+  final artistList = splitArtistCredits(artist).toList();
+  if (artistList.length > 1) {
+    for (final a in artistList) {
+      items.add(
+        WaveMenuAction(
+          leading: const Icon(FluentIcons.microphone, size: 15),
+          label: 'Go to $a',
+          onPressed: () => waveOpen(
+              ref.context, '/artist/${Uri.encodeComponent(a)}'),
+        ),
+      );
+    }
+  } else if (artistList.isNotEmpty) {
+    items.add(
+      WaveMenuAction(
+        leading: const Icon(FluentIcons.microphone, size: 15),
+        label: 'Go to ${artistList.first}',
+        onPressed: () => waveOpen(
+            ref.context, '/artist/${Uri.encodeComponent(artistList.first)}'),
+      ),
+    );
+  }
   items.add(const WaveMenuSeparator());
   items.add(
     WaveMenuAction(

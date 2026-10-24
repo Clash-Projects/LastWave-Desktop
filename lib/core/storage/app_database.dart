@@ -4,6 +4,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 
+import '../audio/artist_parser.dart';
+
 /// Desktop persistent storage. Schema mirrors LastWave-native
 /// `AppDatabase` (Room, v12) tables plus desktop additions:
 /// - `artwork_cache`, `recommendation_exclusions`, `saved_playlists`,
@@ -412,27 +414,34 @@ class AppDatabase {
       );
       final totalPlays = (totalRow.first['cnt'] as int?) ?? 0;
 
-      // Unique artists & tracks
+      // Unique tracks
       final uniqueRow = _db.select(
-        'SELECT COUNT(DISTINCT lower(artist)) as artists, '
-        'COUNT(DISTINCT lower(title || "|" || artist)) as tracks '
+        'SELECT COUNT(DISTINCT lower(title || "|" || artist)) as tracks '
         'FROM local_plays $whereClause;',
       );
-      final uniqueArtists = (uniqueRow.first['artists'] as int?) ?? 0;
       final uniqueTracks = (uniqueRow.first['tracks'] as int?) ?? 0;
 
-      // Top Artists
-      final topArtistsRows = _db.select(
+      // Top Artists: split collaborations so each artist gets individual credit
+      final artistRows = _db.select(
         'SELECT artist, COUNT(*) as cnt FROM local_plays $whereClause '
-        'GROUP BY lower(artist) ORDER BY cnt DESC LIMIT 15;',
+        'GROUP BY artist;',
       );
-      final topArtists = topArtistsRows
-          .map((r) => (
-                name: (r['artist'] as String?) ?? '',
-                count: (r['cnt'] as int?) ?? 0,
-              ))
-          .where((a) => a.name.isNotEmpty)
+      final artistCounts = <String, int>{};
+      for (final r in artistRows) {
+        final rawArtist = (r['artist'] as String?) ?? '';
+        final cnt = (r['cnt'] as int?) ?? 0;
+        for (final single in splitArtistCredits(rawArtist)) {
+          artistCounts[single] = (artistCounts[single] ?? 0) + cnt;
+        }
+      }
+      final sortedArtists = artistCounts.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final topArtists = sortedArtists
+          .take(20)
+          .map((e) => (name: e.key, count: e.value))
           .toList();
+
+      final uniqueArtists = artistCounts.length;
 
       // Top Tracks
       final topTracksRows = _db.select(

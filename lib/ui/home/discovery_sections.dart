@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:palette_generator/palette_generator.dart';
 
 import '../../app/track_actions.dart' show playGenerated;
+import '../../core/audio/artist_parser.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
@@ -276,6 +277,7 @@ class HomePopularShelvesSection extends ConsumerWidget {
   List<({String name, String artwork, int rank})> _topArtists(FeedData? feed) {
     final order = <String>[];
     final art = <String, String>{};
+    final names = <String, String>{};
     final counts = <String, int>{};
     final pool = <GeneratedTrack>[
       ...?feed?.charts,
@@ -283,20 +285,19 @@ class HomePopularShelvesSection extends ConsumerWidget {
       ...?feed?.quickPicks,
     ];
     for (final t in pool) {
-      final key = t.artist.trim();
-      if (key.isEmpty) continue;
-      final low = key.toLowerCase();
-      counts[low] = (counts[low] ?? 0) + 1;
-      art.putIfAbsent(low, () => t.artworkUrl);
-      if (!order.contains(low)) order.add(low);
+      for (final single in splitArtistCredits(t.artist)) {
+        final key = single.trim();
+        if (key.isEmpty) continue;
+        final low = key.toLowerCase();
+        counts[low] = (counts[low] ?? 0) + 1;
+        art.putIfAbsent(low, () => t.artworkUrl);
+        if (!order.contains(low)) order.add(low);
+        names.putIfAbsent(low, () => key);
+      }
     }
     final ranked = order.toList()
       ..sort((a, b) => (counts[b] ?? 0).compareTo(counts[a] ?? 0));
-    final names = <String, String>{};
-    for (final t in pool) {
-      names.putIfAbsent(t.artist.toLowerCase(), () => t.artist);
-    }
-    return ranked.take(8).toList().asMap().entries.map((e) {
+    return ranked.take(12).toList().asMap().entries.map((e) {
       final low = e.value;
       return (
         name: names[low] ?? low,

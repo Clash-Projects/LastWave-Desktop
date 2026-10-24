@@ -11,6 +11,7 @@ import '../app_shell/wave_hotkeys.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
+import 'artist_line.dart';
 import 'artwork.dart';
 import 'buttons.dart' show LWTooltip;
 import 'menus.dart';
@@ -890,24 +891,25 @@ class _TableRow<T extends Object> extends StatelessWidget {
                                   : WaveColors.lightTextPrimary),
                         ),
                       ),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: WaveType.meta.copyWith(
-                          color: dark
-                              ? WaveColors.textSecondary
-                              : WaveColors.lightTextSecondary,
+                      if (subtitle.isNotEmpty)
+                        WaveArtistLine(
+                          artist: subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.meta.copyWith(
+                            color: dark
+                                ? WaveColors.textSecondary
+                                : WaveColors.lightTextSecondary,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
                 if (showArtistColumn)
                   Expanded(
                     flex: 3,
-                    child: Text(
-                      artist,
+                    child: WaveArtistLine(
+                      artist: artist,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: WaveType.meta.copyWith(color: tertiary),

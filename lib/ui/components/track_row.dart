@@ -8,11 +8,13 @@ import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
+import 'artist_line.dart';
 import 'artwork.dart';
 import 'buttons.dart' show LWTooltip;
 import 'desktop_table.dart' show WaveEqDots;
 import 'menus.dart';
 
+export 'artist_line.dart';
 export 'desktop_table.dart'
     show WaveDesktopTable, WaveSortDir, WaveEqDots;
 
@@ -220,16 +222,7 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
                                   : WaveColors.lightTextPrimary),
                         ),
                       ),
-                      Text(
-                        widget.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: WaveType.meta.copyWith(
-                          color: dark
-                              ? WaveColors.textSecondary
-                              : WaveColors.lightTextSecondary,
-                        ),
-                      ),
+                      WaveArtistLine(artist: widget.artist),
                     ],
                   ),
                 ),

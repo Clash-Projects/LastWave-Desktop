@@ -17,6 +17,7 @@ import '../../features/player/playback_service.dart';
 import '../components/ambient.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
+import '../components/artist_line.dart';
 import '../components/menus.dart';
 import '../components/shelf.dart';
 import '../collections/yt_shelf_page.dart';
@@ -1537,9 +1538,8 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: WaveType.trackTitle.copyWith(fontSize: 12)),
-                Text(widget.track.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                WaveArtistLine(
+                    artist: widget.track.artist,
                     style: WaveType.meta.copyWith(fontSize: 11)),
                 Text('Recently played',
                     maxLines: 1,
@@ -1954,9 +1954,8 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: WaveType.trackTitle.copyWith(fontSize: 12.5)),
-              Text(widget.track.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+              WaveArtistLine(
+                  artist: widget.track.artist,
                   style: WaveType.meta.copyWith(fontSize: 11.5)),
             ],
           ),
@@ -2047,13 +2046,17 @@ class _ChartRow extends ConsumerWidget {
                         overflow: TextOverflow.ellipsis,
                         style: WaveType.trackTitle
                             .copyWith(fontSize: 13)),
-                    Text(
-                        track.listeners.isNotEmpty
-                            ? '${track.artist} · ${track.listeners}'
-                            : track.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: WaveType.meta),
+                    WaveArtistLine(
+                      artist: track.artist,
+                      style: WaveType.meta,
+                      extraTrailingSpans: [
+                        if (track.listeners.isNotEmpty)
+                          TextSpan(
+                            text: ' · ${track.listeners}',
+                            style: WaveType.meta,
+                          ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -2159,10 +2162,10 @@ class _FreshRowState extends ConsumerState<_FreshRow> {
                               color: playing
                                   ? waveAccent(context)
                                   : null)),
-                      Text(track.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: WaveType.meta),
+                      WaveArtistLine(
+                        artist: track.artist,
+                        style: WaveType.meta,
+                      ),
                     ],
                   ),
                 ),

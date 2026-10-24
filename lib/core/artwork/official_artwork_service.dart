@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../audio/artist_parser.dart' as artist_parser;
 import '../diagnostics/memory_probe.dart';
 import '../storage/app_database.dart';
 import '../../features/innertube/innertube_api.dart';
@@ -224,49 +225,12 @@ class OfficialArtworkService {
   }
 
   /// First billed artist in a credit string.
-  ///
-  /// "Drake, Future & Metro Boomin" → "Drake"
-  /// "Tyler, The Creator" stays intact (comma + "the").
-  static String primaryArtistName(String artist) {
-    var s = artist.trim();
-    if (s.isEmpty) return s;
-    s = s
-        .split(RegExp(
-          r'\s+[(\[]?(?:feat\.?|ft\.?|featuring)\b',
-          caseSensitive: false,
-        ))
-        .first
-        .trim();
-    if (RegExp(r',\s*(the|and)\b', caseSensitive: false).hasMatch(s) &&
-        !s.contains(' & ')) {
-      return s;
-    }
-    final cut = s.split(RegExp(r'\s*[,&]\s*')).first.trim();
-    return cut.isNotEmpty ? cut : s;
-  }
+  static String primaryArtistName(String artist) =>
+      artist_parser.primaryArtistName(artist);
 
-  /// Individual credits from a collab string, for artist shelves.
-  static Iterable<String> splitArtistCredits(String artist) sync* {
-    final s = artist.trim();
-    if (s.isEmpty) return;
-    final lower = s.toLowerCase();
-    if (lower == 'unknown artist' || lower == 'various artists') {
-      return;
-    }
-    if (RegExp(r',\s*(the|and)\b', caseSensitive: false).hasMatch(s) &&
-        !s.contains(' & ')) {
-      yield s;
-      return;
-    }
-    if (RegExp(r'[,&]').hasMatch(s)) {
-      for (final part in s.split(RegExp(r'\s*[,&]\s*'))) {
-        final p = part.trim();
-        if (p.isNotEmpty && p.toLowerCase() != 'the') yield p;
-      }
-      return;
-    }
-    yield s;
-  }
+  /// Individual credits from a collab string, for artist shelves and separate displays.
+  static Iterable<String> splitArtistCredits(String artist) =>
+      artist_parser.splitArtistCredits(artist);
 
   /// Clean title for store matching (strip video noise, feat. clauses, etc.).
   static String normalizeForSearch(String text) {
@@ -713,10 +677,13 @@ class OfficialArtworkService {
     String clean,
     String raw,
   ) async {
+    final searchName = clean.contains(',') || clean.contains('&') || clean.contains('feat')
+        ? (primaryArtistName(clean).isNotEmpty ? primaryArtistName(clean) : clean)
+        : clean;
     try {
       final res = await _dio.get<dynamic>(
         'https://api.deezer.com/search/artist',
-        queryParameters: {'q': clean, 'limit': '10'},
+        queryParameters: {'q': searchName, 'limit': '10'},
       );
       dynamic rawData = res.data;
       if (rawData is String && rawData.isNotEmpty) {
@@ -800,14 +767,18 @@ class OfficialArtworkService {
     String rawArtist,
     String rawAlbum,
   ) async {
-    // Query iTunes and Deezer together, then pick the GLOBAL best.
-    // Returning from the first iTunes substring hit used to skip the
-    // real sleeve sitting in Deezer (Piranha vs Piranha Pt. 2).
+    final cleanPrimary = primaryArtistName(cleanArtist);
+    final rawPrimary = primaryArtistName(rawArtist);
+
     final catalogs = await Future.wait([
       if (cleanArtist.isNotEmpty)
         _itunesSearch('$cleanArtist $cleanTitle', 'song', '25'),
+      if (cleanPrimary.isNotEmpty && cleanPrimary != cleanArtist)
+        _itunesSearch('$cleanPrimary $cleanTitle', 'song', '25'),
       _itunesSearch(cleanTitle, 'song', '25'),
       if (rawArtist.isNotEmpty) _deezerTrackHits('$rawArtist $rawTitle'),
+      if (rawPrimary.isNotEmpty && rawPrimary != rawArtist)
+        _deezerTrackHits('$rawPrimary $rawTitle'),
       _deezerTrackHits(rawTitle),
     ]);
     final match = _findBestMatch(
