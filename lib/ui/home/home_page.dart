@@ -25,6 +25,7 @@ import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
+import 'discovery_sections.dart';
 
 /// Rich editorial Home — every section has a distinct representation.
 ///
@@ -160,7 +161,7 @@ class WaveHomePage extends ConsumerWidget {
                           context.go(
                               '/settings?section=lastfm');
                         case FeedEmptyReason.noTaste:
-                          context.go('/discover');
+                          context.go('/search');
                         default:
                           ref.invalidate(feedProvider);
                       }
@@ -554,6 +555,16 @@ class WaveHomePage extends ConsumerWidget {
 
     if (data.charts.isNotEmpty) {
       gap(26);
+      slivers.add(SliverPadding(
+        padding: EdgeInsets.only(left: side, right: side),
+        sliver: SliverToBoxAdapter(
+          child: WaveEntrance(
+            index: slot(),
+            child: HomeSpotlightHero(track: data.charts.first),
+          ),
+        ),
+      ));
+      gap(26);
       final charts = data.charts.take(5).toList();
       slivers.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
@@ -565,8 +576,6 @@ class WaveHomePage extends ConsumerWidget {
               kicker: 'Charts',
               title: 'Trending Now',
               count: charts.length,
-              actionLabel: 'See all',
-              actionPath: '/discover',
             ),
           ),
         ),
@@ -598,8 +607,6 @@ class WaveHomePage extends ConsumerWidget {
               kicker: 'Discovery',
               title: 'Fresh Finds',
               count: fresh.length,
-              actionLabel: 'See all',
-              actionPath: '/discover',
             ),
           ),
         ),
@@ -616,6 +623,30 @@ class WaveHomePage extends ConsumerWidget {
         ),
       ));
     }
+
+    gap(26);
+    slivers.add(SliverPadding(
+      padding: EdgeInsets.only(left: side, right: side),
+      sliver: SliverToBoxAdapter(
+        child: WaveEntrance(
+          index: slot(),
+          rise: 10,
+          child: const HomeNewReleasesSection(),
+        ),
+      ),
+    ));
+
+    gap(26);
+    slivers.add(SliverPadding(
+      padding: EdgeInsets.only(left: side, right: side),
+      sliver: SliverToBoxAdapter(
+        child: WaveEntrance(
+          index: slot(),
+          rise: 10,
+          child: const HomePopularShelvesSection(),
+        ),
+      ),
+    ));
 
     gap(26);
     // Bottom breathing room (previously came with the releases block).

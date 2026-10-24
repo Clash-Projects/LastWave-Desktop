@@ -212,6 +212,34 @@ class HomeRepository {
         .toList();
   }
 
+  Future<List<({String name, int playCount, String artworkUrl})>> fetchTopArtists({
+    String? viewingAs,
+    String period = '7day',
+    int limit = 20,
+  }) async {
+    final user = _effectiveUser(viewingAs);
+    if (user == null) return const [];
+    try {
+      final json = await _api.get({
+        'method': 'user.gettopartists',
+        'user': user,
+        'api_key': _apiKey,
+        'period': period,
+        'limit': '$limit',
+      });
+      return _asList(_asMap(json['topartists'])['artist'])
+          .map((a) => (
+                name: a['name']?.toString() ?? '',
+                playCount: int.tryParse(a['playcount']?.toString() ?? '') ?? 0,
+                artworkUrl: _bestImage(a['image']),
+              ))
+          .where((a) => a.name.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<List<FriendEntry>> fetchFriends({String? viewingAs}) async {
     final user = _effectiveUser(viewingAs);
     if (user == null) {

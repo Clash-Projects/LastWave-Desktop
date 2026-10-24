@@ -370,7 +370,7 @@ class AppDatabase {
   // seeds, jump-back-in and personal-mix seeds without any account.
 
   /// Max rows kept; oldest pruned on insert.
-  static const int localPlaysCap = 500;
+  static const int localPlaysCap = 10000;
 
   void recordLocalPlay({required String title, required String artist}) {
     final t = title.trim();
@@ -399,6 +399,94 @@ class AppDatabase {
         [localPlaysCap],
       );
     } catch (_) {}
+  }
+
+  Map<String, dynamic> getLocalStatsSummary({int? sinceMillis}) {
+    try {
+      final whereClause =
+          sinceMillis != null ? 'WHERE played_at_millis >= $sinceMillis' : '';
+
+      // Total plays
+      final totalRow = _db.select(
+        'SELECT COUNT(*) as cnt FROM local_plays $whereClause;',
+      );
+      final totalPlays = (totalRow.first['cnt'] as int?) ?? 0;
+
+      // Unique artists & tracks
+      final uniqueRow = _db.select(
+        'SELECT COUNT(DISTINCT lower(artist)) as artists, '
+        'COUNT(DISTINCT lower(title || "|" || artist)) as tracks '
+        'FROM local_plays $whereClause;',
+      );
+      final uniqueArtists = (uniqueRow.first['artists'] as int?) ?? 0;
+      final uniqueTracks = (uniqueRow.first['tracks'] as int?) ?? 0;
+
+      // Top Artists
+      final topArtistsRows = _db.select(
+        'SELECT artist, COUNT(*) as cnt FROM local_plays $whereClause '
+        'GROUP BY lower(artist) ORDER BY cnt DESC LIMIT 15;',
+      );
+      final topArtists = topArtistsRows
+          .map((r) => (
+                name: (r['artist'] as String?) ?? '',
+                count: (r['cnt'] as int?) ?? 0,
+              ))
+          .where((a) => a.name.isNotEmpty)
+          .toList();
+
+      // Top Tracks
+      final topTracksRows = _db.select(
+        'SELECT title, artist, COUNT(*) as cnt FROM local_plays $whereClause '
+        'GROUP BY lower(title || "|" || artist) ORDER BY cnt DESC LIMIT 20;',
+      );
+      final topTracks = topTracksRows
+          .map((r) => (
+                title: (r['title'] as String?) ?? '',
+                artist: (r['artist'] as String?) ?? '',
+                count: (r['cnt'] as int?) ?? 0,
+              ))
+          .where((t) => t.title.isNotEmpty)
+          .toList();
+
+      // Hourly Distribution (0..23)
+      final hourlyRows = _db.select(
+        'SELECT strftime("%H", played_at_millis / 1000, "unixepoch", "localtime") as hr, '
+        'COUNT(*) as cnt FROM local_plays $whereClause GROUP BY hr ORDER BY hr ASC;',
+      );
+      final hourly = <int, int>{for (var h = 0; h < 24; h++) h: 0};
+      for (final r in hourlyRows) {
+        final hrStr = r['hr'] as String?;
+        if (hrStr != null) {
+          final hr = int.tryParse(hrStr);
+          if (hr != null) hourly[hr] = (r['cnt'] as int?) ?? 0;
+        }
+      }
+
+      // Daily Activity (last 30 days)
+      final dailyRows = _db.select(
+        'SELECT strftime("%Y-%m-%d", played_at_millis / 1000, "unixepoch", "localtime") as dt, '
+        'COUNT(*) as cnt FROM local_plays $whereClause GROUP BY dt ORDER BY dt DESC LIMIT 30;',
+      );
+      final daily = dailyRows
+          .map((r) => (
+                date: (r['dt'] as String?) ?? '',
+                count: (r['cnt'] as int?) ?? 0,
+              ))
+          .where((d) => d.date.isNotEmpty)
+          .toList();
+
+      return {
+        'totalPlays': totalPlays,
+        'uniqueArtists': uniqueArtists,
+        'uniqueTracks': uniqueTracks,
+        'topArtists': topArtists,
+        'topTracks': topTracks,
+        'hourly': hourly,
+        'daily': daily,
+      };
+    } catch (_) {
+      return {};
+    }
   }
 
   List<({String title, String artist, int atMillis})> loadRecentPlays({

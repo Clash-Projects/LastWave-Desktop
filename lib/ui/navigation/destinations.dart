@@ -20,7 +20,7 @@ class WaveDestination {
 
 const waveListenDestinations = [
   WaveDestination('/home', 'Home', WaveIcons.home),
-  WaveDestination('/discover', 'Discover', WaveIcons.discover),
+  WaveDestination('/stats', 'Stats', WaveIcons.stats),
   WaveDestination('/search', 'Search', WaveIcons.search),
 ];
 
@@ -60,8 +60,10 @@ String waveActivePath(String location) {
   if (path.startsWith('/artist')) return '/artists';
   if (path.startsWith('/now')) return '/home';
   if (path.startsWith('/lyrics')) return '/home';
-  if (path.startsWith('/history')) return '/liked';
-  if (path.startsWith('/mixes')) return '/discover';
+  if (path.startsWith('/history')) return '/stats';
+  if (path.startsWith('/stats')) return '/stats';
+  if (path.startsWith('/discover')) return '/stats';
+  if (path.startsWith('/mixes')) return '/home';
   if (path.startsWith('/profile')) return '/friends';
   return '/home';
 }

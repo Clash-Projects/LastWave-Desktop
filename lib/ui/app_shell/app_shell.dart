@@ -549,7 +549,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   int? _branchForPath(String path) {
     final clean = path.split('?').first;
     if (clean == '/home' || clean.startsWith('/home/')) return 0;
-    if (clean == '/discover' || clean.startsWith('/discover/')) return 1;
+    if (clean == '/stats' || clean.startsWith('/stats/') || clean == '/discover') return 1;
     if (clean == '/search' || clean.startsWith('/search/')) return 2;
     if (clean == '/liked' || clean.startsWith('/liked/')) return 3;
     if (clean == '/albums' || clean.startsWith('/albums/') || clean.startsWith('/album/')) return 4;

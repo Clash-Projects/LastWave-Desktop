@@ -17,7 +17,7 @@ import '../ui/collections/playlist_detail_page.dart';
 import '../ui/collections/playlists_page.dart';
 import '../ui/collections/yt_playlist_detail_page.dart';
 import '../ui/collections/yt_shelf_page.dart';
-import '../ui/discover/discover_page.dart';
+import '../ui/stats/stats_page.dart';
 import '../ui/home/home_page.dart';
 import '../ui/lyrics/lyrics_screen.dart';
 import '../ui/misc/support_pages.dart';
@@ -168,6 +168,7 @@ GoRouter buildRouter({required AuthGate gate}) {
       final atWelcome = state.uri.path == '/welcome';
       if (!gate.signedIn && !atWelcome) return '/welcome';
       if (gate.signedIn && atWelcome) return '/home';
+      if (state.uri.path == '/discover') return '/home';
       return null;
     },
     routes: [
@@ -203,9 +204,9 @@ GoRouter buildRouter({required AuthGate gate}) {
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: '/discover',
+                path: '/stats',
                 pageBuilder: (c, s) =>
-                    _page(const WaveDiscoverPage()),
+                    _page(const WaveStatsPage()),
               ),
             ],
           ),

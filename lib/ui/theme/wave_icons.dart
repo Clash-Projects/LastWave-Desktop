@@ -20,6 +20,7 @@ class WaveIcons {
   // Navigation
   static const IconData home = FluentIcons.home;
   static const IconData discover = FluentIcons.globe;
+  static const IconData stats = FluentIcons.bar_chart_vertical;
   static const IconData search = FluentIcons.search;
   static const IconData library = FluentIcons.library;
   static const IconData liked = FluentIcons.heart;
