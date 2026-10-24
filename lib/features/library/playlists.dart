@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/app_database.dart';
 import '../innertube/innertube_api.dart';
+import '../khinsider/khinsider_parser.dart';
 import '../search/shared_providers.dart';
 
 /// Stored playlist track (JSON-serialised inside `saved_playlists`).
@@ -24,6 +25,10 @@ class StoredTrack {
   final String album;
   final int durationSeconds;
 
+  /// Direct source the player opens instead of a YouTube match, e.g. a
+  /// `khinsider://` track page. Empty for YouTube tracks.
+  final String playbackUrl;
+
   const StoredTrack({
     required this.name,
     required this.artist,
@@ -31,6 +36,7 @@ class StoredTrack {
     this.videoId = '',
     this.album = '',
     this.durationSeconds = 0,
+    this.playbackUrl = '',
   });
 
   Map<String, dynamic> toJson() => {
@@ -40,6 +46,7 @@ class StoredTrack {
         'videoId': videoId,
         'album': album,
         'durationSeconds': durationSeconds,
+        if (playbackUrl.isNotEmpty) 'playbackUrl': playbackUrl,
       };
 
   factory StoredTrack.fromJson(Map<String, dynamic> json) =>
@@ -53,6 +60,7 @@ class StoredTrack {
         album: json['album']?.toString() ?? '',
         durationSeconds:
             int.tryParse('${json['durationSeconds'] ?? 0}') ?? 0,
+        playbackUrl: json['playbackUrl']?.toString() ?? '',
       );
 
   PlayableTrack toPlayable() => PlayableTrack(
@@ -61,6 +69,7 @@ class StoredTrack {
         album: album,
         artworkUrl: artworkUrl,
         videoId: videoId,
+        playbackUrl: playbackUrl,
         duration: Duration(seconds: durationSeconds),
       );
 }
@@ -298,7 +307,11 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
     }
 
     final tube = _innerTube;
-    if (tube != null && tube.connection.connected) {
+    // A KHInsider track has no YouTube twin: liking it must not like
+    // whatever a name search turns up.
+    if (tube != null &&
+        tube.connection.connected &&
+        !KhInsiderParser.isPlaybackUri(track.playbackUrl)) {
       unawaited(() async {
         try {
           var vid = track.videoId;

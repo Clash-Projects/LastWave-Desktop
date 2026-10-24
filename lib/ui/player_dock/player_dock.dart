@@ -1301,6 +1301,7 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
             videoId: widget.track.videoId,
             album: widget.track.album,
             durationSeconds: widget.track.duration.inSeconds,
+            playbackUrl: widget.track.playbackUrl,
           ),
         );
   }

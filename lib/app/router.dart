@@ -19,6 +19,7 @@ import '../ui/collections/yt_playlist_detail_page.dart';
 import '../ui/collections/yt_shelf_page.dart';
 import '../ui/stats/stats_page.dart';
 import '../ui/home/home_page.dart';
+import '../ui/khinsider/khinsider_album_page.dart';
 import '../ui/lyrics/lyrics_screen.dart';
 import '../ui/misc/support_pages.dart';
 import '../ui/navigation/flight.dart';
@@ -217,6 +218,12 @@ GoRouter buildRouter({required AuthGate gate}) {
                 pageBuilder: (c, s) => _page(WaveSearchPage(
                   initialQuery:
                       s.uri.queryParameters['q'] ?? '',
+                )),
+              ),
+              GoRoute(
+                path: '/khinsider/:id',
+                pageBuilder: (c, s) => _anchoredPage(WaveKhAlbumPage(
+                  albumId: Uri.decodeComponent(s.pathParameters['id'] ?? ''),
                 )),
               ),
             ],

@@ -22,6 +22,8 @@ import 'mpv_paths.dart';
 import 'player_state.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
+import '../khinsider/khinsider_client.dart';
+import '../khinsider/khinsider_parser.dart';
 import '../search/shared_providers.dart';
 import '../../core/error/fatal_crumbs.dart';
 
@@ -42,6 +44,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   final SessionStore _sessions;
   final OfficialArtworkService _artworkService;
   final LiveTelemetryService _telemetry;
+  final KhInsiderClient? _khInsider;
 
   Player? _player;
   final List<StreamSubscription> _subs = [];
@@ -234,6 +237,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     OfficialArtworkService? artworkService,
     this._onAddonQuota,
     LiveTelemetryService? telemetry,
+    this._khInsider,
   ])  : _artworkService = artworkService ?? OfficialArtworkService(),
         _telemetry = telemetry ?? LiveTelemetryService(prefs: _prefs.rawPrefs),
         super(const PlayerSnapshot()) {
@@ -1563,6 +1567,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// gate below so they never disagree.
   bool _wouldTryLossless(PlayableTrack track, bool forceYoutube) {
     return !forceYoutube &&
+        !KhInsiderParser.isPlaybackUri(track.playbackUrl) &&
         !_losslessBypass.contains(track.queueKey) &&
         _prefs.preferLossless &&
         _prefs.losslessQuality != AudioQualityTiers.youtubeOnly &&
@@ -1576,6 +1581,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     bool forceYoutube = false,
     bool forceRefresh = false,
   }) async {
+    // KHInsider tracks play their own file, never a YouTube match.
+    final kh = _khInsider;
+    if (kh != null && KhInsiderParser.isPlaybackUri(track.playbackUrl)) {
+      try {
+        return await kh.resolveStream(track.playbackUrl);
+      } catch (_) {
+        return null;
+      }
+    }
     final allowLossless = _wouldTryLossless(track, forceYoutube);
     final key = track.queueKey;
     if (!allowLossless) {
@@ -2692,6 +2706,7 @@ final playbackServiceProvider =
       } catch (_) {}
     },
     ref.watch(liveTelemetryServiceProvider),
+    ref.watch(khInsiderClientProvider),
   );
   ref.onDispose(() {
     unawaited(service.disposePlayer());

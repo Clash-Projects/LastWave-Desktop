@@ -10,11 +10,13 @@ import '../../core/audio/artist_parser.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/home/home_providers.dart';
+import '../../features/khinsider/khinsider_parser.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/shared_providers.dart';
 import '../app_shell/wave_hotkeys.dart';
 import '../collections/playlist_dialogs.dart';
+import '../khinsider/khinsider_album_page.dart' show downloadKhTrack;
 import '../navigation/wave_nav.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip, WaveButton, WaveFilledButton;
@@ -138,6 +140,7 @@ List<WaveMenuEntry> waveTrackMenuItems({
         videoId: track.videoId,
         album: album,
         durationSeconds: durationSeconds,
+        playbackUrl: track.playbackUrl,
       );
 
   final items = <WaveMenuEntry>[
@@ -171,11 +174,13 @@ List<WaveMenuEntry> waveTrackMenuItems({
       leading: const Icon(FluentIcons.download, size: 15),
       label: 'Download',
       hint: 'Ctrl+D',
-      onPressed: () => downloads.downloadTrack(
-        title: title,
-        artist: artist,
-        artworkUrl: artworkUrl,
-      ),
+      onPressed: () => KhInsiderParser.isPlaybackUri(track.playbackUrl)
+          ? downloadKhTrack(ref, track)
+          : downloads.downloadTrack(
+              title: title,
+              artist: artist,
+              artworkUrl: artworkUrl,
+            ),
     ),
   ];
   items.add(
@@ -191,12 +196,20 @@ List<WaveMenuEntry> waveTrackMenuItems({
     WaveMenuAction(
       leading: const Icon(FluentIcons.album, size: 15),
       label: 'Go to album',
-      onPressed: () => goToAlbumOfTrack(
-        ref,
-        title: title,
-        artist: artist,
-        album: track.album,
-      ),
+      onPressed: () {
+        final khAlbum = KhInsiderParser.albumIdOf(
+            KhInsiderParser.pagePathOf(track.playbackUrl) ?? '');
+        if (khAlbum != null) {
+          waveOpen(ref.context, '/khinsider/$khAlbum');
+          return;
+        }
+        goToAlbumOfTrack(
+          ref,
+          title: title,
+          artist: artist,
+          album: track.album,
+        );
+      },
     ),
   );
   final artistList = splitArtistCredits(artist).toList();
