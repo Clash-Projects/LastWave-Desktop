@@ -101,7 +101,18 @@ class OfficialArtworkService {
     required String artist,
   }) {
     if (normalizeForSearch(title).isEmpty) return null;
-    return _cache[_trackCacheKey(artist, title)];
+    final key = _trackCacheKey(artist, title);
+    final inMem = _cache[key];
+    if (inMem != null) return inMem;
+    if (_db != null) {
+      final row = _db!.loadArtworkEntry(key);
+      if (row != null && row['url'] != null && row['url']!.isNotEmpty) {
+        final res = OfficialArtworkResult(artworkUrl: row['url']!);
+        _cache[key] = res;
+        return res;
+      }
+    }
+    return null;
   }
 
   OfficialArtworkResult? peekAlbum({
@@ -109,7 +120,35 @@ class OfficialArtworkService {
     required String artist,
   }) {
     if (normalizeForSearch(album).isEmpty) return null;
-    return _cache[_albumCacheKey(artist, album)];
+    final key = _albumCacheKey(artist, album);
+    final inMem = _cache[key];
+    if (inMem != null) return inMem;
+    if (_db != null) {
+      final row = _db!.loadArtworkEntry(key);
+      if (row != null && row['url'] != null && row['url']!.isNotEmpty) {
+        final res = OfficialArtworkResult(artworkUrl: row['url']!);
+        _cache[key] = res;
+        return res;
+      }
+    }
+    return null;
+  }
+
+  OfficialArtworkResult? peekArtist(String artist) {
+    final clean = normalizeForSearch(primaryArtistName(artist));
+    if (clean.isEmpty) return null;
+    final key = 'artist3|$clean';
+    final inMem = _cache[key];
+    if (inMem != null) return inMem;
+    if (_db != null) {
+      final row = _db!.loadArtworkEntry(key);
+      if (row != null && row['url'] != null && row['url']!.isNotEmpty) {
+        final res = OfficialArtworkResult(artworkUrl: row['url']!);
+        _cache[key] = res;
+        return res;
+      }
+    }
+    return null;
   }
 
   Future<T> _throttle<T>(Future<T> Function() task, {bool priority = false}) {
@@ -677,9 +716,9 @@ class OfficialArtworkService {
     String clean,
     String raw,
   ) async {
-    final searchName = clean.contains(',') || clean.contains('&') || clean.contains('feat')
-        ? (primaryArtistName(clean).isNotEmpty ? primaryArtistName(clean) : clean)
-        : clean;
+    final rawPrimary = primaryArtistName(raw);
+    final searchName = rawPrimary.isNotEmpty ? rawPrimary : raw;
+    final cleanSearchName = normalizeForSearch(searchName);
     try {
       final res = await _dio.get<dynamic>(
         'https://api.deezer.com/search/artist',
@@ -698,12 +737,10 @@ class OfficialArtworkService {
               .toList()
           : <Map<String, dynamic>>[];
       if (items.isNotEmpty) {
-        // Deezer ranks keyword-spam and tribute acts above real artists
-        // (searching "drake" returns three fake "Drake" acts with a few
-        // hundred fans above the real one with millions). Among exact
-        // name matches, the REAL artist is virtually always the most
-        // followed — pick by nb_fan, falling back to the overall most
-        // popular result when no name matches exactly.
+        // Deezer ranks keyword-spam and tribute acts above real artists.
+        // Among exact name matches, the REAL artist is virtually always
+        // the most followed — pick by nb_fan, falling back to the overall
+        // most popular result when no name matches exactly.
         Map<String, dynamic>? best;
         var bestFans = -1;
         Map<String, dynamic>? mostPopular;
@@ -716,14 +753,13 @@ class OfficialArtworkService {
           }
           final name = normalizeForSearch(item['name']?.toString() ?? '');
           if (name.isEmpty) continue;
-          if (name == clean && fans > bestFans) {
+          if ((name == clean || name == cleanSearchName) && fans > bestFans) {
             bestFans = fans;
             best = item;
           }
         }
         // Contains match as fallback: "madvillain" vs a longer billing,
-        // or a slightly punctuated catalog name. Prefer the most-followed
-        // contains-match only when no exact name hit exists.
+        // or a slightly punctuated catalog name.
         if (best == null) {
           var containFans = -1;
           for (final item in items) {
@@ -731,10 +767,14 @@ class OfficialArtworkService {
             final name =
                 normalizeForSearch(item['name']?.toString() ?? '');
             if (name.isEmpty) continue;
-            if (name.length >= 4 &&
-                clean.length >= 4 &&
-                (name.contains(clean) || clean.contains(name)) &&
-                fans > containFans) {
+            final matchesEither = (name.length >= 4 &&
+                    clean.length >= 4 &&
+                    (name.contains(clean) || clean.contains(name))) ||
+                (name.length >= 4 &&
+                    cleanSearchName.length >= 4 &&
+                    (name.contains(cleanSearchName) ||
+                        cleanSearchName.contains(name)));
+            if (matchesEither && fans > containFans) {
               containFans = fans;
               best = item;
             }
@@ -767,8 +807,8 @@ class OfficialArtworkService {
     String rawArtist,
     String rawAlbum,
   ) async {
-    final cleanPrimary = primaryArtistName(cleanArtist);
     final rawPrimary = primaryArtistName(rawArtist);
+    final cleanPrimary = normalizeForSearch(rawPrimary);
 
     final catalogs = await Future.wait([
       if (cleanArtist.isNotEmpty)
@@ -781,11 +821,21 @@ class OfficialArtworkService {
         _deezerTrackHits('$rawPrimary $rawTitle'),
       _deezerTrackHits(rawTitle),
     ]);
-    final match = _findBestMatch(
-      catalogs.expand((e) => e).toList(),
+    final allItems = catalogs.expand((e) => e).toList();
+    var match = _findBestMatch(
+      allItems,
       cleanTitle,
       cleanArtist,
     );
+    if (match == null &&
+        cleanPrimary.isNotEmpty &&
+        cleanPrimary != cleanArtist) {
+      match = _findBestMatch(
+        allItems,
+        cleanTitle,
+        cleanPrimary,
+      );
+    }
     if (match != null) {
       final rawArt = match['artworkUrl100']?.toString() ??
           match['artworkUrl60']?.toString() ??

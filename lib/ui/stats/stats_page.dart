@@ -4,14 +4,15 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/track_actions.dart' show playGenerated, relativeTime;
 import '../../features/feed/feed_repository.dart';
 import '../../features/stats/stats_providers.dart';
+import '../components/artist_line.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/states.dart';
-import '../components/track_row.dart' show WaveArtistLine;
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -32,14 +33,17 @@ enum StatsViewTab {
 final _statsTabProvider =
     StateProvider.autoDispose<StatsViewTab>((ref) => StatsViewTab.overview);
 
-/// WaveStatsPage — Highly organized listening statistics dashboard.
+/// WaveStatsPage — Flagship elite listening intelligence and statistics dashboard.
 ///
 /// Features:
-/// - Last.fm profile hub with scrobbles, artist, album, track totals.
-/// - Clear tab organization (Overview, Top Tracks, Top Artists, Top Albums, History).
-/// - Period filter (7 Days, 30 Days, All Time).
-/// - 100% individual separated artists (no 2-artist conjoined labels).
-/// - Pristine artwork loading for tracks, artists, and history rows.
+/// - Replay / Wrapped-style Sound Spotlight banner highlighting #1 Artist and #1 Track.
+/// - Executive Last.fm Pro hub with live scrobble counters and external profile link.
+/// - Apple/Fluent glassmorphic segmented tabs with dynamic item count badges.
+/// - Relative popularity bars on ranked tracks indicating listening weight.
+/// - Diurnal 24-hour rhythm chart color-coded by time of day with peak indicator.
+/// - 14-day daily listening activity histogram with gradient bars and tooltip details.
+/// - 100% individual separated, clickable artists across all tracks, albums, and rankings.
+/// - Gold, silver, and bronze metallic ranking badges.
 class WaveStatsPage extends ConsumerWidget {
   const WaveStatsPage({super.key});
 
@@ -68,6 +72,7 @@ class WaveStatsPage extends ConsumerWidget {
                 child: _StatsHeader(
                   activePeriod: activePeriod,
                   activeTab: activeTab,
+                  stats: statsAsync.valueOrNull,
                   onPeriodChanged: (p) =>
                       ref.read(statsPeriodProvider.notifier).state = p,
                   onTabChanged: (t) =>
@@ -79,13 +84,13 @@ class WaveStatsPage extends ConsumerWidget {
           ),
           statsAsync.when(
             loading: () => SliverPadding(
-              padding: EdgeInsets.fromLTRB(side, 32, side, 40),
+              padding: EdgeInsets.fromLTRB(side, 36, side, 40),
               sliver: const SliverToBoxAdapter(
-                child: WaveLoading(label: 'Syncing your statistics…'),
+                child: WaveLoading(label: 'Syncing your music statistics…'),
               ),
             ),
             error: (err, _) => SliverPadding(
-              padding: EdgeInsets.fromLTRB(side, 32, side, 40),
+              padding: EdgeInsets.fromLTRB(side, 36, side, 40),
               sliver: SliverToBoxAdapter(
                 child: WaveError(
                   title: 'Could not load statistics',
@@ -96,14 +101,14 @@ class WaveStatsPage extends ConsumerWidget {
             ),
             data: (stats) {
               return SliverPadding(
-                padding: EdgeInsets.fromLTRB(side, 18, side, 40),
+                padding: EdgeInsets.fromLTRB(side, 18, side, 44),
                 sliver: SliverToBoxAdapter(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // 1. Last.fm Profile & Sync Hub
                       _LastFmProfileHub(stats: stats),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 20),
 
                       // 2. Active Tab Content
                       switch (activeTab) {
@@ -137,6 +142,7 @@ class WaveStatsPage extends ConsumerWidget {
 class _StatsHeader extends StatelessWidget {
   final StatsPeriod activePeriod;
   final StatsViewTab activeTab;
+  final ListeningStatsData? stats;
   final ValueChanged<StatsPeriod> onPeriodChanged;
   final ValueChanged<StatsViewTab> onTabChanged;
   final VoidCallback onRefresh;
@@ -144,6 +150,7 @@ class _StatsHeader extends StatelessWidget {
   const _StatsHeader({
     required this.activePeriod,
     required this.activeTab,
+    this.stats,
     required this.onPeriodChanged,
     required this.onTabChanged,
     required this.onRefresh,
@@ -151,42 +158,68 @@ class _StatsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final narrow = MediaQuery.sizeOf(context).width < 760;
+    final narrow = MediaQuery.sizeOf(context).width < 800;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(
-              WaveIcons.stats,
-              size: 13,
-              color: waveAccent(context),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'LISTENING INTELLIGENCE',
-              style: WaveType.overline.copyWith(
-                color: waveAccent(context),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: waveAccent(context).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: waveAccent(context).withValues(alpha: 0.3),
+                  width: 0.8,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: waveAccent(context),
+                      boxShadow: [
+                        BoxShadow(
+                          color: waveAccent(context).withValues(alpha: 0.6),
+                          blurRadius: 6,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'LISTENING INTELLIGENCE',
+                    style: WaveType.overline.copyWith(
+                      color: waveAccent(context),
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ],
               ),
             ),
             const Spacer(),
             WaveIconButton(
-              tooltip: 'Refresh statistics',
+              tooltip: 'Refresh statistics & scrobbles',
               icon: const Icon(FluentIcons.refresh, size: 14),
               onPressed: onRefresh,
             ),
           ],
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 10),
         if (narrow) ...[
-          Text('Statistics',
-              style: WaveType.pageTitle.copyWith(fontSize: 26)),
+          Text('Statistics & Insights',
+              style: WaveType.pageTitle.copyWith(fontSize: 27)),
           const SizedBox(height: 4),
           Text(
-            'Local metrics, Last.fm scrobbles, and rhythmic trends.',
-            style:
-                WaveType.meta.copyWith(color: waveTextSecondary(context)),
+            'High-fidelity local playback metrics, Last.fm scrobbles, and rhythmic trends.',
+            style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
           ),
           const SizedBox(height: 14),
           _PeriodPillSwitch(
@@ -201,11 +234,11 @@ class _StatsHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Statistics',
-                        style: WaveType.pageTitle.copyWith(fontSize: 26)),
-                    const SizedBox(height: 2),
+                    Text('Statistics & Insights',
+                        style: WaveType.pageTitle.copyWith(fontSize: 27)),
+                    const SizedBox(height: 3),
                     Text(
-                      'Local metrics, Last.fm scrobbles, and rhythmic trends.',
+                      'High-fidelity local playback metrics, Last.fm scrobbles, and rhythmic trends.',
                       style: WaveType.meta
                           .copyWith(color: waveTextSecondary(context)),
                     ),
@@ -219,18 +252,27 @@ class _StatsHeader extends StatelessWidget {
             ],
           ),
         ],
-        const SizedBox(height: 16),
-        // Section Navigation Tabs
+        const SizedBox(height: 18),
+        // Segmented Nav Tab Bar with counts
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
             children: StatsViewTab.values.map((tab) {
               final isSelected = tab == activeTab;
+              final count = switch (tab) {
+                StatsViewTab.overview => null,
+                StatsViewTab.tracks => stats?.topTracks.length,
+                StatsViewTab.artists => stats?.topArtists.length,
+                StatsViewTab.albums => stats?.topAlbums.length,
+                StatsViewTab.history => stats?.recentPlays.length,
+              };
+
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: _TabButton(
                   label: tab.label,
                   icon: tab.icon,
+                  count: count,
                   selected: isSelected,
                   onTap: () => onTabChanged(tab),
                 ),
@@ -246,12 +288,14 @@ class _StatsHeader extends StatelessWidget {
 class _TabButton extends StatelessWidget {
   final String label;
   final IconData icon;
+  final int? count;
   final bool selected;
   final VoidCallback onTap;
 
   const _TabButton({
     required this.label,
     required this.icon,
+    this.count,
     required this.selected,
     required this.onTap,
   });
@@ -268,20 +312,31 @@ class _TabButton extends StatelessWidget {
         child: AnimatedContainer(
           duration: waveMotion(context, WaveMotion.fast),
           curve: WaveMotion.standard,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: selected
                 ? (dark
-                    ? Colors.white.withValues(alpha: 0.16)
-                    : Colors.black.withValues(alpha: 0.08))
-                : Colors.transparent,
+                    ? Colors.white.withValues(alpha: 0.15)
+                    : Colors.white)
+                : (dark
+                    ? WaveColors.surface
+                    : WaveColors.lightSurface),
             borderRadius: WaveRadius.controlsRadius,
             border: Border.all(
               color: selected
-                  ? waveDivider(context)
-                  : Colors.transparent,
-              width: 0.8,
+                  ? accent.withValues(alpha: 0.4)
+                  : waveDivider(context),
+              width: selected ? 1.2 : 0.8,
             ),
+            boxShadow: selected && !dark
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -302,6 +357,29 @@ class _TabButton extends StatelessWidget {
                       : waveTextSecondary(context),
                 ),
               ),
+              if (count != null && count! > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5.5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? accent.withValues(alpha: 0.18)
+                        : (dark
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.black.withValues(alpha: 0.06)),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: WaveType.overline.copyWith(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? accent : waveTextTertiary(context),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -324,11 +402,9 @@ class _PeriodPillSwitch extends StatelessWidget {
     final dark = waveIsDark(context);
 
     return Container(
-      padding: const EdgeInsets.all(3),
+      padding: const EdgeInsets.all(3.5),
       decoration: BoxDecoration(
-        color: dark
-            ? WaveColors.surfaceRaised
-            : WaveColors.lightOutlineSoft,
+        color: dark ? WaveColors.surfaceRaised : WaveColors.lightOutlineSoft,
         borderRadius: WaveRadius.controlsRadius,
         border: Border.all(
           color: waveDivider(context),
@@ -384,9 +460,17 @@ class _PeriodPillSwitch extends StatelessWidget {
   }
 }
 
+/// Executive Last.fm Profile & Sync Hub
 class _LastFmProfileHub extends StatelessWidget {
   final ListeningStatsData stats;
   const _LastFmProfileHub({required this.stats});
+
+  Future<void> _openLastFmWeb(String user) async {
+    final uri = Uri.parse('https://www.last.fm/user/$user');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -396,46 +480,65 @@ class _LastFmProfileHub extends StatelessWidget {
 
     if (!isConnected) {
       return Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: dark ? WaveColors.surfaceRaised : WaveColors.lightSurface,
           borderRadius: WaveRadius.floatingRadius,
-          border: Border.all(color: waveDivider(context), width: 0.8),
+          border: Border.all(
+            color: const Color(0xFFE0506A).withValues(alpha: 0.25),
+            width: 0.9,
+          ),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFFE0506A).withValues(alpha: dark ? 0.08 : 0.04),
+              Colors.transparent,
+            ],
+          ),
         ),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: const Color(0xFFE0506A).withValues(alpha: 0.14),
                 shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFFE0506A).withValues(alpha: 0.35),
+                  width: 1.2,
+                ),
               ),
               child: const Icon(
                 FluentIcons.favorite_star,
                 color: Color(0xFFE0506A),
-                size: 20,
+                size: 22,
               ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Connect Last.fm for Complete Cross-Device Scrobbling',
-                    style: WaveType.trackTitle.copyWith(fontSize: 14),
+                    'Connect Last.fm for Cross-Device Scrobbling & Global Charts',
+                    style: WaveType.trackTitle.copyWith(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Scrobble every track played on LastWave, access global charts, and keep permanent music history.',
+                    'Scrobble every song in real-time, preserve lifetime stats, and unlock full album and artist rankings.',
                     style: WaveType.meta.copyWith(
                       color: waveTextSecondary(context),
+                      fontSize: 12,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 16),
             WaveGhostButton(
               label: 'Connect Last.fm',
               icon: FluentIcons.settings,
@@ -447,17 +550,25 @@ class _LastFmProfileHub extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
         color: dark ? WaveColors.surfaceRaised : WaveColors.lightSurface,
         borderRadius: WaveRadius.floatingRadius,
         border: Border.all(
-          color: const Color(0xFFE0506A).withValues(alpha: 0.25),
-          width: 0.9,
+          color: const Color(0xFFE0506A).withValues(alpha: 0.35),
+          width: 1.0,
+        ),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFFE0506A).withValues(alpha: dark ? 0.09 : 0.05),
+            Colors.transparent,
+          ],
         ),
       ),
       child: LayoutBuilder(builder: (context, c) {
-        final narrow = c.maxWidth < 700;
+        final narrow = c.maxWidth < 780;
 
         final profileLeading = Row(
           mainAxisSize: MainAxisSize.min,
@@ -466,20 +577,26 @@ class _LastFmProfileHub extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: const Color(0xFFE0506A).withValues(alpha: 0.4),
-                  width: 1.5,
+                  color: const Color(0xFFE0506A).withValues(alpha: 0.5),
+                  width: 1.8,
                 ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFE0506A).withValues(alpha: 0.25),
+                    blurRadius: 10,
+                  ),
+                ],
               ),
               child: ClipOval(
                 child: WaveArtwork(
                   url: stats.lastFmAvatarUrl,
-                  size: 44,
+                  size: 46,
                   kind: ArtworkKind.artist,
                   label: stats.lastFmUsername,
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -489,35 +606,54 @@ class _LastFmProfileHub extends StatelessWidget {
                     Text(
                       '@${stats.lastFmUsername}',
                       style: WaveType.trackTitle.copyWith(
-                        fontSize: 14.5,
+                        fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 1.5),
+                          horizontal: 6.5, vertical: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFE0506A).withValues(alpha: 0.15),
+                        color: const Color(0xFFE0506A).withValues(alpha: 0.16),
                         borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: const Color(0xFFE0506A).withValues(alpha: 0.3),
+                          width: 0.7,
+                        ),
                       ),
                       child: Text(
-                        'LAST.FM',
+                        'LAST.FM PRO',
                         style: WaveType.overline.copyWith(
                           fontSize: 8.5,
+                          fontWeight: FontWeight.w800,
                           color: const Color(0xFFE0506A),
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  'Connected & scrobbling',
-                  style: WaveType.meta.copyWith(
-                    fontSize: 11.5,
-                    color: const Color(0xFF7BE3A8),
-                  ),
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Color(0xFF7BE3A8),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Live syncing & scrobbling',
+                      style: WaveType.meta.copyWith(
+                        fontSize: 11.5,
+                        color: const Color(0xFF7BE3A8),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -527,24 +663,32 @@ class _LastFmProfileHub extends StatelessWidget {
         final badges = Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _HubStatBadge(
+            _HubStatPill(
               label: 'Scrobbles',
               value: formatter.format(stats.lastFmScrobbles),
+              icon: FluentIcons.play,
+              accentColor: const Color(0xFFE0506A),
             ),
-            const SizedBox(width: 14),
-            _HubStatBadge(
+            const SizedBox(width: 12),
+            _HubStatPill(
               label: 'Artists',
               value: formatter.format(stats.lastFmArtistsCount),
+              icon: FluentIcons.microphone,
+              accentColor: const Color(0xFF4FC3E8),
             ),
-            const SizedBox(width: 14),
-            _HubStatBadge(
+            const SizedBox(width: 12),
+            _HubStatPill(
               label: 'Albums',
               value: formatter.format(stats.lastFmAlbumsCount),
+              icon: FluentIcons.album,
+              accentColor: const Color(0xFFE0A030),
             ),
-            const SizedBox(width: 14),
-            _HubStatBadge(
+            const SizedBox(width: 12),
+            _HubStatPill(
               label: 'Tracks',
               value: formatter.format(stats.lastFmTracksCount),
+              icon: FluentIcons.music_in_collection,
+              accentColor: const Color(0xFF9B7BE3),
             ),
           ],
         );
@@ -553,8 +697,23 @@ class _LastFmProfileHub extends StatelessWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              profileLeading,
-              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: profileLeading),
+                  WaveIconButton(
+                    tooltip: 'View on Last.fm',
+                    icon: const Icon(FluentIcons.open_in_new_window, size: 14),
+                    onPressed: () => _openLastFmWeb(stats.lastFmUsername),
+                  ),
+                  const SizedBox(width: 6),
+                  WaveIconButton(
+                    tooltip: 'Last.fm Settings',
+                    icon: const Icon(FluentIcons.settings, size: 14),
+                    onPressed: () => context.go('/settings?section=lastfm'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: badges,
@@ -568,7 +727,13 @@ class _LastFmProfileHub extends StatelessWidget {
             profileLeading,
             const Spacer(),
             badges,
-            const SizedBox(width: 16),
+            const SizedBox(width: 18),
+            WaveIconButton(
+              tooltip: 'View profile on Last.fm',
+              icon: const Icon(FluentIcons.open_in_new_window, size: 14),
+              onPressed: () => _openLastFmWeb(stats.lastFmUsername),
+            ),
+            const SizedBox(width: 4),
             WaveIconButton(
               tooltip: 'Last.fm Settings',
               icon: const Icon(FluentIcons.settings, size: 14),
@@ -581,37 +746,70 @@ class _LastFmProfileHub extends StatelessWidget {
   }
 }
 
-class _HubStatBadge extends StatelessWidget {
+class _HubStatPill extends StatelessWidget {
   final String label;
   final String value;
-  const _HubStatBadge({required this.label, required this.value});
+  final IconData icon;
+  final Color accentColor;
+
+  const _HubStatPill({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.accentColor,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          value,
-          style: WaveType.numeral.copyWith(
-            fontSize: 15,
-            color: waveTextPrimary(context),
-          ),
+    final dark = waveIsDark(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: dark
+            ? Colors.black.withValues(alpha: 0.28)
+            : Colors.white.withValues(alpha: 0.6),
+        borderRadius: WaveRadius.controlsRadius,
+        border: Border.all(
+          color: waveDivider(context),
+          width: 0.8,
         ),
-        Text(
-          label.toUpperCase(),
-          style: WaveType.overline.copyWith(
-            fontSize: 8.5,
-            color: waveTextTertiary(context),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: accentColor),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                value,
+                style: WaveType.numeral.copyWith(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                  color: waveTextPrimary(context),
+                ),
+              ),
+              Text(
+                label.toUpperCase(),
+                style: WaveType.overline.copyWith(
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w600,
+                  color: waveTextTertiary(context),
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// Overview tab: Key metrics, 14-day activity chart, 24-hr rhythm,
+/// Overview tab: Sound Spotlight banner, key metrics, activity charts,
 /// and executive previews of Top Tracks, Artists, and Recent History.
 class _OverviewTab extends StatelessWidget {
   final ListeningStatsData stats;
@@ -626,20 +824,30 @@ class _OverviewTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final twoColumns = viewportWidth >= 960;
+    final twoColumns = viewportWidth >= 980;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Metrics Summary Grid
+        // 1. Wrapped / Replay-style Spotlight Banner (#1 Track & #1 Artist)
+        if (stats.topTracks.isNotEmpty || stats.topArtists.isNotEmpty) ...[
+          _SpotlightHero(
+            topTrack: stats.topTracks.isNotEmpty ? stats.topTracks.first : null,
+            topArtist: stats.topArtists.isNotEmpty ? stats.topArtists.first : null,
+            viewportWidth: viewportWidth,
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        // 2. Metrics Deck
         _MetricsGrid(stats: stats, viewportWidth: viewportWidth),
         const SizedBox(height: 22),
 
-        // Activity Charts
+        // 3. Visual Activity Charts
         _ChartsSection(stats: stats, twoColumns: twoColumns),
         const SizedBox(height: 26),
 
-        // Side-by-side or stacked preview of Top Tracks & Top Artists
+        // 4. Previews of Top Tracks & Top Artists
         if (twoColumns)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -672,12 +880,372 @@ class _OverviewTab extends StatelessWidget {
         ],
         const SizedBox(height: 26),
 
-        // Recent History Preview
+        // 5. Recent History Preview
         _RecentHistoryPreview(
           recentPlays: stats.recentPlays,
           onViewAll: () => onSwitchTab(StatsViewTab.history),
         ),
       ],
+    );
+  }
+}
+
+/// Sound Spotlight Hero Card (Apple Music Replay / Spotify Wrapped vibe)
+class _SpotlightHero extends ConsumerWidget {
+  final StatTrack? topTrack;
+  final StatArtist? topArtist;
+  final double viewportWidth;
+
+  const _SpotlightHero({
+    this.topTrack,
+    this.topArtist,
+    required this.viewportWidth,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dark = waveIsDark(context);
+    final accent = waveAccent(context);
+    final stacked = viewportWidth < 880;
+
+    final trackContent = topTrack == null
+        ? null
+        : Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: dark
+                  ? Colors.black.withValues(alpha: 0.28)
+                  : Colors.white.withValues(alpha: 0.55),
+              borderRadius: WaveRadius.floatingRadius,
+              border: Border.all(
+                color: const Color(0xFFFFD700).withValues(alpha: 0.35),
+                width: 1.0,
+              ),
+            ),
+            child: Row(
+              children: [
+                Stack(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: WaveRadius.artworkRadius,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFFFD700)
+                                .withValues(alpha: 0.25),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: WaveArtwork(
+                        url: topTrack!.artworkUrl,
+                        size: 78,
+                        radius: WaveRadius.artwork,
+                        title: topTrack!.name,
+                        artist: topTrack!.artist,
+                        label: topTrack!.name,
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      left: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5.5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFD700),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '#1 TRACK',
+                          style: WaveType.overline.copyWith(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        topTrack!.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: WaveType.pageTitle.copyWith(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      WaveArtistLine(
+                        artist: topTrack!.artist,
+                        style: WaveType.meta.copyWith(fontSize: 12),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFD700)
+                                  .withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '${topTrack!.playCount} plays',
+                              style: WaveType.label.copyWith(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFFFFD700),
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          WavePressable(
+                            onTap: () {
+                              playGenerated(
+                                ref,
+                                context,
+                                GeneratedTrack(
+                                  name: topTrack!.name,
+                                  artist: topTrack!.artist,
+                                  artworkUrl: topTrack!.artworkUrl,
+                                ),
+                                sourceLabel: 'Top Track Spotlight',
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: accent,
+                                borderRadius: BorderRadius.circular(999),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: accent.withValues(alpha: 0.4),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(WaveIcons.play,
+                                      size: 11, color: waveOnAccent(context)),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    'Play Now',
+                                    style: WaveType.label.copyWith(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: waveOnAccent(context),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+
+    final artistContent = topArtist == null
+        ? null
+        : Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: dark
+                  ? Colors.black.withValues(alpha: 0.28)
+                  : Colors.white.withValues(alpha: 0.55),
+              borderRadius: WaveRadius.floatingRadius,
+              border: Border.all(
+                color: const Color(0xFF4FC3E8).withValues(alpha: 0.35),
+                width: 1.0,
+              ),
+            ),
+            child: Row(
+              children: [
+                Stack(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF4FC3E8)
+                                .withValues(alpha: 0.25),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                        border: Border.all(
+                          color: const Color(0xFF4FC3E8).withValues(alpha: 0.6),
+                          width: 2,
+                        ),
+                      ),
+                      child: ClipOval(
+                        child: WaveArtwork(
+                          url: topArtist!.artworkUrl,
+                          size: 78,
+                          kind: ArtworkKind.artist,
+                          title: topArtist!.name,
+                          artist: topArtist!.name,
+                          label: topArtist!.name,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      left: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5.5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4FC3E8),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '#1 ARTIST',
+                          style: WaveType.overline.copyWith(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        topArtist!.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: WaveType.pageTitle.copyWith(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Heavy rotation champion',
+                        style: WaveType.meta.copyWith(
+                          fontSize: 12,
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF4FC3E8)
+                                  .withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '${topArtist!.playCount} plays',
+                              style: WaveType.label.copyWith(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF4FC3E8),
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          WaveGhostButton(
+                            label: 'Discography',
+                            icon: FluentIcons.open_in_new_window,
+                            onPressed: () {
+                              waveOpen(
+                                context,
+                                '/artist/${Uri.encodeComponent(topArtist!.name)}',
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: dark ? WaveColors.surface : WaveColors.lightSurface,
+        borderRadius: WaveRadius.floatingRadius,
+        border: Border.all(color: waveDivider(context), width: 0.8),
+        gradient: RadialGradient(
+          center: Alignment.topRight,
+          radius: 1.4,
+          colors: [
+            accent.withValues(alpha: dark ? 0.14 : 0.08),
+            const Color(0xFF4FC3E8).withValues(alpha: dark ? 0.08 : 0.04),
+            Colors.transparent,
+          ],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(FluentIcons.flame_solid,
+                  size: 15, color: const Color(0xFFFF8A00)),
+              const SizedBox(width: 8),
+              Text(
+                'YOUR SOUND SPOTLIGHT',
+                style: WaveType.overline.copyWith(
+                  letterSpacing: 0.9,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFFFF8A00),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (stacked) ...[
+            ?trackContent,
+            if (trackContent != null && artistContent != null)
+              const SizedBox(height: 12),
+            ?artistContent,
+          ] else ...[
+            Row(
+              children: [
+                if (trackContent != null) Expanded(child: trackContent),
+                if (trackContent != null && artistContent != null)
+                  const SizedBox(width: 14),
+                if (artistContent != null) Expanded(child: artistContent),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -974,6 +1542,7 @@ class _DailyActivityBarChart extends StatelessWidget {
           final dayLabel = parsedDate != null
               ? DateFormat('E').format(parsedDate).substring(0, 1)
               : '';
+          final dayNum = parsedDate != null ? '${parsedDate.day}' : '';
           final isToday = parsedDate != null &&
               DateFormat('yyyy-MM-dd').format(DateTime.now()) == item.date;
 
@@ -1000,12 +1569,40 @@ class _DailyActivityBarChart extends StatelessWidget {
                           heightFactor: ratio,
                           child: Container(
                             decoration: BoxDecoration(
-                              color: isToday
-                                  ? const Color(0xFF7BE3A8)
+                              gradient: isToday
+                                  ? const LinearGradient(
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                      colors: [
+                                        Color(0xFF7BE3A8),
+                                        Color(0xFF4FC3E8),
+                                      ],
+                                    )
                                   : (item.count > 0
-                                      ? waveAccent(context).withValues(alpha: 0.75)
-                                      : waveDivider(context).withValues(alpha: 0.3)),
+                                      ? LinearGradient(
+                                          begin: Alignment.bottomCenter,
+                                          end: Alignment.topCenter,
+                                          colors: [
+                                            waveAccent(context)
+                                                .withValues(alpha: 0.9),
+                                            waveAccent(context)
+                                                .withValues(alpha: 0.5),
+                                          ],
+                                        )
+                                      : null),
+                              color: item.count == 0
+                                  ? waveDivider(context).withValues(alpha: 0.3)
+                                  : null,
                               borderRadius: BorderRadius.circular(4),
+                              boxShadow: isToday
+                                  ? [
+                                      BoxShadow(
+                                        color: const Color(0xFF7BE3A8)
+                                            .withValues(alpha: 0.4),
+                                        blurRadius: 6,
+                                      ),
+                                    ]
+                                  : null,
                             ),
                           ),
                         ),
@@ -1013,9 +1610,9 @@ class _DailyActivityBarChart extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      dayLabel,
+                      '$dayLabel $dayNum',
                       style: WaveType.label.copyWith(
-                        fontSize: 9.5,
+                        fontSize: 9.0,
                         color: isToday
                             ? waveTextPrimary(context)
                             : waveTextTertiary(context),
@@ -1061,6 +1658,23 @@ class _HourlyDistributionChart extends StatelessWidget {
               final ratio = (count / maxHr).clamp(0.08, 1.0);
               final isPeak = hr == peakHour && count > 0;
 
+              // Color gradient by time of day:
+              // 0-5: Night (Indigo)
+              // 6-11: Morning (Golden)
+              // 12-17: Afternoon (Sky Blue)
+              // 18-23: Evening (Sunset Coral)
+              final color = isPeak
+                  ? const Color(0xFF9B7BE3)
+                  : (count > 0
+                      ? (hr < 6
+                          ? const Color(0xFF6C5CE7)
+                          : (hr < 12
+                              ? const Color(0xFFFDCB6E)
+                              : (hr < 18
+                                  ? const Color(0xFF0984E3)
+                                  : const Color(0xFFE17055))))
+                      : waveDivider(context).withValues(alpha: 0.2));
+
               return Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -1072,14 +1686,17 @@ class _HourlyDistributionChart extends StatelessWidget {
                         heightFactor: ratio,
                         child: Container(
                           decoration: BoxDecoration(
-                            color: isPeak
-                                ? const Color(0xFF9B7BE3)
-                                : (count > 0
-                                    ? waveTextSecondary(context)
-                                        .withValues(alpha: 0.6)
-                                    : waveDivider(context)
-                                        .withValues(alpha: 0.2)),
-                            borderRadius: BorderRadius.circular(2),
+                            color: color,
+                            borderRadius: BorderRadius.circular(2.5),
+                            boxShadow: isPeak
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(0xFF9B7BE3)
+                                          .withValues(alpha: 0.5),
+                                      blurRadius: 6,
+                                    ),
+                                  ]
+                                : null,
                           ),
                         ),
                       ),
@@ -1094,16 +1711,16 @@ class _HourlyDistributionChart extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('12 AM',
+            Text('12 AM · Night',
                 style: WaveType.overline.copyWith(
                     fontSize: 8.5, color: waveTextTertiary(context))),
-            Text('6 AM',
+            Text('6 AM · Morning',
                 style: WaveType.overline.copyWith(
                     fontSize: 8.5, color: waveTextTertiary(context))),
-            Text('12 PM',
+            Text('12 PM · Afternoon',
                 style: WaveType.overline.copyWith(
                     fontSize: 8.5, color: waveTextTertiary(context))),
-            Text('6 PM',
+            Text('6 PM · Evening',
                 style: WaveType.overline.copyWith(
                     fontSize: 8.5, color: waveTextTertiary(context))),
             Text('11 PM',
@@ -1125,6 +1742,7 @@ class _TopTracksPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    final topPlays = tracks.isNotEmpty ? tracks.first.playCount : 1;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1166,8 +1784,11 @@ class _TopTracksPreview extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               itemCount: math.min(5, tracks.length),
               separatorBuilder: (_, _) => const SizedBox(height: 4),
-              itemBuilder: (context, i) =>
-                  _TrackRowItem(track: tracks[i], rank: i + 1),
+              itemBuilder: (context, i) => _TrackRowItem(
+                track: tracks[i],
+                rank: i + 1,
+                maxPlays: topPlays,
+              ),
             ),
         ],
       ),
@@ -1305,6 +1926,7 @@ class _TracksTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    final topPlays = tracks.isNotEmpty ? tracks.first.playCount : 1;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1357,8 +1979,11 @@ class _TracksTab extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               itemCount: tracks.length,
               separatorBuilder: (_, _) => const SizedBox(height: 4),
-              itemBuilder: (context, i) =>
-                  _TrackRowItem(track: tracks[i], rank: i + 1),
+              itemBuilder: (context, i) => _TrackRowItem(
+                track: tracks[i],
+                rank: i + 1,
+                maxPlays: topPlays,
+              ),
             ),
         ],
       ),
@@ -1598,15 +2223,31 @@ class _HistoryTab extends StatelessWidget {
 // Shared Row & Grid Widgets
 // ---------------------------------------------------------------------------
 
-class _TrackRowItem extends ConsumerWidget {
+class _TrackRowItem extends ConsumerStatefulWidget {
   final StatTrack track;
   final int rank;
+  final int maxPlays;
 
-  const _TrackRowItem({required this.track, required this.rank});
+  const _TrackRowItem({
+    required this.track,
+    required this.rank,
+    required this.maxPlays,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TrackRowItem> createState() => _TrackRowItemState();
+}
+
+class _TrackRowItemState extends ConsumerState<_TrackRowItem> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final track = widget.track;
+    final rank = widget.rank;
     final isTop3 = rank <= 3;
+    final dark = waveIsDark(context);
+
     final rankColor = rank == 1
         ? const Color(0xFFFFD700)
         : (rank == 2
@@ -1615,80 +2256,153 @@ class _TrackRowItem extends ConsumerWidget {
                 ? const Color(0xFFCD7F32)
                 : waveTextTertiary(context)));
 
-    return WavePressable(
-      onTap: () {
-        playGenerated(
-          ref,
-          context,
-          GeneratedTrack(
-            name: track.name,
-            artist: track.artist,
-            artworkUrl: track.artworkUrl,
-          ),
-          sourceLabel: 'Top Tracks',
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          borderRadius: WaveRadius.controlsRadius,
-          color: Colors.transparent,
+    final ratio = widget.maxPlays > 0
+        ? (track.playCount / widget.maxPlays).clamp(0.04, 1.0)
+        : 1.0;
+
+    void play() {
+      playGenerated(
+        ref,
+        context,
+        GeneratedTrack(
+          name: track.name,
+          artist: track.artist,
+          artworkUrl: track.artworkUrl,
         ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 26,
-              child: Text(
-                '$rank',
-                style: WaveType.label.copyWith(
-                  fontSize: 12.5,
-                  color: rankColor,
-                  fontWeight:
-                      isTop3 ? FontWeight.w800 : FontWeight.w600,
+        sourceLabel: 'Top Tracks',
+      );
+    }
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: play,
+        child: AnimatedContainer(
+          duration: waveMotion(context, WaveMotion.fast),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: WaveRadius.controlsRadius,
+            color: _hover
+                ? (dark
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.black.withValues(alpha: 0.04))
+                : Colors.transparent,
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 28,
+                child: Text(
+                  '$rank',
+                  style: WaveType.label.copyWith(
+                    fontSize: isTop3 ? 14 : 12.5,
+                    color: rankColor,
+                    fontWeight: isTop3 ? FontWeight.w800 : FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-            WaveArtwork(
-              url: track.artworkUrl,
-              size: 42,
-              radius: WaveRadius.artwork,
-              title: track.name,
-              artist: track.artist,
-              label: track.name,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Stack(
                 children: [
-                  Text(
-                    track.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.trackTitle.copyWith(fontSize: 13),
+                  WaveArtwork(
+                    url: track.artworkUrl,
+                    size: 44,
+                    radius: WaveRadius.artwork,
+                    title: track.name,
+                    artist: track.artist,
+                    label: track.name,
                   ),
-                  const SizedBox(height: 1),
-                  WaveArtistLine(artist: track.artist),
+                  Positioned.fill(
+                    child: AnimatedOpacity(
+                      opacity: _hover ? 1.0 : 0.0,
+                      duration: waveMotion(context, WaveMotion.fast),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          borderRadius: WaveRadius.artworkRadius,
+                        ),
+                        child: const Center(
+                          child: Icon(WaveIcons.play,
+                              size: 16, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
-              decoration: BoxDecoration(
-                color: waveAccent(context).withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '${track.playCount} ${track.playCount == 1 ? 'play' : 'plays'}',
-                style: WaveType.label.copyWith(
-                  fontSize: 11,
-                  color: waveAccent(context),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.trackTitle.copyWith(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    WaveArtistLine(artist: track.artist),
+                    const SizedBox(height: 4),
+                    // Relative popularity gauge bar
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: Container(
+                        height: 2.5,
+                        width: double.infinity,
+                        color: dark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.black.withValues(alpha: 0.06),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: ratio,
+                            child: Container(
+                              color: rank == 1
+                                  ? const Color(0xFFFFD700)
+                                  : waveAccent(context).withValues(alpha: 0.65),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 16),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8.5, vertical: 4),
+                decoration: BoxDecoration(
+                  color: waveAccent(context).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: waveAccent(context).withValues(alpha: 0.2),
+                    width: 0.8,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(WaveIcons.play, size: 9, color: waveAccent(context)),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${track.playCount} ${track.playCount == 1 ? 'play' : 'plays'}',
+                      style: WaveType.label.copyWith(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: waveAccent(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1725,25 +2439,36 @@ class _ArtistRowItem extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: 26,
+              width: 28,
               child: Text(
                 '$rank',
                 style: WaveType.label.copyWith(
-                  fontSize: 12.5,
+                  fontSize: isTop3 ? 14 : 12.5,
                   color: rankColor,
                   fontWeight:
                       isTop3 ? FontWeight.w800 : FontWeight.w600,
                 ),
               ),
             ),
-            ClipOval(
-              child: WaveArtwork(
-                url: artist.artworkUrl,
-                size: 42,
-                kind: ArtworkKind.artist,
-                title: artist.name,
-                artist: artist.name,
-                label: artist.name,
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isTop3
+                      ? rankColor.withValues(alpha: 0.6)
+                      : waveDivider(context),
+                  width: isTop3 ? 1.5 : 1.0,
+                ),
+              ),
+              child: ClipOval(
+                child: WaveArtwork(
+                  url: artist.artworkUrl,
+                  size: 42,
+                  kind: ArtworkKind.artist,
+                  title: artist.name,
+                  artist: artist.name,
+                  label: artist.name,
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -1752,21 +2477,29 @@ class _ArtistRowItem extends StatelessWidget {
                 artist.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: WaveType.trackTitle.copyWith(fontSize: 13),
+                style: WaveType.trackTitle.copyWith(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             const SizedBox(width: 12),
             Container(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                  const EdgeInsets.symmetric(horizontal: 8.5, vertical: 4),
               decoration: BoxDecoration(
                 color: waveAccent(context).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: waveAccent(context).withValues(alpha: 0.2),
+                  width: 0.8,
+                ),
               ),
               child: Text(
                 '${artist.playCount} ${artist.playCount == 1 ? 'play' : 'plays'}',
                 style: WaveType.label.copyWith(
                   fontSize: 11,
+                  fontWeight: FontWeight.w700,
                   color: waveAccent(context),
                 ),
               ),
@@ -1797,6 +2530,15 @@ class _ArtistGridCardState extends State<_ArtistGridCard> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final a = widget.artist;
+    final isTop3 = widget.rank <= 3;
+    final medalColor = widget.rank == 1
+        ? const Color(0xFFFFD700)
+        : (widget.rank == 2
+            ? const Color(0xFFC0C0C0)
+            : (widget.rank == 3
+                ? const Color(0xFFCD7F32)
+                : Colors.white));
+
     final radius = BorderRadius.circular(
       _hover ? WaveRadius.floating : _size / 2,
     );
@@ -1817,7 +2559,7 @@ class _ArtistGridCardState extends State<_ArtistGridCard> {
         child: Column(
           children: [
             AnimatedScale(
-              scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+              scale: _pressed ? 0.97 : (_hover ? 1.04 : 1.0),
               duration: waveMotion(context, WaveMotion.fast),
               curve: Curves.easeOutCubic,
               child: Stack(
@@ -1831,11 +2573,21 @@ class _ArtistGridCardState extends State<_ArtistGridCard> {
                       borderRadius: radius,
                       boxShadow: [
                         if (_hover) ...WaveElevation.lift(dark),
+                        if (isTop3)
+                          BoxShadow(
+                            color: medalColor.withValues(alpha: 0.25),
+                            blurRadius: 10,
+                          ),
                       ],
                     ),
                     foregroundDecoration: BoxDecoration(
                       borderRadius: radius,
-                      border: Border.all(color: waveDivider(context)),
+                      border: Border.all(
+                        color: isTop3
+                            ? medalColor.withValues(alpha: 0.6)
+                            : waveDivider(context),
+                        width: isTop3 ? 1.5 : 1.0,
+                      ),
                     ),
                     child: WaveArtwork(
                       url: a.artworkUrl,
@@ -1854,14 +2606,23 @@ class _ArtistGridCardState extends State<_ArtistGridCard> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.75),
+                        color: isTop3
+                            ? medalColor
+                            : Colors.black.withValues(alpha: 0.75),
                         borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 4,
+                          ),
+                        ],
                       ),
                       child: Text(
                         '#${widget.rank}',
                         style: WaveType.label.copyWith(
                           fontSize: 10.5,
-                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          color: isTop3 ? Colors.black : Colors.white,
                         ),
                       ),
                     ),
@@ -1875,14 +2636,25 @@ class _ArtistGridCardState extends State<_ArtistGridCard> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: WaveType.trackTitle.copyWith(fontSize: 13),
+              style: WaveType.trackTitle.copyWith(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 2),
-            Text(
-              '${a.playCount} plays',
-              style: WaveType.meta.copyWith(
-                fontSize: 11,
-                color: waveTextSecondary(context),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: waveAccent(context).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${a.playCount} plays',
+                style: WaveType.meta.copyWith(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: waveAccent(context),
+                ),
               ),
             ),
           ],
@@ -1900,6 +2672,8 @@ class _AlbumGridCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+
     return WavePressable(
       onTap: () {
         waveOpen(
@@ -1917,21 +2691,33 @@ class _AlbumGridCard extends StatelessWidget {
         children: [
           Stack(
             children: [
-              WaveArtwork(
-                url: album.artworkUrl,
-                size: 140,
-                radius: WaveRadius.artwork,
-                title: album.name,
-                artist: album.artist,
-                kind: ArtworkKind.album,
-                label: album.name,
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: WaveRadius.artworkRadius,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: dark ? 0.35 : 0.12),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: WaveArtwork(
+                  url: album.artworkUrl,
+                  size: 140,
+                  radius: WaveRadius.artwork,
+                  title: album.name,
+                  artist: album.artist,
+                  kind: ArtworkKind.album,
+                  label: album.name,
+                ),
               ),
               Positioned(
                 left: 6,
                 top: 6,
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2.5),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.75),
                     borderRadius: BorderRadius.circular(999),
@@ -1940,6 +2726,7 @@ class _AlbumGridCard extends StatelessWidget {
                     '#$rank',
                     style: WaveType.label.copyWith(
                       fontSize: 10,
+                      fontWeight: FontWeight.w800,
                       color: Colors.white,
                     ),
                   ),
@@ -1947,22 +2734,27 @@ class _AlbumGridCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Text(
             album.name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: WaveType.trackTitle.copyWith(fontSize: 12.5),
+            style: WaveType.trackTitle.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 1),
           WaveArtistLine(
             artist: album.artist,
-            style: WaveType.meta.copyWith(fontSize: 11),
+            style: WaveType.meta.copyWith(fontSize: 11.5),
           ),
+          const SizedBox(height: 2),
           Text(
             '${album.playCount} plays',
             style: WaveType.meta.copyWith(
               fontSize: 10.5,
+              fontWeight: FontWeight.w600,
               color: waveTextTertiary(context),
             ),
           ),
@@ -1992,7 +2784,7 @@ class _RecentPlayItem extends ConsumerWidget {
         );
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
           borderRadius: WaveRadius.controlsRadius,
           color: Colors.transparent,
@@ -2001,7 +2793,7 @@ class _RecentPlayItem extends ConsumerWidget {
           children: [
             WaveArtwork(
               url: item.artworkUrl,
-              size: 38,
+              size: 40,
               radius: WaveRadius.artwork,
               title: item.title,
               artist: item.artist,
@@ -2016,7 +2808,10 @@ class _RecentPlayItem extends ConsumerWidget {
                     item.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: WaveType.trackTitle.copyWith(fontSize: 13),
+                    style: WaveType.trackTitle.copyWith(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 1),
                   WaveArtistLine(artist: item.artist),
@@ -2024,13 +2819,21 @@ class _RecentPlayItem extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 12),
-            Text(
-              relativeTime(
-                DateTime.fromMillisecondsSinceEpoch(item.timestampMillis),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: waveTextTertiary(context).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(999),
               ),
-              style: WaveType.meta.copyWith(
-                fontSize: 11.5,
-                color: waveTextTertiary(context),
+              child: Text(
+                relativeTime(
+                  DateTime.fromMillisecondsSinceEpoch(item.timestampMillis),
+                ),
+                style: WaveType.meta.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: waveTextSecondary(context),
+                ),
               ),
             ),
           ],

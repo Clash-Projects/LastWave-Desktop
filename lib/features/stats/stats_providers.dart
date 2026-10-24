@@ -301,10 +301,11 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
     ..sort((a, b) => b.value.compareTo(a.value));
 
   final mergedTopArtists = sortedArtists.take(25).map((e) {
+    final peek = OfficialArtworkService.instance.peekArtist(e.key);
     return StatArtist(
       name: e.key,
       playCount: e.value,
-      artworkUrl: artistArtMap[e.key] ?? '',
+      artworkUrl: artistArtMap[e.key] ?? peek?.artworkUrl ?? '',
     );
   }).toList();
 
