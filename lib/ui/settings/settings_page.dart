@@ -40,6 +40,8 @@ import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/telemetry/live_telemetry_service.dart';
+import '../../features/updates/update_service.dart';
+import '../updates/update_dialog.dart';
 import 'diagnostics_actions.dart';
 
 const _waveSettingsSections = [
@@ -2478,8 +2480,17 @@ class _AddonRow extends ConsumerWidget {
   }
 }
 
-class _About extends StatelessWidget {
+class _About extends ConsumerStatefulWidget {
   const _About();
+
+  @override
+  ConsumerState<_About> createState() => _AboutState();
+}
+
+class _AboutState extends ConsumerState<_About> {
+  bool _checking = false;
+  bool _upToDate = false;
+  AppUpdateInfo? _updateAvailable;
 
   Future<void> _open(String url) async {
     final uri = Uri.parse(url);
@@ -2490,6 +2501,96 @@ class _About extends StatelessWidget {
     } catch (_) {}
   }
 
+  Future<void> _checkForUpdates() async {
+    setState(() {
+      _checking = true;
+      _upToDate = false;
+    });
+
+    try {
+      final update = await ref.read(updateServiceProvider).checkForUpdate();
+      if (!mounted) return;
+      setState(() {
+        _checking = false;
+        _updateAvailable = update;
+        _upToDate = update == null;
+      });
+      if (update != null && mounted) {
+        await showUpdateDialog(context, update, isManualCheck: true);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _checking = false;
+        });
+      }
+    }
+  }
+
+  Widget _buildUpdateButton() {
+    if (_checking) {
+      return const WaveButton(
+        onPressed: null,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: ProgressRing(strokeWidth: 2),
+            ),
+            SizedBox(width: 8),
+            Text('Checking...'),
+          ],
+        ),
+      );
+    }
+
+    if (_updateAvailable != null) {
+      return WaveFilledButton(
+        onPressed: () => showUpdateDialog(
+          context,
+          _updateAvailable!,
+          isManualCheck: true,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(FluentIcons.update_restore, size: 14),
+            const SizedBox(width: 6),
+            Text('Update available: v${_updateAvailable!.version}'),
+          ],
+        ),
+      );
+    }
+
+    if (_upToDate) {
+      return WaveButton(
+        onPressed: _checkForUpdates,
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(FluentIcons.check_mark, size: 14, color: WaveColors.success),
+            SizedBox(width: 6),
+            Text('Up to date (check again)'),
+          ],
+        ),
+      );
+    }
+
+    return WaveButton(
+      onPressed: _checkForUpdates,
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(FluentIcons.sync, size: 14),
+          SizedBox(width: 6),
+          Text('Check for updates'),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return _Group(
@@ -2498,8 +2599,16 @@ class _About extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('LastWave Desktop · v$appVersion', style: WaveType.trackTitle),
-          const SizedBox(height: 10),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text('LastWave Desktop · v$appVersion', style: WaveType.trackTitle),
+              _buildUpdateButton(),
+            ],
+          ),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,

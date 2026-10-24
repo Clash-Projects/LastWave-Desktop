@@ -25,6 +25,9 @@ import '../navigation/wave_nav.dart';
 import '../player_dock/player_dock.dart';
 import '../queue/queue_panel.dart';
 import '../theme/tokens.dart';
+import '../updates/update_dialog.dart';
+import '../../core/storage/prefs.dart';
+import '../../features/updates/update_service.dart';
 import 'command_palette.dart';
 import 'title_bar.dart';
 import 'wave_hotkeys.dart';
@@ -89,6 +92,25 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   Offset? _savedWindowPos;
   bool _savedWasMaximized = false;
   Offset? _lastMiniPos;
+
+  Future<void> _checkUpdatesOnLaunch() async {
+    // Non-blocking delay after launch so the initial UI renders seamlessly
+    await Future<void>.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+
+    try {
+      final update = await ref.read(updateServiceProvider).checkForUpdate();
+      if (update == null || !mounted) return;
+
+      final prefs = ref.read(prefsProvider);
+      // If user selected "Don't show again" for this version, skip automatic popup
+      if (prefs.ignoredUpdateVersion == update.version) {
+        return;
+      }
+
+      await showUpdateDialog(context, update, isManualCheck: false);
+    } catch (_) {}
+  }
 
   void _toggleMiniPlayer() {
     if (_miniOpen) {
@@ -319,6 +341,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     // dispatch, so Space/arrows can't be eaten by the focused button or
     // list (see wave_hotkeys.dart).
     HardwareKeyboard.instance.addHandler(_onGlobalKey);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkUpdatesOnLaunch();
+    });
   }
 
   /// OS-level hotkeys are background-only: the in-app global handler (§

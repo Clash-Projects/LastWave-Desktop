@@ -359,6 +359,17 @@ class Prefs {
       _sp.getString('lw_studio_clarity_preset') ?? 'reference';
   Future<void> setStudioClarityPreset(String v) =>
       _sp.setString('lw_studio_clarity_preset', v);
+
+  // -- App Updates ------------------------------------------------------------
+  /// GitHub release version the user opted to suppress automatic startup popups for.
+  String get ignoredUpdateVersion =>
+      _sp.getString('lw_ignored_update_version') ?? '';
+
+  Future<void> setIgnoredUpdateVersion(String v) =>
+      _sp.setString('lw_ignored_update_version', v);
+
+  Future<void> clearIgnoredUpdateVersion() =>
+      _sp.remove('lw_ignored_update_version');
 }
 
 final prefsProvider = Provider<Prefs>((_) {
