@@ -11,6 +11,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import '../innertube/innertube_api.dart';
+import 'playlist_file.dart';
 import 'playlist_link.dart';
 import 'playlists.dart';
 
@@ -30,6 +31,7 @@ class PlaylistImportPreview {
 abstract class PlaylistTrackSource {
   Future<YouTubePlaylistResult?> fetchPlaylist(String idOrUrl);
   Future<YouTubeMusicTrack?> findMatch(String title, String artist);
+  Future<YouTubeMusicTrack?> fetchSong(String videoId);
 }
 
 /// Local-playlist writes needed by the import.
@@ -49,6 +51,10 @@ class _InnertubeTrackSource implements PlaylistTrackSource {
   @override
   Future<YouTubeMusicTrack?> findMatch(String title, String artist) =>
       api.findBestMatchOrNull(title, artist);
+
+  @override
+  Future<YouTubeMusicTrack?> fetchSong(String videoId) =>
+      api.fetchSongDetails(videoId);
 }
 
 class _PlaylistWriterOf implements PlaylistWriter {
@@ -141,37 +147,10 @@ Future<PlaylistImportPreview> previewPlaylistLinkWith(
   if (page.rows.isEmpty) {
     throw StateError('No playable tracks found in that playlist.');
   }
-  final matched = <StoredTrack>[];
-  for (var i = 0; i < page.rows.length; i += 5) {
-    final chunk = page.rows.skip(i).take(5);
-    final results = await Future.wait(
-      chunk.map(
-        (row) => source
-            .findMatch(row.title, row.artist)
-            .timeout(
-              const Duration(seconds: 10),
-              onTimeout: () => null,
-            )
-            .then<YouTubeMusicTrack?>(
-              (match) => match,
-              onError: (_) => null,
-            ),
-      ),
-    );
-    for (var j = 0; j < chunk.length; j++) {
-      final match = results[j];
-      if (match == null) continue;
-      final row = chunk.elementAt(j);
-      matched.add(StoredTrack(
-        name: row.title,
-        artist: row.artist,
-        artworkUrl: match.artworkUrl,
-        videoId: match.videoId,
-        album: match.album,
-        durationSeconds: match.durationSeconds,
-      ));
-    }
-  }
+  final matched = await _matchRows(source, [
+    for (final row in page.rows)
+      PlaylistFileRow(title: row.title, artist: row.artist),
+  ]);
   if (matched.isEmpty) {
     throw StateError(
         'No playable tracks found in that playlist.');
@@ -181,6 +160,84 @@ Future<PlaylistImportPreview> previewPlaylistLinkWith(
     totalRows: page.rows.length,
     matchedTracks: matched,
   );
+}
+
+/// Production entry point: preview a playlist file (CSV, M3U, text).
+Future<PlaylistImportPreview> previewPlaylistFile({
+  required InnerTubeMusicApi api,
+  required List<int> bytes,
+  required String filename,
+}) =>
+    previewPlaylistFileWith(_InnertubeTrackSource(api), bytes, filename);
+
+/// Testable file core: rows with a YouTube id resolve by id, the rest are
+/// matched like Spotify/Apple rows; repeated rows count once.
+Future<PlaylistImportPreview> previewPlaylistFileWith(
+  PlaylistTrackSource source,
+  List<int> bytes,
+  String filename,
+) async {
+  final seen = <String>{};
+  final rows = parsePlaylistFile(decodePlaylistBytes(bytes), filename)
+      .where((r) => seen.add(r.identity))
+      .toList();
+  if (rows.isEmpty) {
+    throw const FormatException('No tracks found in that file.');
+  }
+  final ids = <String>{};
+  final matched = (await _matchRows(source, rows))
+      .where((t) => ids.add(t.videoId))
+      .toList();
+  if (matched.isEmpty) {
+    throw StateError('No playable tracks found in that file.');
+  }
+  return PlaylistImportPreview(
+    title: suggestedPlaylistTitle(filename),
+    totalRows: rows.length,
+    matchedTracks: matched,
+  );
+}
+
+/// Bounded fan-out (5 at a time); misses and errors are dropped.
+Future<List<StoredTrack>> _matchRows(
+  PlaylistTrackSource source,
+  List<PlaylistFileRow> rows,
+) async {
+  final matched = <StoredTrack>[];
+  for (var i = 0; i < rows.length; i += 5) {
+    final chunk = rows.skip(i).take(5).toList();
+    final results = await Future.wait(chunk.map((row) async {
+      try {
+        final id = row.videoId;
+        if (id != null) {
+          final byId = await source
+              .fetchSong(id)
+              .timeout(const Duration(seconds: 10), onTimeout: () => null);
+          if (byId != null && byId.videoId == id) return byId;
+        }
+        if (row.title.isEmpty) return null;
+        return await source
+            .findMatch(row.title, row.artist)
+            .timeout(const Duration(seconds: 10), onTimeout: () => null);
+      } catch (_) {
+        return null;
+      }
+    }));
+    for (var j = 0; j < chunk.length; j++) {
+      final match = results[j];
+      if (match == null) continue;
+      final row = chunk[j];
+      matched.add(StoredTrack(
+        name: row.title.isNotEmpty ? row.title : match.title,
+        artist: row.artist.isNotEmpty ? row.artist : match.artist,
+        artworkUrl: match.artworkUrl,
+        videoId: match.videoId,
+        album: row.album ?? match.album,
+        durationSeconds: match.durationSeconds,
+      ));
+    }
+  }
+  return matched;
 }
 
 /// Testable create core: one playlist, exactly the matched tracks.

@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -171,8 +172,9 @@ Future<void> showWaveDeletePlaylist(
 }
 
 /// Import a public playlist from a pasted link (YouTube, Spotify or
-/// Apple Music — no account needed). Paste, fetch a preview
-/// ("<title>" - N of M tracks matched), then import.
+/// Apple Music — no account needed) or a playlist file (CSV, M3U, text).
+/// Paste or pick, fetch a preview ("<title>" - N of M tracks matched),
+/// then import.
 Future<void> showWaveImportPlaylist(
   BuildContext context,
   WidgetRef ref,
@@ -217,6 +219,58 @@ Future<void> showWaveImportPlaylist(
             setState(() {
               busy = false;
               error = importErrorMessage(e);
+            });
+          }
+        }
+
+        Future<void> fromFile() async {
+          if (busy) return;
+          final PlatformFile? file;
+          final List<int> bytes;
+          try {
+            file = await FilePicker.pickFile(
+              dialogTitle: 'Select a playlist file',
+              type: FileType.custom,
+              allowedExtensions: const ['csv', 'tsv', 'txt', 'm3u', 'm3u8'],
+            );
+            if (file == null) return;
+            // Exports are a few hundred KB; the cap keeps a stray file
+            // from stalling the dialog.
+            if (await file.length() > 10 * 1024 * 1024) {
+              throw const FormatException('That file is too large.');
+            }
+            bytes = await file.readAsBytes();
+          } catch (e) {
+            if (!context.mounted) return;
+            setState(() => error = e is FormatException
+                ? e.message
+                : 'Could not read that file.');
+            return;
+          }
+          if (!context.mounted) return;
+          setState(() {
+            busy = true;
+            preview = null;
+            error = null;
+          });
+          try {
+            final result = await previewPlaylistFile(
+              api: ref.read(innerTubeProvider),
+              bytes: bytes,
+              filename: file.name,
+            );
+            if (!context.mounted) return;
+            setState(() {
+              busy = false;
+              preview = result;
+            });
+          } catch (e) {
+            if (!context.mounted) return;
+            setState(() {
+              busy = false;
+              error = e is FormatException || e is StateError
+                  ? importErrorMessage(e)
+                  : 'Could not import that file.';
             });
           }
         }
@@ -304,6 +358,10 @@ Future<void> showWaveImportPlaylist(
             ],
           ),
           actions: [
+            WaveButton(
+              onPressed: busy ? null : fromFile,
+              child: const Text('From file...'),
+            ),
             WaveButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('Cancel'),
