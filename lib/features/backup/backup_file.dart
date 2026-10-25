@@ -146,7 +146,10 @@ Future<BackupSummary> syncBackup(
     localPlaylists: _playlists(local),
     localExclusions: _exclusions(local),
     remotePlaylists: _playlists(remote),
-    remoteExclusions: _exclusions(remote),
+    // Schema 6 and older files say nothing about exclusions: keep ours.
+    remoteExclusions: (remote['schemaVersion'] as int) >= 7
+        ? _exclusions(remote)
+        : _exclusions(local),
     holds: holdsTrack,
   );
   final output = const JsonEncoder.withIndent('  ').convert({

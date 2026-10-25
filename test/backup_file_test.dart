@@ -228,6 +228,14 @@ void main() {
     },
   );
 
+  test('a schema 6 file keeps the exclusions made here', () async {
+    final db = AppDatabase.inMemory();
+    await sync(db, phoneBackup());
+    db.addExclusion(name: 'Gangnam Style', artist: 'PSY');
+    await sync(db, phoneBackup(schema: 6));
+    expect(db.loadExclusionKeys(), {'baby|justin bieber', 'gangnam style|psy'});
+  });
+
   test('export from a fresh install still has every phone field', () {
     final out =
         jsonDecode(buildBackup(AppDatabase.inMemory())) as Map<String, dynamic>;
