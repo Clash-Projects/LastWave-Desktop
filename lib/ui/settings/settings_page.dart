@@ -2710,8 +2710,8 @@ class _General extends ConsumerWidget {
         const SizedBox(height: 16),
         _Group(
           title: 'Backup & Restore',
-          subtitle: 'Playlists and "don\'t recommend" list, in the same file '
-              'as the LastWave phone app',
+          subtitle: 'Playlists and "don\'t recommend" list, synced through '
+              'one file shared with the LastWave phone app',
           child: Row(
             children: [
               WaveFilledButton(
@@ -2720,8 +2720,8 @@ class _General extends ConsumerWidget {
               ),
               const SizedBox(width: 8),
               WaveButton(
-                onPressed: () => restoreBackupFromFile(context, ref),
-                child: const Text('Restore backup'),
+                onPressed: () => syncWithFile(context, ref),
+                child: const Text('Sync with file'),
               ),
             ],
           ),

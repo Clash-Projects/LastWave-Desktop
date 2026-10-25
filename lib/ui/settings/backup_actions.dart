@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -28,28 +29,34 @@ Future<void> exportBackup(BuildContext context, WidgetRef ref) async {
     await _message(
       context,
       'Backup exported',
-      'Restore it in the LastWave phone app (Backup & Restore > Restore) '
-          'or on another computer.',
+      'Keep it somewhere both devices reach (Drive, OneDrive…) and use '
+          '"Sync with file" on each of them.',
     );
   } catch (e) {
     if (context.mounted) await _message(context, 'Could not export', '$e');
   }
 }
 
-/// Picks a backup file, confirms, then replaces playlists and exclusions.
-Future<void> restoreBackupFromFile(BuildContext context, WidgetRef ref) async {
+/// Picks the shared backup file, merges it both ways and writes it back.
+Future<void> syncWithFile(BuildContext context, WidgetRef ref) async {
+  final String path;
   final String content;
   try {
     final file = await FilePicker.pickFile(
-      dialogTitle: 'Select a LastWave backup',
+      dialogTitle: 'Select the LastWave backup to sync with',
       type: FileType.custom,
       allowedExtensions: const ['json'],
     );
     if (file == null) return;
+    final picked = file.path;
+    if (picked == null) {
+      throw const BackupException('Pick a file on this computer.');
+    }
     // Real backups are a few MB at most; the cap keeps a stray file out.
     if (await file.length() > 50 * 1024 * 1024) {
       throw const BackupException('That file is too large.');
     }
+    path = picked;
     content = utf8.decode(await file.readAsBytes(), allowMalformed: true);
   } catch (e) {
     if (context.mounted) {
@@ -57,44 +64,25 @@ Future<void> restoreBackupFromFile(BuildContext context, WidgetRef ref) async {
     }
     return;
   }
-  if (!context.mounted) return;
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => ContentDialog(
-      title: const Text('Restore this backup?'),
-      content: const Text(
-        'Your saved playlists and "don\'t recommend" list will be replaced '
-        'by the ones in the file. Settings on this computer are kept.',
-      ),
-      actions: [
-        WaveButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Cancel'),
-        ),
-        WaveFilledButton(
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Restore'),
-        ),
-      ],
-    ),
-  );
-  if (ok != true || !context.mounted) return;
   try {
-    final summary = restoreBackup(ref.read(databaseProvider), content);
+    final summary = await syncBackup(
+      ref.read(databaseProvider),
+      content,
+      (merged) => File(path).writeAsString(merged, flush: true),
+    );
     ref.read(playlistRepositoryProvider.notifier)
       ..refresh()
       ..collapseDuplicateLikedRows();
     if (!context.mounted) return;
     await _message(
       context,
-      'Backup restored',
+      'Synced',
       '${summary.playlists} playlists and ${summary.exclusions} '
-          '"don\'t recommend" entries.',
+          '"don\'t recommend" entries. The file now holds both sides: sync '
+          'it in the phone app too.',
     );
-  } on BackupException catch (e) {
-    if (context.mounted) {
-      await _message(context, 'Could not restore', e.message);
-    }
+  } catch (e) {
+    if (context.mounted) await _message(context, 'Could not sync', '$e');
   }
 }
 

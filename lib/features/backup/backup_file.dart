@@ -4,21 +4,33 @@ import '../../core/app_info.dart';
 import '../../core/storage/app_database.dart';
 import '../library/playlist_file.dart' show youtubeIdOf;
 import '../library/playlists.dart';
+import 'backup_sync.dart';
 
 /// LastWave-Native's backup file (`BackupRepository`, type
 /// "lastwave-backup"), read and written here so saved playlists and the
 /// "don't recommend" list move between the phone and the desktop.
 ///
-/// A restore replaces both, like on the phone. The phone's settings
+/// Sync merges both ways (see `backup_sync.dart`). The phone's settings
 /// (`prefs`) mean nothing here, but a phone restore replaces its settings
-/// with whatever the file carries: they are kept from the last imported
-/// file and written back unchanged on export.
+/// with whatever the file carries: they are kept from the last synced file
+/// and written back unchanged.
 const backupType = 'lastwave-backup';
 
 /// Highest LastWave-Native backup schema this reads (and the one it writes).
 const backupSchemaVersion = 8;
 
 const _mobilePrefsKey = 'backup_mobile_prefs';
+
+/// The file as this computer last synced it: the merge's common ancestor.
+const _syncBaseKey = 'backup_sync_base';
+
+const _emptyPrefs = {
+  'strings': {},
+  'booleans': {},
+  'integers': {},
+  'longs': {},
+  'stringSets': {},
+};
 
 class BackupException implements Exception {
   final String message;
@@ -76,6 +88,7 @@ String buildBackup(AppDatabase db) {
         'tracksJson': jsonEncode(
           _storedTracks(r['tracks_json'] as String?)
               .map(trackToBackup)
+              .where(holdsTrack)
               .toList(),
         ),
         'createdAtMillis': r['created_at_millis'] ?? 0,
@@ -104,126 +117,181 @@ String buildBackup(AppDatabase db) {
     'schemaVersion': backupSchemaVersion,
     'createdAt': DateTime.now().millisecondsSinceEpoch,
     'appVersion': 'desktop-$appVersion',
-    'prefs': prefs is Map
-        ? prefs
-        : const {
-            'strings': {},
-            'booleans': {},
-            'integers': {},
-            'longs': {},
-            'stringSets': {},
-          },
+    'prefs': prefs is Map ? prefs : _emptyPrefs,
     'playlists': playlists,
     'recommendationExclusions': exclusions,
   });
 }
 
-/// Replaces saved playlists (and exclusions, schema 7+) with the file's.
-/// Everything is checked before the first write; the writes are one
-/// transaction, so a bad file leaves the library untouched.
-BackupSummary restoreBackup(AppDatabase db, String content) {
-  final Object? root;
+/// Merges [content] (a backup file from the phone or another computer)
+/// with this library, hands the merged file to [writeFile], then stores the
+/// merged library here. The file is written first: if that fails nothing
+/// changed, and if the local write fails the file is merely ahead, which
+/// the next sync reads back as changes made elsewhere.
+Future<BackupSummary> syncBackup(
+  AppDatabase db,
+  String content,
+  Future<void> Function(String merged) writeFile,
+) async {
+  final remote = _parse(content);
+  Map<String, dynamic>? base;
   try {
-    root = jsonDecode(content);
-  } catch (_) {
-    throw const BackupException('This is not a LastWave backup file.');
-  }
-  if (root is! Map || root['type'] != backupType) {
-    throw const BackupException('This is not a LastWave backup file.');
-  }
-  final schema = root['schemaVersion'];
-  if (schema is! int) {
-    throw const BackupException('This is not a LastWave backup file.');
-  }
-  if (schema > backupSchemaVersion) {
-    throw const BackupException(
-      'This backup comes from a newer LastWave. Update the app first.',
-    );
-  }
-  final rawPlaylists = root['playlists'];
-  if (rawPlaylists is! List) {
-    throw const BackupException('This backup has no playlist list.');
-  }
+    base = _parse(db.kvGet(_syncBaseKey) ?? '');
+  } catch (_) {}
+  final local = _parse(buildBackup(db));
 
-  final playlists = <List<Object?>>[];
-  for (final p in rawPlaylists) {
-    final id = p is Map ? p['id'] : null;
-    if (p is! Map || id is! num) {
-      throw const BackupException('A playlist in this backup is damaged.');
-    }
-    final title = p['title']?.toString() ?? '';
-    final List<StoredTrack> tracks;
-    try {
-      final decoded = jsonDecode(p['tracksJson']?.toString() ?? '[]');
-      tracks = [
-        for (final t in decoded as List)
-          trackFromBackup(Map<String, dynamic>.from(t as Map)),
-      ];
-    } catch (_) {
-      throw BackupException('The tracks of "$title" are damaged.');
-    }
-    playlists.add([
-      id.toInt(),
-      title,
-      p['subtitle']?.toString() ?? '',
-      p['mode']?.toString() ?? 'custom',
-      jsonEncode(tracks.map((t) => t.toJson()).toList()),
-      (p['createdAtMillis'] as num?)?.toInt() ?? 0,
-      p['discoverSignature']?.toString(),
-      p['customCoverUri']?.toString(),
-      p['isPinned'] == true ? 1 : 0,
-    ]);
-  }
+  final merged = mergeLibraries(
+    basePlaylists: base == null ? null : _playlists(base),
+    baseExclusions: base == null ? null : _exclusions(base),
+    localPlaylists: _playlists(local),
+    localExclusions: _exclusions(local),
+    remotePlaylists: _playlists(remote),
+    remoteExclusions: _exclusions(remote),
+    holds: holdsTrack,
+  );
+  final output = const JsonEncoder.withIndent('  ').convert({
+    'type': backupType,
+    'schemaVersion': backupSchemaVersion,
+    'createdAt': DateTime.now().millisecondsSinceEpoch,
+    'appVersion': 'desktop-$appVersion',
+    'prefs': remote['prefs'],
+    'playlists': merged.playlists,
+    'recommendationExclusions': merged.exclusions,
+  });
+  await writeFile(output);
 
-  // Older phone backups carried no explicit exclusions: keep ours then.
-  final rawExclusions = root['recommendationExclusions'];
-  final exclusions = <List<Object?>>[
-    if (schema >= 7 && rawExclusions is List)
-      for (final e in rawExclusions)
-        if (e is Map && (e['trackKey']?.toString() ?? '').isNotEmpty)
-          [
-            e['trackKey'].toString(),
-            (e['excludedAtMillis'] as num?)?.toInt() ?? 0,
-            e['trackName']?.toString() ?? '',
-            e['artistName']?.toString() ?? '',
-          ],
-  ];
-  final prefs = root['prefs'];
+  // Keep what only this app knows (duration, matched video) for tracks
+  // already here, and this app's own Liked Songs row id.
+  final known = <String, StoredTrack>{};
+  final likedIds = <int>[];
+  for (final r in db.raw.select(
+    'SELECT id, mode, tracks_json FROM saved_playlists;',
+  )) {
+    if (r['mode'] == SavedPlaylist.likedMode) likedIds.add(r['id'] as int);
+    for (final t in _storedTracks(r['tracks_json'] as String?)) {
+      known.putIfAbsent(trackKey(trackToBackup(t)), () => t);
+    }
+  }
 
   final raw = db.raw;
   raw.execute('BEGIN;');
   try {
     raw.execute('DELETE FROM saved_playlists;');
-    for (final row in playlists) {
+    for (final p in merged.playlists) {
+      final tracks = [
+        for (final t in tracksOf(p))
+          if (holdsTrack(t)) known[trackKey(t)] ?? trackFromBackup(t),
+      ];
+      final liked = p['mode'] == SavedPlaylist.likedMode;
       raw.execute(
         'INSERT INTO saved_playlists (id, title, subtitle, mode, tracks_json, '
         'created_at_millis, discover_signature, custom_cover_uri, is_pinned) '
         'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        row,
+        [
+          liked && likedIds.isNotEmpty
+              ? likedIds.first
+              : (p['id'] as num).toInt(),
+          p['title']?.toString() ?? '',
+          p['subtitle']?.toString() ?? '',
+          p['mode']?.toString() ?? 'custom',
+          jsonEncode(tracks.map((t) => t.toJson()).toList()),
+          (p['createdAtMillis'] as num?)?.toInt() ?? 0,
+          p['discoverSignature']?.toString(),
+          p['customCoverUri']?.toString(),
+          p['isPinned'] == true ? 1 : 0,
+        ],
       );
     }
-    if (schema >= 7) {
-      raw.execute('DELETE FROM recommendation_exclusions;');
-      for (final row in exclusions) {
-        raw.execute(
-          'INSERT OR REPLACE INTO recommendation_exclusions '
-          '(track_key, excluded_at_millis, track_name, artist_name) '
-          'VALUES (?, ?, ?, ?);',
-          row,
-        );
-      }
+    raw.execute('DELETE FROM recommendation_exclusions;');
+    for (final e in merged.exclusions) {
+      raw.execute(
+        'INSERT OR REPLACE INTO recommendation_exclusions '
+        '(track_key, excluded_at_millis, track_name, artist_name) '
+        'VALUES (?, ?, ?, ?);',
+        [
+          e['trackKey'].toString(),
+          (e['excludedAtMillis'] as num?)?.toInt() ?? 0,
+          e['trackName']?.toString() ?? '',
+          e['artistName']?.toString() ?? '',
+        ],
+      );
     }
-    if (prefs is Map) db.kvSet(_mobilePrefsKey, jsonEncode(prefs));
+    db.kvSet(_mobilePrefsKey, jsonEncode(remote['prefs']));
+    db.kvSet(_syncBaseKey, output);
     raw.execute('COMMIT;');
   } catch (e) {
     raw.execute('ROLLBACK;');
-    throw BackupException('Restore failed, nothing was changed ($e).');
+    throw BackupException(
+      'The file was updated but this library was not ($e). Sync again.',
+    );
   }
   return BackupSummary(
-    playlists: playlists.length,
-    exclusions: schema >= 7 ? exclusions.length : 0,
+    playlists: merged.playlists.length,
+    exclusions: merged.exclusions.length,
   );
 }
+
+/// The phone's local songs (a file path on the phone) mean nothing here:
+/// never imported, and left untouched in the file.
+bool holdsTrack(Map<String, dynamic> track) {
+  final url = track['url']?.toString() ?? '';
+  return !(url.startsWith('/') ||
+      url.startsWith('content://') ||
+      url.startsWith('file://'));
+}
+
+/// Validated backup root. Every playlist has a numeric id and readable
+/// tracks, so the merge never meets a damaged entry halfway.
+Map<String, dynamic> _parse(String content) {
+  const notBackup = BackupException('This is not a LastWave backup file.');
+  final Object? root;
+  try {
+    root = jsonDecode(content);
+  } catch (_) {
+    throw notBackup;
+  }
+  if (root is! Map || root['type'] != backupType) throw notBackup;
+  final schema = root['schemaVersion'];
+  if (schema is! int) throw notBackup;
+  if (schema > backupSchemaVersion) {
+    throw const BackupException(
+      'This backup comes from a newer LastWave. Update the app first.',
+    );
+  }
+  final playlists = root['playlists'];
+  if (playlists is! List) {
+    throw const BackupException('This backup has no playlist list.');
+  }
+  for (final p in playlists) {
+    if (p is! Map || p['id'] is! num) {
+      throw const BackupException('A playlist in this backup is damaged.');
+    }
+    try {
+      tracksOf(Map<String, dynamic>.from(p));
+    } catch (_) {
+      throw BackupException('The tracks of "${p['title']}" are damaged.');
+    }
+  }
+  return {
+    ...Map<String, dynamic>.from(root),
+    'prefs': root['prefs'] is Map ? root['prefs'] : _emptyPrefs,
+    // Schema 6 and older carried no explicit exclusions.
+    'recommendationExclusions': [
+      if (schema >= 7 && root['recommendationExclusions'] is List)
+        for (final e in root['recommendationExclusions'] as List)
+          if (e is Map && '${e['trackKey'] ?? ''}'.isNotEmpty)
+            Map<String, dynamic>.from(e),
+    ],
+  };
+}
+
+List<Map<String, dynamic>> _playlists(Map<String, dynamic> root) => [
+  for (final p in root['playlists'] as List)
+    Map<String, dynamic>.from(p as Map),
+];
+
+List<Map<String, dynamic>> _exclusions(Map<String, dynamic> root) =>
+    List<Map<String, dynamic>>.from(root['recommendationExclusions'] as List);
 
 List<StoredTrack> _storedTracks(String? json) {
   try {

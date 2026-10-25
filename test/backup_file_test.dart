@@ -5,8 +5,20 @@ import 'package:lastwave_desktop/core/storage/app_database.dart';
 import 'package:lastwave_desktop/features/backup/backup_file.dart';
 import 'package:lastwave_desktop/features/library/playlists.dart';
 
+const phoneSong = '/storage/emulated/0/Music/demo.flac';
+
 /// Shape written by LastWave-Native's BackupRepository (schema 8).
-String phoneBackup({int schema = 8, String? likedTracksJson}) => jsonEncode({
+String phoneBackup({
+  int schema = 8,
+  String? likedTracksJson,
+  List<Map<String, dynamic>> roadTrip = const [
+    {
+      'name': 'Hello',
+      'artist': 'Adele',
+      'url': 'https://www.last.fm/music/Adele/_/Hello',
+    },
+  ],
+}) => jsonEncode({
   'type': 'lastwave-backup',
   'schemaVersion': schema,
   'createdAt': 1761300000000,
@@ -37,7 +49,7 @@ String phoneBackup({int schema = 8, String? likedTracksJson}) => jsonEncode({
             {
               'name': 'Demo',
               'artist': 'Me',
-              'url': '/storage/emulated/0/Music/demo.flac',
+              'url': phoneSong,
               'image': null,
               'album': null,
             },
@@ -52,13 +64,7 @@ String phoneBackup({int schema = 8, String? likedTracksJson}) => jsonEncode({
       'title': 'Road Trip',
       'subtitle': '',
       'mode': 'custom',
-      'tracksJson': jsonEncode([
-        {
-          'name': 'Hello',
-          'artist': 'Adele',
-          'url': 'https://www.last.fm/music/Adele/_/Hello',
-        },
-      ]),
+      'tracksJson': jsonEncode(roadTrip),
       'createdAtMillis': 1761000000001,
       'isPinned': false,
     },
@@ -76,114 +82,159 @@ String phoneBackup({int schema = 8, String? likedTracksJson}) => jsonEncode({
 List<SavedPlaylist> playlistsOf(AppDatabase db) =>
     (PlaylistRepository(db)..refresh()).state;
 
+/// Runs a sync and returns the file content it wrote.
+Future<String> sync(AppDatabase db, String file) async {
+  late String written;
+  await syncBackup(db, file, (merged) async => written = merged);
+  return written;
+}
+
+List<Map<String, dynamic>> fileTracks(String file, String title) {
+  final root = jsonDecode(file) as Map<String, dynamic>;
+  final p = (root['playlists'] as List).cast<Map<String, dynamic>>().firstWhere(
+    (p) => p['title'] == title,
+  );
+  return (jsonDecode(p['tracksJson'] as String) as List)
+      .cast<Map<String, dynamic>>();
+}
+
 void main() {
-  test('restores a phone backup into desktop playlists and exclusions', () {
-    final db = AppDatabase.inMemory();
-    final summary = restoreBackup(db, phoneBackup());
+  test(
+    'first sync imports the phone library without its local songs',
+    () async {
+      final db = AppDatabase.inMemory();
+      final file = await sync(db, phoneBackup());
 
-    expect(summary.playlists, 2);
-    expect(summary.exclusions, 1);
-    final playlists = playlistsOf(db);
-    final liked = playlists.firstWhere((p) => p.isLikedSongs);
-    expect(liked.isPinned, isTrue);
-    expect(liked.tracks.first.videoId, 'A_MjCqQoLLA');
-    expect(liked.tracks.first.artworkUrl, startsWith('https://i.ytimg.com'));
-    expect(liked.tracks.first.album, 'Past Masters');
-    expect(liked.tracks.first.url, isEmpty);
-    expect(liked.tracks[1].videoId, isEmpty);
-    expect(liked.tracks[1].url, '/storage/emulated/0/Music/demo.flac');
-    expect(db.loadExclusionKeys(), {'baby|justin bieber'});
+      final liked = playlistsOf(db).firstWhere((p) => p.isLikedSongs);
+      expect(liked.isPinned, isTrue);
+      expect(liked.tracks, hasLength(1));
+      expect(liked.tracks.single.videoId, 'A_MjCqQoLLA');
+      expect(liked.tracks.single.album, 'Past Masters');
+      expect(db.loadExclusionKeys(), {'baby|justin bieber'});
+
+      // The file still gives the phone its local song, cover and settings.
+      expect(fileTracks(file, 'Liked Songs').map((t) => t['url']), [
+        'https://music.youtube.com/watch?v=A_MjCqQoLLA',
+        phoneSong,
+      ]);
+      final root = jsonDecode(file) as Map<String, dynamic>;
+      expect(root['prefs']['strings'], {'lw_theme': 'midnight'});
+      expect(
+        (root['playlists'] as List).first['customCoverUri'],
+        'content://media/external/images/1',
+      );
+    },
+  );
+
+  test('later syncs carry edits both ways', () async {
+    final db = AppDatabase.inMemory();
+    await sync(db, phoneBackup());
+
+    // Desktop: remove Hello from Road Trip. Phone: add Skyfall to it.
+    final repo = PlaylistRepository(db);
+    final road = repo.state.firstWhere((p) => p.title == 'Road Trip');
+    db.raw.execute('UPDATE saved_playlists SET tracks_json = ? WHERE id = ?;', [
+      '[]',
+      road.id,
+    ]);
+    final file = await sync(
+      db,
+      phoneBackup(
+        roadTrip: const [
+          {'name': 'Hello', 'artist': 'Adele', 'url': ''},
+          {'name': 'Skyfall', 'artist': 'Adele', 'url': 'a3Ue-LN5B9U'},
+        ],
+      ),
+    );
+
+    expect(fileTracks(file, 'Road Trip').map((t) => t['name']), ['Skyfall']);
+    final synced = playlistsOf(db).firstWhere((p) => p.title == 'Road Trip');
+    expect(synced.tracks.map((t) => t.videoId), ['a3Ue-LN5B9U']);
   });
 
-  test('export gives the phone back its links, cover and settings', () {
+  test('tracks already here keep what only the desktop knows', () async {
     final db = AppDatabase.inMemory();
-    restoreBackup(db, phoneBackup());
-
-    final out = jsonDecode(buildBackup(db)) as Map<String, dynamic>;
-    expect(out['type'], 'lastwave-backup');
-    expect(out['schemaVersion'], 8);
-    expect(out['prefs']['strings'], {'lw_theme': 'midnight'});
-    expect(out['prefs']['longs'], {'ytm_last_sync_at': 1761299999000});
-    final liked = (out['playlists'] as List).first as Map<String, dynamic>;
-    expect(liked['mode'], 'liked');
-    expect(liked['isPinned'], isTrue);
-    expect(liked['customCoverUri'], 'content://media/external/images/1');
-    final tracks = jsonDecode(liked['tracksJson'] as String) as List;
-    expect(tracks[0]['url'], 'A_MjCqQoLLA');
-    expect(tracks[1]['url'], '/storage/emulated/0/Music/demo.flac');
-    expect(out['recommendationExclusions'], hasLength(1));
-  });
-
-  test('a matched video replaces a web page link, not a local file', () {
-    expect(
-      trackToBackup(
+    await sync(db, phoneBackup());
+    final repo = PlaylistRepository(db);
+    final liked = repo.state.firstWhere((p) => p.isLikedSongs);
+    db.raw.execute('UPDATE saved_playlists SET tracks_json = ? WHERE id = ?;', [
+      jsonEncode([
         const StoredTrack(
-          name: 'Hello',
-          artist: 'Adele',
-          videoId: 'YQHsXMglC9A',
-          url: 'https://www.last.fm/music/Adele/_/Hello',
-        ),
-      )['url'],
-      'YQHsXMglC9A',
+          name: 'Hey Jude',
+          artist: 'The Beatles',
+          videoId: 'A_MjCqQoLLA',
+          durationSeconds: 431,
+        ).toJson(),
+      ]),
+      liked.id,
+    ]);
+    await sync(db, phoneBackup());
+    final after = playlistsOf(db).firstWhere((p) => p.isLikedSongs);
+    expect(after.id, liked.id);
+    expect(after.tracks.single.durationSeconds, 431);
+  });
+
+  test('a bad file or a failed write leaves everything untouched', () async {
+    final db = AppDatabase.inMemory();
+    await sync(db, phoneBackup());
+
+    var wrote = false;
+    for (final bad in [
+      'not json',
+      '{"type":"other","schemaVersion":1,"playlists":[]}',
+      phoneBackup(schema: 9),
+      phoneBackup(likedTracksJson: '{broken'),
+    ]) {
+      await expectLater(
+        syncBackup(db, bad, (_) async => wrote = true),
+        throwsA(isA<BackupException>()),
+      );
+    }
+    expect(wrote, isFalse);
+
+    await expectLater(
+      syncBackup(
+        db,
+        phoneBackup(roadTrip: const []),
+        (_) async => throw Exception('disk full'),
+      ),
+      throwsException,
     );
     expect(
-      trackToBackup(
-        const StoredTrack(
-          name: 'Demo',
-          artist: 'Me',
-          videoId: 'YQHsXMglC9A',
-          url: '/storage/emulated/0/Music/demo.flac',
-        ),
-      )['url'],
-      '/storage/emulated/0/Music/demo.flac',
+      playlistsOf(db).firstWhere((p) => p.title == 'Road Trip').tracks,
+      hasLength(1),
     );
   });
 
   test(
-    'export without a phone backup restored still has every phone field',
-    () {
+    'export never writes local songs and keeps the phone settings',
+    () async {
       final db = AppDatabase.inMemory();
-      final out = jsonDecode(buildBackup(db)) as Map<String, dynamic>;
-      expect(
-        out['prefs'].keys,
-        containsAll(['strings', 'booleans', 'integers', 'longs', 'stringSets']),
+      await sync(db, phoneBackup());
+      db.raw.execute(
+        'INSERT INTO saved_playlists (id, title, mode, tracks_json) VALUES (?, ?, ?, ?);',
+        [
+          5,
+          'Old restore',
+          'custom',
+          jsonEncode([
+            {'name': 'X', 'artist': 'Y', 'url': phoneSong},
+          ]),
+        ],
       );
-      expect(out['playlists'], isEmpty);
+      final out = jsonDecode(buildBackup(db)) as Map<String, dynamic>;
+      expect(out['prefs']['longs'], {'ytm_last_sync_at': 1761299999000});
+      expect(fileTracks(jsonEncode(out), 'Old restore'), isEmpty);
     },
   );
 
-  test('bad files throw and leave the library untouched', () {
-    final db = AppDatabase.inMemory();
-    restoreBackup(db, phoneBackup());
-
+  test('export from a fresh install still has every phone field', () {
+    final out =
+        jsonDecode(buildBackup(AppDatabase.inMemory())) as Map<String, dynamic>;
     expect(
-      () => restoreBackup(db, 'not json'),
-      throwsA(isA<BackupException>()),
+      out['prefs'].keys,
+      containsAll(['strings', 'booleans', 'integers', 'longs', 'stringSets']),
     );
-    expect(
-      () => restoreBackup(
-        db,
-        '{"type":"other","schemaVersion":1,"playlists":[]}',
-      ),
-      throwsA(isA<BackupException>()),
-    );
-    expect(
-      () => restoreBackup(db, phoneBackup(schema: 9)),
-      throwsA(isA<BackupException>()),
-    );
-    expect(
-      () => restoreBackup(db, phoneBackup(likedTracksJson: '{broken')),
-      throwsA(isA<BackupException>()),
-    );
-    expect(playlistsOf(db), hasLength(2));
-    expect(db.loadExclusionKeys(), {'baby|justin bieber'});
-  });
-
-  test('schema 6 backups keep the existing exclusions', () {
-    final db = AppDatabase.inMemory();
-    db.addExclusion(name: 'Gangnam Style', artist: 'PSY');
-    final summary = restoreBackup(db, phoneBackup(schema: 6));
-    expect(summary.exclusions, 0);
-    expect(db.loadExclusionKeys(), {'gangnam style|psy'});
+    expect(out['playlists'], isEmpty);
   });
 }
