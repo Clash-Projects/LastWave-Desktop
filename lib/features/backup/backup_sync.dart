@@ -13,7 +13,8 @@ import 'dart:convert';
 /// - track order follows the file, local additions go at the end.
 ///
 /// [holds] tells which tracks the local device can keep: one it cannot
-/// (the phone's local songs, on the desktop) is never read as deleted.
+/// (the phone's local songs, on the desktop) is never read as deleted;
+/// a playlist it cannot keep ([holdsPlaylist] false) is left as the file has it.
 /// Everything is in the phone's backup shape (`tracksJson` as a string).
 class MergedLibrary {
   final List<Map<String, dynamic>> playlists;
@@ -50,6 +51,7 @@ MergedLibrary mergeLibraries({
   required List<Map<String, dynamic>> remotePlaylists,
   required List<Map<String, dynamic>> remoteExclusions,
   bool Function(Map<String, dynamic> track)? holds,
+  bool Function(Map<String, dynamic> playlist)? holdsPlaylist,
 }) {
   final keep = holds ?? (_) => true;
   Map<String, Map<String, dynamic>> index(List<Map<String, dynamic>>? list) => {
@@ -74,7 +76,11 @@ MergedLibrary mergeLibraries({
       // Only here: new locally, or deleted in the file (kept if edited since).
       if (base == null || !same(mine, base)) playlists.add(mine);
     } else if (theirs != null) {
-      if (base == null || !same(theirs, base)) playlists.add(theirs);
+      if (base == null ||
+          !same(theirs, base) ||
+          !(holdsPlaylist?.call(theirs) ?? true)) {
+        playlists.add(theirs);
+      }
     }
   }
 

@@ -151,6 +151,7 @@ Future<BackupSummary> syncBackup(
         ? _exclusions(remote)
         : _exclusions(local),
     holds: holdsTrack,
+    holdsPlaylist: holdsPlaylist,
   );
   final output = const JsonEncoder.withIndent('  ').convert({
     'type': backupType,
@@ -180,7 +181,7 @@ Future<BackupSummary> syncBackup(
   raw.execute('BEGIN;');
   try {
     raw.execute('DELETE FROM saved_playlists;');
-    for (final p in merged.playlists) {
+    for (final p in merged.playlists.where(holdsPlaylist)) {
       final tracks = [
         for (final t in tracksOf(p))
           if (holdsTrack(t)) known[trackKey(t)] ?? trackFromBackup(t),
@@ -233,6 +234,11 @@ Future<BackupSummary> syncBackup(
     exclusions: merged.exclusions.length,
   );
 }
+
+/// The phone's built-in "Local songs" playlist: never imported here, and
+/// never deleted from the file by this computer.
+bool holdsPlaylist(Map<String, dynamic> playlist) =>
+    playlist['mode'] != 'local';
 
 /// The phone's local songs (a file path on the phone) mean nothing here:
 /// never imported, and left untouched in the file.

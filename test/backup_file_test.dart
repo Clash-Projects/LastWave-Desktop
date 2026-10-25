@@ -228,6 +228,28 @@ void main() {
     },
   );
 
+  test('the phone\'s Local songs playlist stays on the phone only', () async {
+    final db = AppDatabase.inMemory();
+    final withLocal = jsonDecode(phoneBackup()) as Map<String, dynamic>;
+    (withLocal['playlists'] as List).add({
+      'id': 7,
+      'title': 'Local songs',
+      'subtitle': '',
+      'mode': 'local',
+      'tracksJson': jsonEncode([
+        {'name': 'Demo', 'artist': 'Me', 'url': phoneSong},
+      ]),
+      'createdAtMillis': 7,
+      'isPinned': false,
+    });
+    final file = jsonEncode(withLocal);
+    await sync(db, file);
+    expect(playlistsOf(db).map((p) => p.mode), isNot(contains('local')));
+
+    final again = await sync(db, file);
+    expect(fileTracks(again, 'Local songs').single['url'], phoneSong);
+  });
+
   test('a schema 6 file keeps the exclusions made here', () async {
     final db = AppDatabase.inMemory();
     await sync(db, phoneBackup());
