@@ -2117,6 +2117,16 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     cancelCrossfade();
     if (_resolving || state.error != null) return;
+    // On Windows, stopping the previous media can emit a delayed
+    // `completed` event after the new stream has been opened. During that
+    // hand-off the new track has no meaningful playback position yet; do
+    // not mistake the stale event for a real end-of-track.
+    if (state.position <= Duration.zero || state.duration <= Duration.zero) {
+      _crumb('ignore premature completed pos=${state.position.inMilliseconds}ms '
+          'dur=${state.duration.inMilliseconds}ms '
+          'key=${state.current?.queueKey}');
+      return;
+    }
     _flushScrobble(completed: true);
     if (state.duration - state.position > const Duration(seconds: 10)) {
       // mpv reported clean EOF far from the known end: a truncated
