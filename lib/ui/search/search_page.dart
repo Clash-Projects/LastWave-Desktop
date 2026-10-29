@@ -216,8 +216,10 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    // KHInsider mode stays off YouTube Music: no suggestion requests.
     final suggestions =
-        ref.watch(waveSuggestionsProvider(_suggestQuery)).valueOrNull ??
+        ref.watch(waveSuggestionsProvider(_kh ? '' : _suggestQuery))
+                .valueOrNull ??
             const <SearchSuggestion>[];
     final showSuggestions = !_kh &&
         _query.isNotEmpty &&
