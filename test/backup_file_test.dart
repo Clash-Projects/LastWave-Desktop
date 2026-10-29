@@ -206,6 +206,25 @@ void main() {
     );
   });
 
+  test('an edit made during the upload is kept', () async {
+    final db = AppDatabase.inMemory();
+    await sync(db, phoneBackup());
+    final roadTrip = playlistsOf(db).firstWhere((p) => p.title == 'Road Trip');
+
+    await expectLater(
+      syncBackup(db, phoneBackup(roadTrip: const []), (_) async {
+        db.raw.execute(
+          'UPDATE saved_playlists SET title = ? WHERE id = ?;',
+          ['Road Trip 2', roadTrip.id],
+        );
+      }),
+      throwsA(isA<BackupException>()),
+    );
+    final after = playlistsOf(db).firstWhere((p) => p.id == roadTrip.id);
+    expect(after.title, 'Road Trip 2');
+    expect(after.tracks, hasLength(1));
+  });
+
   test(
     'export never writes local songs and keeps the phone settings',
     () async {

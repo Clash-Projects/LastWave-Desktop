@@ -75,6 +75,16 @@ Map<String, dynamic> trackToBackup(StoredTrack track) {
   };
 }
 
+/// Every playlist and exclusion row, to notice edits made during a sync.
+String _libraryState(AppDatabase db) => jsonEncode([
+  for (final r in db.raw.select('SELECT * FROM saved_playlists ORDER BY id;'))
+    r.values,
+  for (final r in db.raw.select(
+    'SELECT * FROM recommendation_exclusions ORDER BY track_key;',
+  ))
+    r.values,
+]);
+
 String buildBackup(AppDatabase db) {
   final playlists = [
     for (final r in db.raw.select(
@@ -138,6 +148,9 @@ Future<BackupSummary> syncBackup(
   try {
     base = _parse(db.kvGet(_syncBaseKey) ?? '');
   } catch (_) {}
+  // What the merge starts from: if the library changes before it is
+  // replaced (an edit during the upload), the replace is skipped.
+  final before = _libraryState(db);
   final local = _parse(buildBackup(db));
 
   final merged = mergeLibraries(
@@ -163,6 +176,12 @@ Future<BackupSummary> syncBackup(
     'recommendationExclusions': merged.exclusions,
   });
   await writeFile(output);
+  if (_libraryState(db) != before) {
+    // Not lost: the next sync (30 s after the edit) merges it.
+    throw const BackupException(
+      'Your library changed during the sync; it will sync again.',
+    );
+  }
 
   // Keep what only this app knows (duration, matched video) for tracks
   // already here, and this app's own Liked Songs row id.
