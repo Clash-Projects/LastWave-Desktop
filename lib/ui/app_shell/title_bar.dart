@@ -74,7 +74,11 @@ class WaveTitleBar extends ConsumerWidget {
                 (maxW * 0.28).clamp(140.0, 300.0).toDouble();
             return Row(
               children: [
-                const SizedBox(width: 6),
+                // macOS keeps the native traffic lights over the
+                // chromeless window; clear their corner (the lights
+                // end around x=74) instead of letting the nav buttons
+                // sit underneath them.
+                SizedBox(width: Platform.isMacOS ? 84 : 6),
                 _BarBtn(
                   tooltip: 'Toggle navigation',
                   icon: WaveIcons.panelLeft,
