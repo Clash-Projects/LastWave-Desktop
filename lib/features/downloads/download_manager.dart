@@ -15,6 +15,7 @@ import '../innertube/innertube_api.dart';
 import '../addons/addon_api.dart';
 import '../lossless/lossless_source.dart';
 import '../lyrics/lyrics_models.dart';
+import '../library/local_audio_tags.dart';
 import '../lyrics/lyrics_repository.dart';
 import '../search/shared_providers.dart';
 import 'folder_layout.dart';
@@ -438,36 +439,6 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     }
   }
 
-  bool _wasCancelled(Object error, bool Function() cancelled) {
-    if (cancelled() || error is DownloadCancelled) return true;
-    if (error is DioException &&
-        (error.type == DioExceptionType.cancel ||
-            error.error is DownloadCancelled)) {
-      return true;
-    }
-    return false;
-  }
-
-  void _dropInProgress(String key) {
-    state = [
-      for (final entry in state)
-        if (entry.key != key || entry.status == DownloadStatus.done) entry,
-    ];
-  }
-
-  /// Stops [key] if it is downloading. A finished file is left alone.
-  void cancelDownload(String key) {
-    _cancelGeneration[key] = (_cancelGeneration[key] ?? 0) + 1;
-    _tokens.remove(key)?.cancel('cancelled');
-  }
-
-  /// Stops every download that is still running.
-  void cancelActive() {
-    for (final key in _active.toList()) {
-      cancelDownload(key);
-    }
-  }
-
   Future<void> downloadTrack({
     required String title,
     required String artist,
@@ -679,12 +650,22 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       }
 
       if (cancelled()) throw const DownloadCancelled();
+      var folderYear = year;
+      if (folderYear.isEmpty && outBytes.isNotEmpty) {
+        final headLen = outBytes.length < 262144 ? outBytes.length : 262144;
+        folderYear = LocalAudioTags.fromHead(
+          Uint8List.fromList(outBytes.sublist(0, headLen)),
+        ).year;
+      }
+      if (folderYear.isEmpty) {
+        folderYear = LocalAudioTags.yearIn('$album $title');
+      }
       final dir = await _musicDir();
       final file = await _layoutFile(
         dir,
         artist: artist,
         album: album,
-        year: year,
+        year: folderYear,
         filename: '${_sanitize('$artist - $title')}.$finalExt',
       );
       await file.writeAsBytes(outBytes, flush: true);

@@ -1,7 +1,10 @@
 import 'dart:io';
 
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/storage/app_database.dart';
 import '../search/shared_providers.dart';
@@ -49,6 +52,27 @@ class LocalMusicLibrary {
     await rescan();
   }
 
+  Future<String> _coverFile(String sourcePath, Uint8List? bytes) async {
+    if (bytes == null || bytes.length < 32) return '';
+    try {
+      final support = await getApplicationSupportDirectory();
+      final dir = Directory(p.join(support.path, 'local_art'));
+      if (!await dir.exists()) await dir.create(recursive: true);
+      final hash = sourcePath.hashCode.toUnsigned(32).toRadixString(16);
+      final png = bytes.length > 3 &&
+          bytes[0] == 0x89 &&
+          bytes[1] == 0x50 &&
+          bytes[2] == 0x4E;
+      final file = File(p.join(dir.path, '$hash.${png ? 'png' : 'jpg'}'));
+      if (!await file.exists() || await file.length() != bytes.length) {
+        await file.writeAsBytes(bytes, flush: true);
+      }
+      return file.path;
+    } catch (_) {
+      return '';
+    }
+  }
+
   Future<int> rescan() async {
     _report(const LocalScanState(running: true, label: 'Scanning folders…'));
     final tracks = <StoredTrack>[];
@@ -67,10 +91,17 @@ class LocalMusicLibrary {
           final tags = LocalAudioTags.read(entity.path, filename: name);
           final title = tags.title.isEmpty ? name : tags.title;
           final artist = tags.artist.isEmpty ? 'Local file' : tags.artist;
+          final art = await _coverFile(entity.path, tags.coverBytes);
+          final album = tags.album.isEmpty
+              ? ''
+              : (tags.year.isEmpty
+                  ? tags.album
+                  : '${tags.album} (${tags.year})');
           tracks.add(StoredTrack(
             name: title,
             artist: artist,
-            album: tags.album,
+            album: album,
+            artworkUrl: art,
             playbackUrl: entity.path,
             addedAtMillis: entity.statSync().modified.millisecondsSinceEpoch,
           ));
