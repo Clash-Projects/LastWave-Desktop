@@ -24,6 +24,11 @@ class StoredTrack {
   final String album;
   final int durationSeconds;
 
+  /// Non-YouTube link from a LastWave-Native backup (local file path,
+  /// Last.fm page…). Unused for playback here; kept so exporting the
+  /// backup back to the phone returns it unchanged.
+  final String url;
+
   const StoredTrack({
     required this.name,
     required this.artist,
@@ -31,6 +36,7 @@ class StoredTrack {
     this.videoId = '',
     this.album = '',
     this.durationSeconds = 0,
+    this.url = '',
   });
 
   Map<String, dynamic> toJson() => {
@@ -40,6 +46,7 @@ class StoredTrack {
         'videoId': videoId,
         'album': album,
         'durationSeconds': durationSeconds,
+        if (url.isNotEmpty) 'url': url,
       };
 
   factory StoredTrack.fromJson(Map<String, dynamic> json) =>
@@ -53,6 +60,7 @@ class StoredTrack {
         album: json['album']?.toString() ?? '',
         durationSeconds:
             int.tryParse('${json['durationSeconds'] ?? 0}') ?? 0,
+        url: json['url']?.toString() ?? '',
       );
 
   PlayableTrack toPlayable() => PlayableTrack(
