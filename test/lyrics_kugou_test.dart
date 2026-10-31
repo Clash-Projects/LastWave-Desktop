@@ -114,4 +114,73 @@ void main() {
     expect(result.source, contains('Kugou'));
     expect(result.lines.isNotEmpty, isTrue);
   });
+
+  test('kugouKrcMatchesTrack rejects DJ Mix and Mixed KRC headers for standard tracks', () {
+    const djMixKrc = '[ti:Am I Dreaming (Mixed)]\n'
+        '[ar:Metro Boomin]\n'
+        '[al:Vol.1:Afrocity Champs (DJ Mix)]\n'
+        '[offset:0]\n'
+        '[274,824]<0,127,0>Uh <447,241,0>wakin\' <688,136,0>up\n';
+    expect(
+      kugouKrcMatchesTrack(djMixKrc, title: 'Am I Dreaming'),
+      isFalse,
+    );
+    expect(
+      kugouKrcMatchesTrack(djMixKrc, title: 'Am I Dreaming (Mixed)'),
+      isTrue,
+    );
+  });
+
+  test('fetchKugou rejects 34-second snippet candidates for full-length tracks', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final url = options.uri.toString();
+          if (url.contains('lyrics.kugou.com/search')) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'status': 200,
+                  'candidates': [
+                    {
+                      'id': '198281546',
+                      'accesskey': '67DD0FE86847D956A303DD568A1F2C47',
+                      'song': 'Am I Dreaming',
+                      'singer': 'Metro Boomin',
+                      'duration': 34403,
+                    },
+                  ],
+                },
+              ),
+            );
+            return;
+          }
+          handler.reject(
+            DioException(requestOptions: options, type: DioExceptionType.unknown),
+          );
+        },
+      ),
+    );
+
+    // Rejected when durationSeconds is known (256s vs 34.4s)
+    final withDuration = await fetchKugou(
+      dio,
+      title: 'Am I Dreaming',
+      artist: 'Metro Boomin',
+      durationSeconds: 256,
+    );
+    expect(withDuration, isNull);
+
+    // Also rejected when durationSeconds is null (<55s ringtone/snippet)
+    final withoutDuration = await fetchKugou(
+      dio,
+      title: 'Am I Dreaming',
+      artist: 'Metro Boomin',
+      durationSeconds: null,
+    );
+    expect(withoutDuration, isNull);
+  });
 }

@@ -821,6 +821,8 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
   /// of sitting at opacity 0, where it would still rasterize (and
   /// alpha-blend) a full-res still on every video frame.
   bool _sleeveGone = false;
+  String _lastMotionUrl = '';
+  String _lastMotionFallbackUrl = '';
 
   @override
   Widget build(BuildContext context) {
@@ -839,9 +841,24 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     ));
     final motionUrl =
         motion.valueOrNull?.hasUrl == true ? motion.valueOrNull!.url : '';
-    final motionReady = ref.watch(
-      animatedArtworkSessionProvider.select((s) => s.isReadyFor(motionUrl)),
-    );
+    final motionFallbackUrl = motion.valueOrNull?.fallbackUrl ?? '';
+    if (!motion.isLoading) {
+      _lastMotionUrl = motionUrl;
+      _lastMotionFallbackUrl = motionFallbackUrl;
+    } else if (motionUrl.isNotEmpty) {
+      _lastMotionUrl = motionUrl;
+      _lastMotionFallbackUrl = motionFallbackUrl;
+    }
+    final activeVideoUrl =
+        motionUrl.isNotEmpty ? motionUrl : (motion.isLoading ? _lastMotionUrl : '');
+    final activeVideoFallbackUrl = motionUrl.isNotEmpty
+        ? motionFallbackUrl
+        : (motion.isLoading ? _lastMotionFallbackUrl : '');
+    final motionReady = visualizerOn &&
+        motionUrl.isNotEmpty &&
+        ref.watch(
+          animatedArtworkSessionProvider.select((s) => s.isReadyFor(motionUrl)),
+        );
     // Any not-ready state re-arms the sleeve (track change, toggle
     // off, session reset). Assigned, not setState: it only feeds this
     // build's output, so no extra frame is scheduled.
@@ -891,24 +908,34 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
               // No bottom still: the fading sleeve below is the only
               // still layer (see class docs). When there is no motion
               // clip it stays opaque and the tile is just the cover.
-              if (visualizerOn && motionUrl.isNotEmpty)
+              if (visualizerOn && activeVideoUrl.isNotEmpty)
                 AnimatedArtworkVideo(
-                  url: motionUrl,
+                  url: activeVideoUrl,
+                  fallbackUrl: activeVideoFallbackUrl,
                   size: size,
                 ),
               if (showSleeve)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: AnimatedOpacity(
-                      duration: waveMotion(context, const Duration(milliseconds: 480)),
+                      // Smooth 480ms crossfade from still cover to animated
+                      // cover once the video is decoded and playing; instant
+                      // 0ms snap back to opaque when switching tracks so a
+                      // mid-fade track change never exposes a black frame.
+                      duration: motionReady
+                          ? waveMotion(
+                              context,
+                              const Duration(milliseconds: 480),
+                            )
+                          : Duration.zero,
                       curve: Curves.easeOutCubic,
                       opacity: motionReady ? 0 : 1,
                       onEnd: () {
                         // Fade done while still ready: unmount so the
                         // invisible still stops rasterizing per video
-                        // frame. The build-time reset above corrects a
-                        // stale flag (track changed mid-fade, …).
-                        if (mounted) {
+                        // frame. Guarded on motionReady so a 0->1 snap
+                        // never unmounts the sleeve while not ready.
+                        if (mounted && motionReady) {
                           setState(() => _sleeveGone = true);
                         }
                       },

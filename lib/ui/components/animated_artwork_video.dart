@@ -12,11 +12,13 @@ import '../../core/artwork/animated_artwork_session.dart';
 /// once the first frame is ready, so Windows can still composite.
 class AnimatedArtworkVideo extends ConsumerStatefulWidget {
   final String url;
+  final String fallbackUrl;
   final double size;
 
   const AnimatedArtworkVideo({
     super.key,
     required this.url,
+    this.fallbackUrl = '',
     required this.size,
   });
 
@@ -32,14 +34,15 @@ class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
   void initState() {
     super.initState();
     _session = ref.read(animatedArtworkSessionProvider);
-    _session!.attach(widget.url);
+    _session!.attach(widget.url, fallbackUrl: widget.fallbackUrl);
   }
 
   @override
   void didUpdateWidget(covariant AnimatedArtworkVideo oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.url != widget.url) {
-      _session?.open(widget.url);
+    if (oldWidget.url != widget.url ||
+        oldWidget.fallbackUrl != widget.fallbackUrl) {
+      _session?.open(widget.url, fallbackUrl: widget.fallbackUrl);
     }
   }
 
