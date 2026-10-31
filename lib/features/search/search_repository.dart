@@ -212,8 +212,54 @@ class SearchRepository {
                 ))
             .toList();
       case SearchTab.users:
-        return [?await _lookupUser(q)];
+        return _searchUsers(q);
     }
+  }
+
+  /// A single token of length 2+ is treated as a Last.fm username.
+  bool looksLikeLastFmUser(String query) {
+    final q = query.trim();
+    return q.length >= 2 && !RegExp(r'\s').hasMatch(q);
+  }
+
+  Future<List<SearchResultItem>> _searchUsers(String username) async {
+    if (_apiKey().isEmpty) return const [];
+    final out = <SearchResultItem>[];
+    final seen = <String>{};
+    void add(SearchResultItem item) {
+      final key = item.name.trim().toLowerCase();
+      if (key.isEmpty || !seen.add(key)) return;
+      out.add(item);
+    }
+
+    final exact = await _lookupUser(username);
+    if (exact != null) add(exact);
+    try {
+      final json = await _api.get({
+        'method': 'user.search',
+        'user': username,
+        'api_key': _apiKey(),
+        'limit': '12',
+      });
+      if (json.containsKey('error')) return out;
+      final results = _asStringMap(json['results']);
+      final matches = _asStringMap(
+        results?['userMatches'] ?? results?['usermatches'],
+      );
+      for (final user in _asMapList(matches?['user'])) {
+        final name = user['name']?.toString().trim() ?? '';
+        if (name.isEmpty) continue;
+        final real = user['realname']?.toString().trim() ?? '';
+        add(SearchResultItem(
+          name: name,
+          subtitle: real.isEmpty ? 'Last.fm' : real,
+          artworkUrl: _userImage(user['image']),
+          tab: SearchTab.users,
+          entityId: name,
+        ));
+      }
+    } catch (_) {}
+    return out;
   }
 
   Future<SearchResultItem?> _lookupUser(String username) async {
@@ -223,18 +269,58 @@ class SearchRepository {
         'user': username,
         'api_key': _apiKey(),
       });
-      final user = json['user'];
-      if (user is! Map<String, dynamic>) return null;
+      if (json.containsKey('error')) return null;
+      final user = _asStringMap(json['user']);
+      if (user == null) return null;
+      final name = user['name']?.toString().trim() ?? '';
+      if (name.isEmpty) return null;
+      final real = user['realname']?.toString().trim() ?? '';
+      final plays = user['playcount']?.toString() ?? '';
       return SearchResultItem(
-        name: user['name']?.toString() ?? username,
-        subtitle:
-            '${user['playcount']?.toString() ?? '0'} scrobbles',
+        name: name,
+        subtitle: real.isNotEmpty
+            ? real
+            : (plays.isEmpty ? 'Last.fm' : '$plays scrobbles'),
+        artworkUrl: _userImage(user['image']),
         tab: SearchTab.users,
-        entityId: user['name']?.toString() ?? username,
+        entityId: name,
       );
     } catch (_) {
       return null;
     }
+  }
+
+  Map<String, dynamic>? _asStringMap(Object? value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  List<Map<String, dynamic>> _asMapList(Object? value) {
+    if (value is List) {
+      return [
+        for (final item in value) ?_asStringMap(item),
+      ];
+    }
+    final single = _asStringMap(value);
+    if (single == null) return const [];
+    return [single];
+  }
+
+  String _userImage(Object? images) {
+    var fallback = '';
+    for (final img in _asMapList(images)) {
+      final url = img['#text']?.toString() ?? '';
+      if (url.isEmpty ||
+          url.contains('2a96cbd8') ||
+          url.contains('default_user')) {
+        continue;
+      }
+      fallback = url;
+      final size = img['size']?.toString() ?? '';
+      if (size == 'extralarge' || size == 'large') return url;
+    }
+    return fallback;
   }
 
   Future<List<YouTubeMusicTrack>> songsFor(

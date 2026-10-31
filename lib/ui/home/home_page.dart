@@ -9,10 +9,13 @@ import '../../app/track_actions.dart'
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/feed/feed_repository.dart';
+import '../../features/feed/home_shelf_layout.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
+import '../../features/podcasts/podcast_models.dart';
+import '../../features/podcasts/podcast_repository.dart';
 import '../../features/player/playback_service.dart';
 import '../components/ambient.dart';
 import '../components/artwork.dart';
@@ -23,6 +26,7 @@ import '../components/shelf.dart';
 import '../collections/yt_shelf_page.dart';
 import '../components/states.dart';
 import '../navigation/wave_nav.dart';
+import '../podcasts/podcasts_page.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -181,9 +185,15 @@ class WaveHomePage extends ConsumerWidget {
 
   Widget _feedSlivers(BuildContext context, WidgetRef ref, FeedData data,
       double side, int quickCols) {
-    final slivers = <Widget>[];
+    final layout = ref.watch(homeShelfLayoutProvider);
+    final sections = <String, List<Widget>>{};
+    var sink = <Widget>[];
+    void use(String id) {
+      sink = sections.putIfAbsent(id, () => <Widget>[]);
+    }
+
     void gap(double h) {
-      slivers.add(SliverToBoxAdapter(child: SizedBox(height: h)));
+      sink.add(SliverToBoxAdapter(child: SizedBox(height: h)));
     }
 
     // Stagger slots for the page entrance cascade (one slot per section).
@@ -222,10 +232,11 @@ class WaveHomePage extends ConsumerWidget {
       hero = data.charts.first;
       companions = data.charts.skip(1).take(3).toList();
     }
+    use(HomeShelfId.mixes);
     if (hero != null) {
       gap(18);
       final heroTrack = hero;
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
@@ -247,6 +258,7 @@ class WaveHomePage extends ConsumerWidget {
     // music.youtube.com itself would show, which the scored feed does
     // not carry. Empty (section omitted) when signed out or on failure.
     final ytShelves = ref.watch(ytHomeShelvesProvider).valueOrNull ?? const [];
+    use(HomeShelfId.youtube);
     for (final shelf in ytShelves) {
       if (!shelf.isRenderable || shelf.title.isEmpty) continue;
       // A shelf is a taste, not a library: cap what one section pulls onto the
@@ -280,7 +292,7 @@ class WaveHomePage extends ConsumerWidget {
       ].take(cap).toList();
       final shelfEntities = shelf.entities.take(cap).toList();
       gap(26);
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
@@ -303,7 +315,7 @@ class WaveHomePage extends ConsumerWidget {
         ),
       ));
       if (shelf.isTrackShelf) {
-        slivers.add(SliverPadding(
+        sink.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side, top: 6),
           sliver: SuperSliverList.builder(
             itemCount: shelfTracks.length,
@@ -322,7 +334,7 @@ class WaveHomePage extends ConsumerWidget {
         // not containers - tapping plays, like every other song
         // surface. The card menu (Play, Go to album, …) comes from
         // WaveMediaCard itself once artist + videoId are set.
-        slivers.add(SliverPadding(
+        sink.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side, top: 10),
           sliver: SliverToBoxAdapter(
             child: _YtSongCardRow(
@@ -332,7 +344,7 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ));
       } else {
-        slivers.add(SliverPadding(
+        sink.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side, top: 10),
           sliver: SliverToBoxAdapter(
             child: _YtShelfRow(entities: shelfEntities),
@@ -341,10 +353,11 @@ class WaveHomePage extends ConsumerWidget {
       }
     }
 
+    use(HomeShelfId.quickPicks);
     if (data.quickPicks.isNotEmpty) {
       gap(26);
       final picks = data.quickPicks.take(6).toList();
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
@@ -358,7 +371,7 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ),
       ));
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side, top: 10),
         sliver: SliverGrid(
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -379,10 +392,11 @@ class WaveHomePage extends ConsumerWidget {
       ));
     }
 
+    use(HomeShelfId.continueListening);
     if (data.jumpBackIn.isNotEmpty) {
       gap(26);
       final recent = data.jumpBackIn.take(6).toList();
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
@@ -398,7 +412,7 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ),
       ));
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(top: 10),
         sliver: SliverToBoxAdapter(
           child: _CoverShelf(tracks: recent, source: 'Recently played', side: side),
@@ -406,13 +420,14 @@ class WaveHomePage extends ConsumerWidget {
       ));
     }
 
+    use(HomeShelfId.because);
     if (data.becauseYouListened.isNotEmpty) {
       gap(26);
       final mixes = data.becauseYouListened.take(3).toList();
       final becauseKicker = data.becauseSeed.isNotEmpty
           ? 'Because you listened to ${data.becauseSeed}'
           : 'Generated';
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
@@ -428,7 +443,7 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ),
       ));
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(top: 10),
         sliver: SliverToBoxAdapter(
           child: _MixShelf(tracks: mixes, side: side),
@@ -436,10 +451,11 @@ class WaveHomePage extends ConsumerWidget {
       ));
     }
 
+    use(HomeShelfId.albums);
     if (data.heavyRotation.isNotEmpty) {
       gap(26);
       final albums = data.heavyRotation.take(6).toList();
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
@@ -455,7 +471,7 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ),
       ));
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(top: 10),
         sliver: SliverToBoxAdapter(
           child: _AlbumShelf(tracks: albums, source: 'For you', side: side),
@@ -463,6 +479,7 @@ class WaveHomePage extends ConsumerWidget {
       ));
     }
 
+    use(HomeShelfId.artists);
     // Artists For You — distinct billed artists (collabs split so
     // "Drake, Future & Metro Boomin" becomes three portrait tiles,
     // never a single tile showing an album sleeve).
@@ -491,7 +508,7 @@ class WaveHomePage extends ConsumerWidget {
       }
       if (artists.isNotEmpty) {
         gap(26);
-        slivers.add(SliverPadding(
+        sink.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side),
           sliver: SliverToBoxAdapter(
             child: WaveEntrance(
@@ -507,7 +524,7 @@ class WaveHomePage extends ConsumerWidget {
             ),
           ),
         ));
-        slivers.add(SliverPadding(
+        sink.add(SliverPadding(
           padding: EdgeInsets.only(top: 10),
           sliver: SliverToBoxAdapter(
             child: _ArtistShelf(tracks: artists, side: side),
@@ -516,6 +533,7 @@ class WaveHomePage extends ConsumerWidget {
       }
     }
 
+    use(HomeShelfId.friends);
     // Friends Listening — real friend activity (friend → latest
     // scrobble with relative time). Hidden entirely when there is
     // nothing to show; never placeholder names or faked presence.
@@ -525,7 +543,7 @@ class WaveHomePage extends ConsumerWidget {
               const [];
       if (activities.isNotEmpty) {
         gap(26);
-        slivers.add(SliverPadding(
+        sink.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side),
           sliver: SliverToBoxAdapter(
             child: WaveEntrance(
@@ -541,7 +559,7 @@ class WaveHomePage extends ConsumerWidget {
             ),
           ),
         ));
-        slivers.add(SliverPadding(
+        sink.add(SliverPadding(
           padding: EdgeInsets.only(left: side, right: side, top: 10),
           sliver: SliverToBoxAdapter(
             child: WaveEntrance(
@@ -554,9 +572,10 @@ class WaveHomePage extends ConsumerWidget {
       }
     }
 
+    use(HomeShelfId.charts);
     if (data.charts.isNotEmpty) {
       gap(26);
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
@@ -567,7 +586,7 @@ class WaveHomePage extends ConsumerWidget {
       ));
       gap(26);
       final charts = data.charts.take(5).toList();
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
@@ -581,7 +600,7 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ),
       ));
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side, top: 6),
         sliver: SuperSliverList.builder(
           itemCount: charts.length,
@@ -595,10 +614,11 @@ class WaveHomePage extends ConsumerWidget {
       ));
     }
 
+    use(HomeShelfId.fresh);
     if (data.freshFinds.isNotEmpty) {
       gap(26);
       final fresh = data.freshFinds.take(5).toList();
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side),
         sliver: SliverToBoxAdapter(
           child: WaveEntrance(
@@ -612,7 +632,7 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ),
       ));
-      slivers.add(SliverPadding(
+      sink.add(SliverPadding(
         padding: EdgeInsets.only(left: side, right: side, top: 6),
         sliver: SuperSliverList.builder(
           itemCount: fresh.length,
@@ -625,8 +645,9 @@ class WaveHomePage extends ConsumerWidget {
       ));
     }
 
+    use(HomeShelfId.releases);
     gap(26);
-    slivers.add(SliverPadding(
+    sink.add(SliverPadding(
       padding: EdgeInsets.only(left: side, right: side),
       sliver: SliverToBoxAdapter(
         child: WaveEntrance(
@@ -637,8 +658,9 @@ class WaveHomePage extends ConsumerWidget {
       ),
     ));
 
+    use(HomeShelfId.popular);
     gap(26);
-    slivers.add(SliverPadding(
+    sink.add(SliverPadding(
       padding: EdgeInsets.only(left: side, right: side),
       sliver: SliverToBoxAdapter(
         child: WaveEntrance(
@@ -649,11 +671,29 @@ class WaveHomePage extends ConsumerWidget {
       ),
     ));
 
-    gap(26);
-    // Bottom breathing room (previously came with the releases block).
-    slivers.add(
+    use(HomeShelfId.podcasts);
+    final podcastShelves =
+        ref.watch(podcastHomeProvider).valueOrNull ?? const <PodcastShelf>[];
+    if (podcastShelves.any(
+        (s) => s.shows.isNotEmpty || s.episodes.isNotEmpty)) {
+      gap(26);
+      sink.add(SliverPadding(
+        padding: EdgeInsets.only(left: side, right: side),
+        sliver: SliverToBoxAdapter(
+          child: WaveEntrance(
+            index: slot(),
+            rise: 10,
+            child: const PodcastHomeShelf(),
+          ),
+        ),
+      ));
+      gap(26);
+    }
+    final slivers = <Widget>[
+      for (final id in layout.order)
+        if (!layout.hidden.contains(id)) ...?sections[id],
       const SliverToBoxAdapter(child: SizedBox(height: 6)),
-    );
+    ];
     return SliverMainAxisGroup(slivers: slivers);
   }
 }
@@ -699,7 +739,13 @@ class _Header extends StatelessWidget {
             ],
           ),
         ),
-        if (!signedIn)
+        WaveGhostButton(
+          label: 'Edit home',
+          icon: WaveIcons.edit,
+          onPressed: () => context.go('/home-layout'),
+        ),
+        if (!signedIn) ...[
+          const SizedBox(width: 8),
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
@@ -719,7 +765,9 @@ class _Header extends StatelessWidget {
                 ),
               ),
             ),
-          )),
+          ),
+          ),
+        ],
       ],
     );
   }

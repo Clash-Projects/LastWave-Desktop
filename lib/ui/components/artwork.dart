@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -244,6 +246,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
   /// stays in the chain as fallback if the official source has no match.
   void _maybeUpgradeOfficial() {
     if (!widget.upgrade) return;
+    if (_fileArtworkPath(widget.url) != null) return;
     if (_upgradeAttempted || _resolveFailed || _isResolving) return;
     if (_resolvedUrl != null) return;
     final title = widget.title.isNotEmpty ? widget.title : widget.label;
@@ -471,9 +474,69 @@ class _WaveArtworkState extends State<WaveArtwork> {
     return snapped < _decodeStep ? _decodeStep : snapped;
   }
 
+  /// Local cover: a filesystem path or a `file://` URI. Network URLs stay
+  /// on the cached-image path below.
+  String? _fileArtworkPath(String raw) {
+    final url = raw.trim();
+    if (url.isEmpty) return null;
+    if (url.startsWith('file:')) {
+      try {
+        final path = Uri.parse(url).toFilePath(windows: Platform.isWindows);
+        return path.isEmpty ? null : path;
+      } catch (_) {
+        return null;
+      }
+    }
+    if (url.startsWith('http://') ||
+        url.startsWith('https://') ||
+        url.startsWith('data:')) {
+      return null;
+    }
+    if (url.contains('://')) return null;
+    final windowsDrive = RegExp(r'^[a-zA-Z]:[\\/]');
+    final looksLikePath = url.contains('\\') ||
+        url.startsWith('/') ||
+        url.startsWith(r'\\') ||
+        windowsDrive.hasMatch(url);
+    if (!looksLikePath) return null;
+    return url;
+  }
+
+  Widget? _fileImage(BuildContext context, bool dark) {
+    final path = _fileArtworkPath(widget.url);
+    if (path == null) return null;
+    final file = File(path);
+    final image = file.existsSync()
+        ? Image.file(
+            file,
+            width: widget.size,
+            height: widget.size,
+            fit: BoxFit.cover,
+            errorBuilder: (context, _, _) => _fallback(context, dark),
+          )
+        : _fallback(context, dark);
+    if (widget.isCircle) {
+      return SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: ClipOval(child: image),
+      );
+    }
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(widget.radius),
+        child: image,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    final local = _fileImage(context, dark);
+    if (local != null) return local;
     if (_chain.isEmpty || _chainIndex >= _chain.length) {
       return _fallback(context, dark);
     }

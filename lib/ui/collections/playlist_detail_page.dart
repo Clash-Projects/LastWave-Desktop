@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +9,7 @@ import '../../app/track_actions.dart'
     show formatDuration, playGenerated, playableFromGenerated;
 import '../../features/downloads/download_manager.dart';
 import '../../features/feed/feed_repository.dart';
+import '../../features/library/playlist_file.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../components/buttons.dart' show LWTooltip, WaveGhostButton, WavePrimaryButton;
@@ -48,6 +52,45 @@ class _WavePlaylistDetailPageState
     super.dispose();
   }
 
+  Future<void> _export(SavedPlaylist playlist, {required bool csv}) async {
+    final rows = [
+      for (final t in playlist.tracks)
+        PlaylistFileRow(
+          title: t.name,
+          artist: t.artist,
+          album: t.album.isEmpty ? null : t.album,
+          videoId: t.videoId.isEmpty ? null : t.videoId,
+        ),
+    ];
+    final safe = playlist.title
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+        .trim();
+    final base = safe.isEmpty ? 'playlist' : safe;
+    await FilePicker.saveFile(
+      dialogTitle: csv ? 'Export CSV' : 'Export M3U',
+      fileName: '$base.${csv ? 'csv' : 'm3u'}',
+      bytes: utf8.encode(
+        csv
+            ? exportPlaylistCsv(rows)
+            : exportPlaylistM3u(playlist.title, rows),
+      ),
+      type: FileType.custom,
+      allowedExtensions: [csv ? 'csv' : 'm3u'],
+    );
+  }
+
+  Future<void> _changeCover(SavedPlaylist playlist) async {
+    final file = await FilePicker.pickFile(
+      dialogTitle: 'Playlist cover',
+      type: FileType.image,
+    );
+    final path = file?.path;
+    if (path == null || path.isEmpty) return;
+    await ref
+        .read(playlistRepositoryProvider.notifier)
+        .setCustomCover(playlist.id, path);
+  }
+
   @override
   Widget build(BuildContext context) {
     final playlists = ref.watch(playlistRepositoryProvider);
@@ -69,10 +112,18 @@ class _WavePlaylistDetailPageState
               .contains(_q.toLowerCase()),
         )
         .toList();
-    if (_sort == 'title') {
-      tracks.sort((a, b) => a.name.compareTo(b.name));
+    if (_sort == 'added') {
+      tracks.sort((a, b) {
+        if (a.addedAtMillis == 0 && b.addedAtMillis == 0) return 0;
+        if (a.addedAtMillis == 0) return 1;
+        if (b.addedAtMillis == 0) return -1;
+        return b.addedAtMillis.compareTo(a.addedAtMillis);
+      });
+    } else if (_sort == 'title') {
+      tracks.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     } else if (_sort == 'artist') {
-      tracks.sort((a, b) => a.artist.compareTo(b.artist));
+      tracks.sort(
+          (a, b) => a.artist.toLowerCase().compareTo(b.artist.toLowerCase()));
     }
     // Note: Album/Duration sorts are intentionally omitted — local
     // playlist tracks carry no album or duration metadata.
@@ -84,19 +135,32 @@ class _WavePlaylistDetailPageState
           (t) => GeneratedTrack(
             name: t.name,
             artist: t.artist,
+            album: t.album,
             artworkUrl: t.artworkUrl,
             videoId: t.videoId,
+            durationSeconds: t.durationSeconds,
+            playbackUrl: t.playbackUrl,
           ),
         )
         .toList();
 
-    String cover = '';
-    for (final t in playlist.tracks) {
-      if (t.artworkUrl.isNotEmpty) {
-        cover = t.artworkUrl;
-        break;
+    String cover = playlist.customCoverUri;
+    if (cover.isEmpty) {
+      for (final t in playlist.tracks) {
+        if (t.artworkUrl.isNotEmpty) {
+          cover = t.artworkUrl;
+          break;
+        }
       }
     }
+    final downloadKeys = {
+      for (final t in playlist.tracks)
+        DownloadManager.keyOf(t.name, t.artist),
+    };
+    final downloading = ref.watch(downloadManagerProvider).any((entry) =>
+        downloadKeys.contains(entry.key) &&
+        (entry.status == DownloadStatus.downloading ||
+            entry.status == DownloadStatus.queued));
 
     return WaveEntranceGroup(
       child: CustomScrollView(
@@ -156,25 +220,50 @@ class _WavePlaylistDetailPageState
                           },
                         ),
                         WaveGhostButton(
-                          label: 'Download',
-                          icon: FluentIcons.download,
-                          onPressed: () {
-                            final manager = ref.read(
-                                downloadManagerProvider
-                                    .notifier);
-                            for (final t
-                                in asGenerated()) {
-                              manager.downloadTrack(
-                                title: t.name,
-                                artist: t.artist,
-                                artworkUrl: t.artworkUrl,
-                              );
-                            }
-                          },
+                          label: downloading ? 'Cancel' : 'Download',
+                          icon: downloading
+                              ? FluentIcons.cancel
+                              : FluentIcons.download,
+                          onPressed: downloading
+                              ? () {
+                                  final manager = ref.read(
+                                      downloadManagerProvider.notifier);
+                                  for (final key in downloadKeys) {
+                                    manager.cancelDownload(key);
+                                  }
+                                }
+                              : () {
+                                  final manager = ref.read(
+                                      downloadManagerProvider.notifier);
+                                  for (final t in asGenerated()) {
+                                    if (t.playbackUrl.isNotEmpty) continue;
+                                    manager.downloadTrack(
+                                      title: t.name,
+                                      artist: t.artist,
+                                      album: t.album,
+                                      artworkUrl: t.artworkUrl,
+                                    );
+                                  }
+                                },
                         ),
                       ],
                     ],
                     overflowItems: [
+                      WaveMenuAction(
+                        leading: const Icon(FluentIcons.photo, size: 13),
+                        label: 'Change cover',
+                        onPressed: () => _changeCover(playlist),
+                      ),
+                      WaveMenuAction(
+                        leading: const Icon(FluentIcons.page, size: 13),
+                        label: 'Export CSV',
+                        onPressed: () => _export(playlist, csv: true),
+                      ),
+                      WaveMenuAction(
+                        leading: const Icon(FluentIcons.page, size: 13),
+                        label: 'Export M3U',
+                        onPressed: () => _export(playlist, csv: false),
+                      ),
                       WaveMenuAction(
                         leading: const Icon(
                           FluentIcons.pin,
@@ -236,9 +325,11 @@ class _WavePlaylistDetailPageState
                         value: _sort,
                         options: const [
                           WaveSelectOption(
-                              value: 'default', label: 'Default order'),
-                          WaveSelectOption(value: 'title', label: 'Title A–Z'),
-                          WaveSelectOption(value: 'artist', label: 'Artist A–Z'),
+                              value: 'default', label: 'Custom order'),
+                          WaveSelectOption(
+                              value: 'added', label: 'Date added'),
+                          WaveSelectOption(value: 'title', label: 'Title'),
+                          WaveSelectOption(value: 'artist', label: 'Artist'),
                         ],
                         onChanged: (v) => setState(() => _sort = v),
                       ),

@@ -627,3 +627,40 @@ const _urlHeaders = {
   'youtube',
   'soundcloud url',
 };
+
+String _csvCell(String value) {
+  if (value.contains(',') ||
+      value.contains('"') ||
+      value.contains('\n')) {
+    return '"${value.replaceAll('"', '""')}"';
+  }
+  return value;
+}
+
+/// CSV a desktop playlist can be imported back through [parsePlaylistFile].
+String exportPlaylistCsv(List<PlaylistFileRow> rows) {
+  final buf = StringBuffer('Title,Artist,Album,YouTube\n');
+  for (final row in rows) {
+    buf.writeln(
+      '${_csvCell(row.title)},${_csvCell(row.artist)},'
+      '${_csvCell(row.album ?? '')},${_csvCell(row.videoId ?? '')}',
+    );
+  }
+  return buf.toString();
+}
+
+/// M3U with a YouTube Music watch URL when the row has a video id.
+String exportPlaylistM3u(String title, List<PlaylistFileRow> rows) {
+  final buf = StringBuffer('#EXTM3U\n#PLAYLIST:$title\n');
+  for (final row in rows) {
+    final label = row.artist.isEmpty ? row.title : '${row.artist} - ${row.title}';
+    buf.writeln('#EXTINF:-1,$label');
+    final id = row.videoId ?? '';
+    if (id.isNotEmpty) {
+      buf.writeln('https://music.youtube.com/watch?v=$id');
+    } else {
+      buf.writeln(label);
+    }
+  }
+  return buf.toString();
+}

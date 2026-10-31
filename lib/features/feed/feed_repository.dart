@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +27,9 @@ class GeneratedTrack {
   final String match;
   final int durationSeconds;
 
+  /// Local file path. Empty for streamed tracks.
+  final String playbackUrl;
+
   const GeneratedTrack({
     required this.name,
     required this.artist,
@@ -35,6 +39,7 @@ class GeneratedTrack {
     this.listeners = '',
     this.match = '',
     this.durationSeconds = 0,
+    this.playbackUrl = '',
   });
 
   String get key => '${name.toLowerCase()}|${artist.toLowerCase()}';
@@ -242,6 +247,19 @@ List<GeneratedTrack> dedupeFeedHeads(
       list.where((t) => !headlined.contains(t.key)).toList();
   headlined.addAll(out.take(headN).map((t) => t.key));
   return out;
+}
+
+/// Mix Lab modes. Names match Android `GenerateMode`.
+enum MixMode {
+  top,
+  recent,
+  similarTracks,
+  similarArtists,
+  tag,
+  mix,
+  recommendations,
+  neverHeard,
+  library,
 }
 
 /// Generation + feed repository.
@@ -481,7 +499,7 @@ class FeedRepository {
       for (var i = 0; i < queue.length; i += batch) {
         final slice = queue.skip(i).take(batch).toList();
         final resolved = await Future.wait(slice.map((t) async {
-          if (t.videoId.isNotEmpty) return t;
+          if (t.videoId.isNotEmpty || t.playbackUrl.isNotEmpty) return t;
           try {
             final match = await _tube
                 .findBestMatchOrNull(t.name, t.artist)
@@ -500,6 +518,7 @@ class FeedRepository {
               durationSeconds: t.durationSeconds > 0
                   ? t.durationSeconds
                   : match.durationSeconds,
+              playbackUrl: t.playbackUrl,
             );
           } catch (_) {
             return t;
@@ -1342,6 +1361,527 @@ class FeedRepository {
     final picked =
         applyExclusions(_diversify(scored, limit: total, maxPerArtist: 2), excluded);
     return resolveVideos(picked, limit: total);
+  }
+
+  /// Mix Lab generator. YouTube results lead, Last.fm fills in when a key
+  /// is configured, and guests fall back to on-device plays and saved
+  /// liked/local playlists. Library mode keeps the user's own songs,
+  /// including local files, and does not apply recommendation exclusions.
+  Future<List<GeneratedTrack>> generate({
+    MixMode mode = MixMode.mix,
+    int total = 25,
+    String period = 'overall',
+    String seedTrack = '',
+    String seedArtist = '',
+    String seedVideoId = '',
+    String tag = '',
+  }) async {
+    final requested = total < 5 ? 5 : (total > 35 ? 35 : total);
+    final count = mode == MixMode.recommendations ? 35 : requested;
+    if (mode == MixMode.mix || mode == MixMode.recommendations) {
+      return fetchMix(total: count);
+    }
+    final excluded = mode == MixMode.library
+        ? const <String>{}
+        : (_db?.loadExclusionKeys() ?? const <String>{});
+    var rows = await switch (mode) {
+      MixMode.top => _generateTop(count, period),
+      MixMode.recent => _generateRecent(count, period),
+      MixMode.similarTracks => _generateSimilarTracks(
+          count,
+          seedTrack,
+          seedArtist,
+          seedVideoId,
+        ),
+      MixMode.similarArtists =>
+        _generateSimilarArtists(count, seedArtist, period),
+      MixMode.tag => _generateTag(count, tag),
+      MixMode.neverHeard => _generateNeverHeard(count, period),
+      MixMode.library => _generateLibrary(period),
+      MixMode.mix || MixMode.recommendations =>
+        Future<List<GeneratedTrack>>.value(const []),
+    };
+    rows = _dedupeTracks(rows);
+    if (mode != MixMode.library) {
+      rows = applyExclusions(rows, excluded);
+    }
+    final padCharts = mode != MixMode.library &&
+        (rows.isEmpty ||
+            (mode != MixMode.similarTracks &&
+                mode != MixMode.similarArtists &&
+                rows.length < count));
+    if (padCharts && rows.length < count) {
+      final charts = applyExclusions(await _chartFallback(count), excluded);
+      rows = _dedupeTracks([...rows, ...charts]);
+    }
+    final resolved = await resolveVideos(rows, limit: count);
+    return resolved.take(count).toList();
+  }
+
+  Future<List<YouTubeMusicTrack>> _cappedAccount(
+    Future<List<YouTubeMusicTrack>> Function()? fetch,
+    int take,
+  ) async {
+    if (fetch == null) return const [];
+    try {
+      final list = await fetch().timeout(const Duration(seconds: 12));
+      return list.take(take).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  GeneratedTrack _fromYt(YouTubeMusicTrack t) => GeneratedTrack(
+        name: t.title,
+        artist: t.artist,
+        album: t.album,
+        artworkUrl: t.artworkUrl,
+        videoId: t.videoId,
+        durationSeconds: t.durationSeconds,
+      );
+
+  GeneratedTrack _fromHome(HomeTrack t) => GeneratedTrack(
+        name: t.name,
+        artist: t.artist,
+        artworkUrl: t.artworkUrl,
+      );
+
+  GeneratedTrack _fromStored(StoredTrack t) => GeneratedTrack(
+        name: t.name,
+        artist: t.artist,
+        album: t.album,
+        artworkUrl: t.artworkUrl,
+        videoId: t.videoId,
+        durationSeconds: t.durationSeconds,
+        playbackUrl: t.playbackUrl,
+      );
+
+  List<GeneratedTrack> _dedupeTracks(List<GeneratedTrack> tracks) {
+    final seen = <String>{};
+    final out = <GeneratedTrack>[];
+    for (final t in tracks) {
+      if (t.name.trim().isEmpty) continue;
+      final key = t.playbackUrl.isNotEmpty
+          ? 'file:${t.playbackUrl.toLowerCase()}'
+          : (t.videoId.isNotEmpty ? 'id:${t.videoId}' : t.key);
+      if (!seen.add(key)) continue;
+      out.add(t);
+    }
+    return out;
+  }
+
+  int? _periodCutoff(String period) {
+    final days = switch (period) {
+      '7day' => 7,
+      '1month' => 30,
+      '3month' => 90,
+      '6month' => 182,
+      '12month' => 365,
+      _ => null,
+    };
+    if (days == null) return null;
+    return DateTime.now()
+        .subtract(Duration(days: days))
+        .millisecondsSinceEpoch;
+  }
+
+  List<({String title, String artist, int atMillis})> _recentPlays(int limit) {
+    return _db?.loadRecentPlays(limit: limit) ?? const [];
+  }
+
+  List<StoredTrack> _savedPlaylistTracks({
+    bool liked = false,
+    bool local = false,
+    bool custom = false,
+  }) {
+    final db = _db;
+    if (db == null) return const [];
+    try {
+      final rows = db.raw.select(
+        'SELECT title, mode, tracks_json FROM saved_playlists;',
+      );
+      final out = <StoredTrack>[];
+      for (final row in rows) {
+        final title = row['title']?.toString() ?? '';
+        final mode = row['mode']?.toString() ?? '';
+        final isLiked = mode == SavedPlaylist.likedMode ||
+            title.toLowerCase() == SavedPlaylist.likedTitle.toLowerCase();
+        final isLocal = mode == SavedPlaylist.localMode ||
+            title.toLowerCase() == SavedPlaylist.localTitle.toLowerCase();
+        final include = (liked && isLiked) ||
+            (local && isLocal) ||
+            (custom && !isLiked && !isLocal);
+        if (!include) continue;
+        final decoded = jsonDecode(row['tracks_json']?.toString() ?? '[]');
+        if (decoded is! List) continue;
+        for (final item in decoded) {
+          if (item is Map) {
+            out.add(StoredTrack.fromJson(Map<String, dynamic>.from(item)));
+          }
+        }
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  List<GeneratedTrack> _guestRanked(String period, int total) {
+    final since = _periodCutoff(period);
+    final counts = <String, ({GeneratedTrack track, int count})>{};
+    for (final play in _recentPlays(500)) {
+      if (since != null && play.atMillis > 0 && play.atMillis < since) {
+        continue;
+      }
+      final key = AppDatabase.exclusionKey(play.title, play.artist);
+      final prev = counts[key];
+      counts[key] = (
+        track: GeneratedTrack(name: play.title, artist: play.artist),
+        count: (prev?.count ?? 0) + 1,
+      );
+    }
+    final ranked = counts.values.toList()
+      ..sort((a, b) => b.count.compareTo(a.count));
+    final out = ranked.take(total).map((e) => e.track).toList();
+    if (out.length < total) {
+      for (final t in _savedPlaylistTracks(liked: true, local: true)) {
+        if (out.length >= total) break;
+        out.add(_fromStored(t));
+      }
+    }
+    return out;
+  }
+
+  Future<List<GeneratedTrack>> _generateTop(int total, String period) async {
+    final out = <GeneratedTrack>[];
+    final history = await _cappedAccount(fetchYtHistory, total * 2);
+    final counts = <String, int>{};
+    for (final t in history) {
+      final key = AppDatabase.exclusionKey(t.title, t.artist);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    final ranked = [...history]..sort((a, b) {
+        final ca = counts[AppDatabase.exclusionKey(a.title, a.artist)] ?? 0;
+        final cb = counts[AppDatabase.exclusionKey(b.title, b.artist)] ?? 0;
+        return cb.compareTo(ca);
+      });
+    out.addAll(ranked.map(_fromYt));
+    if (_apiKey().isNotEmpty) {
+      try {
+        final top = await _home
+            .fetchTopTracks(period: period, limit: total)
+            .timeout(const Duration(seconds: 12));
+        out.addAll(top.map(_fromHome));
+      } catch (_) {}
+    }
+    if (out.isEmpty) out.addAll(_guestRanked(period, total));
+    return out;
+  }
+
+  Future<List<GeneratedTrack>> _generateRecent(
+      int total, String period) async {
+    final out = <GeneratedTrack>[];
+    final history = await _cappedAccount(fetchYtHistory, total);
+    out.addAll(history.map(_fromYt));
+    final since = _periodCutoff(period);
+    if (_apiKey().isNotEmpty) {
+      try {
+        final recent = await _home
+            .fetchRecentTracks(limit: total)
+            .timeout(const Duration(seconds: 12));
+        for (final t in recent) {
+          final at = t.timestampMillis;
+          if (since != null && at != null && at < since) continue;
+          out.add(_fromHome(t));
+        }
+      } catch (_) {}
+    }
+    if (out.isEmpty) {
+      for (final play in _recentPlays(total * 3)) {
+        if (since != null && play.atMillis > 0 && play.atMillis < since) {
+          continue;
+        }
+        out.add(GeneratedTrack(name: play.title, artist: play.artist));
+        if (out.length >= total) break;
+      }
+      if (out.isEmpty) {
+        out.addAll(_savedPlaylistTracks(liked: true, local: true)
+            .take(total)
+            .map(_fromStored));
+      }
+    }
+    return out;
+  }
+
+  Future<List<GeneratedTrack>> _generateSimilarTracks(
+    int total,
+    String seedTrack,
+    String seedArtist,
+    String seedVideoId,
+  ) async {
+    var name = seedTrack.trim();
+    var artist = seedArtist.trim();
+    var videoId = seedVideoId.trim();
+    if (videoId.isEmpty && name.isEmpty && artist.isEmpty) {
+      final plays = _recentPlays(5);
+      if (plays.isNotEmpty) {
+        name = plays.first.title;
+        artist = plays.first.artist;
+      }
+    }
+    if (videoId.isEmpty && (name.isNotEmpty || artist.isNotEmpty)) {
+      try {
+        final songs = await _tube
+            .searchSongs('$name $artist'.trim(), limit: 5)
+            .timeout(const Duration(seconds: 8));
+        if (songs.isNotEmpty) videoId = songs.first.videoId;
+      } catch (_) {}
+    }
+    final out = <GeneratedTrack>[];
+    if (videoId.isNotEmpty) {
+      try {
+        final related = await _tube
+            .fetchRelatedSongs(videoId, limit: total)
+            .timeout(const Duration(seconds: 8));
+        out.addAll(related.map(_fromYt));
+      } catch (_) {}
+    }
+    if (name.isNotEmpty && artist.isNotEmpty && _apiKey().isNotEmpty) {
+      out.addAll(await _similarTracks(name, artist, limit: total));
+    } else if (out.isEmpty && (name.isNotEmpty || artist.isNotEmpty)) {
+      try {
+        final songs = await _tube
+            .searchSongs('$name $artist radio'.trim(), limit: total)
+            .timeout(const Duration(seconds: 8));
+        out.addAll(songs.map(_fromYt));
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<List<String>> _similarArtistNames(String artist) async {
+    if (_apiKey().isEmpty || artist.trim().isEmpty) return const [];
+    try {
+      final json = await _api.get({
+        'method': 'artist.getsimilar',
+        'artist': artist,
+        'api_key': _apiKey(),
+        'limit': '12',
+        'autocorrect': '1',
+      }).timeout(const Duration(seconds: 8));
+      final list = _asList((json['similarartists'] as Map?)?['artist']);
+      return [
+        for (final a in list)
+          if ((a['name']?.toString() ?? '').isNotEmpty) a['name'].toString(),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<GeneratedTrack>> _generateSimilarArtists(
+    int total,
+    String seedArtist,
+    String period,
+  ) async {
+    var artist = seedArtist.trim();
+    final names = <String>[];
+    if (_apiKey().isNotEmpty) {
+      if (artist.isEmpty) {
+        try {
+          final top = await _home
+              .fetchTopTracks(period: period, limit: 5)
+              .timeout(const Duration(seconds: 12));
+          if (top.isNotEmpty) artist = top.first.artist;
+        } catch (_) {}
+      }
+      if (artist.isNotEmpty) names.addAll(await _similarArtistNames(artist));
+    }
+    if (names.isEmpty) {
+      final plays = _recentPlays(20);
+      final guest = artist.isNotEmpty
+          ? artist
+          : (plays.isEmpty ? '' : plays.first.artist);
+      if (guest.isNotEmpty) names.add(guest);
+    }
+    final out = <GeneratedTrack>[];
+    for (final name in names.take(8)) {
+      if (out.length >= total) break;
+      try {
+        final songs = await _tube
+            .searchSongs(name, limit: 3)
+            .timeout(const Duration(seconds: 8));
+        out.addAll(songs.map(_fromYt));
+      } catch (_) {}
+    }
+    if (out.isEmpty && artist.isNotEmpty) {
+      try {
+        final songs = await _tube
+            .searchSongs('$artist similar', limit: total)
+            .timeout(const Duration(seconds: 8));
+        out.addAll(songs.map(_fromYt));
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<List<GeneratedTrack>> _generateTag(int total, String tag) async {
+    final query = tag.trim();
+    final out = <GeneratedTrack>[];
+    if (query.isNotEmpty) {
+      try {
+        final songs = await _tube
+            .searchSongs(query, limit: total)
+            .timeout(const Duration(seconds: 8));
+        out.addAll(songs.map(_fromYt));
+      } catch (_) {}
+    }
+    if (_apiKey().isNotEmpty && query.isNotEmpty) {
+      try {
+        final json = await _api.get({
+          'method': 'tag.gettoptracks',
+          'tag': query,
+          'api_key': _apiKey(),
+          'limit': '$total',
+        }).timeout(const Duration(seconds: 8));
+        final list = _asList((json['tracks'] as Map?)?['track']);
+        for (final s in list) {
+          final n = s['name']?.toString() ?? '';
+          final a = (s['artist'] as Map?)?['name']?.toString() ??
+              s['artist']?.toString() ??
+              '';
+          if (n.isEmpty) continue;
+          out.add(GeneratedTrack(name: n, artist: a));
+        }
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<List<GeneratedTrack>> _generateNeverHeard(
+      int total, String period) async {
+    final heard = <String>{};
+    final since = _periodCutoff(period);
+    for (final play in _recentPlays(500)) {
+      if (since != null && play.atMillis > 0 && play.atMillis < since) {
+        continue;
+      }
+      heard.add(AppDatabase.exclusionKey(play.title, play.artist));
+    }
+    for (final t in _savedPlaylistTracks(
+      liked: true,
+      local: true,
+      custom: true,
+    )) {
+      heard.add(AppDatabase.exclusionKey(t.name, t.artist));
+    }
+    final history = await _cappedAccount(fetchYtHistory, 80);
+    for (final t in history) {
+      heard.add(AppDatabase.exclusionKey(t.title, t.artist));
+    }
+    final out = <GeneratedTrack>[];
+    try {
+      final charts = await _tube
+          .browseSongs('FEmusic_charts', limit: total + 20)
+          .timeout(const Duration(seconds: 12));
+      for (final t in charts) {
+        if (heard.contains(AppDatabase.exclusionKey(t.title, t.artist))) {
+          continue;
+        }
+        out.add(_fromYt(t));
+      }
+    } catch (_) {}
+    if (out.length < total && history.isNotEmpty) {
+      try {
+        final related = await _tube
+            .fetchRelatedSongs(history.first.videoId, limit: total)
+            .timeout(const Duration(seconds: 8));
+        for (final t in related) {
+          if (heard.contains(AppDatabase.exclusionKey(t.title, t.artist))) {
+            continue;
+          }
+          out.add(_fromYt(t));
+        }
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<List<GeneratedTrack>> _generateLibrary(String period) async {
+    final tracks = _savedPlaylistTracks(
+      liked: true,
+      local: true,
+      custom: true,
+    );
+    final since = _periodCutoff(period);
+    if (since == null) return tracks.map(_fromStored).toList();
+    final played = <String>{};
+    for (final play in _recentPlays(500)) {
+      if (play.atMillis < since) continue;
+      played.add(AppDatabase.exclusionKey(play.title, play.artist));
+    }
+    final filtered = tracks.where((t) {
+      if (t.addedAtMillis >= since) return true;
+      return played.contains(AppDatabase.exclusionKey(t.name, t.artist));
+    }).toList();
+    final chosen = filtered.isEmpty ? tracks : filtered;
+    return chosen.map(_fromStored).toList();
+  }
+
+  /// Fresh-track queue for Discover. New-release albums are opened and
+  /// a few songs taken from each; a direct new-music browse fills gaps.
+  Future<List<GeneratedTrack>> fetchNewMusicTracks({int limit = 30}) async {
+    final cap = limit < 5 ? 5 : (limit > 40 ? 40 : limit);
+    final out = <GeneratedTrack>[];
+    final seen = <String>{};
+    void add(GeneratedTrack track) {
+      if (out.length >= cap || track.name.trim().isEmpty) return;
+      if (seen.add(track.key)) out.add(track);
+    }
+
+    final albums = await fetchNewReleaseAlbums(limit: 12);
+    if (albums.isNotEmpty) {
+      final batches = await Future.wait(
+        albums.take(6).map((album) async {
+          try {
+            return await albumTracks(album)
+                .timeout(const Duration(seconds: 8));
+          } catch (_) {
+            return const <GeneratedTrack>[];
+          }
+        }),
+      );
+      for (final batch in batches) {
+        for (final track in batch.take(4)) {
+          add(track);
+        }
+      }
+    }
+    if (out.length < cap) {
+      try {
+        final songs = await _tube
+            .browseSongs(
+              InnerTubeMusicApi.newReleasesBrowseId,
+              limit: cap,
+            )
+            .timeout(const Duration(seconds: 12));
+        for (final song in songs) {
+          add(_fromYt(song));
+        }
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<List<GeneratedTrack>> _chartFallback(int total) async {
+    try {
+      final charts = await _tube
+          .browseSongs('FEmusic_charts', limit: total)
+          .timeout(const Duration(seconds: 12));
+      return charts.map(_fromYt).toList();
+    } catch (_) {
+      return const [];
+    }
   }
 }
 

@@ -36,10 +36,12 @@ Future<void> showWaveCommandPalette(
     (('/albums'), 'Go to Albums', FluentIcons.music_note),
     (('/artists'), 'Go to Artists', FluentIcons.contact),
     (('/playlists'), 'Go to Playlists', FluentIcons.list_mirrored),
+    (('/podcasts'), 'Go to Podcasts', FluentIcons.headset),
     (('/mixes'), 'Open Mix Lab', FluentIcons.lightbulb),
     (('/downloads'), 'Go to Downloads', FluentIcons.download),
     (('/history'), 'Go to History', FluentIcons.history),
     (('/now'), 'Open Now Playing', FluentIcons.circle_fill),
+    (('/jam'), 'Open Jam', FluentIcons.people),
     (('/lyrics'), 'Open Lyrics', FluentIcons.microphone),
     (('/settings'), 'Open Settings', FluentIcons.settings),
   ];
