@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -222,16 +223,64 @@ List<WaveMenuEntry> waveTrackMenuItems({
     );
   }
   items.add(const WaveMenuSeparator());
+  final link = trackShareLink(track);
+  items.add(
+    WaveMenuAction(
+      leading: const Icon(FluentIcons.link, size: 15),
+      label: 'Copy link',
+      onPressed: link == null
+          ? null
+          : () => _copyText(context, link, 'Link copied'),
+    ),
+  );
+  items.add(
+    WaveMenuAction(
+      leading: const Icon(FluentIcons.copy, size: 15),
+      label: 'Copy title and artist',
+      onPressed: () => _copyText(
+        context,
+        '$title — $artist',
+        'Title and artist copied',
+      ),
+    ),
+  );
   items.add(
     WaveMenuAction(
       leading: const Icon(FluentIcons.info, size: 15),
       label: 'Properties',
-      onPressed: () => showWaveTrackProperties(
-        ref.context,
-        title: title,
-        artist: artist,
-        artworkUrl: artworkUrl,
-      ),
+      onPressed: () {
+        final snap = ref.read(playbackServiceProvider);
+        final origin = trackMediaOrigin(
+          track: track,
+          downloadPath: downloads.localPathFor(title, artist),
+        );
+        final same = _samePlayingTrack(snap.current, track);
+        final stream = same ? snap.stream : null;
+        var quality = _qualityLabel(stream, snap.bitrateKbps);
+        if ((quality == null || quality.isEmpty) &&
+            track.playbackMimeType.isNotEmpty) {
+          quality = track.playbackMimeType;
+        }
+        var path = origin.path;
+        final streamUrl = stream?.url ?? '';
+        if ((path == null || path.isEmpty) && streamUrl.startsWith('file:')) {
+          path = Uri.tryParse(streamUrl)?.toFilePath();
+        }
+        final duration = track.duration > Duration.zero
+            ? track.duration
+            : (same ? snap.duration : Duration.zero);
+        showWaveTrackProperties(
+          context,
+          title: title,
+          artist: artist,
+          album: track.album,
+          artworkUrl: artworkUrl,
+          duration: duration,
+          sourceKind: origin.kind,
+          quality: quality,
+          path: path,
+        );
+      },
     ),
   );
   if (removeLabel != null && onRemove != null) {
@@ -264,13 +313,101 @@ List<WaveMenuEntry> waveTrackMenuItems({
   return items;
 }
 
+/// YouTube Music watch URL when [PlayableTrack.videoId] is set.
+/// Otherwise the local playback path. Null when neither exists.
+String? trackShareLink(PlayableTrack track) {
+  if (track.videoId.isNotEmpty) {
+    return 'https://music.youtube.com/watch?v=${track.videoId}';
+  }
+  if (track.playbackUrl.isNotEmpty) return track.playbackUrl;
+  return null;
+}
+
+/// Local file, download, or stream, plus a filesystem path when the
+/// bytes are already on disk.
+({String kind, String? path}) trackMediaOrigin({
+  required PlayableTrack track,
+  String? downloadPath,
+}) {
+  final playback = track.playbackUrl;
+  final playbackIsFile = playback.isNotEmpty && File(playback).existsSync();
+  final downloaded = downloadPath != null &&
+      downloadPath.isNotEmpty &&
+      File(downloadPath).existsSync();
+  if (playbackIsFile &&
+      (!downloaded || !_sameFilePath(playback, downloadPath))) {
+    return (kind: 'Local file', path: playback);
+  }
+  if (downloaded) return (kind: 'Download', path: downloadPath);
+  if (playbackIsFile) return (kind: 'Local file', path: playback);
+  return (kind: 'Stream', path: null);
+}
+
+bool _samePlayingTrack(PlayableTrack? current, PlayableTrack track) {
+  if (current == null) return false;
+  return current.queueKey == track.queueKey &&
+      current.videoId == track.videoId &&
+      current.playbackUrl == track.playbackUrl;
+}
+
+bool _sameFilePath(String a, String b) =>
+    a.replaceAll('/', '\\').toLowerCase() == b.replaceAll('/', '\\').toLowerCase();
+
+String? _qualityLabel(ResolvedStream? stream, int snapshotBitrate) {
+  if (stream == null) return null;
+  final parts = <String>[];
+  if (stream.qualityBadge.isNotEmpty) parts.add(stream.qualityBadge);
+  if (stream.audioCodec.isNotEmpty) parts.add(stream.audioCodec);
+  final kbps = snapshotBitrate > 0 ? snapshotBitrate : stream.bitrateKbps;
+  if (kbps > 0) parts.add('$kbps kbps');
+  if (parts.isEmpty) return null;
+  return parts.join(' · ');
+}
+
+String formatTrackDuration(Duration duration) {
+  if (duration <= Duration.zero) return 'Unknown';
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+  if (hours > 0) {
+    return '$hours:${minutes.toString().padLeft(2, '0')}:$seconds';
+  }
+  return '$minutes:$seconds';
+}
+
+void _copyText(BuildContext context, String text, String message) {
+  Clipboard.setData(ClipboardData(text: text));
+  displayInfoBar(
+    context,
+    builder: (context, close) => InfoBar(
+      title: Text(message),
+      severity: InfoBarSeverity.success,
+      onClose: close,
+    ),
+  );
+}
+
 /// Track properties dialog (Fluent ContentDialog).
 Future<void> showWaveTrackProperties(
   BuildContext context, {
   required String title,
   required String artist,
+  String album = '',
   String artworkUrl = '',
+  Duration duration = Duration.zero,
+  String sourceKind = 'Stream',
+  String? quality,
+  String? path,
 }) {
+  final rows = <(String, String)>[
+    ('Title', title),
+    ('Artist', artist),
+    if (album.isNotEmpty) ('Album', album),
+    ('Duration', formatTrackDuration(duration)),
+    ('Source', sourceKind),
+    if (quality != null && quality.isNotEmpty) ('Quality', quality),
+    if (path != null && path.isNotEmpty) ('Path', path),
+  ];
   return showDialog(
     context: context,
     builder: (context) => ContentDialog(
@@ -282,9 +419,12 @@ Future<void> showWaveTrackProperties(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: WaveType.trackTitle),
-            const SizedBox(height: 4),
-            Text(artist, style: WaveType.body),
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) const SizedBox(height: 10),
+              Text(rows[i].$1, style: WaveType.meta),
+              const SizedBox(height: 2),
+              SelectableText(rows[i].$2, style: WaveType.body),
+            ],
           ],
         ),
       ),

@@ -14,6 +14,9 @@ import '../navigation/wave_nav.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 
+/// Session-only. Closing the app clears it; it is not written to SQLite.
+final queueLockedProvider = StateProvider<bool>((_) => false);
+
 /// Contextual queue — slides from right, 360px, disappears fully.
 ///
 /// Header: Queue 18px + UP NEXT count + Clear. NOW PLAYING 44px accent row.
@@ -35,6 +38,7 @@ class WaveQueuePanel extends ConsumerWidget {
       playbackServiceProvider.select((s) => s.currentIndex),
     );
     final notifier = ref.read(playbackServiceProvider.notifier);
+    final locked = ref.watch(queueLockedProvider);
     if (queue.isEmpty) {
       return _Shell(
         onClose: onClose,
@@ -96,11 +100,38 @@ class WaveQueuePanel extends ConsumerWidget {
                 ),
                 const Spacer(),
                 LWTooltip(
-                  message: upcoming.isEmpty
-                      ? 'Nothing to clear'
-                      : 'Clear up next',
+                  message: locked
+                      ? 'Unlock reorder and remove'
+                      : 'Lock reorder and remove',
                   child: WaveLink(
-                    onPressed: upcoming.isEmpty
+                    onPressed: () => ref
+                        .read(queueLockedProvider.notifier)
+                        .state = !locked,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          locked ? FluentIcons.lock : FluentIcons.unlock,
+                          size: 12,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          locked ? 'Unlock' : 'Lock',
+                          style: WaveType.label.copyWith(fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                LWTooltip(
+                  message: locked
+                      ? 'Queue is locked'
+                      : upcoming.isEmpty
+                          ? 'Nothing to clear'
+                          : 'Clear up next',
+                  child: WaveLink(
+                    onPressed: locked || upcoming.isEmpty
                         ? null
                         : notifier.clearUpcoming,
                     child: Text(
@@ -125,7 +156,22 @@ class WaveQueuePanel extends ConsumerWidget {
                       ),
                     ),
                   )
-                : ReorderableListView.builder(
+                : locked
+                    ? ListView.builder(
+                        itemCount: upcoming.length,
+                        itemBuilder: (context, i) {
+                          final queueIndex = index + 1 + i;
+                          final t = upcoming[i];
+                          return _QueueRow(
+                            key: ValueKey('q:${t.queueKey}:$queueIndex'),
+                            track: t,
+                            queueIndex: queueIndex,
+                            dragIndex: i,
+                            locked: true,
+                          );
+                        },
+                      )
+                    : ReorderableListView.builder(
                     buildDefaultDragHandles: false,
                     itemCount: upcoming.length,
                     // onReorderItem hands over post-removal coordinates;
@@ -348,11 +394,13 @@ class _QueueRow extends ConsumerStatefulWidget {
   final PlayableTrack track;
   final int queueIndex;
   final int dragIndex;
+  final bool locked;
   const _QueueRow({
     super.key,
     required this.track,
     required this.queueIndex,
     required this.dragIndex,
+    this.locked = false,
   });
   @override
   ConsumerState<_QueueRow> createState() => _QueueRowState();
@@ -414,7 +462,9 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
       WaveMenuAction(
         leading: const Icon(WaveIcons.delete, size: 15),
         label: 'Remove',
-        onPressed: () => notifier.removeAt(widget.queueIndex),
+        onPressed: widget.locked
+            ? null
+            : () => notifier.removeAt(widget.queueIndex),
       ),
     ];
   }
@@ -443,30 +493,50 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
           child: Row(
             children: [
               // Drag handle: low-opacity idle (still visible/keyboard
-              // reachable) → full opacity on hover.
-              LWTooltip(
-                message: 'Drag to reorder',
-                child: ReorderableDragStartListener(
-                  index: widget.dragIndex,
+              // reachable) → full opacity on hover. Hidden while locked
+              // so the row cannot start a reorder.
+              if (widget.locked)
+                LWTooltip(
+                  message: 'Queue is locked',
                   child: Container(
                     width: 28,
                     height: 36,
                     color: Colors.transparent,
+                    alignment: Alignment.center,
                     child: Icon(
-                      FluentIcons.gripper_bar_vertical,
-                      size: 15,
-                      color: _hover
-                          ? (dark
-                              ? WaveColors.textSecondary
-                              : WaveColors.lightTextSecondary)
-                          : (dark
-                                  ? WaveColors.textTertiary
-                                  : WaveColors.lightTextTertiary)
-                              .withValues(alpha: 0.45),
+                      FluentIcons.lock,
+                      size: 13,
+                      color: (dark
+                              ? WaveColors.textTertiary
+                              : WaveColors.lightTextTertiary)
+                          .withValues(alpha: 0.7),
+                    ),
+                  ),
+                )
+              else
+                LWTooltip(
+                  message: 'Drag to reorder',
+                  child: ReorderableDragStartListener(
+                    index: widget.dragIndex,
+                    child: Container(
+                      width: 28,
+                      height: 36,
+                      color: Colors.transparent,
+                      child: Icon(
+                        FluentIcons.gripper_bar_vertical,
+                        size: 15,
+                        color: _hover
+                            ? (dark
+                                ? WaveColors.textSecondary
+                                : WaveColors.lightTextSecondary)
+                            : (dark
+                                    ? WaveColors.textTertiary
+                                    : WaveColors.lightTextTertiary)
+                                .withValues(alpha: 0.45),
+                      ),
                     ),
                   ),
                 ),
-              ),
               const SizedBox(width: 4),
               WaveArtwork(
                 url: widget.track.artworkUrl,
@@ -494,7 +564,7 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
                   ],
                 ),
               ),
-              if (_hover)
+              if (_hover && !widget.locked)
                 LWTooltip(
                   message: 'Remove',
                   child: GestureDetector(
