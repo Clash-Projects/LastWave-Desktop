@@ -149,6 +149,10 @@ void main() {
           ['atmos', 'hi_res', 'lossless', 'high']);
     });
 
+    test('data saver has no addon 96k code', () {
+      expect(AddonApi.serverQualitiesForTier(4), isEmpty);
+    });
+
     test('search knob mirrors Android per tier', () {
       // Android LosslessMusicApi searches with the tier's primary knob
       // (27/7 -> hi_res, 6 -> lossless, 5 -> high); desktop must send

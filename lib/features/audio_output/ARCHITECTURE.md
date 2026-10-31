@@ -38,7 +38,7 @@ Bit-perfect is **not** implied by exclusive mode. It is true only when:
 
 - WASAPI Exclusive is requested **and** applied
 - source format equals negotiated output
-- no DSP / PEQ / crossfade / speed ≠ 1.0
+- no DSP / PEQ / headphone correction / loudness / crossfade / timed AutoMix / speed ≠ 1.0 / pitch ≠ 1.0
 - software volume is not modifying PCM
 - the DAC actually listed the format via `IAudioClient::IsFormatSupported`
 

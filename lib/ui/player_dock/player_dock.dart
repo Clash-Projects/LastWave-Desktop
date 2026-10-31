@@ -16,7 +16,8 @@ import '../../features/settings/theme_controller.dart';
 import '../components/ambient.dart';
 import '../components/artist_line.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip, LWVolumeSlider, WaveLink;
+import '../components/buttons.dart'
+    show LWTooltip, LWVolumeSlider, WaveButton, WaveFilledButton, WaveLink;
 import '../components/menus.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -1504,13 +1505,17 @@ class _DockOverflow extends ConsumerWidget {
     final sleep = ref.watch(
       playbackServiceProvider.select((s) => s.sleepRemaining),
     );
+    final sleepMinutes = ref.watch(
+      playbackServiceProvider.select((s) => s.sleepMinutes),
+    );
+    final pitch = ref.watch(
+      playbackServiceProvider.select((s) => s.pitch),
+    );
     final stream = ref.watch(
       playbackServiceProvider.select((s) => s.stream),
     );
     final speed =
         ref.watch(playbackServiceProvider.select((s) => s.speed));
-    final speedLabel =
-        speed == speed.roundToDouble() ? '${speed.toInt()}' : '$speed';
     final output = ref.watch(audioOutputProvider);
     final outputName = output.selected?.displayName ?? 'System default';
     final outputEntries = _outputEntries(context, ref, output);
@@ -1550,6 +1555,11 @@ class _DockOverflow extends ConsumerWidget {
             label: 'Open Now Playing',
             onPressed: onExpand,
           ),
+        WaveMenuAction(
+          leading: const Icon(FluentIcons.people, size: 15),
+          label: 'Jam',
+          onPressed: () => context.go('/jam'),
+        ),
         if (showMiniItem)
           WaveMenuAction(
             leading:
@@ -1567,21 +1577,50 @@ class _DockOverflow extends ConsumerWidget {
         if (hasCollapsed) const WaveMenuSeparator(),
         WaveMenuAction(
           leading: const Icon(WaveIcons.gauge, size: 15),
-          label: 'Speed $speedLabel×',
-          onPressed: notifier.cycleSpeed,
+          label: 'Speed ${_rateLabel(speed)}',
+          onPressed: () => _showSpeedPitchDialog(context),
         ),
         WaveMenuAction(
+          leading: const Icon(FluentIcons.music_note, size: 15),
+          label: 'Pitch ${_rateLabel(pitch)}',
+          onPressed: () => _showSpeedPitchDialog(context),
+        ),
+        WaveMenuSubmenu(
           leading: const Icon(WaveIcons.clock, size: 15),
-          label: sleep == null
-              ? 'Sleep timer · 30 min'
-              : 'Sleep ${sleep.inMinutes}m (tap to clear)',
-          onPressed: () {
-            if (sleep != null) {
-              notifier.setSleepTimer(null);
-            } else {
-              notifier.setSleepTimer(const Duration(minutes: 30));
-            }
-          },
+          label: _sleepLabel(sleep),
+          items: () => [
+            WaveMenuAction(
+              leading: _sleepMark(sleepMinutes == null),
+              label: 'Off',
+              onPressed: () => notifier.setSleepTimer(null),
+            ),
+            WaveMenuAction(
+              leading: _sleepMark(sleepMinutes == 15),
+              label: '15 minutes',
+              onPressed: () =>
+                  notifier.setSleepTimer(const Duration(minutes: 15)),
+            ),
+            WaveMenuAction(
+              leading: _sleepMark(sleepMinutes == 30),
+              label: '30 minutes',
+              onPressed: () =>
+                  notifier.setSleepTimer(const Duration(minutes: 30)),
+            ),
+            WaveMenuAction(
+              leading: _sleepMark(sleepMinutes == 60),
+              label: '60 minutes',
+              onPressed: () =>
+                  notifier.setSleepTimer(const Duration(minutes: 60)),
+            ),
+            WaveMenuAction(
+              leading: _sleepMark(sleepMinutes != null &&
+                  sleepMinutes != 15 &&
+                  sleepMinutes != 30 &&
+                  sleepMinutes != 60),
+              label: 'Custom…',
+              onPressed: () => _showCustomSleepDialog(context, notifier),
+            ),
+          ],
         ),
         WaveMenuAction(
           leading: const Icon(WaveIcons.downloadAction, size: 15),
@@ -1597,6 +1636,180 @@ class _DockOverflow extends ConsumerWidget {
                   artworkUrl: current.artworkUrl,
                 );
           },
+        ),
+      ],
+    );
+  }
+}
+
+Widget _sleepMark(bool on) => on
+    ? const Icon(FluentIcons.check_mark, size: 13)
+    : const SizedBox(width: 13);
+
+String _sleepLabel(Duration? remaining) {
+  if (remaining == null) return 'Sleep timer';
+  final total = remaining.inSeconds.clamp(0, 24 * 60 * 60);
+  final minutes = total ~/ 60;
+  final seconds = (total % 60).toString().padLeft(2, '0');
+  return 'Sleep · $minutes:$seconds';
+}
+
+String _rateLabel(double value) {
+  if ((value - value.roundToDouble()).abs() < 0.001) {
+    return '${value.toInt()}×';
+  }
+  return '${value.toStringAsFixed(2)}×';
+}
+
+Future<void> _showCustomSleepDialog(
+  BuildContext context,
+  PlaybackService notifier,
+) async {
+  final controller = TextEditingController();
+  final minutes = await showDialog<int>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Sleep timer'),
+      constraints: const BoxConstraints(maxWidth: 420),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Minutes', style: WaveType.trackTitle),
+          const SizedBox(height: 6),
+          TextBox(
+            controller: controller,
+            placeholder: '45',
+            autofocus: true,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          ),
+          const SizedBox(height: 6),
+          Text('1–1440. Replaces the current timer.', style: WaveType.meta),
+        ],
+      ),
+      actions: [
+        WaveButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        WaveFilledButton(
+          onPressed: () {
+            final n = int.tryParse(controller.text.trim());
+            if (n == null || n < 1 || n > 1440) return;
+            Navigator.of(context).pop(n);
+          },
+          child: const Text('Start'),
+        ),
+      ],
+    ),
+  );
+  controller.dispose();
+  if (minutes == null) return;
+  notifier.setSleepTimer(Duration(minutes: minutes));
+}
+
+Future<void> _showSpeedPitchDialog(BuildContext context) {
+  return showDialog<void>(
+    context: context,
+    builder: (context) => const _SpeedPitchDialog(),
+  );
+}
+
+class _SpeedPitchDialog extends ConsumerWidget {
+  const _SpeedPitchDialog();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final speed = ref.watch(playbackServiceProvider.select((s) => s.speed));
+    final pitch = ref.watch(playbackServiceProvider.select((s) => s.pitch));
+    final notifier = ref.read(playbackServiceProvider.notifier);
+    const presets = [0.75, 1.0, 1.25, 1.5, 2.0];
+    return ContentDialog(
+      title: const Text('Speed and pitch'),
+      constraints: const BoxConstraints(maxWidth: 560),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Speed ${_rateLabel(speed)}',
+                        style: WaveType.sectionTitle),
+                    Slider(
+                      value: speed.clamp(0.5, 1.5).toDouble(),
+                      min: 0.5,
+                      max: 1.5,
+                      divisions: 20,
+                      onChanged: (v) => notifier.setSpeed(v),
+                    ),
+                    Text(
+                      speed > 1.5
+                          ? 'Slider is 0.5×–1.5×. 2× is a preset above it.'
+                          : '0.5×–1.5×. Pitch stays independent.',
+                      style: WaveType.meta,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Pitch ${_rateLabel(pitch)}',
+                        style: WaveType.sectionTitle),
+                    Slider(
+                      value: pitch.clamp(0.5, 1.5).toDouble(),
+                      min: 0.5,
+                      max: 1.5,
+                      divisions: 20,
+                      onChanged: (v) => notifier.setPitch(v),
+                    ),
+                    Text(
+                      '0.5×–1.5×, separate from speed.',
+                      style: WaveType.meta,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('Speed presets', style: WaveType.trackTitle),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final step in presets)
+                WaveButton(
+                  onPressed: () => notifier.setSpeed(step),
+                  child: Text(_rateLabel(step)),
+                ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        WaveButton(
+          onPressed: () => notifier.cycleSpeed(),
+          child: const Text('Next preset'),
+        ),
+        WaveButton(
+          onPressed: () {
+            notifier.setSpeed(1);
+            notifier.setPitch(1);
+          },
+          child: const Text('Reset'),
+        ),
+        WaveFilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Done'),
         ),
       ],
     );
