@@ -18,6 +18,8 @@ import '../../core/network/lastfm_crypto.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
 import '../../core/storage/secure_store.dart';
+import '../podcasts/podcast_models.dart';
+import '../podcasts/podcast_parser.dart';
 import '../search/shared_providers.dart';
 import '../player/play_diag.dart';
 import 'potoken_engine.dart';
@@ -160,6 +162,26 @@ class YtHomeShelf {
   bool get isCardShelf => entities.isNotEmpty;
   bool get isRenderable =>
       isTrackShelf || isTrackCardShelf || isCardShelf;
+}
+
+class YtOwnedPlaylistItem {
+  final String videoId;
+  final String setVideoId;
+
+  const YtOwnedPlaylistItem({
+    required this.videoId,
+    this.setVideoId = '',
+  });
+}
+
+class YtOwnedPlaylist {
+  final List<YtOwnedPlaylistItem> items;
+  final bool complete;
+
+  const YtOwnedPlaylist({
+    required this.items,
+    this.complete = true,
+  });
 }
 
 class YouTubePlaylistResult {
@@ -4101,7 +4123,12 @@ static String normalize(String s) {
   }
 
   /// Non-network freshness peek used for instant playback decisions.
-  ResolvedStream? peekCachedStream(String videoId) {
+  ///
+  /// [preferSmallest] only returns a data-saver entry (`youtube-min:`).
+  /// The normal peek ignores those so a 96 kbps choice cannot replace
+  /// the high-bitrate stream on the next play.
+  ResolvedStream? peekCachedStream(String videoId,
+      {bool preferSmallest = false}) {
     if (videoId.isEmpty) return null;
     final authScope = _playbackAuthScope();
     final now = DateTime.now();
@@ -4110,6 +4137,8 @@ static String normalize(String s) {
       if (e.stream.url.isEmpty) continue;
       // Key prefix check via cacheKey (youtube:videoId:...).
       if (!e.stream.cacheKey.contains(videoId)) continue;
+      final isMin = e.stream.cacheKey.startsWith('youtube-min:');
+      if (isMin != preferSmallest) continue;
       if (e.authScope != authScope) continue;
       if (!_isFresh(e, now)) continue;
       if (freshest == null ||
@@ -4122,12 +4151,12 @@ static String normalize(String s) {
 
   Future<ResolvedStream?> resolveAudioStream(
       String videoId,
-      {bool forceRefresh = false}) async {
+      {bool forceRefresh = false, bool preferSmallest = false}) async {
     if (videoId.isEmpty) return null;
     final authScope = _playbackAuthScope();
     final now = DateTime.now();
     if (!forceRefresh) {
-      final peek = peekCachedStream(videoId);
+      final peek = peekCachedStream(videoId, preferSmallest: preferSmallest);
       if (peek != null) {
         // cacheKey: youtube:videoId:clientKey:itag:scope:expiryMs.
         // Surface them so a cache-hit line is as diagnosable as a
@@ -4136,7 +4165,8 @@ static String normalize(String s) {
         var hitItag = -1;
         try {
           final parts = peek.cacheKey.split(':');
-          if (parts.length >= 5 && parts[0] == 'youtube') {
+          if (parts.length >= 5 &&
+              (parts[0] == 'youtube' || parts[0] == 'youtube-min')) {
             hitClient = parts[2];
             hitItag = int.tryParse(parts[3]) ?? -1;
           }
@@ -4156,11 +4186,13 @@ static String normalize(String s) {
     } else {
       _streamCache.removeWhere((k, _) => k.startsWith('$videoId|'));
     }
-    final requestKey = '$videoId|$authScope';
+    final requestKey =
+        '$videoId|$authScope|${preferSmallest ? 'min' : 'max'}';
     if (_inflight.containsKey(requestKey)) {
       return _inflight[requestKey];
     }
-    final future = _resolveAudioStreamInternal(videoId, authScope);
+    final future = _resolveAudioStreamInternal(videoId, authScope,
+        preferSmallest: preferSmallest);
     _inflight[requestKey] = future;
     try {
       return await future;
@@ -4169,8 +4201,156 @@ static String normalize(String s) {
     }
   }
 
+  /// Video picture for the synced Now Playing pane.
+  ///
+  /// Uses the same player clients and URL decipher as audio resolution,
+  /// then keeps `video/*` formats (audio resolution drops those). Does
+  /// not replace or stop the audio stream. Empty when no client returns
+  /// a playable video URL.
+  Future<List<MusicVideoStream>> resolveMusicVideo(String videoId) async {
+    if (videoId.isEmpty) return const [];
+    try {
+      await _ensureConfig().timeout(const Duration(seconds: 4));
+    } catch (_) {}
+    String? pot;
+    try {
+      final po = await _mintPoToken(videoId).timeout(const Duration(seconds: 6));
+      final token = po?.sessionToken ?? '';
+      if (token.isNotEmpty) pot = token;
+    } catch (_) {}
+    PlayerScript? script;
+    final clients = _orderedFastClients(videoId);
+    for (final client in clients.take(3)) {
+      final needsCipher = client.name == 'WEB_REMIX' ||
+          client.name == 'WEB_EMBEDDED_PLAYER' ||
+          client.name == 'MWEB';
+      if (needsCipher && script == null) {
+        try {
+          script = await _decipher
+              .scriptFor(videoId)
+              .timeout(const Duration(seconds: 8));
+        } catch (_) {}
+      }
+      try {
+        final options = await _musicVideoOptions(
+          videoId: videoId,
+          client: client,
+          script: script,
+          gvsPoToken: pot,
+        ).timeout(_fastClientTimeout);
+        if (options.isNotEmpty) return options;
+      } catch (_) {
+        continue;
+      }
+    }
+    return const [];
+  }
+
+  Future<List<MusicVideoStream>> _musicVideoOptions({
+    required String videoId,
+    required PlayerClient client,
+    required PlayerScript? script,
+    required String? gvsPoToken,
+  }) async {
+    final root = await _post(
+      '${client.name == 'WEB_REMIX' ? musicApi : youtubeApi}/player?key=${client.apiKey}&prettyPrint=false',
+      body: {
+        'context': _context(
+          client.name,
+          client.version,
+          visitorData: _visitorData,
+          osName: client.osName,
+          osVersion: client.osVersion,
+          deviceMake: client.deviceMake,
+          deviceModel: client.deviceModel,
+          androidSdkVersion: client.androidSdkVersion,
+        ),
+        'videoId': videoId,
+        'contentCheckOk': true,
+        'racyCheckOk': true,
+        if (script?.sts != null)
+          'playbackContext': {
+            'contentPlaybackContext': {
+              'signatureTimestamp': script!.sts,
+            },
+          },
+      },
+      clientName: client.name,
+      clientVersion: client.version,
+      userAgent: client.userAgent,
+      authenticated: client.name == 'WEB_REMIX' && _connection.connected,
+      origin: client.origin,
+      referer: client.referer,
+      visitorData: _visitorData,
+      maxAttempts: _maxPlayerRequestAttempts,
+    );
+    final status = root['playabilityStatus'] as Map?;
+    if (status?['status']?.toString() != 'OK') return const [];
+    final headers = Map<String, String>.from(client.streamRequestHeaders);
+    final visitor = _visitorData;
+    if (visitor != null && visitor.isNotEmpty) {
+      headers['X-Goog-Visitor-Id'] = visitor;
+    }
+    final streaming = root['streamingData'] as Map?;
+    final formats = <Map<String, dynamic>>[];
+    final rawFormats = streaming?['formats'];
+    if (rawFormats is List) {
+      for (final f in rawFormats.whereType<Map<String, dynamic>>()) {
+        formats.add(f);
+      }
+    }
+    final adaptive = streaming?['adaptiveFormats'];
+    if (adaptive is List) {
+      for (final f in adaptive.whereType<Map<String, dynamic>>()) {
+        formats.add(f);
+      }
+    }
+    final byHeight = <int, MusicVideoStream>{};
+    for (final format in formats) {
+      final mime = format['mimeType']?.toString() ?? '';
+      final cleanMime = mime.split(';').first.trim().toLowerCase();
+      if (!cleanMime.startsWith('video/')) continue;
+      String? url = format['url']?.toString();
+      url ??= () {
+        final cipher = format['signatureCipher']?.toString() ??
+            format['cipher']?.toString();
+        if (cipher == null || script == null) return null;
+        return _decipher.decipherUrl(cipher, script);
+      }();
+      if (url == null || url.isEmpty) continue;
+      url = appendPot(url, gvsPoToken);
+      final height = (format['height'] as num?)?.toInt() ?? 0;
+      if (height < 144) continue;
+      final bitrate = (format['bitrate'] as num?)?.toInt() ?? 0;
+      final labelRaw = format['qualityLabel']?.toString() ?? '';
+      final label = labelRaw.isEmpty ? '${height}p' : labelRaw;
+      final next = MusicVideoStream(
+        label: label,
+        height: height,
+        bitrate: bitrate,
+        url: url,
+        mimeType: cleanMime,
+        requestHeaders: headers,
+      );
+      final prev = byHeight[height];
+      if (prev == null || _preferVideo(next, prev)) {
+        byHeight[height] = next;
+      }
+    }
+    final heights = byHeight.keys.toList()..sort((a, b) => b.compareTo(a));
+    return [for (final h in heights.take(5)) byHeight[h]!];
+  }
+
+  static bool _preferVideo(MusicVideoStream next, MusicVideoStream prev) {
+    final nextMp4 = next.mimeType.contains('mp4') ? 1 : 0;
+    final prevMp4 = prev.mimeType.contains('mp4') ? 1 : 0;
+    if (nextMp4 != prevMp4) return nextMp4 > prevMp4;
+    return next.bitrate > prev.bitrate;
+  }
+
   Future<ResolvedStream?> _resolveAudioStreamInternal(
-      String videoId, String authScope) async {
+      String videoId, String authScope,
+      {bool preferSmallest = false}) async {
     // Limusic fast path: direct-URL clients (VISIONOS, ANDROID_VR…)
     // need neither the signature decipher nor poTokens. Both are
     // created LAZILY inside ensureAux() — only when a ciphered
@@ -4230,11 +4410,13 @@ static String normalize(String s) {
           gvsPoToken:
               gvsPoToken != null && _visitorData != null ? gvsPoToken : null,
           authScope: authScope,
+          preferSmallest: preferSmallest,
         ).timeout(_fastClientTimeout);
         if (candidate != null) {
           _lastSuccessfulClientName = client.name;
           _cacheResolvedStream(
-              videoId, candidate, client.key, authScope, DateTime.now());
+              videoId, candidate, client.key, authScope, DateTime.now(),
+              preferSmallest: preferSmallest);
           _lastResolved[videoId] =
               _ResolvedRef(client.key, authScope);
           _trimOldest(_lastResolved, _maxLastResolvedEntries);
@@ -4319,6 +4501,7 @@ static String normalize(String s) {
     required String? playerPoToken,
     required String? gvsPoToken,
     required String authScope,
+    bool preferSmallest = false,
   }) async {
     final body = {
       'context': _context(
@@ -4464,6 +4647,11 @@ static String normalize(String s) {
       final adaptiveOrder =
           (b.adaptive ? 1 : 0).compareTo(a.adaptive ? 1 : 0);
       if (adaptiveOrder != 0) return adaptiveOrder;
+      if (preferSmallest) {
+        final ab = a.bitrate <= 0 ? 1 << 30 : a.bitrate;
+        final bb = b.bitrate <= 0 ? 1 << 30 : b.bitrate;
+        return ab.compareTo(bb);
+      }
       return b.bitrate.compareTo(a.bitrate);
     });
     // Limusic behavior: trust the chosen URL until expiry or a real
@@ -4794,11 +4982,37 @@ static String normalize(String s) {
     }
   }
 
+  ResolvedStream _markSmallestStream(ResolvedStream stream) {
+    final key = stream.cacheKey.startsWith('youtube:')
+        ? 'youtube-min:${stream.cacheKey.substring('youtube:'.length)}'
+        : 'youtube-min:${stream.cacheKey}';
+    return ResolvedStream(
+      url: stream.url,
+      mimeType: stream.mimeType,
+      bitrateKbps: stream.bitrateKbps,
+      audioCodec: stream.audioCodec,
+      cacheKey: key,
+      requestHeaders: stream.requestHeaders,
+      isLossless: stream.isLossless,
+      bitDepth: stream.bitDepth,
+      samplingRateKhz: stream.samplingRateKhz,
+      artworkUrl: stream.artworkUrl,
+      albumTitle: stream.albumTitle,
+      expiresAt: stream.expiresAt,
+      watchtimeUrl: stream.watchtimeUrl,
+    );
+  }
+
   void _cacheResolvedStream(String videoId, _Candidate candidate,
-      String clientProfile, String authScope, DateTime now) {
+      String clientProfile, String authScope, DateTime now,
+      {bool preferSmallest = false}) {
+    final stored = preferSmallest
+        ? _markSmallestStream(candidate.stream)
+        : candidate.stream;
+    final tier = preferSmallest ? 'min' : 'max';
     _streamCache[
-            '$videoId|$clientProfile|${candidate.itag}|$authScope|${candidate.stream.expiresAt?.millisecondsSinceEpoch ?? 0}'] =
-        _CachedStream(candidate.stream, clientProfile,
+            '$videoId|$clientProfile|${candidate.itag}|$authScope|${stored.expiresAt?.millisecondsSinceEpoch ?? 0}|$tier'] =
+        _CachedStream(stored, clientProfile,
             candidate.itag, candidate.adaptive, authScope, now);
     if (_streamCache.length > _maxStreamCacheEntries) {
       final sorted = _streamCache.entries.toList()
@@ -4809,6 +5023,9 @@ static String normalize(String s) {
         _streamCache.remove(e.key);
       }
     }
+    // Data-saver picks stay in memory only. Writing them to the shared
+    // disk cache would make the next normal play open the small stream.
+    if (preferSmallest) return;
     // Persistent disk copy for instant reuse across restarts.
     try {
       _disk?.saveStreamEntry(
@@ -5642,6 +5859,340 @@ static String normalize(String s) {
           .join();
     }
     return null;
+  }
+
+  static const podcastsBrowseId = 'FEmusic_podcasts';
+  String? _podcastEpisodeFilter;
+
+  Future<Map<String, dynamic>> _podcastBrowse(String browseId) async {
+    if (_connection.connected) {
+      try {
+        return await _browseRoot(browseId, authenticated: true);
+      } catch (_) {}
+    }
+    return _browseRoot(browseId, authenticated: false);
+  }
+
+  Future<List<PodcastShelf>> fetchPodcastHome() async {
+    final root = await _podcastBrowse(podcastsBrowseId);
+    return PodcastParser.parseHome(root);
+  }
+
+  Future<PodcastShowPage?> fetchPodcastShow(String showId) async {
+    if (showId.trim().isEmpty) return null;
+    final root = await _podcastBrowse(showId);
+    return PodcastParser.parseShow(root, showId);
+  }
+
+  Future<PodcastEpisodePage> fetchPodcastShowContinuation(
+    String showId,
+    String continuation, {
+    String? showTitle,
+  }) async {
+    if (continuation.trim().isEmpty) return const PodcastEpisodePage();
+    Map<String, dynamic> root;
+    if (_connection.connected) {
+      try {
+        root = await _browseContinuation(continuation, authenticated: true);
+      } catch (_) {
+        root = await _browseContinuation(continuation, authenticated: false);
+      }
+    } else {
+      root = await _browseContinuation(continuation, authenticated: false);
+    }
+    return PodcastParser.parseEpisodeContinuation(
+      root,
+      showId: showId,
+      showTitle: showTitle,
+    );
+  }
+
+  Future<List<PodcastEpisode>> searchPodcastEpisodes(
+    String query, {
+    int limit = 30,
+  }) async {
+    final q = query.trim();
+    if (q.isEmpty || limit <= 0) return const [];
+    await _ensureConfig();
+    Future<Map<String, dynamic>> run(String? params) {
+      return _post(
+        '$musicApi/search?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'query': q,
+          if (params != null && params.isNotEmpty) 'params': params,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+      );
+    }
+
+    List<PodcastEpisode> episodes = const [];
+    Map<String, dynamic>? filtered;
+    try {
+      filtered = await run(
+        _podcastEpisodeFilter ?? PodcastParser.episodeSearchFilter,
+      );
+      episodes = PodcastParser.parseEpisodeSearch(
+        filtered,
+        requirePodcastMarker: false,
+      );
+    } catch (_) {}
+    if (episodes.isEmpty) {
+      try {
+        final open = await run(null);
+        final discovered = PodcastParser.episodeSearchParams(open);
+        if (discovered != null &&
+            discovered.isNotEmpty &&
+            discovered != _podcastEpisodeFilter) {
+          final retried = await run(discovered);
+          final parsed = PodcastParser.parseEpisodeSearch(
+            retried,
+            requirePodcastMarker: false,
+          );
+          if (parsed.isNotEmpty) {
+            _podcastEpisodeFilter = discovered;
+            episodes = parsed;
+          }
+        }
+        if (episodes.isEmpty) {
+          episodes = PodcastParser.parseEpisodeSearch(
+            open,
+            requirePodcastMarker: true,
+          );
+        }
+      } catch (_) {}
+    }
+    final seen = <String>{};
+    return [
+      for (final episode in episodes)
+        if (seen.add(episode.videoId)) episode,
+    ].take(limit).toList();
+  }
+
+  Future<String?> createRemotePlaylist(String title) async {
+    if (!_connection.connected) return null;
+    await _ensureConfig();
+    final clean = title.replaceAll('<', '(').replaceAll('>', ')').trim();
+    final name = clean.isEmpty
+        ? 'LastWave Playlist'
+        : (clean.length > 150 ? clean.substring(0, 150) : clean);
+    try {
+      final root = await _post(
+        '$musicApi/playlist/create?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'title': name,
+          'privacyStatus': 'PRIVATE',
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+        authenticated: true,
+      );
+      final direct = root['playlistId']?.toString() ?? '';
+      if (direct.isNotEmpty) return direct;
+      return _findString(root, 'playlistId');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> renameRemotePlaylist(String playlistId, String title) {
+    final name = title.trim();
+    return _editRemotePlaylist(playlistId, [
+      {
+        'action': 'ACTION_SET_PLAYLIST_NAME',
+        'playlistName': name.length > 150 ? name.substring(0, 150) : name,
+      },
+    ]);
+  }
+
+  Future<bool> deleteRemotePlaylist(String playlistId) async {
+    if (!_connection.connected || playlistId.trim().isEmpty) return false;
+    await _ensureConfig();
+    final clean = playlistId.startsWith('VL')
+        ? playlistId.substring(2)
+        : playlistId;
+    try {
+      await _post(
+        '$musicApi/playlist/delete?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'playlistId': clean,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+        authenticated: true,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> addVideosToRemotePlaylist(
+    String playlistId,
+    List<String> videoIds,
+  ) async {
+    if (videoIds.isEmpty) return true;
+    for (var i = 0; i < videoIds.length; i += 50) {
+      final end = i + 50 > videoIds.length ? videoIds.length : i + 50;
+      final ok = await _editRemotePlaylist(
+        playlistId,
+        [
+          for (final id in videoIds.sublist(i, end))
+            {
+              'action': 'ACTION_ADD_VIDEO',
+              'addedVideoId': id,
+              'dedupeOption': 'DEDUPE_OPTION_SKIP',
+            },
+        ],
+      );
+      if (!ok) return false;
+    }
+    return true;
+  }
+
+  Future<bool> removeVideosFromRemotePlaylist(
+    String playlistId,
+    List<({String setVideoId, String videoId})> removals,
+  ) async {
+    if (removals.isEmpty) return true;
+    for (var i = 0; i < removals.length; i += 50) {
+      final end = i + 50 > removals.length ? removals.length : i + 50;
+      final ok = await _editRemotePlaylist(
+        playlistId,
+        [
+          for (final item in removals.sublist(i, end))
+            {
+              'action': 'ACTION_REMOVE_VIDEO',
+              'setVideoId': item.setVideoId,
+              'removedVideoId': item.videoId,
+            },
+        ],
+      );
+      if (!ok) return false;
+    }
+    return true;
+  }
+
+  Future<bool> _editRemotePlaylist(
+    String playlistId,
+    List<Map<String, dynamic>> actions,
+  ) async {
+    if (!_connection.connected ||
+        playlistId.trim().isEmpty ||
+        actions.isEmpty) {
+      return false;
+    }
+    await _ensureConfig();
+    final clean = playlistId.startsWith('VL')
+        ? playlistId.substring(2)
+        : playlistId;
+    try {
+      final root = await _post(
+        '$musicApi/browse/edit_playlist?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'playlistId': clean,
+          'actions': actions,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+        authenticated: true,
+      );
+      final status = root['status']?.toString() ?? '';
+      return status.isEmpty ||
+          status.toUpperCase().contains('SUCCEEDED') ||
+          root.containsKey('actions');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Owned playlist rows, including `setVideoId` so a later sync can remove
+  /// tracks. [complete] is false when a continuation page failed; callers
+  /// must not treat a short list as "these tracks were deleted".
+  Future<YtOwnedPlaylist> fetchOwnedPlaylistItems(String playlistId) async {
+    if (!_connection.connected) {
+      return const YtOwnedPlaylist(items: [], complete: false);
+    }
+    final rawId = extractPlaylistId(playlistId);
+    if (rawId.isEmpty) {
+      return const YtOwnedPlaylist(items: [], complete: false);
+    }
+    final browseId = _playlistBrowseId(rawId);
+    final rootResult = await _fetchPlaylistRoot(browseId);
+    if (rootResult == null) {
+      return const YtOwnedPlaylist(items: [], complete: false);
+    }
+    final items = <YtOwnedPlaylistItem>[];
+    final seen = <String>{};
+    void absorb(Object? element) {
+      final renderers = <Map<String, dynamic>>[];
+      _collectObjects(element, 'musicResponsiveListItemRenderer', renderers);
+      _collectObjects(element, 'playlistVideoRenderer', renderers);
+      for (final renderer in renderers) {
+        final data = renderer['playlistItemData'];
+        final videoId = (data is Map ? data['videoId']?.toString() : null) ??
+            renderer['videoId']?.toString() ??
+            _findString(renderer, 'videoId') ??
+            '';
+        if (videoId.length != 11) continue;
+        final setVideoId = _findString(renderer, 'setVideoId') ?? '';
+        final key = setVideoId.isNotEmpty ? setVideoId : videoId;
+        if (!seen.add(key)) continue;
+        items.add(YtOwnedPlaylistItem(
+          videoId: videoId,
+          setVideoId: setVideoId,
+        ));
+      }
+    }
+
+    final playlistPage = browseId.startsWith('VL');
+    final containers = playlistPage
+        ? _playlistTrackContainers(rootResult.root)
+        : <Object?>[rootResult.root];
+    for (final container in containers) {
+      absorb(container);
+    }
+    var token = _continuationToken(containers, playlistPage);
+    final seenTokens = <String>{};
+    var page = 0;
+    var complete = true;
+    while (token != null &&
+        token.isNotEmpty &&
+        page < _maxContinuationPages) {
+      if (!seenTokens.add(token)) break;
+      Map<String, dynamic>? next;
+      try {
+        next = await _browseContinuation(token, authenticated: true);
+      } catch (_) {
+        next = null;
+      }
+      if (next == null) {
+        complete = false;
+        break;
+      }
+      final pageContainers = playlistPage
+          ? _playlistTrackContainers(next)
+          : <Object?>[next];
+      final effective =
+          pageContainers.isEmpty ? <Object?>[next] : pageContainers;
+      for (final container in effective) {
+        absorb(container);
+      }
+      token = _continuationToken(effective, playlistPage);
+      page++;
+    }
+    if (token != null && token.isNotEmpty && page >= _maxContinuationPages) {
+      complete = false;
+    }
+    return YtOwnedPlaylist(items: items, complete: complete);
   }
 }
 

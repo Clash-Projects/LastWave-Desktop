@@ -1,10 +1,13 @@
 /// Shared audio/track models.
 ///
-/// Quality tier constants (YouTube / 320k / 16·44.1 / 24·96 / 24·192 / Dolby Atmos):
-/// -1 = YouTube only, 5 = 320k MP3, 6 = CD 16/44.1 FLAC,
+/// Quality tier constants (YouTube / data saver / 320k / 16·44.1 /
+/// 24·96 / 24·192 / Dolby Atmos):
+/// -1 = YouTube only, 4 = data saver (smallest YouTube audio; the
+/// addon has no 96 kbps code), 5 = 320k MP3, 6 = CD 16/44.1 FLAC,
 /// 7 = Hi-Res 24/96, 27 = Max Hi-Res 24/192, 28 = Dolby Atmos.
 class AudioQualityTiers {
   static const int youtubeOnly = -1;
+  static const int dataSaver = 4;
   static const int mp3_320 = 5;
   static const int cdLossless = 6;
   static const int hiRes96 = 7;
@@ -15,6 +18,8 @@ class AudioQualityTiers {
     switch (quality) {
       case youtubeOnly:
         return 'Opus · YouTube';
+      case dataSaver:
+        return 'Data saver · smallest YouTube audio';
       case mp3_320:
         return '320k MP3';
       case cdLossless:
@@ -234,4 +239,24 @@ class ResolvedStreamCache {
   void clear() => _entries.clear();
 
   int get length => _entries.length;
+}
+
+/// One playable music-video URL. Audio playback stays on its own
+/// stream; this is only the picture the synced video pane opens.
+class MusicVideoStream {
+  final String label;
+  final int height;
+  final int bitrate;
+  final String url;
+  final String mimeType;
+  final Map<String, String> requestHeaders;
+
+  const MusicVideoStream({
+    required this.label,
+    required this.url,
+    this.height = 0,
+    this.bitrate = 0,
+    this.mimeType = 'video/mp4',
+    this.requestHeaders = const {},
+  });
 }
