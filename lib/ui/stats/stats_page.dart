@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app/track_actions.dart' show playGenerated, relativeTime;
 import '../../features/feed/feed_repository.dart';
 import '../../features/stats/stats_providers.dart';
+import '../genres/genres_page.dart';
 import '../components/artist_line.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
@@ -23,7 +24,8 @@ enum StatsViewTab {
   tracks('Top Tracks', FluentIcons.music_in_collection),
   artists('Top Artists', FluentIcons.microphone),
   albums('Top Albums', FluentIcons.album),
-  history('History', FluentIcons.history);
+  history('History', FluentIcons.history),
+  genres('Genres', WaveIcons.genres);
 
   final String label;
   final IconData icon;
@@ -126,6 +128,9 @@ class WaveStatsPage extends ConsumerWidget {
                           _AlbumsTab(albums: stats.topAlbums),
                         StatsViewTab.history =>
                           _HistoryTab(recentPlays: stats.recentPlays),
+                        StatsViewTab.genres => const WaveGenresPage(
+                            embedded: true,
+                          ),
                       },
                     ],
                   ),
@@ -265,6 +270,7 @@ class _StatsHeader extends StatelessWidget {
                 StatsViewTab.artists => stats?.topArtists.length,
                 StatsViewTab.albums => stats?.topAlbums.length,
                 StatsViewTab.history => stats?.recentPlays.length,
+                StatsViewTab.genres => null,
               };
 
               return Padding(

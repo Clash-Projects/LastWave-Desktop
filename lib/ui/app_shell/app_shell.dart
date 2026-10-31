@@ -574,8 +574,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     }
     if (clean == '/podcasts' || clean.startsWith('/podcasts/')) return 7;
     if (clean == '/downloads' || clean.startsWith('/downloads/')) return 8;
-    // Appended after the misc branch so earlier indexes stay put.
-    if (clean == '/genres' || clean.startsWith('/genres/')) return 10;
     return null;
   }
 

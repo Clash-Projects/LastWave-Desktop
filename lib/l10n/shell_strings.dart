@@ -22,7 +22,6 @@ class ShellStrings {
         '/artists' => this('artists'),
         '/playlists' => this('playlists'),
         '/podcasts' => this('podcasts'),
-        '/genres' => this('genres'),
         '/downloads' => this('downloads'),
         '/friends' => this('friends'),
         '/settings' => this('settings'),

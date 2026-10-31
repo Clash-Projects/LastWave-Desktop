@@ -14,6 +14,7 @@ import '../lastfm/auth_repository.dart';
 import '../lastfm/home_repository.dart';
 import '../library/playlists.dart';
 import '../search/shared_providers.dart';
+import 'genre_source.dart';
 import 'local_taste.dart';
 
 /// A generated/recommended track (Last.fm metadata + YTM resolution).
@@ -1727,16 +1728,11 @@ class FeedRepository {
 
   Future<List<GeneratedTrack>> _generateTag(int total, String tag) async {
     final query = tag.trim();
+    if (query.isEmpty || !isMusicGenreTag(query)) return const [];
     final out = <GeneratedTrack>[];
-    if (query.isNotEmpty) {
-      try {
-        final songs = await _tube
-            .searchSongs(query, limit: total)
-            .timeout(const Duration(seconds: 8));
-        out.addAll(songs.map(_fromYt));
-      } catch (_) {}
-    }
-    if (_apiKey().isNotEmpty && query.isNotEmpty) {
+    // Songs people tagged with this style. A bare YouTube search for
+    // "India" or "Ballad" returns a track with that title.
+    if (_apiKey().isNotEmpty) {
       try {
         final json = await _api.get({
           'method': 'tag.gettoptracks',
@@ -1750,12 +1746,33 @@ class FeedRepository {
           final a = (s['artist'] as Map?)?['name']?.toString() ??
               s['artist']?.toString() ??
               '';
-          if (n.isEmpty) continue;
+          if (n.isEmpty || _titleIsTheTag(n, query)) continue;
           out.add(GeneratedTrack(name: n, artist: a));
         }
       } catch (_) {}
     }
+    if (out.length < total) {
+      try {
+        final songs = await _tube
+            .searchSongs('$query music', limit: total)
+            .timeout(const Duration(seconds: 8));
+        for (final song in songs) {
+          if (_titleIsTheTag(song.title, query)) continue;
+          out.add(_fromYt(song));
+        }
+      } catch (_) {}
+    }
     return out;
+  }
+
+  bool _titleIsTheTag(String title, String tag) {
+    final name = title.toLowerCase().trim();
+    final genre = tag.toLowerCase().trim();
+    if (name.isEmpty || genre.isEmpty) return false;
+    if (name == genre || name == '${genre}s') return true;
+    final stripped = name.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final genreKey = genre.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return stripped == genreKey || stripped == '${genreKey}s';
   }
 
   Future<List<GeneratedTrack>> _generateNeverHeard(

@@ -17,7 +17,6 @@ import '../ui/collections/playlist_detail_page.dart';
 import '../ui/collections/playlists_page.dart';
 import '../ui/collections/yt_playlist_detail_page.dart';
 import '../ui/collections/yt_shelf_page.dart';
-import '../ui/genres/genres_page.dart';
 import '../ui/podcasts/podcasts_page.dart';
 import '../ui/stats/stats_page.dart';
 import '../ui/home/home_layout_page.dart';
@@ -398,15 +397,6 @@ GoRouter buildRouter({required AuthGate gate}) {
                 pageBuilder: (c, s) => _page(WaveSettingsPage(
                   initialSection: s.uri.queryParameters['section'],
                 )),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/genres',
-                pageBuilder: (c, s) =>
-                    _page(const WaveGenresPage()),
               ),
             ],
           ),
