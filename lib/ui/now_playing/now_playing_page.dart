@@ -11,6 +11,7 @@ import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
+import '../../features/canvas/canvas_clip.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
 import '../components/ambient.dart';
@@ -20,6 +21,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
 import '../queue/queue_panel.dart';
+import 'synced_video_pane.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -44,6 +46,8 @@ class WaveNowPlayingPage extends ConsumerStatefulWidget {
 class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   bool _lyricsVisible = true;
   bool _queueVisible = false;
+  bool _videoOpen = false;
+  bool _videoFullscreen = false;
   bool _controlsIdle = false;
   Timer? _idleTimer;
   DateTime _lastHoverAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -246,6 +250,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                             child: _TopActionsBar(
                               lyricsVisible: _lyricsVisible,
                               queueVisible: _queueVisible,
+                              videoOpen: _videoOpen,
                               visualizerEnabled: visualizerEnabled,
                               onToggleLyrics: () {
                                 _resetIdleTimer();
@@ -258,6 +263,13 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                               onToggleVisualizer: () {
                                 _resetIdleTimer();
                                 ref.read(visualizerEnabledProvider.notifier).toggle();
+                              },
+                              onToggleVideo: () {
+                                _resetIdleTimer();
+                                setState(() {
+                                  _videoOpen = !_videoOpen;
+                                  if (!_videoOpen) _videoFullscreen = false;
+                                });
                               },
                               onClose: () {
                                 if (context.canPop()) {
@@ -288,6 +300,47 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                 },
               ),
             ),
+
+            if (_videoOpen)
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final full = _videoFullscreen;
+                    final width = full
+                        ? constraints.maxWidth
+                        : math.min(520.0, constraints.maxWidth * 0.48);
+                    final height = full
+                        ? constraints.maxHeight
+                        : math.max(240.0, constraints.maxHeight - 96);
+                    return Stack(
+                      children: [
+                        if (full)
+                          const Positioned.fill(
+                            child: ColoredBox(color: Color(0xCC000000)),
+                          ),
+                        AnimatedPositioned(
+                          duration: waveMotion(context, WaveMotion.normal),
+                          curve: Curves.easeOutCubic,
+                          left: full ? 0 : 28,
+                          top: full ? 0 : 68,
+                          width: width,
+                          height: height,
+                          child: SyncedMusicVideoPane(
+                            fullscreen: full,
+                            onClose: () => setState(() {
+                              _videoOpen = false;
+                              _videoFullscreen = false;
+                            }),
+                            onToggleFullscreen: () => setState(
+                              () => _videoFullscreen = !_videoFullscreen,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
 
             // Scrim backdrop when queue drawer is active
             Positioned.fill(
@@ -340,18 +393,22 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
 class _TopActionsBar extends StatelessWidget {
   final bool lyricsVisible;
   final bool queueVisible;
+  final bool videoOpen;
   final bool visualizerEnabled;
   final VoidCallback onToggleLyrics;
   final VoidCallback onToggleQueue;
+  final VoidCallback onToggleVideo;
   final VoidCallback onToggleVisualizer;
   final VoidCallback onClose;
 
   const _TopActionsBar({
     required this.lyricsVisible,
     required this.queueVisible,
+    required this.videoOpen,
     required this.visualizerEnabled,
     required this.onToggleLyrics,
     required this.onToggleQueue,
+    required this.onToggleVideo,
     required this.onToggleVisualizer,
     required this.onClose,
   });
@@ -407,6 +464,14 @@ class _TopActionsBar extends StatelessWidget {
                     icon: WaveIcons.mixes,
                     active: visualizerEnabled,
                     onTap: onToggleVisualizer,
+                  ),
+                ),
+                LWTooltip(
+                  message: videoOpen ? 'Close music video' : 'Music video',
+                  child: _FsIconButton(
+                    icon: FluentIcons.video,
+                    active: videoOpen,
+                    onTap: onToggleVideo,
                   ),
                 ),
                 LWTooltip(
@@ -830,6 +895,13 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     final dark = waveIsDark(context);
     // Visualizer toggle owns ALL page motion: aura + motion-art clip.
     final visualizerOn = ref.watch(visualizerEnabledProvider);
+    final canvas = ref.watch(canvasClipProvider(CanvasLookup(
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      durationMs: track.duration.inMilliseconds,
+    )));
+    final canvasUrl = canvas.asData?.value ?? '';
     final motion = ref.watch(animatedArtworkProvider(
       AnimatedArtworkQuery(
         artist: track.artist,
@@ -837,8 +909,11 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
         title: track.title,
       ),
     ));
-    final motionUrl =
+    final appleUrl =
         motion.valueOrNull?.hasUrl == true ? motion.valueOrNull!.url : '';
+    // Spotify canvas, then Tidal, then the existing motion-art clip.
+    // A miss leaves [appleUrl], which is empty when that lookup misses too.
+    final motionUrl = canvasUrl.isNotEmpty ? canvasUrl : appleUrl;
     final motionReady = ref.watch(
       animatedArtworkSessionProvider.select((s) => s.isReadyFor(motionUrl)),
     );
