@@ -629,16 +629,25 @@ class AddonApi implements LosslessSource {
       // ("Subha Hone Na De" / Pritam, album "Desi Boyz") while the
       // catalog entry credits the performers (Mika Singh, Shefali
       // Alvares), so the artist gate can never pass. The film is then
-      // the identity - but only on an exact album match: the title gate
-      // still rejects other songs from it, and the version gate still
-      // rejects a remix of this one.
+      // the identity - but only on an exact soundtrack album match: the
+      // title gate still rejects other songs from it, and the version gate
+      // still rejects a remix of this one.
+      //
+      // CRITICAL GUARD: Title-matching albums ("album == title", such as
+      // self-titled singles/EPs like "Jalebi Baby" by Abhiram Bitla) must NEVER
+      // waive the artist check. Otherwise, any random cover artist who releases
+      // a single named after the song bypasses the artist gate and wins via
+      // duration proximity over the real artist!
       final artistOk = _artistOkFeatAware(
         cTitle: c.title,
         cArtist: c.artist,
         wantTitle: title,
         wantArtist: artist,
       );
-      if (!artistOk && albumBonus < 2) continue;
+      final isTitleMatchingAlbum =
+          wantAlbum.isNotEmpty && wantAlbum == _clean(title);
+      final soundtrackAlbumWaivesArtist = albumBonus >= 2 && !isTitleMatchingAlbum;
+      if (!artistOk && !soundtrackAlbumWaivesArtist) continue;
       if (expectedDurationSeconds > 0 && c.durationSeconds > 0) {
         if ((c.durationSeconds - expectedDurationSeconds).abs() > 8) {
           continue;
