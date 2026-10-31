@@ -2,8 +2,11 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/app_database.dart';
@@ -24,6 +27,12 @@ class StoredTrack {
   final String album;
   final int durationSeconds;
 
+  /// On-disk path for a Local songs row. Empty for streamed tracks.
+  final String playbackUrl;
+
+  /// When the row was added. Zero on playlists saved before this field.
+  final int addedAtMillis;
+
   const StoredTrack({
     required this.name,
     required this.artist,
@@ -31,6 +40,8 @@ class StoredTrack {
     this.videoId = '',
     this.album = '',
     this.durationSeconds = 0,
+    this.playbackUrl = '',
+    this.addedAtMillis = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -40,6 +51,8 @@ class StoredTrack {
         'videoId': videoId,
         'album': album,
         'durationSeconds': durationSeconds,
+        'playbackUrl': playbackUrl,
+        'addedAtMillis': addedAtMillis,
       };
 
   factory StoredTrack.fromJson(Map<String, dynamic> json) =>
@@ -53,6 +66,9 @@ class StoredTrack {
         album: json['album']?.toString() ?? '',
         durationSeconds:
             int.tryParse('${json['durationSeconds'] ?? 0}') ?? 0,
+        playbackUrl: json['playbackUrl']?.toString() ?? '',
+        addedAtMillis:
+            int.tryParse('${json['addedAtMillis'] ?? 0}') ?? 0,
       );
 
   PlayableTrack toPlayable() => PlayableTrack(
@@ -61,6 +77,7 @@ class StoredTrack {
         album: album,
         artworkUrl: artworkUrl,
         videoId: videoId,
+        playbackUrl: playbackUrl,
         duration: Duration(seconds: durationSeconds),
       );
 }
@@ -77,6 +94,10 @@ class SavedPlaylist {
   final List<StoredTrack> tracks;
   final int createdAtMillis;
   final bool isPinned;
+  final String customCoverUri;
+
+  static const String localMode = 'local';
+  static const String localTitle = 'Local songs';
 
   const SavedPlaylist({
     required this.id,
@@ -86,12 +107,16 @@ class SavedPlaylist {
     this.tracks = const [],
     this.createdAtMillis = 0,
     this.isPinned = false,
+    this.customCoverUri = '',
   });
 
   bool get isLikedSongs =>
       mode == likedMode ||
       title.toLowerCase() == likedTitle.toLowerCase() ||
       title.toLowerCase() == 'liked music';
+
+  bool get isLocal =>
+      mode == localMode || title.toLowerCase() == localTitle.toLowerCase();
 }
 
 /// Playlist + liked-songs repository backed by SQLite.
@@ -106,6 +131,9 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
     refresh();
     collapseDuplicateLikedRows();
   }
+
+  /// Current rows for callers that are not the notifier itself.
+  List<SavedPlaylist> get all => state;
 
   void refresh() {
     final rows = _db.raw.select(
@@ -130,6 +158,7 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
         tracks: tracks,
         createdAtMillis: r['created_at_millis'] as int? ?? 0,
         isPinned: (r['is_pinned'] as int? ?? 0) == 1,
+        customCoverUri: r['custom_cover_uri'] as String? ?? '',
       );
     }).toList();
   }
@@ -259,7 +288,19 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
     final exists = playlist.tracks.any((t) =>
         '${t.name.toLowerCase()}|${t.artist.toLowerCase()}' == key);
     if (exists) return false;
-    final updated = [...playlist.tracks, track];
+    final stamped = track.addedAtMillis == 0
+        ? StoredTrack(
+            name: track.name,
+            artist: track.artist,
+            artworkUrl: track.artworkUrl,
+            videoId: track.videoId,
+            album: track.album,
+            durationSeconds: track.durationSeconds,
+            playbackUrl: track.playbackUrl,
+            addedAtMillis: DateTime.now().millisecondsSinceEpoch,
+          )
+        : track;
+    final updated = [...playlist.tracks, stamped];
     _db.raw.execute(
       'UPDATE saved_playlists SET tracks_json = ? WHERE id = ?;',
       [jsonEncode(updated.map((t) => t.toJson()).toList()), id],
@@ -278,6 +319,65 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
     _db.raw.execute(
       'UPDATE saved_playlists SET tracks_json = ? WHERE id = ?;',
       [jsonEncode(updated.map((t) => t.toJson()).toList()), id],
+    );
+    refresh();
+  }
+
+  Future<void> replaceTracks(int id, List<StoredTrack> tracks) async {
+    _db.raw.execute(
+      'UPDATE saved_playlists SET tracks_json = ? WHERE id = ?;',
+      [jsonEncode(tracks.map((t) => t.toJson()).toList()), id],
+    );
+    refresh();
+  }
+
+  Future<SavedPlaylist> ensureLocalSongs() async {
+    final existing = state.where((p) => p.isLocal);
+    if (existing.isNotEmpty) return existing.first;
+    final id = _newId();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _db.raw.execute(
+      'INSERT INTO saved_playlists(id, title, subtitle, mode, tracks_json, created_at_millis, is_pinned) '
+      'VALUES(?, ?, ?, ?, ?, ?, 0);',
+      [
+        id,
+        SavedPlaylist.localTitle,
+        'Files from folders you added',
+        SavedPlaylist.localMode,
+        '[]',
+        now,
+      ],
+    );
+    refresh();
+    return state.firstWhere((p) => p.id == id);
+  }
+
+  Future<SavedPlaylist> saveGenerated(
+    String title,
+    List<StoredTrack> tracks,
+  ) async {
+    final clean = title.trim().isEmpty ? 'Generated mix' : title.trim();
+    final existing = state.where((p) =>
+        p.mode == 'custom' && p.title.toLowerCase() == clean.toLowerCase());
+    if (existing.isNotEmpty) {
+      await replaceTracks(existing.first.id, tracks);
+      return state.firstWhere((p) => p.id == existing.first.id);
+    }
+    final created = await createCustom(clean);
+    await replaceTracks(created.id, tracks);
+    return state.firstWhere((p) => p.id == created.id);
+  }
+
+  Future<void> setCustomCover(int id, String sourcePath) async {
+    final dir = await getApplicationSupportDirectory();
+    final covers = Directory(p.join(dir.path, 'playlist_covers'));
+    if (!await covers.exists()) await covers.create(recursive: true);
+    final ext = p.extension(sourcePath);
+    final dest = p.join(covers.path, '$id${ext.isEmpty ? '.jpg' : ext}');
+    await File(sourcePath).copy(dest);
+    _db.raw.execute(
+      'UPDATE saved_playlists SET custom_cover_uri = ? WHERE id = ?;',
+      [dest, id],
     );
     refresh();
   }
@@ -320,6 +420,45 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
     }
 
     return result;
+  }
+
+  /// Insert or replace one playlist row from a backup. Caller decides
+  /// whether a newer local row may be overwritten.
+  void upsertBackupRow({
+    required int id,
+    required String title,
+    required String subtitle,
+    required String mode,
+    required String tracksJson,
+    required int createdAtMillis,
+    required bool isPinned,
+    String? discoverSignature,
+    String? customCoverUri,
+  }) {
+    _db.raw.execute(
+      'INSERT INTO saved_playlists('
+      'id, title, subtitle, mode, tracks_json, created_at_millis, '
+      'discover_signature, custom_cover_uri, is_pinned) '
+      'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      'ON CONFLICT(id) DO UPDATE SET '
+      'title = excluded.title, subtitle = excluded.subtitle, '
+      'mode = excluded.mode, tracks_json = excluded.tracks_json, '
+      'created_at_millis = excluded.created_at_millis, '
+      'discover_signature = excluded.discover_signature, '
+      'custom_cover_uri = excluded.custom_cover_uri, '
+      'is_pinned = excluded.is_pinned;',
+      [
+        id,
+        title,
+        subtitle,
+        mode,
+        tracksJson,
+        createdAtMillis,
+        discoverSignature,
+        customCoverUri,
+        isPinned ? 1 : 0,
+      ],
+    );
   }
 }
 
