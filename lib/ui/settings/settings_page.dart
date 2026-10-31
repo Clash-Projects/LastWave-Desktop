@@ -39,7 +39,6 @@ import '../../features/equalizer/equalizer_controller.dart';
 import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/presence/discord_presence_service.dart';
-import '../../features/telemetry/live_telemetry_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
 import 'diagnostics_actions.dart';
@@ -1077,68 +1076,6 @@ class _Ytm extends ConsumerWidget {
                     ),
                   ],
                 ),
-        ),
-        const SizedBox(height: 16),
-        _Group(
-          title: 'Global Live Telemetry & Map',
-          subtitle:
-              'Anonymous real-time listening map at telemetry.clashprojects.qd.je',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SwitchRow(
-                value: prefs.liveTelemetryEnabled,
-                onChanged: (v) =>
-                    onUpdate((p) => p.setLiveTelemetryEnabled(v)),
-                title: 'Global Live Map Telemetry',
-                subtitle: prefs.liveTelemetryEnabled
-                    ? 'On • Listening ticks broadcast anonymously to the live world map'
-                    : 'Off • Playback telemetry stays completely local',
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Open Global Live Map',
-                            style: WaveType.trackTitle),
-                        const SizedBox(height: 2),
-                        Text(
-                          'telemetry.clashprojects.qd.je • Real-time vector map of global listeners',
-                          style: WaveType.meta.copyWith(
-                            color: waveTextSecondary(context),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  WaveFilledButton(
-                    onPressed: () async {
-                      final uri =
-                          Uri.parse(LiveTelemetryService.telemetryBaseUrl);
-                      try {
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri,
-                              mode: LaunchMode.externalApplication);
-                        }
-                      } catch (_) {}
-                    },
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(FluentIcons.globe, size: 14),
-                        SizedBox(width: 6),
-                        Text('Open Live Map'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
         ),
         const SizedBox(height: 16),
         _Group(
