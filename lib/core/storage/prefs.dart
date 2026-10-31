@@ -235,8 +235,8 @@ class Prefs {
         _nearestDouble(v, [for (final step in lyricsTextScales) step.$1]),
       );
 
-  /// `off` or a short language code. Lyric sources in this app do not
-  /// return a translation; the choice is stored for the lyrics view.
+  /// `off` or a short language code. The lyrics view asks the public
+  /// translate endpoint for a sub-line under each lyric.
   static const lyricsTranslationOptions = <String, String>{
     'off': 'Off',
     'en': 'English',

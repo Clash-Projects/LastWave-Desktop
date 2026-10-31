@@ -24,6 +24,7 @@ import '../../ui/theme/tokens.dart';
 import '../../ui/theme/wave_icons.dart';
 import '../player/playback_service.dart';
 import 'lyrics_models.dart';
+import 'lyrics_translation.dart';
 import 'lyrics_providers.dart';
 
 /// Provider for track-specific lyrics timing offset in milliseconds.
@@ -591,6 +592,18 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           }
         }
 
+        final translateKey = lyricsTranslationKey(
+          trackKey: widget.track.queueKey,
+          target: ref.watch(
+            prefsProvider.select((p) => p.lyricsTranslationLang),
+          ),
+          lines: [for (final line in effectiveResult.lines) line.text],
+        );
+        final translations = translateKey == null
+            ? const <String?>[]
+            : ref.watch(lyricsTranslationProvider(translateKey)).valueOrNull ??
+                const <String?>[];
+
         return RepaintBoundary(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -613,6 +626,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                       child: RepaintBoundary(
                         child: _AppleLineLyricsView(
                           result: effectiveResult,
+                          translations: translations,
                           activeLineListenable: _activeLineIndex,
                           positionListenable: _interpolatedPositionMs,
                           compact: widget.compact,
@@ -727,6 +741,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
   final bool isPast;
   final bool compact;
   final bool showTransliteration;
+  final String translation;
   final double? fontSize;
   final bool karaoke;
   final bool softenIdle;
@@ -742,6 +757,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
     required this.isPast,
     this.compact = false,
     this.showTransliteration = true,
+    this.translation = '',
     this.fontSize,
     this.karaoke = true,
     this.softenIdle = true,
@@ -921,6 +937,21 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
         mainAxisSize: MainAxisSize.min,
         children: [
           content,
+          if (widget.translation.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                widget.translation,
+                style: TextStyle(
+                  fontSize: baseFontSize * 0.52,
+                  color: (dark ? Colors.white : Colors.black).withValues(
+                    alpha: widget.isActive ? 0.78 : 0.42,
+                  ),
+                ),
+                textDirection:
+                    widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
+              ),
+            ),
           if (widget.showTransliteration && widget.line.transliteration.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
@@ -1833,6 +1864,7 @@ class _ReturnToCurrentPill extends StatelessWidget {
 /// fully lit. Past and upcoming lines stay dim with a slight blur.
 class _AppleLineLyricsView extends StatefulWidget {
   final LyricsResult result;
+  final List<String?> translations;
   final ValueNotifier<int> activeLineListenable;
   final ValueNotifier<int> positionListenable;
   final bool compact;
@@ -1848,6 +1880,7 @@ class _AppleLineLyricsView extends StatefulWidget {
 
   const _AppleLineLyricsView({
     required this.result,
+    this.translations = const [],
     required this.activeLineListenable,
     required this.positionListenable,
     required this.compact,
@@ -2033,6 +2066,9 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                 compact: widget.compact,
                 fontSize: widget.fontSize,
                 showTransliteration: widget.showTransliteration,
+                translation: i < widget.translations.length
+                    ? (widget.translations[i] ?? '')
+                    : '',
                 karaoke: false,
                 softenIdle: false,
               ),
