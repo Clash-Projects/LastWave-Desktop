@@ -5,12 +5,14 @@ import '../theme/wave_icons.dart';
 /// Rebuilt navigation — music first, panels secondary.
 ///
 /// Layout:
-/// - Top: Home / Discover / Search (daily music use)
+/// - Top: Home / Discover / Stats / Search (daily music use)
 /// - Middle: Liked / Albums / Artists / Playlists (your collections)
 /// - Then: Downloads
 /// - Bottom (pinned): Friends / Settings
 ///
-/// History + Mix Lab stay routable but are NOT prime nav.
+/// History stays routable but is not on the rail.
+/// Mix Lab is a listen destination, so [/mixes] matches the loop above
+/// before the fallback at the bottom of [waveActivePath].
 class WaveDestination {
   final String path;
   final String label;
@@ -20,8 +22,10 @@ class WaveDestination {
 
 const waveListenDestinations = [
   WaveDestination('/home', 'Home', WaveIcons.home),
+  WaveDestination('/discover', 'Discover', WaveIcons.discover),
   WaveDestination('/stats', 'Stats', WaveIcons.stats),
   WaveDestination('/search', 'Search', WaveIcons.search),
+  WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
 ];
 
 const waveCollectionDestinations = [
@@ -29,6 +33,8 @@ const waveCollectionDestinations = [
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
+  WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
+  WaveDestination('/genres', 'Genres', WaveIcons.genres),
 ];
 
 const waveOfflineDestinations = [
@@ -62,7 +68,9 @@ String waveActivePath(String location) {
   if (path.startsWith('/lyrics')) return '/home';
   if (path.startsWith('/history')) return '/stats';
   if (path.startsWith('/stats')) return '/stats';
-  if (path.startsWith('/discover')) return '/stats';
+  if (path == '/home-layout' || path.startsWith('/home-layout/')) {
+    return '/home';
+  }
   if (path.startsWith('/mixes')) return '/home';
   if (path.startsWith('/profile')) return '/friends';
   return '/home';

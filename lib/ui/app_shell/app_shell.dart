@@ -13,6 +13,7 @@ import '../../app/window.dart';
 import '../../app/window_lifecycle.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
+import '../../features/podcasts/podcast_repository.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
 import '../mini_player/mini_player.dart';
@@ -548,14 +549,22 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   int? _branchForPath(String path) {
     final clean = path.split('?').first;
-    if (clean == '/home' || clean.startsWith('/home/')) return 0;
-    if (clean == '/stats' || clean.startsWith('/stats/') || clean == '/discover') return 1;
+    if (clean == '/home' ||
+        clean.startsWith('/home/') ||
+        clean == '/home-layout') {
+      return 0;
+    }
+    if (clean == '/stats' || clean.startsWith('/stats/')) return 1;
     if (clean == '/search' || clean.startsWith('/search/')) return 2;
     if (clean == '/liked' || clean.startsWith('/liked/')) return 3;
     if (clean == '/albums' || clean.startsWith('/albums/') || clean.startsWith('/album/')) return 4;
     if (clean == '/artists' || clean.startsWith('/artists/') || clean.startsWith('/artist/')) return 5;
     if (clean == '/playlists' || clean.startsWith('/playlists/') || clean.startsWith('/ytplaylist/')) return 6;
-    if (clean == '/downloads' || clean.startsWith('/downloads/')) return 7;
+    if (clean == '/podcasts' || clean.startsWith('/podcasts/')) return 7;
+    if (clean == '/downloads' || clean.startsWith('/downloads/')) return 8;
+    // Appended after the misc branch so earlier indexes stay put.
+    if (clean == '/discover' || clean.startsWith('/discover/')) return 10;
+    if (clean == '/genres' || clean.startsWith('/genres/')) return 11;
     return null;
   }
 
@@ -711,6 +720,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
+    ref.watch(podcastProgressCoordinatorProvider);
     final active = waveActivePath(widget.location);
     final hasTrack = ref.watch(
       playbackServiceProvider.select((s) => s.current != null),
