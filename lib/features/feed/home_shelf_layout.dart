@@ -36,6 +36,7 @@ abstract final class HomeShelfCatalog {
     HomeShelfId.youtube,
     HomeShelfId.quickPicks,
     HomeShelfId.continueListening,
+    HomeShelfId.podcasts,
     HomeShelfId.because,
     HomeShelfId.albums,
     HomeShelfId.artists,
@@ -44,7 +45,6 @@ abstract final class HomeShelfCatalog {
     HomeShelfId.fresh,
     HomeShelfId.releases,
     HomeShelfId.popular,
-    HomeShelfId.podcasts,
   ];
 
   static const labels = <String, String>{

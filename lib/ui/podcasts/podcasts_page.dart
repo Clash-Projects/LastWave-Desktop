@@ -26,60 +26,59 @@ class PodcastHomeShelf extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final shelves =
         ref.watch(podcastHomeProvider).valueOrNull ?? const <PodcastShelf>[];
-    final shows = <PodcastShow>[];
-    final seenShows = <String>{};
-    final episodes = <PodcastEpisode>[];
-    final seenEpisodes = <String>{};
-    for (final shelf in shelves) {
-      for (final show in shelf.shows) {
-        if (seenShows.add(show.showId)) shows.add(show);
-      }
-      for (final episode in shelf.episodes) {
-        if (seenEpisodes.add(episode.videoId)) episodes.add(episode);
-      }
-    }
-    if (shows.isEmpty && episodes.isEmpty) return const SizedBox.shrink();
+    final visible = shelves
+        .where((s) => s.shows.isNotEmpty || s.episodes.isNotEmpty)
+        .toList();
+    if (visible.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        LWSectionHeader(
-          overline: 'Listen',
-          title: 'Podcasts',
-          count: shows.isNotEmpty ? shows.length : episodes.length,
-          actionLabel: 'See all',
-          onAction: () => context.go('/podcasts'),
-        ),
-        const SizedBox(height: 10),
-        if (shows.isNotEmpty)
-          WaveRail(
-            height: 228,
-            itemCount: shows.length > 12 ? 12 : shows.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 12),
-            itemBuilder: (context, i) {
-              final show = shows[i];
-              return SizedBox(
-                width: 160,
-                child: WaveMediaCard(
-                  title: show.title,
-                  subtitle: show.publisher.isEmpty ? 'Podcast' : show.publisher,
-                  artworkUrl: show.artworkUrl,
-                  onTap: () => _openShow(context, show),
+        for (var s = 0; s < visible.length; s++) ...[
+          if (s > 0) const SizedBox(height: 22),
+          LWSectionHeader(
+            overline: s == 0 ? 'Listen' : null,
+            title: visible[s].title.isEmpty ? 'Podcasts' : visible[s].title,
+            count: visible[s].shows.isNotEmpty
+                ? visible[s].shows.length
+                : visible[s].episodes.length,
+            actionLabel: s == 0 ? 'See all' : null,
+            onAction: s == 0 ? () => context.go('/podcasts') : null,
+          ),
+          const SizedBox(height: 10),
+          if (visible[s].shows.isNotEmpty)
+            WaveRail(
+              height: 228,
+              itemCount: visible[s].shows.length > 12
+                  ? 12
+                  : visible[s].shows.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, i) {
+                final show = visible[s].shows[i];
+                return SizedBox(
+                  width: 160,
+                  child: WaveMediaCard(
+                    title: show.title,
+                    subtitle:
+                        show.publisher.isEmpty ? 'Podcast' : show.publisher,
+                    artworkUrl: show.artworkUrl,
+                    onTap: () => _openShow(context, show),
+                  ),
+                );
+              },
+            )
+          else
+            for (var i = 0; i < visible[s].episodes.take(4).length; i++)
+              PodcastEpisodeRow(
+                episode: visible[s].episodes[i],
+                index: i,
+                onPlay: () => playPodcastEpisodes(
+                  ref,
+                  context,
+                  visible[s].episodes[i],
+                  queue: visible[s].episodes,
                 ),
-              );
-            },
-          )
-        else
-          for (var i = 0; i < episodes.take(4).length; i++)
-            PodcastEpisodeRow(
-              episode: episodes[i],
-              index: i,
-              onPlay: () => playPodcastEpisodes(
-                ref,
-                context,
-                episodes[i],
-                queue: episodes,
               ),
-            ),
+        ],
       ],
     );
   }
