@@ -17,7 +17,6 @@ import '../ui/collections/playlist_detail_page.dart';
 import '../ui/collections/playlists_page.dart';
 import '../ui/collections/yt_playlist_detail_page.dart';
 import '../ui/collections/yt_shelf_page.dart';
-import '../ui/discover/discover_page.dart';
 import '../ui/genres/genres_page.dart';
 import '../ui/podcasts/podcasts_page.dart';
 import '../ui/stats/stats_page.dart';
@@ -399,17 +398,6 @@ GoRouter buildRouter({required AuthGate gate}) {
                 pageBuilder: (c, s) => _page(WaveSettingsPage(
                   initialSection: s.uri.queryParameters['section'],
                 )),
-              ),
-            ],
-          ),
-          // Appended so existing branch indexes (home … downloads) stay
-          // stable. app_shell._branchForPath maps these to 10 and 11.
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/discover',
-                pageBuilder: (c, s) =>
-                    _page(const WaveDiscoverPage()),
               ),
             ],
           ),

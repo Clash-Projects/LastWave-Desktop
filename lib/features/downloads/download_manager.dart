@@ -150,6 +150,36 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     _muted.addAll(state.map((e) => e.key));
   }
 
+  void _dropInProgress(String key) {
+    state = [
+      for (final entry in state)
+        if (entry.key != key || entry.status == DownloadStatus.done) entry,
+    ];
+  }
+
+  bool _wasCancelled(Object error, bool Function() cancelled) {
+    if (cancelled() || error is DownloadCancelled) return true;
+    if (error is DioException &&
+        (error.type == DioExceptionType.cancel ||
+            error.error is DownloadCancelled)) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Stops [key] if it is downloading. A finished file is left alone.
+  void cancelDownload(String key) {
+    _cancelGeneration[key] = (_cancelGeneration[key] ?? 0) + 1;
+    _tokens.remove(key)?.cancel('cancelled');
+  }
+
+  /// Stops every download that is still running.
+  void cancelActive() {
+    for (final key in _active.toList()) {
+      cancelDownload(key);
+    }
+  }
+
   /// Whether [key] may raise a completion InfoBar this session.
   bool shouldAnnounce(String key) => !_muted.contains(key);
 

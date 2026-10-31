@@ -14,7 +14,6 @@ class ShellStrings {
 
   String rail(String path) => switch (path) {
         '/home' => this('home'),
-        '/discover' => this('discover'),
         '/stats' => this('stats'),
         '/search' => this('search'),
         '/mixes' => this('mixLab'),

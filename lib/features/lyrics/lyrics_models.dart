@@ -272,9 +272,328 @@ LyricsResult ensureMillisecondTimestamps(LyricsResult result) {
   );
 }
 
+final _labeledCreditRegex = RegExp(
+  r'^\s*(?:'
+  r'lyrics?(?:\s*by)?|lyricist(?:\(s\))?|written\s*by|writer(?:\(s\))?|song\s*writer(?:\(s\))?|'
+  r'composed\s*by|composer(?:\(s\))?|composition|music(?:\s*by)?|'
+  r'produced\s*by|producer(?:\(s\))?|co-?producer(?:\(s\))?|executive\s*producer(?:\(s\))?|'
+  r'arranged\s*by|arranger(?:\(s\))?|arrangement|'
+  r'performed\s*by|performer(?:\(s\))?|artist(?:\(s\))?|singer(?:\(s\))?|vocals?(?:\s*by)?|'
+  r'backing\s*vocals?|background\s*vocals?|lead\s*vocals?|'
+  r'feat(?:uring|\.)?|ft\.?|'
+  r'mixed\s*by|remixed\s*by|mixing(?:\s*(?:by|engineer|assistant|studio))?|'
+  r'mastered\s*by|mastering(?:\s*(?:by|engineer|studio))?|'
+  r'recorded\s*(?:at|by|in)|recording(?:\s*(?:engineer|studio))?|'
+  r'engineered\s*by|engineer(?:\(s\))?|audio\s*engineer|'
+  r'drums?|guitar(?:s|ist)?|acoustic\s*guitar|electric\s*guitar|bass(?:\s*guitar)?|'
+  r'keyboards?|piano|synthesizer|synth|strings?|percussion|horns?|brass|'
+  r'programming|programmed\s*by|published\s*by|publisher|record\s*label|'
+  r'copyright|phonographic\s*copyright|licensed\s*(?:to|by)|courtesy\s*of|'
+  r'transcribed\s*by|synced\s*by|synchronized\s*by|timed\s*by|lrc\s*(?:by|maker)|edited\s*by|translated\s*by|'
+  r'作\s*词|作\s*曲|词\s*曲|编\s*曲|制\s*作(?:人|团队)?|プロデューサー|'
+  r'演\s*唱|原\s*唱|主\s*唱|合\s*唱|和\s*声|和\s*音|合\s*声|'
+  r'混\s*音(?:师|室|工程师)?|母\s*带(?:工程|处理|工程师)?|录\s*音(?:师|室|棚|工程师)?|'
+  r'吉\s*他|木\s*吉\s*他|电\s*吉\s*他|贝\s*斯|鼓|架\s*子\s*鼓|键\s*盘|钢\s*琴|弦\s*乐(?:编写)?|'
+  r'配\s*唱(?:制作人)?|人\s*声(?:编辑)?|统\s*筹|监\s*制|出\s*品(?:人)?|发\s*行|'
+  r'曲\s*绘|题\s*字|文\s*案|策\s*划|鸣\s*谢|翻\s*唱|后\s*期|宣\s*传|推\s*广|版\s*权|'
+  r'词|曲|编|唱|OP|SP'
+  r')\s*[:：]',
+  caseSensitive: false,
+);
+
+final _cjkSpaceCreditRegex = RegExp(
+  r'^\s*(?:作\s*词|作\s*曲|词\s*曲|编\s*曲|制\s*作\s*人|演\s*唱|原\s*唱|'
+  r'混\s*音(?:师)?|母\s*带(?:工程师)?|录\s*音(?:师)?|配\s*唱\s*制\s*作\s*人|'
+  r'弦\s*乐\s*编\s*写|和\s*声\s*编\s*写|出\s*品\s*人?)\s+\S',
+);
+
+final _phraseCreditRegex = RegExp(
+  r'^\s*(?:'
+  r'(?:lyrics?\s+and\s+music|music\s+and\s+lyrics?)\s+by\s+\S|'
+  r'(?:lyrics?|written|composed|produced|co-?produced|arranged|performed|'
+  r'mixed|remixed|mastered|recorded|engineered|published|programmed|'
+  r'transcribed|synced|synchronized|timed)\s+by\s+\S|'
+  r'recorded\s+(?:at|in)\s+\S|'
+  r'courtesy\s+of\s+\S|'
+  r'copyright\s+(?:©|\(c\)|\d{4})|'
+  r'[℗©]\s*\d{4}'
+  r')',
+  caseSensitive: false,
+);
+
+const _nonCreditSingleWords = <String>{
+  'oh', 'ooh', 'ah', 'uh', 'uhh', 'yeah', 'yea', 'yep', 'nah', 'hey',
+  'na', 'la', 'da', 'ba', 'sha', 'mm', 'hmm', 'woah', 'whoa', 'ayy',
+  'ay', 'yo', 'no', 'yes', 'go', 'he', 'she', 'him', 'her', 'his',
+  'hers', 'they', 'them', 'their', 'me', 'you', 'we', 'us', 'it',
+  'on', 'in', 'up', 'down', 'left', 'right', 'day', 'night', 'love',
+  'hate', 'life', 'death', 'true', 'false', 'black', 'white', 'one',
+  'two', 'three', 'four',
+};
+
+const _creditNameParticles = <String>{
+  'de', 'del', 'della', 'da', 'di', 'du', 'dos', 'das', 'van', 'von',
+  'der', 'den', 'het', 'ten', 'ter', 'bin', 'ibn', 'ibin', 'al', 'el',
+  'la', 'le', 'los', 'las', 'mc', 'mac', 'st', 'st.', 'jr', 'jr.',
+  'sr', 'sr.', 'ii', 'iii', 'iv', 'v', 'and', '&', 'x', 'feat',
+  'feat.', 'ft', 'ft.', 'the', 'of',
+};
+
+bool _looksLikeCreditNameSegment(String rawSegment) {
+  final segment = rawSegment.trim();
+  if (segment.isEmpty || segment.length > 50) return false;
+  if (RegExp(r'[?!;""()\[\]]').hasMatch(segment)) return false;
+  if (RegExp(r'^\d+$').hasMatch(segment)) return false;
+
+  if (RegExp(r'[\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]').hasMatch(segment)) {
+    return segment.length >= 2 && segment.length <= 12;
+  }
+
+  final words =
+      segment.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+  if (words.isEmpty || words.length > 6) return false;
+  if (words.length == 1 &&
+      _nonCreditSingleWords.contains(words.first.toLowerCase())) {
+    return false;
+  }
+
+  var sawCapitalized = false;
+  for (final w in words) {
+    final clean = w.replaceAll(RegExp(r'^[.,]+|[.,]+$'), '');
+    if (clean.isEmpty) continue;
+    final lower = clean.toLowerCase();
+    if (_creditNameParticles.contains(lower)) continue;
+    if (_nonCreditSingleWords.contains(lower)) return false;
+    if (RegExp(r'^[A-Z\u00C0-\u024F$]').hasMatch(clean)) {
+      sawCapitalized = true;
+    } else {
+      return false;
+    }
+  }
+  return sawCapitalized;
+}
+
+bool _isSlashSeparatedCreditList(
+  String text, {
+  required int index,
+  required int totalLines,
+  String artist = '',
+}) {
+  if (!text.contains('/')) return false;
+  final segments = text
+      .split('/')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+  if (segments.length < 2) return false;
+  final uniqueLower = segments.map((s) => s.toLowerCase()).toSet();
+  if (uniqueLower.length < 2) return false;
+
+  final nameCount = segments.where(_looksLikeCreditNameSegment).length;
+  final multiWordCount =
+      segments.where((s) => s.split(RegExp(r'\s+')).length >= 2).length;
+
+  if (segments.length >= 3) {
+    final allOrMostAreNames = nameCount == segments.length ||
+        (segments.length >= 4 && nameCount / segments.length >= 0.8);
+    if (allOrMostAreNames &&
+        (multiWordCount >= 1 || index < 8 || index >= totalLines - 4)) {
+      return true;
+    }
+  } else if (segments.length == 2 &&
+      (index < 5 || index >= totalLines - 3) &&
+      nameCount == 2) {
+    if (multiWordCount == 2) return true;
+    if (artist.trim().isNotEmpty &&
+        lyricsArtistsMatchStrict(segments[0], artist) &&
+        lyricsArtistsMatchStrict(segments[1], artist)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// True when [text] is a lyric metadata/credit row (songwriter/composer/producer
+/// label, slash-separated songwriter list, or opening `Title - Artist` banner).
+bool isLyricCreditLine(
+  String text, {
+  int index = 0,
+  int totalLines = 1,
+  String title = '',
+  String artist = '',
+}) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return false;
+
+  if (_labeledCreditRegex.hasMatch(trimmed)) return true;
+  if (_cjkSpaceCreditRegex.hasMatch(trimmed)) return true;
+
+  if ((index < 6 || index >= totalLines - 4) &&
+      _phraseCreditRegex.hasMatch(trimmed)) {
+    return true;
+  }
+
+  if (_isSlashSeparatedCreditList(
+    trimmed,
+    index: index,
+    totalLines: totalLines,
+    artist: artist,
+  )) {
+    return true;
+  }
+
+  // Opening header lines (`Title - Artist`, `Artist - Title`, or multi-artist billing).
+  if (index < 3) {
+    final reqTitle = title.trim();
+    final reqArtist = artist.trim();
+    if (reqTitle.isNotEmpty && reqArtist.isNotEmpty) {
+      final dashParts = trimmed.split(RegExp(r'\s+(?:[-–—:|])\s+'));
+      if (dashParts.length == 2) {
+        final left = dashParts[0].trim();
+        final right = dashParts[1].trim();
+        if ((lyricsTitlesMatchStrict(left, reqTitle) &&
+                lyricsArtistsMatchStrict(right, reqArtist)) ||
+            (lyricsArtistsMatchStrict(left, reqArtist) &&
+                lyricsTitlesMatchStrict(right, reqTitle))) {
+          return true;
+        }
+      }
+      if (index == 0 &&
+          !RegExp(r'[!?]').hasMatch(trimmed) &&
+          RegExp(r'[,&/]|(?:\b(?:feat|ft|featuring|with)\b)',
+                  caseSensitive: false)
+              .hasMatch(trimmed) &&
+          !lyricsTitlesMatchStrict(trimmed, reqTitle)) {
+        final lineEntities = _extractArtistEntities(trimmed);
+        final artistEntities = _extractArtistEntities(reqArtist);
+        if (lineEntities.length >= 2 &&
+            artistEntities.isNotEmpty &&
+            lineEntities.every(artistEntities.contains)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+bool _lyricLineIsCredit(
+  LyricLine line, {
+  required int index,
+  required int totalLines,
+  String title = '',
+  String artist = '',
+}) {
+  if (isLyricCreditLine(
+    line.text,
+    index: index,
+    totalLines: totalLines,
+    title: title,
+    artist: artist,
+  )) {
+    return true;
+  }
+  if (line.syllables.isNotEmpty) {
+    final sylText = line.syllables.map((s) => s.text).join(' ').trim();
+    if (sylText.isNotEmpty &&
+        sylText != line.text &&
+        isLyricCreditLine(
+          sylText,
+          index: index,
+          totalLines: totalLines,
+          title: title,
+          artist: artist,
+        )) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Remove credit/songwriter/artist metadata lines from [result].
+/// Never strips all lines if doing so would leave a non-empty result empty.
+LyricsResult stripLyricCreditLines(
+  LyricsResult result, {
+  String title = '',
+  String artist = '',
+}) {
+  if (result.lines.isEmpty && result.plainLyrics.isEmpty) return result;
+
+  var lines = result.lines;
+  var changed = false;
+  if (lines.isNotEmpty) {
+    final total = lines.length;
+    final filtered = <LyricLine>[];
+    for (var i = 0; i < total; i++) {
+      final line = lines[i];
+      // Use filtered.length when still at the opening header so consecutive
+      // opening credit lines all see their position relative to the start.
+      final effectiveIndex = filtered.isEmpty ? 0 : i;
+      if (_lyricLineIsCredit(
+        line,
+        index: effectiveIndex,
+        totalLines: total,
+        title: title,
+        artist: artist,
+      )) {
+        changed = true;
+        continue;
+      }
+      filtered.add(line);
+    }
+    if (filtered.isNotEmpty) {
+      lines = filtered;
+    } else {
+      changed = false;
+    }
+  }
+
+  var plain = result.plainLyrics;
+  if (plain.isNotEmpty) {
+    final rawPlain = plain.split('\n');
+    final filteredPlain = <String>[];
+    var plainChanged = false;
+    for (var i = 0; i < rawPlain.length; i++) {
+      final l = rawPlain[i].trim();
+      if (l.isEmpty) continue;
+      final effectiveIndex = filteredPlain.isEmpty ? 0 : i;
+      if (isLyricCreditLine(
+        l,
+        index: effectiveIndex,
+        totalLines: rawPlain.length,
+        title: title,
+        artist: artist,
+      )) {
+        plainChanged = true;
+        continue;
+      }
+      filteredPlain.add(rawPlain[i]);
+    }
+    if (plainChanged && filteredPlain.isNotEmpty) {
+      plain = filteredPlain.join('\n');
+      changed = true;
+    }
+  }
+
+  if (!changed) return result;
+  return LyricsResult(
+    lines: lines,
+    isSynced: result.isSynced,
+    isWordSynced: result.isWordSynced,
+    plainLyrics: plain,
+    isInstrumental: result.isInstrumental,
+    source: result.source,
+  );
+}
+
 /// Fill missing syllable/line durations and clip overlaps so karaoke
 /// wipe lasts until the next word instead of flashing then jumping.
-LyricsResult normalizeKaraokeTimings(LyricsResult result) {
+LyricsResult normalizeKaraokeTimings(
+  LyricsResult result, {
+  String title = '',
+  String artist = '',
+}) {
   result = ensureMillisecondTimestamps(result);
   if (result.lines.isEmpty && result.plainLyrics.isNotEmpty) {
     final rawLines = result.plainLyrics
@@ -293,6 +612,7 @@ LyricsResult normalizeKaraokeTimings(LyricsResult result) {
       source: result.source,
     );
   }
+  result = stripLyricCreditLines(result, title: title, artist: artist);
   if (!result.isSynced || result.lines.isEmpty) return result;
   final src = List<LyricLine>.of(result.lines)
     ..sort((a, b) => a.timeMs.compareTo(b.timeMs));
@@ -577,6 +897,8 @@ const _versionKeywords = <String, String>{
   'piano': 'acoustic',
   'stripped': 'acoustic',
   'remix': 'remix',
+  'mixed': 'remix',
+  'dj mix': 'remix',
   'mix': 'remix',
   'club mix': 'remix',
   'extended': 'remix',

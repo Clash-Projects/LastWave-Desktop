@@ -405,16 +405,6 @@ class Prefs {
   Future<void> setDisablePoToken(bool v) =>
       _sp.setBool('lw_disable_potoken', v);
 
-  // -- Global Live Map Telemetry ----------------------------------------------
-  /// Broadcast anonymous listening ticks to the LastWave Live Global Map
-  /// (telemetry.clashprojects.qd.je).
-  /// Matches mobile key `lw_live_telemetry_enabled`, default on (true).
-  bool get liveTelemetryEnabled =>
-      _sp.getBool('lw_live_telemetry_enabled') ?? true;
-
-  Future<void> setLiveTelemetryEnabled(bool v) =>
-      _sp.setBool('lw_live_telemetry_enabled', v);
-
   // -- Desktop-app Parity (Karaoke Lyrics & Visualizer & CD Mode) ------------
   int getLyricsOffset(String trackKey) =>
       _sp.getInt('lw_lyrics_offset_$trackKey') ?? 0;

@@ -40,7 +40,6 @@ import '../../features/equalizer/headphone_profiles.dart';
 import '../../features/player/loudness.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/presence/discord_presence_service.dart';
-import '../../features/telemetry/live_telemetry_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
 import 'library_settings.dart';
@@ -1194,68 +1193,6 @@ class _Ytm extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
-          title: 'Global Live Telemetry & Map',
-          subtitle:
-              'Anonymous real-time listening map at telemetry.clashprojects.qd.je',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SwitchRow(
-                value: prefs.liveTelemetryEnabled,
-                onChanged: (v) =>
-                    onUpdate((p) => p.setLiveTelemetryEnabled(v)),
-                title: 'Global Live Map Telemetry',
-                subtitle: prefs.liveTelemetryEnabled
-                    ? 'On • Listening ticks broadcast anonymously to the live world map'
-                    : 'Off • Playback telemetry stays completely local',
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Open Global Live Map',
-                            style: WaveType.trackTitle),
-                        const SizedBox(height: 2),
-                        Text(
-                          'telemetry.clashprojects.qd.je • Real-time vector map of global listeners',
-                          style: WaveType.meta.copyWith(
-                            color: waveTextSecondary(context),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  WaveFilledButton(
-                    onPressed: () async {
-                      final uri =
-                          Uri.parse(LiveTelemetryService.telemetryBaseUrl);
-                      try {
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri,
-                              mode: LaunchMode.externalApplication);
-                        }
-                      } catch (_) {}
-                    },
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(FluentIcons.globe, size: 14),
-                        SizedBox(width: 6),
-                        Text('Open Live Map'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        _Group(
           title: 'Discord',
           subtitle: 'Show what you are listening to on your Discord profile',
           child: _SwitchRow(
@@ -1910,9 +1847,9 @@ Future<void> _ytConnectWithCookies(
               Text(
                 'Use this when the built-in sign-in window is blocked or '
                 'cannot load. The jar comes from your own browser, so '
-                'Google sees a normal desktop session. A pasted jar '
-                'connects the main channel only — brand channels still '
-                'need the browser window.',
+                'Google sees a normal desktop session. Brand channels on '
+                'the same Google login are detected after connecting — '
+                'pick one in the channel chooser.',
                 style: WaveType.meta.copyWith(
                   color: waveTextSecondary(context),
                 ),
@@ -2190,6 +2127,24 @@ Future<void> _ytConnectCaptured(
   required String pageId,
 }) async {
   final profile = await upsertYtCapture(ref, cookies: header, pageId: pageId);
+  // A captured jar is account-level: the active channel rides per
+  // request (`X-Goog-PageId`), never in the cookies. Ask YouTube which
+  // channels this login can act as and seed them into the roster, so
+  // the chooser can offer brand channels even when the capture came
+  // from pasted cookies (no WebView to read DELEGATED_SESSION_ID from).
+  // Best-effort: an empty list keeps today's single-row behavior.
+  if (profile != null) {
+    final discovered =
+        await ref.read(innerTubeProvider).fetchChannelsFor(header);
+    if (discovered.isNotEmpty) {
+      await upsertYtChannels(
+        ref,
+        cookies: header,
+        email: profile.email,
+        channels: discovered,
+      );
+    }
+  }
   if (!context.mounted) return;
   final roster = ref.read(ytProfilesProvider);
   final conn = ref.read(ytConnectionProvider);

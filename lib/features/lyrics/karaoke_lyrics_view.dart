@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
@@ -510,7 +511,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         ),
       ),
       data: (result) {
-        final effectiveResult = (result.lines.isEmpty && result.plainLyrics.isNotEmpty)
+        final rawEffective = (result.lines.isEmpty && result.plainLyrics.isNotEmpty)
             ? LyricsResult(
                 lines: result.plainLyrics
                     .split('\n')
@@ -525,6 +526,11 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                 source: result.source,
               )
             : result;
+        final effectiveResult = stripLyricCreditLines(
+          rawEffective,
+          title: widget.track.title,
+          artist: widget.track.artist,
+        );
 
         // Header controls (the source switcher + close) must survive the
         // no-lyrics states. Switching source can legitimately land on a
@@ -725,6 +731,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
   final bool karaoke;
   final bool softenIdle;
   final double lineOpacity;
+  final double blurSigma;
 
   const WaveKaraokeLyricLine({
     super.key,
@@ -739,6 +746,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
     this.karaoke = true,
     this.softenIdle = true,
     this.lineOpacity = 1.0,
+    this.blurSigma = 0.0,
   });
 
   @override
@@ -933,6 +941,30 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       ),
     );
 
+    final double targetBlur = (widget.isActive ||
+            _isHovered ||
+            !WaveHazeScope.blurEnabled(context))
+        ? 0.0
+        : widget.blurSigma.clamp(0.0, 12.0);
+
+    final Widget blurredBody = TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: targetBlur),
+      duration: waveMotion(context, const Duration(milliseconds: 240)),
+      curve: Curves.easeOutCubic,
+      builder: (context, sigma, child) {
+        if (sigma <= 0.05) return child!;
+        return ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(
+            sigmaX: sigma,
+            sigmaY: sigma,
+            tileMode: TileMode.decal,
+          ),
+          child: child,
+        );
+      },
+      child: body,
+    );
+
     return IgnorePointer(
       ignoring: widget.lineOpacity < 0.05,
       child: AnimatedOpacity(
@@ -962,7 +994,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: body,
+              child: blurredBody,
             ),
           ),
         ),
@@ -2035,41 +2067,78 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
               final line = widget.result.lines[i];
               final isActive = i == active;
 
-              // Distance-based attenuation when following:
-              // Only lines that safely fit without being edged are shown.
-              // Lines that would touch or get clipped at the edges fade out.
+              // Apple Music-style progressive depth-of-field blur and gentle
+              // distance-based opacity attenuation when following:
+              // - Active line is sharp (blurSigma = 0.0, opacity = 1.0)
+              // - Upcoming lines progressively increase in Gaussian blur with
+              //   distance from the active line while staying visible across
+              //   the full viewport.
+              // - Past lines above the active line receive a stronger defocus.
               double lineOpacity = 1.0;
-              if (widget.following && active >= 0) {
-                final dist = (i - active).abs();
-                if (dist == 0) {
-                  lineOpacity = 1.0;
-                } else if (dist == 1) {
-                  lineOpacity = 0.45;
-                } else if (dist == 2) {
-                  lineOpacity = 0.16;
+              double blurSigma = 0.0;
+              if (widget.following && !isActive) {
+                final refIndex = active >= 0 ? active : 0;
+                final dist = (i - refIndex).abs();
+                final isPastLine = active >= 0 && i < active;
+                if (isPastLine) {
+                  if (dist == 1) {
+                    lineOpacity = 0.85;
+                    blurSigma = 2.6;
+                  } else if (dist == 2) {
+                    lineOpacity = 0.72;
+                    blurSigma = 4.2;
+                  } else {
+                    lineOpacity = 0.60;
+                    blurSigma = 5.8;
+                  }
                 } else {
-                  lineOpacity = 0.0;
+                  if (dist == 0) {
+                    lineOpacity = 0.96;
+                    blurSigma = 0.0;
+                  } else if (dist == 1) {
+                    lineOpacity = 0.94;
+                    blurSigma = 0.7;
+                  } else if (dist == 2) {
+                    lineOpacity = 0.86;
+                    blurSigma = 1.6;
+                  } else if (dist == 3) {
+                    lineOpacity = 0.78;
+                    blurSigma = 2.8;
+                  } else if (dist == 4) {
+                    lineOpacity = 0.68;
+                    blurSigma = 4.4;
+                  } else {
+                    lineOpacity = 0.58;
+                    blurSigma = 6.0;
+                  }
                 }
               }
 
-              final canSeek = widget.result.isSynced && line.timeMs > 0;
-              return _tappableLine(
-                index: i,
-                seekable: canSeek || widget.result.isSynced,
-                onSeek: () => widget.onSeekLineMs(line.timeMs),
-                child: WaveKaraokeLyricLine(
-                  line: line,
-                  positionMs: 0,
-                  positionListenable:
-                      isActive ? widget.positionListenable : null,
-                  isActive: isActive,
-                  isPast: i < active,
-                  compact: widget.compact,
-                  fontSize: widget.fontSize,
-                  showTransliteration: widget.showTransliteration,
-                  karaoke: widget.result.isWordSynced,
-                  softenIdle: true,
-                  lineOpacity: lineOpacity,
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: () => widget.onSeekLineMs(line.timeMs),
+                    child: WaveKaraokeLyricLine(
+                      line: line,
+                      positionMs: 0,
+                      positionListenable:
+                          isActive ? widget.positionListenable : null,
+                      isActive: isActive,
+                      isPast: active >= 0 && i < active,
+                      compact: widget.compact,
+                      fontSize: widget.fontSize,
+                      showTransliteration: widget.showTransliteration,
+                      translation: i < widget.translations.length
+                          ? (widget.translations[i] ?? '')
+                          : '',
+                      karaoke: widget.result.isWordSynced,
+                      softenIdle: true,
+                      lineOpacity: lineOpacity,
+                      blurSigma: blurSigma,
+                    ),
+                  ),
                 ),
               );
             },
@@ -2089,7 +2158,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
             Colors.black,
             Colors.transparent,
           ],
-          stops: [0.0, 0.18, 0.82, 1.0],
+          stops: [0.0, 0.08, 0.88, 1.0],
         ).createShader(bounds);
       },
       blendMode: BlendMode.dstIn,

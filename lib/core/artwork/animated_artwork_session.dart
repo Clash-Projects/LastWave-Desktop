@@ -27,12 +27,16 @@ class AnimatedArtworkSession extends ChangeNotifier {
   Player? _player;
   VideoController? _controller;
   StreamSubscription<int?>? _widthSub;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<bool>? _bufferingSub;
+  StreamSubscription<bool>? _completedSub;
+  StreamSubscription<String>? _errorSub;
   Timer? _pauseTimer;
   Timer? _readyTimer;
-  VoidCallback? _rectListener;
   int _generation = 0;
   int _refs = 0;
   String _url = '';
+  String _fallbackUrl = '';
   bool _ready = false;
   // URL actually opened on the native player (vs [_url], which leads
   // by up to 250ms during coalesce). Same-clip resume requires both
@@ -54,7 +58,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
   bool get ready => _ready;
 
   bool isReadyFor(String url) =>
-      url.isNotEmpty && url == _url && _ready && _visible;
+      url.isNotEmpty &&
+      (url == _url || url == _openedUrl) &&
+      _ready &&
+      _visible;
 
   bool _notifyPending = false;
   bool _disposed = false;
@@ -75,10 +82,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
     });
   }
 
-  void attach(String url) {
+  void attach(String url, {String fallbackUrl = ''}) {
     _pauseTimer?.cancel();
     _refs++;
-    unawaited(open(url));
+    unawaited(open(url, fallbackUrl: fallbackUrl));
   }
 
   /// Video widget is in the tree. Combined with [_ready] this fades the still.
@@ -116,7 +123,13 @@ class AnimatedArtworkSession extends ChangeNotifier {
           try {
             // Detached tiles stay paused: detach's own timer owns them,
             // and resuming a dead surface would flash black on return.
-            if (_refs > 0) await _player?.play();
+            if (_refs > 0 && _player != null) {
+              await _ensureLoopProperties(_player!);
+              if (_player!.state.completed) {
+                await _player!.seek(Duration.zero);
+              }
+              await _player!.play();
+            }
           } catch (_) {}
         }),
       );
@@ -133,39 +146,47 @@ class AnimatedArtworkSession extends ChangeNotifier {
     );
   }
 
-  Future<void> open(String url) async {
+  Future<void> open(String url, {String fallbackUrl = ''}) async {
     if (url.isEmpty || _disposed) return;
+    _fallbackUrl = fallbackUrl;
     if (url == _url && _player != null) {
       // New clip still loading (coalesce window): the in-flight open
       // owns it and plays on completion — don't disturb it.
-      if (url != _openedUrl) return;
-      // Same-clip resume (visualizer toggle, same-album skip):
-      // playback restarts, so the ready latch must reset — otherwise
-      // the sleeve (gated on motionReady) stays transparent through
-      // black reload frames. Re-armed short: resume renders in a few
-      // hundred ms, and staleness is impossible (no synchronous mark,
-      // no width replay — timer only).
+      if (url != _openedUrl &&
+          (_fallbackUrl.isEmpty || _fallbackUrl != _openedUrl)) {
+        return;
+      }
+      // Same-clip resume (same-album track switch, Now Playing re-entry,
+      // visualizer toggle): the decoded frame is already in the texture
+      // (detach only pauses, never stops). Keep [_ready] true when already
+      // ready so same-album track changes never flash or re-fade.
+      final alreadyReady = _ready && (_player!.state.width ?? 0) > 0;
       await _serialized(() async {
         try {
-          await _player?.play();
-        } catch (_) {}
-        // Hidden toggle/skip: don't decode invisibly (flag stays set
-        // so restore still resumes).
-        try {
-          if (_pausedForBackground) await _player?.pause();
+          if (_player != null) {
+            await _ensureLoopProperties(_player!);
+            if (_player!.state.completed) {
+              await _player!.seek(Duration.zero);
+            }
+            if (!_pausedForBackground) {
+              await _player!.play();
+            } else {
+              await _player!.pause();
+            }
+          }
         } catch (_) {}
       });
-      _ready = false;
-      _notify();
-      _watchReady(++_generation,
-          timeout: const Duration(milliseconds: 500),
-          immediate: false,
-          watchWidth: false);
+      if (alreadyReady) {
+        if (_visible) _notify();
+        return;
+      }
+      _watchReady(_generation);
       return;
     }
     final gen = ++_generation;
     _url = url;
     _ready = false;
+    _cancelReadyWatchers();
     _notify();
     // Coalesce skip bursts: only the latest url reaches native code.
     await Future.delayed(const Duration(milliseconds: 250));
@@ -200,11 +221,35 @@ class AnimatedArtworkSession extends ChangeNotifier {
       final player = _player;
       if (player == null) return;
       await player.setVolume(0);
-      await player.setPlaylistMode(PlaylistMode.loop);
+      // Pause any previous stream before loadfile so stale position ticks
+      // from an outgoing clip cannot fire while the new stream opens.
+      try {
+        await player.pause();
+      } catch (_) {}
+      // IMPORTANT: PlaylistMode.single sets mpv `loop-file=yes` so the file
+      // loops seamlessly inside the demuxer buffer without closing/reopening
+      // the stream on each pass (PlaylistMode.loop sets `loop-file=no`, which
+      // causes single-item remote streams to stop at EOF).
+      await player.setPlaylistMode(PlaylistMode.single);
+      await _ensureLoopProperties(player);
+
+      // Prefer a locally cached .mp4 file on disk when available; otherwise
+      // stream over HTTP(S) and warm the disk cache in the background.
+      final cachedFile = CanvasDiskCache.instance.peekFilePath(url);
+      final playTarget = cachedFile ?? url;
+      if (cachedFile == null) {
+        unawaited(CanvasDiskCache.instance.warm(url));
+      }
+
       await player.open(
-        Media(url, httpHeaders: _clipHeaders(url)),
+        Media(
+          playTarget,
+          httpHeaders:
+              cachedFile == null ? headersForAnimatedArtworkUrl(url) : null,
+        ),
         play: true,
       );
+      await _ensureLoopProperties(player);
       if (gen != _generation || _disposed) return;
       if (_pausedForBackground) {
         // Autoplay advanced while hidden: keep the new clip paused
@@ -246,61 +291,118 @@ class AnimatedArtworkSession extends ChangeNotifier {
       }
     });
     // NOTE: no teardown timer on purpose. The player + texture live for the
-    // whole app run (one idle 8MiB instance, decode paused above). Tearing
+    // whole app run (one idle instance, decode paused above). Tearing
     // down mid-session destroyed the native texture while frames were in
     // flight and fail-fasted the engine.
   }
 
-  void _watchReady(int gen,
-      {Duration timeout = const Duration(milliseconds: 1200),
-      bool immediate = true,
-      bool watchWidth = true}) {
+  void _cancelReadyWatchers() {
     _readyTimer?.cancel();
+    _readyTimer = null;
     _widthSub?.cancel();
-    _unlistenRect();
+    _widthSub = null;
+    _positionSub?.cancel();
+    _positionSub = null;
+    _bufferingSub?.cancel();
+    _bufferingSub = null;
+  }
+
+  /// Waits until the newly opened clip has genuinely decoded its first frames,
+  /// finished initial buffering, and begun advancing its playhead before
+  /// latching [_ready] = true.
+  ///
+  /// Never relies on `controller.rect` (which is pre-allocated at 384x384 on
+  /// controller creation before any video frame is decoded) or a blind timer
+  /// (which used to fire while the stream was still downloading, exposing a
+  /// black video surface before playback started).
+  void _watchReady(int gen) {
+    _cancelReadyWatchers();
     final player = _player;
     final controller = _controller;
     if (player == null || controller == null) return;
 
+    Duration? anchorPos;
+
     void mark() {
-      if (gen != _generation || _ready) return;
+      if (gen != _generation || _ready || _disposed) return;
+      _cancelReadyWatchers();
       _ready = true;
       if (kDebugMode) {
-        // Perf attribution for motion-art jank: resolution + height
-        // decide decode/upload cost (a 1080p+ clip explains 25ms+
-        // raster that no widget-layer fix can move).
         debugPrint(
-            '[motion] ready ${player.state.width}x${player.state.height} $_url');
+          '[motion] ready ${player.state.width}x${player.state.height} $_openedUrl',
+        );
       }
       if (_visible) _notify();
     }
 
-    void onRect() {
-      final rect = controller.rect.value;
-      if (rect != null && rect.width > 1 && rect.height > 1) mark();
-    }
-
-    _rectListener = onRect;
-    controller.rect.addListener(onRect);
-    if (immediate) onRect();
-
-    if (watchWidth) {
-      _widthSub = player.stream.width.listen((w) {
-        if ((w ?? 0) > 0) mark();
+    void scheduleMark(Duration settleDelay) {
+      if (gen != _generation || _ready || _disposed) return;
+      if (_readyTimer?.isActive == true) return;
+      _readyTimer = Timer(settleDelay, () {
+        _readyTimer = null;
+        if (gen != _generation || _ready || _disposed) return;
+        final w = player.state.width ?? 0;
+        final h = player.state.height ?? 0;
+        if (w <= 0 || h <= 0 || player.state.buffering) return;
+        mark();
       });
     }
-    _readyTimer = Timer(timeout, () {
-      if ((player.state.width ?? 0) > 0) mark();
-    });
-  }
 
-  void _unlistenRect() {
-    final listener = _rectListener;
-    final controller = _controller;
-    if (listener != null && controller != null) {
-      controller.rect.removeListener(listener);
+    void evaluateProgress(Duration pos) {
+      if (gen != _generation || _ready || _disposed) return;
+      if (player.state.buffering) {
+        _readyTimer?.cancel();
+        _readyTimer = null;
+        return;
+      }
+      final w = player.state.width ?? 0;
+      final h = player.state.height ?? 0;
+      if (w <= 0 || h <= 0 || !player.state.playing) {
+        if (pos == Duration.zero) {
+          anchorPos = Duration.zero;
+        }
+        return;
+      }
+
+      if (anchorPos == null) {
+        if (pos <= const Duration(milliseconds: 1500)) {
+          anchorPos = pos;
+          if (pos >= const Duration(milliseconds: 90)) {
+            scheduleMark(const Duration(milliseconds: 90));
+          }
+        }
+        return;
+      }
+
+      if (pos < anchorPos!) {
+        anchorPos = pos;
+      }
+      if (pos > anchorPos! && pos >= const Duration(milliseconds: 50)) {
+        scheduleMark(const Duration(milliseconds: 80));
+      } else if (pos >= const Duration(milliseconds: 120) &&
+          pos <= const Duration(milliseconds: 1500)) {
+        scheduleMark(const Duration(milliseconds: 90));
+      }
     }
-    _rectListener = null;
+
+    _positionSub = player.stream.position.listen(evaluateProgress);
+
+    _bufferingSub = player.stream.buffering.listen((buffering) {
+      if (gen != _generation || _ready || _disposed) return;
+      if (buffering) {
+        _readyTimer?.cancel();
+        _readyTimer = null;
+      } else {
+        evaluateProgress(player.state.position);
+      }
+    });
+
+    _widthSub = player.stream.width.listen((w) {
+      if (gen != _generation || _ready || _disposed) return;
+      if ((w ?? 0) > 0 && !player.state.buffering) {
+        evaluateProgress(player.state.position);
+      }
+    });
   }
 
   Future<void> _ensurePlayer() async {
@@ -313,12 +415,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
       configuration: const PlayerConfiguration(
         muted: true,
         title: 'LastWave Artwork',
-        // Apple motion clips are a few seconds of ~768px H.264 (≈1–2 MB
-        // for the whole loop). The old 8 MiB forward buffer was sized for
-        // a full-length video; 2 MiB still holds an entire loop while
-        // shaving the floor off a SECOND libmpv instance that lives for
-        // the whole app run.
-        bufferSize: 2 * 1024 * 1024,
+        // 16 MiB holds an entire Apple fMP4, Tidal 1280x1280 MP4, or
+        // Community Canvas loop in the demuxer back-buffer so `loop-file=inf`
+        // seeks back to 0 purely in memory without re-downloading.
+        bufferSize: 16 * 1024 * 1024,
       ),
     );
     _player = player;
@@ -346,6 +446,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
         hwdec: 'no',
       ),
     );
+    _bindLoopWatchdogs(player);
     _notify();
     try {
       await _controller!.platform.future.timeout(const Duration(seconds: 6));
@@ -354,6 +455,84 @@ class AnimatedArtworkSession extends ChangeNotifier {
       _silenced = true;
       await _silence(player);
     }
+  }
+
+  void _bindLoopWatchdogs(Player player) {
+    _completedSub?.cancel();
+    _errorSub?.cancel();
+
+    // Safety net: if a stream ever emits EOF (`completed == true`) despite
+    // `loop-file=inf` (e.g. non-byterange HLS playlists), immediately seek
+    // back to 0 and resume so the canvas animation never stops.
+    _completedSub = player.stream.completed.listen((completed) {
+      if (!completed || _disposed || _refs == 0 || _pausedForBackground) return;
+      final gen = _generation;
+      final activeUrl = _openedUrl;
+      unawaited(
+        _serialized(() async {
+          if (_disposed ||
+              gen != _generation ||
+              _refs == 0 ||
+              _pausedForBackground) {
+            return;
+          }
+          final p = _player;
+          if (p == null) return;
+          try {
+            await _ensureLoopProperties(p);
+            await p.seek(Duration.zero);
+            await p.play();
+          } catch (_) {
+            if (activeUrl.isNotEmpty) {
+              try {
+                final cachedFile =
+                    CanvasDiskCache.instance.peekFilePath(activeUrl);
+                final playTarget = cachedFile ?? activeUrl;
+                await p.open(
+                  Media(
+                    playTarget,
+                    httpHeaders: cachedFile == null
+                        ? headersForAnimatedArtworkUrl(activeUrl)
+                        : null,
+                  ),
+                  play: true,
+                );
+                await _ensureLoopProperties(p);
+              } catch (_) {}
+            }
+          }
+        }),
+      );
+    });
+
+    // Fallback URL support: if primary URL fails to decode/open and an
+    // alternate URL was provided, switch to the fallback stream.
+    _errorSub = player.stream.error.listen((_) {
+      if (_disposed || _ready) return;
+      final alt = _fallbackUrl;
+      if (alt.isEmpty || alt == _openedUrl) return;
+      final gen = _generation;
+      unawaited(
+        _serialized(() => _openLocked(alt, gen)),
+      );
+    });
+  }
+
+  Future<void> _ensureLoopProperties(Player player) async {
+    try {
+      final platform = player.platform;
+      if (platform == null) return;
+      final dyn = platform as dynamic;
+      try {
+        await dyn.setProperty('loop-file', 'inf');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('loop-playlist', 'inf');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('keep-open', 'no');
+      } catch (_) {}
+    } catch (_) {}
   }
 
   Future<void> _silence(Player player) async {
@@ -368,7 +547,22 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('aid', 'no');
       } catch (_) {}
       try {
+        await dyn.setProperty('cache', 'yes');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('demuxer-max-bytes', '${16 * 1024 * 1024}');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('demuxer-max-back-bytes', '${16 * 1024 * 1024}');
+      } catch (_) {}
+      try {
         await dyn.setProperty('loop-file', 'inf');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('loop-playlist', 'inf');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('keep-open', 'no');
       } catch (_) {}
       try {
         await dyn.setProperty('demuxer-lavf-o', 'extension_picky=0');
@@ -381,9 +575,9 @@ class AnimatedArtworkSession extends ChangeNotifier {
     _disposed = true;
     _generation++;
     _pauseTimer?.cancel();
-    _readyTimer?.cancel();
-    _widthSub?.cancel();
-    _unlistenRect();
+    _cancelReadyWatchers();
+    _completedSub?.cancel();
+    _errorSub?.cancel();
     // App-scoped provider: this only runs at engine shutdown. Still
     // ordered and serialized — pause, then stop, then dispose — so a
     // lingering open can never race the native teardown.
