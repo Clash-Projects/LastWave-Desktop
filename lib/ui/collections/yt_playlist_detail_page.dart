@@ -8,6 +8,7 @@ import '../../features/downloads/download_manager.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
+import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../components/buttons.dart'
     show LWTooltip, WaveGhostButton, WavePrimaryButton;
@@ -215,6 +216,31 @@ class _Body extends ConsumerWidget {
                                   sourceLabel: heroTitle,
                                   queueAll: shuffled,
                                 );
+                              },
+                            ),
+                            WaveGhostButton(
+                              label: 'Save to library',
+                              icon: FluentIcons.save,
+                              onPressed: () async {
+                                final saved = await ref
+                                    .read(playlistRepositoryProvider.notifier)
+                                    .saveGenerated(
+                                  heroTitle.isEmpty ? 'YouTube playlist' : heroTitle,
+                                  [
+                                    for (final t in res.tracks)
+                                      StoredTrack(
+                                        name: t.title,
+                                        artist: t.artist,
+                                        album: t.album,
+                                        artworkUrl: t.artworkUrl,
+                                        videoId: t.videoId,
+                                        durationSeconds: t.durationSeconds,
+                                      ),
+                                  ],
+                                );
+                                if (context.mounted) {
+                                  context.go('/playlists/${saved.id}');
+                                }
                               },
                             ),
                             WaveGhostButton(

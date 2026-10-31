@@ -1,9 +1,12 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/search/shared_providers.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
+import '../../features/library/local_music_library.dart';
 import '../../features/library/playlists.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
@@ -34,11 +37,51 @@ class _WavePlaylistsPageState
     extends ConsumerState<WavePlaylistsPage> {
   final _filter = TextEditingController();
   String _q = '';
+  bool _selecting = false;
+  final Set<int> _selected = {};
 
   @override
   void dispose() {
     _filter.dispose();
     super.dispose();
+  }
+
+  Future<void> _deleteSelected() async {
+    final doomed = ref
+        .read(playlistRepositoryProvider)
+        .where((p) =>
+            _selected.contains(p.id) && !p.isLikedSongs && !p.isLocal)
+        .toList();
+    if (doomed.isEmpty || !mounted) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text('Delete playlists?'),
+        content: Text(
+          '${doomed.length} playlist${doomed.length == 1 ? '' : 's'} will be removed. Liked Songs and Local songs stay.',
+        ),
+        actions: [
+          WaveButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          WaveFilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    final repo = ref.read(playlistRepositoryProvider.notifier);
+    for (final playlist in doomed) {
+      await repo.delete(playlist.id);
+    }
+    if (!mounted) return;
+    setState(() {
+      _selecting = false;
+      _selected.clear();
+    });
   }
 
   @override
@@ -101,6 +144,28 @@ class _WavePlaylistsPageState
                       ref,
                     ),
                   ),
+                  if (_selecting) ...[
+                    WaveGhostButton(
+                      label: 'Delete',
+                      icon: FluentIcons.delete,
+                      onPressed:
+                          _selected.isEmpty ? null : _deleteSelected,
+                    ),
+                    WaveGhostButton(
+                      label: 'Done',
+                      icon: FluentIcons.check_mark,
+                      onPressed: () => setState(() {
+                        _selecting = false;
+                        _selected.clear();
+                      }),
+                    ),
+                  ] else
+                    WaveGhostButton(
+                      label: 'Select',
+                      icon: FluentIcons.multi_select,
+                      onPressed: () =>
+                          setState(() => _selecting = true),
+                    ),
                 ],
               ),
               ),
@@ -113,6 +178,8 @@ class _WavePlaylistsPageState
                 countLabel: '${shown.length} shown',
               ),
               const SizedBox(height: 12),
+              const _LocalFolders(),
+              const SizedBox(height: 18),
               if (shown.isEmpty && ytLists.isEmpty)
                 WaveEmpty(
                   icon: FluentIcons.list_mirrored,
@@ -143,15 +210,26 @@ class _WavePlaylistsPageState
                       mainAxisExtent: 218,
                     ),
                     itemCount: shown.length,
-                    itemBuilder: (context, i) =>
-                        WaveEntrance(
+                    itemBuilder: (context, i) {
+                      final playlist = shown[i];
+                      final protected =
+                          playlist.isLikedSongs || playlist.isLocal;
+                      return WaveEntrance(
                       index: i,
                       rise: 10,
                       child: _PlaylistCard(
-                        playlist: shown[i],
+                        playlist: playlist,
                         artSize: 160,
+                        selecting: _selecting && !protected,
+                        selected: _selected.contains(playlist.id),
+                        onSelect: () => setState(() {
+                          if (!_selected.add(playlist.id)) {
+                            _selected.remove(playlist.id);
+                          }
+                        }),
                       ),
-                    ),
+                    );
+                    },
                   ),
                 if (ytLists.isNotEmpty) ...[
                   if (shown.isNotEmpty)
@@ -169,6 +247,7 @@ class _WavePlaylistsPageState
 }
 
 String? _coverOf(SavedPlaylist p) {
+  if (p.customCoverUri.isNotEmpty) return p.customCoverUri;
   for (final t in p.tracks) {
     if (t.artworkUrl.isNotEmpty) return t.artworkUrl;
   }
@@ -353,8 +432,16 @@ class _YtCardState extends ConsumerState<_YtCard> {
 class _PlaylistCard extends ConsumerStatefulWidget {
   final SavedPlaylist playlist;
   final double artSize;
-  const _PlaylistCard(
-      {required this.playlist, this.artSize = 150});
+  final bool selecting;
+  final bool selected;
+  final VoidCallback? onSelect;
+  const _PlaylistCard({
+    required this.playlist,
+    this.artSize = 150,
+    this.selecting = false,
+    this.selected = false,
+    this.onSelect,
+  });
   @override
   ConsumerState<_PlaylistCard> createState() =>
       _PlaylistCardState();
@@ -370,14 +457,21 @@ class _PlaylistCardState
     final p = widget.playlist;
     final dark = waveIsDark(context);
     final cover = _coverOf(p);
-    void play() => context.go('/playlists/${p.id}');
+    void open() => context.go('/playlists/${p.id}');
+    void play() {
+      if (widget.selecting) {
+        widget.onSelect?.call();
+        return;
+      }
+      open();
+    }
     return WaveContextMenu(
       items: () => [
         WaveMenuAction(
           leading:
               const Icon(FluentIcons.play, size: 13),
           label: 'Open',
-          onPressed: play,
+          onPressed: open,
         ),
         WaveMenuAction(
           leading: Icon(
@@ -397,7 +491,7 @@ class _PlaylistCardState
           onPressed: () => showWaveRenamePlaylist(
               context, ref, p),
         ),
-        if (!p.isLikedSongs)
+        if (!p.isLikedSongs && !p.isLocal)
           WaveMenuAction(
             leading: const Icon(FluentIcons.delete,
                 size: 13),
@@ -434,6 +528,9 @@ class _PlaylistCardState
                         .withValues(alpha: 0.05)
                     : Colors.transparent,
                 borderRadius: WaveRadius.artworkRadius,
+                border: widget.selected
+                    ? Border.all(color: waveAccent(context), width: 2)
+                    : null,
                 boxShadow: [
                   if (_hover) ...WaveElevation.lift(dark),
                 ],
@@ -449,6 +546,18 @@ class _PlaylistCardState
                           size: widget.artSize,
                           radius: WaveRadius.artwork,
                           label: p.title),
+                      if (widget.selecting)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Icon(
+                            widget.selected
+                                ? FluentIcons.checkbox_composite
+                                : FluentIcons.checkbox,
+                            size: 18,
+                            color: Colors.white,
+                          ),
+                        ),
                       if (p.isPinned)
                         Positioned(
                           left: 6,
@@ -530,7 +639,10 @@ class _PlaylistCardState
                       overflow: TextOverflow.ellipsis,
                       style: WaveType.trackTitle
                           .copyWith(fontSize: 12.5)),
-                  Text('${p.tracks.length} tracks',
+                  Text(
+                      p.isLocal
+                          ? 'On this PC · ${p.tracks.length} tracks'
+                          : '${p.tracks.length} tracks',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: WaveType.meta
@@ -541,6 +653,94 @@ class _PlaylistCardState
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LocalFolders extends ConsumerWidget {
+  const _LocalFolders();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final folders = ref.watch(databaseProvider).localFolders();
+    final scan = ref.watch(localScanProvider);
+    final busy = scan.running;
+
+    Future<void> add() async {
+      final path = await FilePicker.getDirectoryPath(
+        dialogTitle: 'Add a music folder',
+      );
+      if (path == null || path.trim().isEmpty) return;
+      await ref.read(localMusicLibraryProvider).addFolder(path.trim());
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'ON THIS PC',
+          style: WaveType.overline.copyWith(color: waveAccent(context)),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          busy
+              ? scan.label
+              : (scan.label.isEmpty
+                  ? 'Play files from folders you choose. Local songs stay on this PC and are never uploaded.'
+                  : scan.label),
+          style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+        ),
+        const SizedBox(height: 8),
+        for (final folder in folders)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    folder,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.trackTitle,
+                  ),
+                ),
+                WaveGhostButton(
+                  label: 'Forget',
+                  onPressed: busy
+                      ? null
+                      : () => ref
+                          .read(localMusicLibraryProvider)
+                          .forgetFolder(folder),
+                ),
+              ],
+            ),
+          ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            WaveGhostButton(
+              label: 'Add folder',
+              icon: FluentIcons.add,
+              onPressed: busy ? null : add,
+            ),
+            WaveGhostButton(
+              label: 'Rescan',
+              icon: FluentIcons.refresh,
+              onPressed: busy
+                  ? null
+                  : () => ref.read(localMusicLibraryProvider).rescan(),
+            ),
+            if (busy)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: ProgressRing(strokeWidth: 2),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }
