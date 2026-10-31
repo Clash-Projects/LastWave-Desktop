@@ -35,20 +35,30 @@ import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
-import '../../features/equalizer/equalizer_controller.dart';
-import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
+import '../../features/equalizer/headphone_profiles.dart';
+import '../../features/player/loudness.dart';
+import '../../features/player/playback_service.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/telemetry/live_telemetry_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
+import 'library_settings.dart';
 import 'diagnostics_actions.dart';
+import '../../l10n/app_language.dart';
+import 'backup_settings.dart';
+import 'download_layout_settings.dart';
+import 'integrations_accounts.dart';
+import 'language_settings.dart';
+import 'module_settings.dart';
+import 'settings_search.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
   ('playback', 'Playback', FluentIcons.play),
   ('audio', 'Audio', FluentIcons.speakers),
   ('downloads', 'Downloads', FluentIcons.download),
+  ('library', 'Library', FluentIcons.library),
   ('lyrics', 'Lyrics', FluentIcons.microphone),
   ('appearance', 'Appearance', FluentIcons.brush),
   ('lastfm', 'Last.fm', FluentIcons.heart),
@@ -75,6 +85,7 @@ class WaveSettingsPage extends ConsumerStatefulWidget {
 
 class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
   late String _section;
+  String? _highlightId;
   late final ScrollController _contentScrollController;
   late final ScrollController _narrowScrollController;
   late final ScrollController _railScrollController;
@@ -101,6 +112,25 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
     super.dispose();
   }
 
+  void _jump(SettingsSearchEntry entry) {
+    setState(() {
+      _section = entry.section;
+      _highlightId = entry.id;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = SettingsTarget.keys[entry.id]?.currentContext;
+        if (target == null) return;
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.12,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+        );
+      });
+    });
+  }
+
   Future<void> _update(Future<void> Function(Prefs) fn) async {
     await fn(ref.read(prefsProvider));
     ref.read(themeControllerProvider.notifier).refresh();
@@ -109,7 +139,23 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
+    final strings = ref.watch(shellStringsProvider);
+    return SettingsSpotlight(
+      activeId: _highlightId,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            child: SettingsSearchBox(
+              entries: settingsSearchEntries(strings),
+              hint: strings('searchSettings'),
+              empty: strings('searchEmpty'),
+              onPick: _jump,
+            ),
+          ),
+          Expanded(
+            child: LayoutBuilder(
       builder: (context, constraints) {
         // Content-aware (rail-aware): LayoutBuilder sees real content
         // width, unlike MediaQuery window width (+200 rail error).
@@ -137,7 +183,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                       ToggleButton(
                         checked: _section == s.$1,
                         onChanged: (_) => setState(() => _section = s.$1),
-                        child: Text(s.$2),
+                        child: Text(strings.section(s.$1)),
                       ),
                   ],
                 ),
@@ -176,15 +222,25 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                       const Text('Settings', style: WaveType.pageTitle),
                       const SizedBox(height: 12),
                       for (final s in _waveSettingsSections)
-                        ListTile.selectable(
-                          shape: RoundedRectangleBorder(
+                        DecoratedBox(
+                          decoration: BoxDecoration(
                             borderRadius: WaveRadius.controlsRadius,
+                            border: Border.all(
+                              color: _highlightId == 'section:${s.$1}'
+                                  ? waveAccent(context)
+                                  : Colors.transparent,
+                            ),
                           ),
-                          selected: _section == s.$1,
-                          selectionMode: ListTileSelectionMode.single,
-                          leading: Icon(s.$3, size: 15),
-                          title: Text(s.$2),
-                          onPressed: () => setState(() => _section = s.$1),
+                          child: ListTile.selectable(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: WaveRadius.controlsRadius,
+                            ),
+                            selected: _section == s.$1,
+                            selectionMode: ListTileSelectionMode.single,
+                            leading: Icon(s.$3, size: 15),
+                            title: Text(strings.section(s.$1)),
+                            onPressed: () => setState(() => _section = s.$1),
+                          ),
                         ),
                     ],
                   ),
@@ -220,6 +276,10 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
           ],
         );
       },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -233,13 +293,29 @@ class _SectionBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     switch (section) {
       case 'general':
-        return _General(onUpdate: onUpdate);
+        return Column(
+          children: [
+            LanguageSettings(onUpdate: onUpdate),
+            const SizedBox(height: 16),
+            _General(onUpdate: onUpdate),
+            const SizedBox(height: 16),
+            const BackupSettings(),
+          ],
+        );
       case 'playback':
         return _Playback(onUpdate: onUpdate);
       case 'audio':
         return _Audio(onUpdate: onUpdate);
       case 'downloads':
-        return _Downloads(onUpdate: onUpdate);
+        return Column(
+          children: [
+            _Downloads(onUpdate: onUpdate),
+            const SizedBox(height: 16),
+            DownloadLayoutSettings(onUpdate: onUpdate),
+          ],
+        );
+      case 'library':
+        return LibrarySettings(onUpdate: onUpdate);
       case 'appearance':
         return _Appearance(onUpdate: onUpdate);
       case 'lyrics':
@@ -247,9 +323,21 @@ class _SectionBody extends ConsumerWidget {
       case 'lastfm':
         return _LastFm(onUpdate: onUpdate);
       case 'integrations':
-        return _Ytm(onUpdate: onUpdate);
+        return Column(
+          children: [
+            _Ytm(onUpdate: onUpdate),
+            const SizedBox(height: 16),
+            IntegrationsAccounts(onUpdate: onUpdate),
+          ],
+        );
       case 'sources':
-        return _Sources(onUpdate: onUpdate);
+        return Column(
+          children: [
+            _Sources(onUpdate: onUpdate),
+            const SizedBox(height: 16),
+            const ModuleSettings(),
+          ],
+        );
       case 'experimental':
         return _Experimental(onUpdate: onUpdate);
       default:
@@ -638,83 +726,71 @@ class _Audio extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          title: 'Loudness',
+          subtitle: LoudnessMath.settingsSubtitle(prefs.loudnessMode),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Normalization', style: WaveType.trackTitle),
+              const SizedBox(height: 6),
+              WaveSelect<String>(
+                value: prefs.loudnessMode,
+                options: const [
+                  WaveSelectOption(value: 'off', label: 'Off'),
+                  WaveSelectOption(value: 'track', label: 'Track'),
+                  WaveSelectOption(value: 'album', label: 'Album'),
+                ],
+                onChanged: (mode) async {
+                  await onUpdate((p) => p.setLoudnessMode(mode));
+                  await ref
+                      .read(playbackServiceProvider.notifier)
+                      .applyAudioPrefs();
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          title: 'Headphone correction',
+          subtitle:
+              'Extra parametric curve on top of the 10-band EQ. Built-in profiles only — the AutoEQ database is not downloaded.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Profile', style: WaveType.trackTitle),
+              const SizedBox(height: 6),
+              WaveSelect<String>(
+                expanded: true,
+                value: HeadphoneProfiles.byId(prefs.headphoneProfile).id,
+                options: [
+                  for (final profile in HeadphoneProfiles.all)
+                    WaveSelectOption(
+                      value: profile.id,
+                      label: profile.name,
+                      hint: profile.isOff ? null : profile.description,
+                    ),
+                ],
+                onChanged: (id) async {
+                  await onUpdate((p) => p.setHeadphoneProfile(id));
+                  await ref
+                      .read(playbackServiceProvider.notifier)
+                      .applyAudioPrefs();
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _TimedMixSettings(onUpdate: onUpdate),
+        const SizedBox(height: 8),
+        _Group(
           title: 'Equalizer & Sound FX',
           subtitle: '10-band ISO curves with acoustic & stage compensation',
           child: const SizedBox(
             height: 560,
             child: WaveEqualizerPanel(embedded: true),
           ),
-        ),
-      ],
-    );
-  }
-}
-
-class _EqualizerSettingsSummary extends ConsumerWidget {
-  const _EqualizerSettingsSummary();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final eq = ref.watch(equalizerProvider);
-    final notifier = ref.read(equalizerProvider.notifier);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _SwitchRow(
-          value: eq.enabled,
-          onChanged: (v) => notifier.setEnabled(v),
-          title: '10-Band Equalizer',
-          subtitle: eq.enabled
-              ? 'Active: ${eq.presetName} (-8 dB to +8 dB per band)'
-              : 'Bit-perfect direct stream bypass (filter removed)',
-        ),
-        const SizedBox(height: 8),
-        _SwitchRow(
-          value: eq.studioClarityEnabled,
-          onChanged: (v) => notifier.setStudioClarityEnabled(v),
-          title: 'Studio Master Clarity',
-          subtitle: 'Acoustic & stage compensation (${eq.clarityPreset.displayName})',
-        ),
-        if (eq.studioClarityEnabled) ...[
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Text('Clarity target', style: WaveType.trackTitle),
-              const Spacer(),
-              WaveSelect<String>(
-                value: eq.clarityPreset.key,
-                options: [
-                  for (final t in ClarityPresets.all)
-                    WaveSelectOption(value: t.key, label: t.displayName),
-                ],
-                onChanged: (key) => notifier.setClarityPreset(key),
-              ),
-            ],
-          ),
-        ],
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            const Text('Equalizer preset', style: WaveType.trackTitle),
-            const Spacer(),
-            WaveSelect<String>(
-              value: EqualizerPresets.all.any((p) => p.name == eq.presetName)
-                  ? eq.presetName
-                  : 'Custom',
-              options: [
-                for (final p in EqualizerPresets.all)
-                  WaveSelectOption(value: p.name, label: p.name),
-                if (!EqualizerPresets.all.any((p) => p.name == eq.presetName))
-                  const WaveSelectOption(value: 'Custom', label: 'Custom'),
-              ],
-              onChanged: (preset) {
-                if (preset != 'Custom') {
-                  notifier.setPreset(preset);
-                }
-              },
-            ),
-          ],
         ),
       ],
     );
@@ -945,6 +1021,44 @@ class _Lyrics extends ConsumerWidget {
           Text(
             LyricsProviderId.fromId(prefs.lyricsProviderId).subtitle,
             style: WaveType.meta,
+          ),
+          const SizedBox(height: 14),
+          const Text('Text size', style: WaveType.trackTitle),
+          const SizedBox(height: 6),
+          WaveSelect<double>(
+            value: prefs.lyricsTextScale,
+            options: [
+              for (final entry in Prefs.lyricsTextScales)
+                WaveSelectOption(value: entry.$1, label: entry.$2),
+            ],
+            onChanged: (v) => onUpdate((p) => p.setLyricsTextScale(v)),
+          ),
+          const SizedBox(height: 14),
+          const Text('Translation', style: WaveType.trackTitle),
+          const SizedBox(height: 6),
+          WaveSelect<String>(
+            value: prefs.lyricsTranslationLang,
+            options: [
+              for (final entry in Prefs.lyricsTranslationOptions.entries)
+                WaveSelectOption(value: entry.key, label: entry.value),
+            ],
+            onChanged: (v) => onUpdate((p) => p.setLyricsTranslationLang(v)),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Saved for a source that includes that language. Current sources stay in the sung language.',
+            style: WaveType.meta,
+          ),
+          const SizedBox(height: 14),
+          const Text('Auto-hide controls', style: WaveType.trackTitle),
+          const SizedBox(height: 6),
+          WaveSelect<int>(
+            value: prefs.lyricsAutoHideSeconds,
+            options: [
+              for (final entry in Prefs.lyricsAutoHideOptions.entries)
+                WaveSelectOption(value: entry.key, label: entry.value),
+            ],
+            onChanged: (v) => onUpdate((p) => p.setLyricsAutoHideSeconds(v)),
           ),
         ],
       ),
@@ -2789,12 +2903,16 @@ class _PlaybackState extends ConsumerState<_Playback> {
             value: prefs.crossfadeEnabled,
             onChanged: (v) async {
               await widget.onUpdate((p) => p.setCrossfade(v));
-              ref.read(audioOutputProvider.notifier).refreshPath();
+              await ref
+                  .read(playbackServiceProvider.notifier)
+                  .applyAudioPrefs();
             },
             title: 'Crossfade',
             subtitle: prefs.crossfadeEnabled
-                ? '${prefs.crossfadeSeconds}s crossfade duration'
-                : 'Gapless direct transition (crossfade disabled)',
+                ? '${prefs.crossfadeSeconds}s crossfade. Turns timed AutoMix off.'
+                : (prefs.autoMixEnabled
+                    ? 'Off while timed AutoMix is on'
+                    : 'Gapless direct transition (crossfade disabled)'),
           ),
           if (prefs.crossfadeEnabled) ...[
             const SizedBox(height: 6),
@@ -3136,6 +3254,96 @@ class _Experimental extends ConsumerWidget {
   }
 }
 
+class _TimedMixSettings extends ConsumerStatefulWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _TimedMixSettings({required this.onUpdate});
+
+  @override
+  ConsumerState<_TimedMixSettings> createState() => _TimedMixSettingsState();
+}
+
+class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
+  double? _dragSeconds;
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = ref.watch(prefsProvider);
+    final seconds = _dragSeconds ?? prefs.autoMixSeconds.toDouble();
+    return _Group(
+      title: 'AutoMix',
+      subtitle: prefs.autoMixEnabled
+          ? 'Timed dual-deck overlap, not beat-matched. Turns crossfade off.'
+          : 'Off. A timed mix between tracks, not a beat or key match.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SwitchRow(
+            value: prefs.autoMixEnabled,
+            onChanged: (v) async {
+              await widget.onUpdate((p) => p.setAutoMixEnabled(v));
+              await ref
+                  .read(playbackServiceProvider.notifier)
+                  .applyAudioPrefs();
+            },
+            title: 'Timed mix',
+            subtitle: prefs.autoMixEnabled
+                ? '${prefs.autoMixSeconds}s overlap on the standby deck'
+                : 'Gapless until you turn this on',
+          ),
+          if (prefs.autoMixEnabled) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Text('Transition length', style: WaveType.trackTitle),
+                const Spacer(),
+                Text(
+                  '${seconds.round()}s',
+                  style: WaveType.meta.copyWith(
+                    color: waveAccent(context),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            Slider(
+              value: seconds.clamp(12.0, 30.0),
+              min: 12,
+              max: 30,
+              divisions: 18,
+              onChanged: (v) => setState(() => _dragSeconds = v),
+              onChangeEnd: (v) async {
+                setState(() => _dragSeconds = null);
+                await widget.onUpdate(
+                    (p) => p.setAutoMixSeconds(v.round().clamp(12, 30)));
+              },
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('12s',
+                    style: WaveType.meta
+                        .copyWith(color: waveTextSecondary(context))),
+                Text('30s',
+                    style: WaveType.meta
+                        .copyWith(color: waveTextSecondary(context))),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _SwitchRow(
+              value: prefs.autoMixSpectral,
+              onChanged: (v) =>
+                  widget.onUpdate((p) => p.setAutoMixSpectral(v)),
+              title: 'Filter sweep',
+              subtitle:
+                  'Low-pass on the way out and high-pass on the way in. Volume overlap stays if the player rejects the filter.',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _WasapiOutputSettings extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _WasapiOutputSettings({required this.onUpdate});
@@ -3228,6 +3436,10 @@ class _QualityRow extends StatelessWidget {
             WaveSelectOption(value: 7, label: 'Hi-Res · 24/96'),
             WaveSelectOption(value: 6, label: 'Lossless · 16/44.1'),
             WaveSelectOption(value: 5, label: '320k MP3'),
+            WaveSelectOption(
+              value: 4,
+              label: 'Data saver · smallest YouTube audio',
+            ),
             WaveSelectOption(value: -1, label: 'Opus · YouTube'),
           ],
           onChanged: onChanged,
