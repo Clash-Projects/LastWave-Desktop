@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 /// Reads persisted-query hashes and the TOTP secret out of Spotify's
@@ -62,8 +64,8 @@ class SpotifyWebPlayer {
       return _script;
     }
     final bundles = RegExp(
-      r'https://open\.spotifycdn\.com/cdn/build/web-player/[A-Za-z0-9._~-]+\.(?:js|mjs)',
-    ).allMatches(page).map((m) => m.group(0)!).toSet().take(4);
+      r'https://open\.spotifycdn\.com/cdn/build/[^"\s>]+\.(?:js|mjs)',
+    ).allMatches(page).map((m) => m.group(0)!).toSet().take(12);
     for (final bundle in bundles) {
       final body = await _get(dio, bundle);
       if (body == null) continue;
@@ -124,6 +126,19 @@ class SpotifyWebPlayer {
     return found;
   }
 
+  static Map<String, dynamic>? _asMap(Object? data) {
+    if (data is Map) {
+      return data.map((k, v) => MapEntry(k.toString(), v));
+    }
+    if (data is String && data.trim().isNotEmpty) {
+      try {
+        final decoded = _asMap(jsonDecode(data));
+        return decoded;
+      } catch (_) {}
+    }
+    return null;
+  }
+
   static String _unescape(String raw) {
     final out = StringBuffer();
     for (var i = 0; i < raw.length; i++) {
@@ -150,8 +165,8 @@ class SpotifyWebPlayer {
         _secretsUrl,
         options: Options(headers: {'User-Agent': _ua}),
       );
-      final data = res.data;
-      if (data is! Map) return null;
+      final data = _asMap(res.data);
+      if (data == null) return null;
       var best = -1;
       List<int>? bytes;
       for (final entry in data.entries) {

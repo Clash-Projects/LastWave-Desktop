@@ -8,11 +8,49 @@ import '../library/playlist_import.dart';
 import '../library/playlists.dart';
 import 'spotify_session.dart';
 
+enum SpotifyImportPhase { loading, matching, saving }
+
 class SpotifyImportProgress {
-  final String message;
-  final int done;
-  final int total;
-  const SpotifyImportProgress(this.message, this.done, this.total);
+  final String name;
+  final int index;
+  final int playlistCount;
+  final SpotifyImportPhase phase;
+  final int trackDone;
+  final int trackTotal;
+
+  const SpotifyImportProgress(
+    this.name,
+    this.index,
+    this.playlistCount, {
+    this.phase = SpotifyImportPhase.loading,
+    this.trackDone = 0,
+    this.trackTotal = 0,
+  });
+
+  /// How far the whole import has moved, including the current playlist.
+  double get fraction {
+    if (playlistCount <= 0) return 0;
+    final within = trackTotal <= 0 ? 0.0 : trackDone / trackTotal;
+    final value = (index + within) / playlistCount;
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return value;
+  }
+
+  String get headline => playlistCount > 1
+      ? 'Playlist ${index + 1} of $playlistCount'
+      : name;
+
+  String get detail {
+    final step = switch (phase) {
+      SpotifyImportPhase.loading => 'Loading tracks',
+      SpotifyImportPhase.matching => trackTotal > 0
+          ? 'Matching $trackDone of $trackTotal tracks'
+          : 'Matching tracks',
+      SpotifyImportPhase.saving => 'Saving',
+    };
+    return playlistCount > 1 ? '$name · $step' : step;
+  }
 }
 
 /// Account playlists and Liked Songs, matched through the existing
@@ -42,7 +80,9 @@ class SpotifyLibraryImporter {
   }) async {
     final token = await _session.personalToken();
     if (token == null || token.isEmpty) {
-      throw StateError('Spotify is not connected.');
+      throw StateError(
+        _session.lastFailure ?? 'Spotify is not connected.',
+      );
     }
     final client = await _session.clientToken();
     final lists = await _userPlaylists(token, client);
@@ -53,8 +93,29 @@ class SpotifyLibraryImporter {
       onProgress?.call(SpotifyImportProgress(list.name, i, lists.length));
       final rows = await _playlistTracks(list.id, token, client);
       if (rows.isEmpty) continue;
-      final matched = await matchExternalRows(api: api, rows: rows);
+      final matched = await matchExternalRows(
+        api: api,
+        rows: rows,
+        onProgress: (done, total) {
+          onProgress?.call(SpotifyImportProgress(
+            list.name,
+            i,
+            lists.length,
+            phase: SpotifyImportPhase.matching,
+            trackDone: done,
+            trackTotal: total,
+          ));
+        },
+      );
       if (matched.isEmpty) continue;
+      onProgress?.call(SpotifyImportProgress(
+        list.name,
+        i,
+        lists.length,
+        phase: SpotifyImportPhase.saving,
+        trackDone: rows.length,
+        trackTotal: rows.length,
+      ));
       await importPreview(
         repo: playlists,
         preview: PlaylistImportPreview(
@@ -75,14 +136,37 @@ class SpotifyLibraryImporter {
   }) async {
     final token = await _session.personalToken();
     if (token == null || token.isEmpty) {
-      throw StateError('Spotify is not connected.');
+      throw StateError(
+        _session.lastFailure ?? 'Spotify is not connected.',
+      );
     }
     final client = await _session.clientToken();
     onProgress?.call(const SpotifyImportProgress('Liked Songs', 0, 1));
     final rows = await _likedTracks(token, client);
     if (rows.isEmpty) return 0;
-    final matched = await matchExternalRows(api: api, rows: rows);
+    final matched = await matchExternalRows(
+      api: api,
+      rows: rows,
+      onProgress: (done, total) {
+        onProgress?.call(SpotifyImportProgress(
+          'Liked Songs',
+          0,
+          1,
+          phase: SpotifyImportPhase.matching,
+          trackDone: done,
+          trackTotal: total,
+        ));
+      },
+    );
     if (matched.isEmpty) return 0;
+    onProgress?.call(SpotifyImportProgress(
+      'Liked Songs',
+      0,
+      1,
+      phase: SpotifyImportPhase.saving,
+      trackDone: rows.length,
+      trackTotal: rows.length,
+    ));
     await importPreview(
       repo: playlists,
       preview: PlaylistImportPreview(

@@ -30,6 +30,9 @@ class SpotifySession {
   final _clientLock = Lock();
   final _personalLock = Lock();
 
+  /// Why the last personal-token attempt failed. Null when it succeeded.
+  String? lastFailure;
+
   static const _userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -41,10 +44,95 @@ class SpotifySession {
   static const _clientId = 'd8a5ed958d274c2e8ee717e6a4b0971d';
   static const _graceMs = 60000;
   static const _minTokenLength = 100;
+  static const _profileHash =
+      '08ffb4730af3746e04a8301396f20875dbbce10c75243803091a9274eacc8ac0';
 
   Future<bool> hasSession() async {
     final sp = await _spDc();
     return sp != null && sp.isNotEmpty;
+  }
+
+  /// Display name, handle, and avatar for the signed-in Spotify account.
+  ///
+  /// A saved cookie is not a profile. This asks Spotify who the token
+  /// belongs to, the same way the YouTube Music card reads its account.
+  Future<SpotifyAccount?> account() async {
+    final token = await personalToken();
+    if (token == null || token.isEmpty) return null;
+    final fromPlayer = await _profileFromPlayer(token);
+    if (fromPlayer != null) return fromPlayer;
+    return _profileFromApi(token);
+  }
+
+  /// The web-player token is not an `api.spotify.com` token. The player
+  /// reads the signed-in person from this persisted query instead.
+  Future<SpotifyAccount?> _profileFromPlayer(String token) async {
+    try {
+      final hash = await SpotifyWebPlayer.queryHash(_dio, 'profileAttributes') ??
+          _profileHash;
+      final extensions = jsonEncode({
+        'persistedQuery': {'version': 1, 'sha256Hash': hash},
+      });
+      final url = 'https://api-partner.spotify.com/pathfinder/v1/query'
+          '?operationName=profileAttributes'
+          '&variables=${Uri.encodeQueryComponent('{}')}'
+          '&extensions=${Uri.encodeQueryComponent(extensions)}';
+      final client = await clientToken();
+      final headers = <String, String>{
+        'Authorization': 'Bearer $token',
+        'User-Agent': _userAgent,
+        'Accept': 'application/json',
+        'App-platform': 'WebPlayer',
+        'Spotify-App-Version': _appVersion,
+      };
+      if (client != null && client.isNotEmpty) {
+        headers['Client-Token'] = client;
+      }
+      final res = await _dio.get<dynamic>(
+        url,
+        options: Options(headers: headers),
+      );
+      final root = res.data;
+      if (root is! Map) return null;
+      final profile = root['data']?['me']?['profile'];
+      if (profile is! Map) return null;
+      final name = (profile['name']?.toString() ?? '').trim();
+      final handle = (profile['username']?.toString() ?? '').trim();
+      if (name.isEmpty && handle.isEmpty) return null;
+      final avatar = profile['avatar'];
+      final sources = avatar is Map ? avatar['sources'] : null;
+      return SpotifyAccount(
+        name: name.isNotEmpty ? name : handle,
+        handle: handle,
+        imageUrl: _largestImage(sources),
+      );
+    } on DioException {
+      return null;
+    }
+  }
+
+  Future<SpotifyAccount?> _profileFromApi(String token) async {
+    try {
+      final res = await _dio.get<dynamic>(
+        'https://api.spotify.com/v1/me',
+        options: Options(headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        }),
+      );
+      final data = res.data;
+      if (data is! Map) return null;
+      final name = (data['display_name']?.toString() ?? '').trim();
+      final handle = (data['id']?.toString() ?? '').trim();
+      if (name.isEmpty && handle.isEmpty) return null;
+      return SpotifyAccount(
+        name: name.isNotEmpty ? name : handle,
+        handle: handle,
+        imageUrl: _largestImage(data['images']),
+      );
+    } on DioException {
+      return null;
+    }
   }
 
   Future<void> saveSpDc(String raw) async {
@@ -114,9 +202,14 @@ class SpotifySession {
       });
 
   Future<String?> personalToken() => _personalLock.synchronized(() async {
+        lastFailure = null;
+        _tokenFailure = null;
         final blob = await _read();
         final spdc = blob['sp_dc'] as String?;
-        if (spdc == null || spdc.isEmpty) return null;
+        if (spdc == null || spdc.isEmpty) {
+          lastFailure = 'No sp_dc cookie is saved.';
+          return null;
+        }
         final cached = blob['personal_token'] as String?;
         final expires = _asInt(blob['personal_expires']);
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -127,7 +220,11 @@ class SpotifySession {
         }
         try {
           final totp = await _totp(spdc);
-          if (totp == null) return cached;
+          if (totp == null) {
+            lastFailure =
+                'Could not read Spotify’s sign-in secret from the web player.';
+            return cached;
+          }
           final transport = await _requestToken(spdc, totp, 'transport');
           final init = _usable(transport)
               ? null
@@ -135,7 +232,11 @@ class SpotifySession {
           final chosen = _usable(transport)
               ? transport
               : (_usable(init) ? init : null);
-          if (chosen == null) return cached;
+          if (chosen == null) {
+            lastFailure = _tokenFailure ??
+                'Spotify refused this sp_dc cookie. It may be expired, or only part of the value was pasted.';
+            return cached;
+          }
           final token = chosen['accessToken']?.toString() ?? '';
           final exp = _asInt(
             chosen['accessTokenExpirationTimestampMs'],
@@ -144,11 +245,15 @@ class SpotifySession {
           blob['personal_token'] = token;
           blob['personal_expires'] = exp;
           await _write(blob);
+          lastFailure = null;
           return token;
-        } catch (_) {
+        } catch (e) {
+          lastFailure = 'Spotify sign-in failed: $e';
           return cached;
         }
       });
+
+  String? _tokenFailure;
 
   bool _usable(Map<String, dynamic>? response) {
     if (response == null) return false;
@@ -179,8 +284,20 @@ class SpotifySession {
       );
       final data = res.data;
       if (data is Map) {
-        return data.map((k, v) => MapEntry(k.toString(), v));
+        final map = data.map((k, v) => MapEntry(k.toString(), v));
+        if (!_usable(map)) {
+          final code = res.statusCode ?? 0;
+          _tokenFailure = code >= 400
+              ? 'Spotify token request failed (HTTP $code).'
+              : 'Spotify accepted the request but did not return a signed-in token.';
+        }
+        return map;
       }
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      _tokenFailure = code == null
+          ? 'Could not reach Spotify.'
+          : 'Spotify token request failed (HTTP $code).';
     } catch (_) {}
     return null;
   }
@@ -281,6 +398,34 @@ class SpotifySession {
   }
 }
 
+String _largestImage(Object? raw) {
+  if (raw is! List) return '';
+  var bestUrl = '';
+  var bestWidth = -1;
+  for (final item in raw) {
+    if (item is! Map) continue;
+    final url = item['url']?.toString() ?? '';
+    if (url.isEmpty) continue;
+    final width = item['width'] is num ? (item['width'] as num).toInt() : 0;
+    if (bestUrl.isEmpty || width > bestWidth) {
+      bestUrl = url;
+      bestWidth = width;
+    }
+  }
+  return bestUrl;
+}
+
+class SpotifyAccount {
+  final String name;
+  final String handle;
+  final String imageUrl;
+  const SpotifyAccount({
+    required this.name,
+    required this.handle,
+    required this.imageUrl,
+  });
+}
+
 class _Totp {
   final String client;
   final String server;
@@ -300,11 +445,17 @@ String cleanSpDc(String raw) {
     r'(?:^|[;\s])sp_dc=([^;\s]+)',
     caseSensitive: false,
   ).firstMatch(value);
-  if (named != null) return named.group(1)!.trim();
+  if (named != null) value = named.group(1)!.trim();
   if (value.toLowerCase().startsWith('sp_dc=')) {
     value = value.substring(6);
   }
-  return value.split(';').first.trim();
+  value = value.split(';').first.trim();
+  if (value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'")))) {
+    value = value.substring(1, value.length - 1).trim();
+  }
+  return value;
 }
 
 final spotifySessionProvider = Provider<SpotifySession>((ref) {
