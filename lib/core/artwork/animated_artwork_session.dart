@@ -194,24 +194,6 @@ class AnimatedArtworkSession extends ChangeNotifier {
     await _serialized(() => _openLocked(url, gen));
   }
 
-  /// Apple motion art needs Apple headers. Spotify and Tidal clips do not.
-  Map<String, String> _clipHeaders(String url) {
-    final lower = url.toLowerCase();
-    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-        '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-    if (lower.contains('tidal.com')) {
-      return const {'User-Agent': ua};
-    }
-    if (lower.contains('spotify') || lower.contains('scdn.co')) {
-      return const {
-        'User-Agent': ua,
-        'Referer': 'https://open.spotify.com/',
-        'Origin': 'https://open.spotify.com',
-      };
-    }
-    return appleArtworkHeaders;
-  }
-
   /// Runs with no other native op in flight. Never throws.
   Future<void> _openLocked(String url, int gen) async {
     if (gen != _generation || _disposed) return;
