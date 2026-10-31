@@ -22,7 +22,6 @@ class WaveDestination {
 
 const waveListenDestinations = [
   WaveDestination('/home', 'Home', WaveIcons.home),
-  WaveDestination('/discover', 'Discover', WaveIcons.discover),
   WaveDestination('/stats', 'Stats', WaveIcons.stats),
   WaveDestination('/search', 'Search', WaveIcons.search),
   WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
