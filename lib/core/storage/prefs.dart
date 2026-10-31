@@ -134,6 +134,13 @@ class Prefs {
   Future<void> setAudioDeviceId(String v) =>
       _sp.setString('lw_audio_device_id', v);
 
+  /// Each playlist's last track sort, as `<sort>:<asc|desc>` (like the
+  /// phone app), kept until the user picks another one.
+  String playlistSort(int id) =>
+      _sp.getString('lw_playlist_sort_$id') ?? 'default:asc';
+  Future<void> setPlaylistSort(int id, String v) =>
+      _sp.setString('lw_playlist_sort_$id', v);
+
   bool get wasapiExclusive => _sp.getBool('lw_wasapi_exclusive') ?? false;
   Future<void> setWasapiExclusive(bool v) =>
       _sp.setBool('lw_wasapi_exclusive', v);

@@ -7,8 +7,9 @@ import '../../app/track_actions.dart'
 import '../../features/downloads/download_manager.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/library/playlists.dart';
+import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
-import '../components/buttons.dart' show LWTooltip, WaveGhostButton, WavePrimaryButton;
+import '../components/buttons.dart' show LWTooltip, WaveGhostButton, WaveIconButton, WavePrimaryButton;
 import '../components/desktop_table.dart';
 import '../components/hero.dart';
 import '../components/menus.dart';
@@ -40,7 +41,26 @@ class _WavePlaylistDetailPageState
     extends ConsumerState<WavePlaylistDetailPage> {
   final _filter = TextEditingController();
   String _q = '';
-  String _sort = 'default';
+  late String _sort;
+  late bool _asc;
+
+  @override
+  void initState() {
+    super.initState();
+    final saved = ref.read(prefsProvider).playlistSort(widget.id).split(':');
+    _sort = saved.first;
+    _asc = saved.last != 'desc';
+  }
+
+  void _setSort(String sort, bool asc) {
+    setState(() {
+      _sort = sort;
+      _asc = asc;
+    });
+    ref
+        .read(prefsProvider)
+        .setPlaylistSort(widget.id, '$sort:${asc ? 'asc' : 'desc'}');
+  }
 
   @override
   void dispose() {
@@ -74,6 +94,8 @@ class _WavePlaylistDetailPageState
     } else if (_sort == 'artist') {
       tracks.sort((a, b) => a.artist.compareTo(b.artist));
     }
+    // Default order is the order tracks were added: reversed = newest first.
+    if (!_asc) tracks = tracks.reversed.toList();
     // Note: Album/Duration sorts are intentionally omitted — local
     // playlist tracks carry no album or duration metadata.
     final playingKey = ref.watch(
@@ -230,18 +252,35 @@ class _WavePlaylistDetailPageState
                     hint: 'Filter in playlist…',
                     countLabel:
                         '${tracks.length} tracks',
-                    sortSlot: LWTooltip(
-                      message: 'Sort (also sortable via table headers)',
-                      child: WaveSelect<String>(
-                        value: _sort,
-                        options: const [
-                          WaveSelectOption(
-                              value: 'default', label: 'Default order'),
-                          WaveSelectOption(value: 'title', label: 'Title A–Z'),
-                          WaveSelectOption(value: 'artist', label: 'Artist A–Z'),
-                        ],
-                        onChanged: (v) => setState(() => _sort = v),
-                      ),
+                    sortSlot: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        LWTooltip(
+                          message: 'Sort (also sortable via table headers)',
+                          child: WaveSelect<String>(
+                            value: _sort,
+                            options: const [
+                              WaveSelectOption(
+                                  value: 'default', label: 'Default order'),
+                              WaveSelectOption(
+                                  value: 'title', label: 'Title A–Z'),
+                              WaveSelectOption(
+                                  value: 'artist', label: 'Artist A–Z'),
+                            ],
+                            onChanged: (v) => _setSort(v, _asc),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        WaveIconButton(
+                          tooltip: _asc ? 'Reverse order' : 'Normal order',
+                          selected: !_asc,
+                          icon: Icon(
+                            _asc ? WaveIcons.sortUp : WaveIcons.sortDown,
+                            size: 14,
+                          ),
+                          onPressed: () => _setSort(_sort, !_asc),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 8),
