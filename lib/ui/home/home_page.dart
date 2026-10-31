@@ -645,31 +645,31 @@ class WaveHomePage extends ConsumerWidget {
       ));
     }
 
-    use(HomeShelfId.releases);
-    gap(26);
-    sink.add(SliverPadding(
-      padding: EdgeInsets.only(left: side, right: side),
-      sliver: SliverToBoxAdapter(
-        child: WaveEntrance(
-          index: slot(),
-          rise: 10,
-          child: const HomeNewReleasesSection(),
-        ),
-      ),
-    ));
+    // use(HomeShelfId.releases);
+    // gap(26);
+    // sink.add(SliverPadding(
+    //   padding: EdgeInsets.only(left: side, right: side),
+    //   sliver: SliverToBoxAdapter(
+    //     child: WaveEntrance(
+    //       index: slot(),
+    //       rise: 10,
+    //       child: const HomeNewReleasesSection(),
+    //     ),
+    //   ),
+    // ));
 
-    use(HomeShelfId.popular);
-    gap(26);
-    sink.add(SliverPadding(
-      padding: EdgeInsets.only(left: side, right: side),
-      sliver: SliverToBoxAdapter(
-        child: WaveEntrance(
-          index: slot(),
-          rise: 10,
-          child: const HomePopularShelvesSection(),
-        ),
-      ),
-    ));
+    // use(HomeShelfId.popular);
+    // gap(26);
+    // sink.add(SliverPadding(
+    //   padding: EdgeInsets.only(left: side, right: side),
+    //   sliver: SliverToBoxAdapter(
+    //     child: WaveEntrance(
+    //       index: slot(),
+    //       rise: 10,
+    //       child: const HomePopularShelvesSection(),
+    //     ),
+    //   ),
+    // ));
 
     use(HomeShelfId.podcasts);
     final podcastShelves =
