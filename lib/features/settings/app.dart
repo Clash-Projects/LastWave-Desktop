@@ -11,6 +11,8 @@ import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../ui/theme/fluent_theme.dart';
 import '../../ui/theme/haze.dart';
+import '../../l10n/app_language.dart';
+import '../jam/jam_sync.dart';
 import '../player/playback_service.dart';
 import '../audio_output/output_controller.dart';
 import '../innertube/innertube_api.dart';
@@ -106,7 +108,10 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
             a.status == AuthStatus.signedIn ||
             a.status == AuthStatus.guest),
         (_, inside) => _gate.update(inside));
+    ref.watch(jamSyncProvider);
     final theme = ref.watch(themeControllerProvider);
+    final language =
+        AppLanguage.fromTag(ref.watch(appLanguageTagProvider));
     // Accent source (custom / LastWave neutral / system / artwork) is
     // resolved in one place; anything that can't answer falls back to the
     // custom pick there.
@@ -138,6 +143,8 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         child: FluentApp.router(
           title: 'LastWave',
           debugShowCheckedModeBanner: false,
+          locale: language.flutterLocale,
+          supportedLocales: AppLanguage.supportedLocales,
           theme: lightTheme,
           darkTheme: darkTheme,
           themeMode:

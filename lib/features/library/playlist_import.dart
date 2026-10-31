@@ -240,6 +240,25 @@ Future<List<StoredTrack>> _matchRows(
   return matched;
 }
 
+/// Match title/artist rows to YouTube the same way a pasted Spotify or
+/// Apple link does. Misses are dropped.
+Future<List<StoredTrack>> matchExternalRows({
+  required InnerTubeMusicApi api,
+  required List<({String title, String artist, String album})> rows,
+}) {
+  return _matchRows(
+    _InnertubeTrackSource(api),
+    [
+      for (final row in rows)
+        PlaylistFileRow(
+          title: row.title,
+          artist: row.artist,
+          album: row.album,
+        ),
+    ],
+  );
+}
+
 /// Testable create core: one playlist, exactly the matched tracks.
 /// An empty preview is refused — imports never create trackless playlists.
 Future<SavedPlaylist> importPreviewWith(

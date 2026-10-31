@@ -10,6 +10,7 @@ class SecureStore {
   static const _ytCookies = 'lastwave.yt_cookies';
   static const _ytProfiles = 'lastwave.yt_profiles';
   static const _ytActive = 'lastwave.yt_active';
+  static const _spotify = 'lastwave.spotify_session';
 
   final FlutterSecureStorage _storage;
   final Map<String, String> _memoryFallback = {};
@@ -56,6 +57,10 @@ class SecureStore {
 
   Future<String?> readYtActive() => _read(_ytActive);
   Future<void> writeYtActive(String? v) => _write(_ytActive, v);
+
+  /// Spotify `sp_dc` plus short-lived token cache. Never written to prefs.
+  Future<String?> readSpotifySession() => _read(_spotify);
+  Future<void> writeSpotifySession(String? v) => _write(_spotify, v);
 
   Future<void> clearAll() async {
     _memoryFallback.clear();
