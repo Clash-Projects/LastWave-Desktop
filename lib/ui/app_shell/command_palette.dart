@@ -41,7 +41,6 @@ Future<void> showWaveCommandPalette(
     (('/downloads'), 'Go to Downloads', FluentIcons.download),
     (('/history'), 'Go to History', FluentIcons.history),
     (('/now'), 'Open Now Playing', FluentIcons.circle_fill),
-    (('/jam'), 'Open Jam', FluentIcons.people),
     (('/lyrics'), 'Open Lyrics', FluentIcons.microphone),
     (('/settings'), 'Open Settings', FluentIcons.settings),
   ];
