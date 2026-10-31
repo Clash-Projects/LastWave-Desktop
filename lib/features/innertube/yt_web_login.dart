@@ -62,14 +62,22 @@ class YtJarCookie {
 /// login markers (SAPISID + PSID family) and returns a Cookie header
 /// string suitable for [InnerTubeMusicApi.connectAs].
 ///
-/// Capture is deliberately conservative: a candidate header is only
-/// accepted once the page is settled on `music.youtube.com` AND two
-/// consecutive jar reads produce the identical header, so a
-/// mid-redirect jar (`accounts.google.com` sets the Google-scoped
-/// cookies before YouTube mints its own) can never be persisted. A jar
-/// without `__Secure-*PSIDTS`/`LOGIN_INFO` is rejected — that cookie is
-/// what Google rotates on every request, and persisting a jar without
-/// it is what made the app demand a fresh login every launch.
+/// Capture is deliberately simple: a complete YouTube-scoped jar
+/// ([buildCookieHeader]) is accepted as soon as the window is not
+/// sitting on a Google auth page. There is no "did it change?" or
+/// "did it settle?" wait, because
+///
+/// * an already-signed-in WebView (persisted WebView2 profile, or a
+///   window left signed in from an earlier flow) is a normal capture,
+///   not a stale one, and
+/// * Google re-mints `__Secure-*PSIDTS`/`PSIDCC` continuously, so
+///   header comparison could never prove a jar was settled.
+///
+/// The host gate (plus the YouTube-scope requirement in
+/// [buildCookieHeader]) keeps mid-redirect `accounts.google.com` jars
+/// out, and the resulting header is still verified server-side by
+/// [InnerTubeMusicApi.connectAs] before it replaces the live session —
+/// a genuinely stale jar fails there instead of timing out here.
 ///
 /// Returns `null` when the user closes the window (cancelled), when no
 /// usable system WebView exists, when Google blocks the embedded
@@ -282,14 +290,39 @@ class YtWebLogin {
     }
   }
 
-  static Future<String?> _currentUrl(Webview webview) async {
+  /// Page URL + the page's own signed-in flag in one JS call.
+  ///
+  /// `ytcfg.LOGGED_IN` is YouTube's own "this page is signed in" flag.
+  /// Capture no longer keys off it (a complete jar on a non-Google page
+  /// is enough), but it is logged so a stuck flow can be diagnosed
+  /// without guessing whether the page itself thinks it is signed in.
+  ///
+  /// Deliberately returns a `1|` / `0|` prefix instead of JSON: the
+  /// native bridge JSON-encodes the result, and a nested JSON payload
+  /// would arrive with escaped quotes that [_unquote] cannot undo.
+  static Future<({String? url, bool? signedIn})> _pageState(
+      Webview webview) async {
     try {
       final raw = await webview
-          .evaluateJavaScript('window.location.href')
+          .evaluateJavaScript(
+              '(window.ytcfg && window.ytcfg.data_ && '
+              '(window.ytcfg.data_.LOGGED_IN === true || '
+              'window.ytcfg.data_.LOGGED_IN === "true") ? "1" : "0") '
+              '+ "|" + window.location.href')
           .timeout(const Duration(seconds: 4));
-      return _unquote(raw);
+      final v = _unquote(raw);
+      if (v == null || v.isEmpty) return (url: null, signedIn: null);
+      final bar = v.indexOf('|');
+      final flag = bar < 0 ? '' : v.substring(0, bar).trim();
+      final url = (bar < 0 ? v : v.substring(bar + 1)).trim();
+      return (
+        url: url.isEmpty ? null : url,
+        // `null` when the script did not run (page still loading) —
+        // callers must not read that as "signed out".
+        signedIn: flag == '1' ? true : (flag == '0' ? false : null),
+      );
     } catch (_) {
-      return null;
+      return (url: null, signedIn: null);
     }
   }
 
@@ -310,13 +343,6 @@ class YtWebLogin {
     if (url == null || url.trim().isEmpty) return true;
     final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
     return host == 'music.youtube.com' || host == 'www.youtube.com';
-  }
-
-  /// Strict variant for the fast path: the SPA must have landed on
-  /// YouTube Music itself, not on an intermediate Google page.
-  static bool _isMusicHost(String? url) {
-    if (url == null || url.trim().isEmpty) return false;
-    return Uri.tryParse(url)?.host.toLowerCase() == 'music.youtube.com';
   }
 
   /// Title must match kYtWindowTitle in linux/runner/yt_webview_guard.cc
@@ -556,6 +582,7 @@ class YtWebLogin {
 
   static Future<String?> _run() async {
     lastFailure = YtSignInFailure.none;
+    lastCapturedPageId = null;
     final w = await _ensureWindow();
     if (w == null) {
       lastFailure = YtSignInFailure.unavailable;
@@ -588,7 +615,6 @@ class YtWebLogin {
           : YtSignInFailure.none;
       // Capture the active channel alongside the jar (null = main).
       // Best-effort: a miss just means main-channel routing.
-      lastCapturedPageId = null;
       if (r.header != null) {
         lastCapturedPageId = await readDelegatedPageId(w);
       }
@@ -650,9 +676,6 @@ class YtWebLogin {
     var autoReloads = 0;
     var blankCycles = 0;
     var blankReloads = 0;
-    var baselineTaken = false;
-    String? baseline;
-    String? stableCandidate;
 
     while (!closed) {
       if (await gone()) {
@@ -662,15 +685,17 @@ class YtWebLogin {
       // 1. Jar read (sequential — never overlap native cookie reads).
       final cookies = await _readCookies(webview);
       final header = cookies == null ? null : buildCookieHeader(cookies);
-      if (!baselineTaken) {
-        // What the jar held before the user touched anything. A
-        // complete session that was already there (re-login over a
-        // stale jar) must NOT satisfy the capture — only a jar that
-        // CHANGED after sign-in proves the user just authenticated.
-        baselineTaken = true;
-        baseline = header;
+      final page = await _pageState(webview);
+      final url = page.url;
+      if (kDebugMode) {
+        final host = url == null ? '-' : (Uri.tryParse(url)?.host ?? '-');
+        final skip = header != null || cookies == null
+            ? ''
+            : ' missing=${missingMarkerNames(cookies.map((c) => c.name))}';
+        debugPrint(
+            'YtWebLogin: poll host=$host signedIn=${page.signedIn} '
+            'jar=${cookies?.length ?? -1} complete=${header != null}$skip');
       }
-      final url = await _currentUrl(webview);
 
       if (await gone()) {
         return const _LoginResult(null, YtSignInFailure.windowClosed);
@@ -712,13 +737,15 @@ class YtWebLogin {
         blankCycles = 0;
       }
 
-      // 3. Page text is only needed while no session exists: it drives
-      //    both the embedded-browser-rejection check and the passkey
-      //    stall recovery. One read per cycle, reused below.
+      // 3. Page text drives the embedded-browser-rejection check and the
+      //    passkey stall recovery. Read it while no complete session is
+      //    available, and also on Google pages even when the jar is
+      //    complete (re-login over an existing session: Google's block
+      //    page would otherwise be invisible and we would just wait).
+      final onGoogle = url == null || url.contains('google.com');
       String? text;
-      if (header == null && !silent) {
+      if ((header == null || onGoogle) && !silent) {
         text = await _pageText(webview);
-        final onGoogle = url == null || url.contains('google.com');
         if (onGoogle && text != null && isBrowserBlockedPage(text)) {
           if (kDebugMode) {
             debugPrint('YtWebLogin: Google blocked the embedded browser');
@@ -730,27 +757,15 @@ class YtWebLogin {
         }
       }
 
-      // 4. Accept only a SETTLED jar:
-      //    - a header that CHANGED since the pre-flow baseline while the
-      //      tab is on music.youtube.com is a fresh sign-in (fast path);
-      //    - otherwise the same header must appear twice in a row,
-      //      which proves the jar stopped changing.
-      //    Mid-redirect jars (accounts.google.com sets Google-scoped
-      //    cookies first) never pass buildCookieHeader's domain gate.
-      if (header != null) {
-        if (header != baseline && _isMusicHost(url)) {
-          return _LoginResult(header, YtSignInFailure.none);
+      // 4. Accept a complete YouTube-scoped jar on any non-Google page.
+      //    The jar gate already rejects mid-redirect jars and this host
+      //    gate covers the auth pages; no change/settle wait is needed
+      //    (see the class doc for why those are unprovable).
+      if (header != null && _isAcceptableHost(url)) {
+        if (kDebugMode) {
+          debugPrint('YtWebLogin: capture complete');
         }
-        if (_isAcceptableHost(url)) {
-          if (header == stableCandidate) {
-            return _LoginResult(header, YtSignInFailure.none);
-          }
-          stableCandidate = header;
-        } else {
-          stableCandidate = null;
-        }
-      } else {
-        stableCandidate = null;
+        return _LoginResult(header, YtSignInFailure.none);
       }
 
       // 5. Passkey stall recovery (~5 consecutive hits ≈ 10 s stuck).
@@ -942,7 +957,11 @@ class YtWebLogin {
         out.add(YtJarCookie(
           name: _normName(c.name),
           value: _normValue(c.value),
-          domain: c.domain.toString(),
+          // Domain goes through the same NUL strip: a stray trailing
+          // NUL would make _domainRank see an unknown scope and drop
+          // every YouTube cookie, which reads exactly like "not
+          // signed in" even though the window is signed in.
+          domain: _normName(c.domain.toString()),
         ));
       }
       if (out.isNotEmpty && kDebugMode) {

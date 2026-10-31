@@ -1792,6 +1792,171 @@ class InnerTubeMusicApi {
     }
   }
 
+  /// Every brand channel the login behind [cookies] can act as.
+  ///
+  /// Used by flows that have no WebView to read `DELEGATED_SESSION_ID`
+  /// from (pasted cookies), and to seed the roster so the chooser can
+  /// offer the channels directly instead of asking the user to flip
+  /// channels inside the browser window. Arbitrary-jar safe: the active
+  /// connection is saved and restored around the probe.
+  Future<List<YtChannel>> fetchChannelsFor(String cookies) async {
+    String normalized;
+    try {
+      normalized = normalizeCookies(cookies);
+    } catch (_) {
+      return const [];
+    }
+    final savedConnection = _connection;
+    final savedCaches =
+        Map<String, _AccountCacheEntry>.of(_accountCaches);
+    _connection = YtConnection(
+      connected: true,
+      cookies: normalized,
+      connectedAtMillis:
+          DateTime.now().millisecondsSinceEpoch,
+    );
+    try {
+      return await fetchAvailableChannels();
+    } catch (_) {
+      return const [];
+    } finally {
+      _connection = savedConnection;
+      _accountCaches
+        ..clear()
+        ..addAll(savedCaches);
+    }
+  }
+
+  /// Switchable brand channels for the ACTIVE connection.
+  ///
+  /// Cookies are identical across a login's channels — which is exactly
+  /// why a cookie-only client always lands on the first one — so the
+  /// choice rides per request as `X-Goog-PageId` (see
+  /// [YtConnection.activePageId]). The source is music.youtube.com's
+  /// own account-switcher endpoint (the avatar → "Switch account"
+  /// request): its `accountItem` rows carry
+  /// `supportedTokens[].pageIdToken.pageId` for brand channels.
+  ///
+  /// `account_menu` is deliberately NOT a fallback: its rows expose
+  /// only `onBehalfOfUser`/browse IDs, which this client does not route
+  /// on, so a switcher failure degrades to "main channel only" instead
+  /// of guessing a page ID.
+  Future<List<YtChannel>> fetchAvailableChannels() async {
+    if (!_connection.connected) return const [];
+    await _ensureConfig();
+    try {
+      final res = await _dio
+          .getUri<String>(
+            Uri.parse('$musicOrigin/getAccountSwitcherEndpoint'),
+            options: Options(
+              headers: {
+                'User-Agent': webUserAgent,
+                'Origin': musicOrigin,
+                'Referer': '$musicOrigin/',
+                'X-YouTube-Client-Name':
+                    clientIds['WEB_REMIX'] ?? 'WEB_REMIX',
+                'X-YouTube-Client-Version': _clientVersion,
+                // The web client always sends an explicit authuser here
+                // (0 for the first login); brand rows under it carry
+                // `authuser=0&pageid=…` in their sign-in URLs.
+                'X-Goog-AuthUser': '0',
+                if ((_visitorData ?? '').isNotEmpty)
+                  'X-Goog-Visitor-Id': _visitorData!,
+                'Cookie': ?_cookieHeaderValue(),
+                'Authorization': ?_authorizationHeaderValue(musicOrigin),
+              },
+              responseType: ResponseType.plain,
+            ),
+          )
+          .timeout(const Duration(seconds: 8));
+      final text = res.data ?? '';
+      // Anti-hijack prefix (`)]}'`): the JSON payload starts at the
+      // first `{`.
+      final start = text.indexOf('{');
+      if (start < 0) return const [];
+      final decoded = jsonDecode(text.substring(start));
+      if (decoded is! Map<String, dynamic>) return const [];
+      if (decoded['code']?.toString() != 'SUCCESS') return const [];
+      final data = decoded['data'];
+      final root = data is Map<String, dynamic> ? data : decoded;
+      final channels = _parseSwitcherChannels(root);
+      if (kDebugMode) {
+        debugPrint(
+            'YtChannels: switcher ${channels.length} brand '
+            'page=${_connection.activePageId.isEmpty ? 'main' : '${_connection.activePageId.length}d'}');
+      }
+      return channels;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('YtChannels: switcher failed $e ${_authDebug()}');
+      }
+      return const [];
+    }
+  }
+
+  static final RegExp _pageIdPattern = RegExp(r'^\d{15,25}$');
+
+  /// Parses `getAccountSwitcherEndpoint` rows (`accountItem`, not
+  /// `accountItemRenderer`). Brand channels carry
+  /// `supportedTokens[].pageIdToken.pageId`; the main channel has no
+  /// pageId at all. Rows without one (e.g. "Other accounts" from a
+  /// multi-login browser) are dropped: this client routes brand
+  /// channels only, and an empty pageId silently means "main".
+  List<YtChannel> _parseSwitcherChannels(
+      Map<String, dynamic> root) {
+    final items = <Map<String, dynamic>>[];
+    _collectObjects(root, 'accountItem', items);
+    final out = <YtChannel>[];
+    final seen = <String>{};
+    for (final item in items) {
+      final pageId = _switcherPageId(item);
+      if (pageId.isEmpty || !seen.add(pageId)) continue;
+      final nameNode = item['accountName'];
+      final name = (_runsText(nameNode) ??
+              (nameNode is Map
+                  ? nameNode['simpleText']?.toString()
+                  : null) ??
+              '')
+          .trim();
+      final handle = _switcherHandle(item);
+      if (name.isEmpty && handle.isEmpty) continue;
+      out.add(YtChannel(
+        pageId: pageId,
+        name: name,
+        handle: handle,
+        photoUrl: _accountPhoto(item),
+      ));
+    }
+    return out;
+  }
+
+  /// Brand page ID from a switcher row: `pageIdToken.pageId` (or any
+  /// bare `pageId` string), else the `pageid=` parameter of the row's
+  /// `signinUrl` (the exact URL the web client opens on switch).
+  String _switcherPageId(Map<String, dynamic> item) {
+    final direct = (_findString(item, 'pageId') ?? '').trim();
+    if (_pageIdPattern.hasMatch(direct)) return direct;
+    final url = _findString(item, 'signinUrl') ??
+        _findString(item, 'signinurl') ??
+        '';
+    final fromUrl = RegExp(r'[?&]pageid=(\d+)')
+            .firstMatch(url)
+            ?.group(1)
+            ?.trim() ??
+        '';
+    return _pageIdPattern.hasMatch(fromUrl) ? fromUrl : '';
+  }
+
+  String _switcherHandle(Map<String, dynamic> item) {
+    final node = item['channelHandle'];
+    final runs =
+        (_runsText(node is Map ? node['runs'] : null) ?? '').trim();
+    // Handles are stored @-prefixed (the chooser gates on it); a runs
+    // value like "Name (@handle)" is recovered by the @ search below.
+    if (runs.startsWith('@')) return runs;
+    return _searchHandleText(node) ?? '';
+  }
+
   // -- auth helpers (mirror YtMusicAuthManager) ------------------------------
 
   String? _sapisid() {
@@ -5896,6 +6061,59 @@ Future<YtProfile?> upsertYtCapture(
         'roster=${_rosterDebug(roster)}');
   }
   return profile;
+}
+
+/// Seed every channel discovered by
+/// [InnerTubeMusicApi.fetchChannelsFor] into one roster profile in a
+/// single write.
+///
+/// A pasted jar carries no `DELEGATED_SESSION_ID` to read a brand page
+/// ID from, and channel selection is per-request rather than
+/// per-cookie — so without this the paste path could only ever reach
+/// the main channel. The captured row is already present; this fills in
+/// its brand channels so the chooser can switch to them.
+Future<void> upsertYtChannels(
+  WidgetRef ref, {
+  required String cookies,
+  required String email,
+  required List<YtChannel> channels,
+}) async {
+  if (cookies.isEmpty || channels.isEmpty) return;
+  final roster = [...ref.read(ytProfilesProvider)];
+  final pi = roster.indexWhere((p) =>
+      (email.isNotEmpty && email != 'unknown' && p.email == email) ||
+      (p.cookies.isNotEmpty && p.cookies == cookies));
+  if (pi < 0) return;
+  final existing = [...roster[pi].channels];
+  var changed = false;
+  for (final c in channels) {
+    final ci = existing.indexWhere((e) => e.pageId == c.pageId);
+    if (ci < 0) {
+      existing.add(c);
+      changed = true;
+      continue;
+    }
+    final prev = existing[ci];
+    // Discovered rows are authoritative for labels, but never blank a
+    // field the roster already resolved.
+    final next = YtChannel(
+      pageId: c.pageId,
+      name: c.name.isNotEmpty ? c.name : prev.name,
+      handle: (c.handle.isNotEmpty && c.handle != 'unknown')
+          ? c.handle
+          : prev.handle,
+      photoUrl: c.photoUrl.isNotEmpty ? c.photoUrl : prev.photoUrl,
+    );
+    if (next.name != prev.name ||
+        next.handle != prev.handle ||
+        next.photoUrl != prev.photoUrl) {
+      existing[ci] = next;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  roster[pi] = roster[pi].copyWith(channels: existing);
+  await persistYtProfiles(ref, roster);
 }
 
 /// Roster summary for diagnostics: emails, channel page modes, jar

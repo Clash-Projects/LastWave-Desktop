@@ -1733,9 +1733,9 @@ Future<void> _ytConnectWithCookies(
               Text(
                 'Use this when the built-in sign-in window is blocked or '
                 'cannot load. The jar comes from your own browser, so '
-                'Google sees a normal desktop session. A pasted jar '
-                'connects the main channel only — brand channels still '
-                'need the browser window.',
+                'Google sees a normal desktop session. Brand channels on '
+                'the same Google login are detected after connecting — '
+                'pick one in the channel chooser.',
                 style: WaveType.meta.copyWith(
                   color: waveTextSecondary(context),
                 ),
@@ -2013,6 +2013,24 @@ Future<void> _ytConnectCaptured(
   required String pageId,
 }) async {
   final profile = await upsertYtCapture(ref, cookies: header, pageId: pageId);
+  // A captured jar is account-level: the active channel rides per
+  // request (`X-Goog-PageId`), never in the cookies. Ask YouTube which
+  // channels this login can act as and seed them into the roster, so
+  // the chooser can offer brand channels even when the capture came
+  // from pasted cookies (no WebView to read DELEGATED_SESSION_ID from).
+  // Best-effort: an empty list keeps today's single-row behavior.
+  if (profile != null) {
+    final discovered =
+        await ref.read(innerTubeProvider).fetchChannelsFor(header);
+    if (discovered.isNotEmpty) {
+      await upsertYtChannels(
+        ref,
+        cookies: header,
+        email: profile.email,
+        channels: discovered,
+      );
+    }
+  }
   if (!context.mounted) return;
   final roster = ref.read(ytProfilesProvider);
   final conn = ref.read(ytConnectionProvider);
