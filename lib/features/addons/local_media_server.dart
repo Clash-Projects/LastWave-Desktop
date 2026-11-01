@@ -144,6 +144,19 @@ class LocalMediaServer {
     }
   }
 
+  /// Evicts in-memory session and on-disk assembled files for a track.
+  void evict(String cacheName) {
+    final safe = cacheName.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    _sessions.remove(safe);
+    try {
+      final f = File(pathFor(safe, part: false));
+      if (f.existsSync()) f.deleteSync();
+      final p = File(pathFor(safe, part: true));
+      if (p.existsSync()) p.deleteSync();
+    } catch (_) {}
+    _slog('evicted session and disk cache for $safe');
+  }
+
   void _evict() {
     for (final key in _sessions.keys.toList()) {
       if (_sessions.length <= 192) break;
@@ -412,6 +425,9 @@ class _Session {
 
   Future<void> _runHybrid(HybridPlan plan) async {
     _slog('hybrid start $name segments=${plan.ranges.length} enc=${plan.encrypted}');
+    if (plan.encrypted && plan.key.isEmpty) {
+      throw StateError('encrypted hybrid plan missing decryption key');
+    }
     final part = File(_partPath);
     await part.parent.create(recursive: true);
 
