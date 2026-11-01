@@ -1,6 +1,8 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
+#include <shellapi.h>
+#include <string>
 
 #include <shobjidl.h>
 #include <timeapi.h>
@@ -56,6 +58,24 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     if (existingWnd != nullptr) {
       ::ShowWindow(existingWnd, SW_RESTORE);
       ::SetForegroundWindow(existingWnd);
+    }
+    // A lastwave:// link on the second launch is handed to the running
+    // window, which routes it (WM_COPYDATA, tag 0x4C57).
+    int argc = 0;
+    wchar_t** argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+    if (argv != nullptr) {
+      for (int i = 1; i < argc && existingWnd != nullptr; i++) {
+        std::wstring arg(argv[i]);
+        if (arg.rfind(L"lastwave://", 0) != 0) continue;
+        COPYDATASTRUCT data{};
+        data.dwData = 0x4C57;
+        data.cbData = static_cast<DWORD>((arg.size() + 1) * sizeof(wchar_t));
+        data.lpData = const_cast<wchar_t*>(arg.c_str());
+        ::SendMessageW(existingWnd, WM_COPYDATA, 0,
+                       reinterpret_cast<LPARAM>(&data));
+        break;
+      }
+      ::LocalFree(argv);
     }
     if (hMutex != nullptr) {
       ::CloseHandle(hMutex);

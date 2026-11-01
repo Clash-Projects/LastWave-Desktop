@@ -21,6 +21,7 @@ import '../ui/podcasts/podcasts_page.dart';
 import '../ui/stats/stats_page.dart';
 import '../ui/home/home_layout_page.dart';
 import '../ui/home/home_page.dart';
+import '../ui/jam/jam_page.dart';
 import '../ui/lyrics/lyrics_screen.dart';
 import '../ui/misc/support_pages.dart';
 import '../ui/navigation/flight.dart';
@@ -369,6 +370,12 @@ GoRouter buildRouter({required AuthGate gate}) {
                 path: '/now',
                 pageBuilder: (c, s) =>
                     _stagePage(const WaveNowPlayingPage()),
+              ),
+              GoRoute(
+                path: '/jam',
+                pageBuilder: (c, s) => _page(WaveJamPage(
+                  initialCode: s.uri.queryParameters['code'],
+                )),
               ),
               GoRoute(
                 path: '/lyrics',

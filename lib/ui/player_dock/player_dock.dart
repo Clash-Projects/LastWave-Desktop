@@ -281,7 +281,7 @@ class WavePlayerDock extends ConsumerWidget {
                   Builder(builder: (context) {
                     // Thresholds are dock-relative (content width), aligned
                     // to canonical 900 breakpoint family.
-                    final showLyrics = dockW >= 560;
+                    final showJam = dockW >= 560;
                     final showQuality =
                         dockW >= 900 && player.stream != null;
                     final showOutput = dockW >= 800;
@@ -308,12 +308,13 @@ class WavePlayerDock extends ConsumerWidget {
                                 stream: player.stream!,
                               ),
                             ),
-                          if (showLyrics)
+                          if (showJam)
                             _Glyph(
-                              tooltip: 'Lyrics (Ctrl+L)',
-                              icon: WaveIcons.lyrics,
-                              active: lyricsActive,
-                              onTap: onToggleLyrics,
+                              tooltip: 'Jam',
+                              icon: FluentIcons.people,
+                              active: GoRouterState.of(context).uri.path ==
+                                  '/jam',
+                              onTap: () => context.go('/jam'),
                             ),
                           _Glyph(
                             tooltip: 'Queue',
@@ -346,13 +347,12 @@ class WavePlayerDock extends ConsumerWidget {
                               onTap: onToggleMini,
                             ),
                           _DockOverflow(
-                            showLyricsItem: !showLyrics,
+                            showJamItem: !showJam,
                             showQualityItem: !showQuality &&
                                 player.stream != null,
                             showOutputItem: !showOutput,
                             showExpandItem: !showExpand,
                             showMiniItem: !showMini,
-                            onToggleLyrics: onToggleLyrics,
                             onExpand: onExpand,
                             onToggleMini: onToggleMini,
                             onToggleEqualizer: onToggleEqualizer,
@@ -1478,22 +1478,20 @@ class _VolumeFlyoutGlyphState extends ConsumerState<_VolumeFlyoutGlyph> {
 }
 
 class _DockOverflow extends ConsumerWidget {
-  final bool showLyricsItem;
+  final bool showJamItem;
   final bool showQualityItem;
   final bool showOutputItem;
   final bool showExpandItem;
   final bool showMiniItem;
-  final VoidCallback onToggleLyrics;
   final VoidCallback onExpand;
   final VoidCallback onToggleMini;
   final VoidCallback? onToggleEqualizer;
   const _DockOverflow({
-    this.showLyricsItem = false,
+    this.showJamItem = false,
     this.showQualityItem = false,
     this.showOutputItem = false,
     this.showExpandItem = false,
     this.showMiniItem = false,
-    required this.onToggleLyrics,
     required this.onExpand,
     required this.onToggleMini,
     this.onToggleEqualizer,
@@ -1518,7 +1516,7 @@ class _DockOverflow extends ConsumerWidget {
     final outputName = output.selected?.displayName ?? 'System default';
     final outputEntries = _outputEntries(context, ref, output);
     final hasCollapsed =
-        showLyricsItem ||
+        showJamItem ||
         showQualityItem ||
         showOutputItem ||
         showExpandItem ||
@@ -1529,11 +1527,11 @@ class _DockOverflow extends ConsumerWidget {
       menuItems: [
         // Collapsed priority controls reappear here — nothing is lost
         // at narrow widths, nothing overflows the window.
-        if (showLyricsItem)
+        if (showJamItem)
           WaveMenuAction(
-            leading: const Icon(WaveIcons.lyrics, size: 15),
-            label: 'Lyrics  (Ctrl+L)',
-            onPressed: onToggleLyrics,
+            leading: const Icon(FluentIcons.people, size: 15),
+            label: 'Jam',
+            onPressed: () => context.go('/jam'),
           ),
         if (showQualityItem && stream != null)
           WaveMenuAction(
