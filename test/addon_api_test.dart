@@ -627,6 +627,24 @@ void main() {
           isNull);
     });
 
+    test('self-titled single/EP album match never waives artist check', () {
+      // Regression: "Jalebi Baby" single by random cover artist "Abhiram Bitla"
+      // had album "Jalebi Baby". When queued as title="Jalebi Baby",
+      // artist="Tesher", album="Jalebi Baby", the exact album match gave
+      // albumBonus=2 and waived the artist check, letting the bogus cover win!
+      final pool = [
+        ta('cover', 'Jalebi Baby', 'Abhiram Bitla', 'Jalebi Baby', 181),
+        ta('real', 'Jalebi Baby', 'Tesher', 'Jalebi Baby', 189),
+      ];
+      expect(
+          AddonApi.bestMatch(pool,
+                  title: 'Jalebi Baby',
+                  artist: 'Tesher',
+                  album: 'Jalebi Baby')
+              ?.id,
+          'real');
+    });
+
     test('duration consensus rejects a short variant that leads the pool', () {
       // Real pool regression: a clean-titled 158s entry was served for
       // "Besharmi Ki Height" because it merely came back first. Between

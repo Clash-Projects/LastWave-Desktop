@@ -1,5 +1,6 @@
 import '../components/buttons.dart';
 import '../components/inputs.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -97,10 +98,9 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
     _railScrollController = ScrollController();
     final initial = widget.initialSection;
     _section =
-        initial != null &&
-                _waveSettingsSections.any((s) => s.$1 == initial)
-            ? initial
-            : 'general';
+        initial != null && _waveSettingsSections.any((s) => s.$1 == initial)
+        ? initial
+        : 'general';
   }
 
   @override
@@ -403,12 +403,14 @@ class _AccentPreview extends StatelessWidget {
     final text = switch (resolution.source) {
       AccentSource.custom => 'Custom colour · $hex',
       AccentSource.lastwave => 'LastWave neutral · $hex',
-      AccentSource.system => resolution.resolved
-          ? 'Desktop accent · $hex'
-          : 'This desktop exposes no accent — using custom colour',
-      AccentSource.artwork => resolution.resolved
-          ? 'Tinted from the current cover · $hex'
-          : 'No cover hue to tint from — using custom colour',
+      AccentSource.system =>
+        resolution.resolved
+            ? 'Desktop accent · $hex'
+            : 'This desktop exposes no accent — using custom colour',
+      AccentSource.artwork =>
+        resolution.resolved
+            ? 'Tinted from the current cover · $hex'
+            : 'No cover hue to tint from — using custom colour',
     };
     return Row(
       children: [
@@ -455,7 +457,9 @@ class _Group extends StatelessWidget {
           decoration: BoxDecoration(
             color: theme.resources.cardBackgroundFillColorDefault,
             border: Border.all(color: stroke),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(WaveRadius.floating)),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(WaveRadius.floating),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -525,8 +529,8 @@ class _Account extends ConsumerWidget {
                       signedIn
                           ? 'Last.fm connected'
                           : (guest
-                              ? 'Last.fm disabled — save keys below, then connect'
-                              : 'Connect to scrobble and personalize'),
+                                ? 'Last.fm disabled — save keys below, then connect'
+                                : 'Connect to scrobble and personalize'),
                       style: WaveType.meta,
                     ),
                   ],
@@ -583,8 +587,10 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
       } catch (_) {}
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error =
-          'Could not reach Last.fm. Check your connection and retry.');
+      setState(
+        () => _error =
+            'Could not reach Last.fm. Check your connection and retry.',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -604,8 +610,10 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
       ref.invalidate(feedProvider);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error =
-          'Not approved yet — approve LastWave in the browser, then retry.');
+      setState(
+        () => _error =
+            'Not approved yet — approve LastWave in the browser, then retry.',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -618,10 +626,7 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (_error != null) ...[
-          Text(
-            _error!,
-            style: WaveType.meta.copyWith(color: Colors.red),
-          ),
+          Text(_error!, style: WaveType.meta.copyWith(color: Colors.red)),
           const SizedBox(height: 8),
         ],
         WaveFilledButton(
@@ -640,17 +645,17 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
                     Text('Contacting Last.fm…'),
                   ],
                 )
-              : Text(_handshake == null
-                  ? 'Connect with Last.fm'
-                  : 'Restart approval'),
+              : Text(
+                  _handshake == null
+                      ? 'Connect with Last.fm'
+                      : 'Restart approval',
+                ),
         ),
         if (!configured) ...[
           const SizedBox(height: 6),
           Text(
             'Save your API keys below first.',
-            style: WaveType.meta.copyWith(
-              color: waveTextTertiary(context),
-            ),
+            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
           ),
         ],
         if (_handshake != null) ...[
@@ -750,12 +755,16 @@ class _Audio extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 8),
-        _Group(
-          title: 'Headphone correction',
+        _SwitchRow(
+          value: eq.studioClarityEnabled,
+          onChanged: (v) => notifier.setStudioClarityEnabled(v),
+          title: 'Studio Master Clarity',
           subtitle:
-              'Extra parametric curve on top of the 10-band EQ. Built-in profiles only — the AutoEQ database is not downloaded.',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+              'Acoustic & stage compensation (${eq.clarityPreset.displayName})',
+        ),
+        if (eq.studioClarityEnabled) ...[
+          const SizedBox(height: 8),
+          Row(
             children: [
               const Text('Profile', style: WaveType.trackTitle),
               const SizedBox(height: 6),
@@ -883,35 +892,36 @@ class _Appearance extends ConsumerWidget {
                     MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
-                      // Picking a swatch implies "custom colour": without
-                      // this the swatches look inert while another accent
-                      // source is active.
-                      onTap: () => onUpdate((p) async {
-                        await p.setAccentColor(c.toARGB32());
-                        await p.setAccentSource(AccentSource.custom.id);
-                      }),
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: c,
-                          border: Border.all(
-                            color: theme.accent.toARGB32() == c.toARGB32()
-                                ? waveAccent(context)
-                                : waveDivider(context),
-                            width: 2,
+                        // Picking a swatch implies "custom colour": without
+                        // this the swatches look inert while another accent
+                        // source is active.
+                        onTap: () => onUpdate((p) async {
+                          await p.setAccentColor(c.toARGB32());
+                          await p.setAccentSource(AccentSource.custom.id);
+                        }),
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: c,
+                            border: Border.all(
+                              color: theme.accent.toARGB32() == c.toARGB32()
+                                  ? waveAccent(context)
+                                  : waveDivider(context),
+                              width: 2,
+                            ),
                           ),
+                          child: theme.accent.toARGB32() == c.toARGB32()
+                              ? Icon(
+                                  FluentIcons.check_mark,
+                                  size: 14,
+                                  color: onAccentFor(c),
+                                )
+                              : null,
                         ),
-                        child: theme.accent.toARGB32() == c.toARGB32()
-                            ? Icon(
-                                FluentIcons.check_mark,
-                                size: 14,
-                                color: onAccentFor(c),
-                              )
-                            : null,
                       ),
-                    )),
+                    ),
                 ],
               ),
             ],
@@ -1000,7 +1010,8 @@ class _Lyrics extends ConsumerWidget {
             value: prefs.wordByWord,
             onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
             title: 'Word-by-word lyrics',
-            subtitle: 'Karaoke word highlight. Off uses Apple Music line lyrics.',
+            subtitle:
+                'Karaoke word highlight. Off uses Apple Music line lyrics.',
           ),
           const SizedBox(height: 10),
           const Text('Primary provider', style: WaveType.trackTitle),
@@ -1009,10 +1020,7 @@ class _Lyrics extends ConsumerWidget {
             value: LyricsProviderId.fromId(prefs.lyricsProviderId).id,
             options: [
               for (final provider in LyricsProviderId.values)
-                WaveSelectOption(
-                  value: provider.id,
-                  label: provider.title,
-                ),
+                WaveSelectOption(value: provider.id, label: provider.title),
             ],
             onChanged: (v) => onUpdate((p) => p.setLyricsProviderId(v)),
           ),
@@ -1164,11 +1172,9 @@ class _Ytm extends ConsumerWidget {
                     const SizedBox(height: 8),
                     _SwitchRow(
                       value: prefs.syncYtHistory,
-                      onChanged: (v) =>
-                          onUpdate((p) => p.setSyncYtHistory(v)),
+                      onChanged: (v) => onUpdate((p) => p.setSyncYtHistory(v)),
                       title: 'Sync listening history',
-                      subtitle:
-                          'Record plays to your YouTube Music history',
+                      subtitle: 'Record plays to your YouTube Music history',
                     ),
                   ],
                 )
@@ -1217,23 +1223,53 @@ class _Ytm extends ConsumerWidget {
     YtConnection connection,
     YtAccount? account,
   ) {
+    final profiles = ref.watch(ytProfilesProvider);
+    YtProfile? activeProfile;
+    for (final profile in profiles) {
+      if (profile.email == connection.profileEmail ||
+          (connection.profileEmail.isEmpty &&
+              profile.cookies == connection.cookies)) {
+        activeProfile = profile;
+        break;
+      }
+    }
+    YtChannel? activeChannel;
+    for (final channel in activeProfile?.channels ?? const <YtChannel>[]) {
+      if (channel.pageId == connection.activePageId) {
+        activeChannel = channel;
+        break;
+      }
+    }
     // Provisional connections (identity transiently empty right after
     // login) fall back to the roster email so the card never renders
     // a bare "Connected" for a known account.
     final connEmail =
-        connection.profileEmail != 'unknown' ? connection.profileEmail : '';
+        activeProfile?.email ??
+        (connection.profileEmail != 'unknown' ? connection.profileEmail : '');
     final rawName = account?.name ?? '';
     final name = rawName.isNotEmpty
         ? rawName
-        : (connEmail.isNotEmpty ? connEmail : '');
+        : (activeChannel?.name.isNotEmpty == true
+              ? activeChannel!.name
+              : connection.accountName.isNotEmpty
+              ? connection.accountName
+              : connEmail);
     // Same @-gate as the chooser: fresh parses never emit junk, but
     // this keeps every path honest if a shape ever surprises us.
-    final handle = (account?.handle ?? '').startsWith('@')
+    final channelHandle = account?.handle.isNotEmpty == true
         ? account!.handle
-        : '';
+        : (activeChannel?.handle.isNotEmpty == true
+              ? activeChannel!.handle
+              : connection.channelHandle);
+    final handle = channelHandle.startsWith('@') ? channelHandle : '';
     final email = (account?.email ?? '').isNotEmpty
         ? account!.email
         : connEmail;
+    final photoUrl = account?.photoUrl.isNotEmpty == true
+        ? account!.photoUrl
+        : (activeChannel?.photoUrl.isNotEmpty == true
+              ? activeChannel!.photoUrl
+              : connection.photoUrl);
     final idLine = handle.isNotEmpty ? handle : ytDisplayEmail(email);
     final since = DateTime.fromMillisecondsSinceEpoch(
       connection.connectedAtMillis,
@@ -1250,9 +1286,9 @@ class _Ytm extends ConsumerWidget {
     ].join(' · ');
     return Row(
       children: [
-        if (account?.photoUrl.isNotEmpty == true)
+        if (photoUrl.isNotEmpty)
           WaveArtwork.circle(
-            url: account!.photoUrl,
+            url: photoUrl,
             size: 40,
             label: name,
             // Identity avatar: never let the official-source upgrade
@@ -1288,7 +1324,6 @@ class _Ytm extends ConsumerWidget {
       ],
     );
   }
-
 
   /// In-app Google sign-in: opens music.youtube.com in a system
   /// WebView, waits for login, captures cookies automatically, then
@@ -1455,17 +1490,10 @@ class _YtStaleBannerState extends ConsumerState<_YtStaleBanner> {
           if (_busy)
             const Padding(
               padding: EdgeInsets.only(right: 8),
-              child: SizedBox(
-                width: 14,
-                height: 14,
-                child: ProgressRing(),
-              ),
+              child: SizedBox(width: 14, height: 14, child: ProgressRing()),
             )
           else
-            WaveLink(
-              onPressed: _refresh,
-              child: const Text('Refresh'),
-            ),
+            WaveLink(onPressed: _refresh, child: const Text('Refresh')),
           const SizedBox(width: 12),
           WaveLink(
             onPressed: () => _ytConnectWithCookies(context, ref),
@@ -1589,7 +1617,8 @@ class _CardActions extends ConsumerWidget {
             _YtAddOption(
               icon: FluentIcons.people,
               title: 'Brand channel',
-              subtitle: 'Add a channel on the current login (needs the '
+              subtitle:
+                  'Add a channel on the current login (needs the '
                   'browser window)',
               onPressed: () => Navigator.of(dialogContext).pop('channel'),
             ),
@@ -1597,7 +1626,8 @@ class _CardActions extends ConsumerWidget {
             _YtAddOption(
               icon: FluentIcons.link,
               title: 'Cookies',
-              subtitle: 'Paste a session exported from your own browser — '
+              subtitle:
+                  'Paste a session exported from your own browser — '
                   'works when the built-in window is blocked',
               onPressed: () => Navigator.of(dialogContext).pop('cookie'),
             ),
@@ -1718,8 +1748,7 @@ class _CardActions extends ConsumerWidget {
     }
     if (!context.mounted) return;
     try {
-      w.launch('https://music.youtube.com/',
-          triggerOnUrlRequestEvent: false);
+      w.launch('https://music.youtube.com/', triggerOnUrlRequestEvent: false);
     } catch (_) {}
     var cancelled = false;
     var done = false;
@@ -1816,10 +1845,7 @@ class _CardActions extends ConsumerWidget {
 /// and a broken WebView2 environment can leave Windows stuck on
 /// about:blank. A jar exported from the user's own browser is a normal
 /// Chrome session, so it is the only path that works everywhere.
-Future<void> _ytConnectWithCookies(
-  BuildContext context,
-  WidgetRef ref,
-) async {
+Future<void> _ytConnectWithCookies(BuildContext context, WidgetRef ref) async {
   final controller = TextEditingController();
   String? errorText;
   var missing = const <String>[];
@@ -1921,10 +1947,7 @@ Future<void> _ytConnectWithCookies(
                 const SizedBox(height: 8),
                 Text(
                   errorText!,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.red,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.red),
                 ),
               ],
             ],
@@ -1942,9 +1965,8 @@ Future<void> _ytConnectWithCookies(
                   return;
                 }
                 try {
-                  Navigator.of(dialogContext).pop(
-                    InnerTubeMusicApi.normalizeCookies(text),
-                  );
+                  Navigator.of(dialogContext)
+                      .pop(InnerTubeMusicApi.normalizeCookies(text));
                 } catch (e) {
                   setState(() {
                     errorText = e is FormatException
@@ -1963,12 +1985,7 @@ Future<void> _ytConnectWithCookies(
   controller.dispose();
 
   if (result != null && result.isNotEmpty && context.mounted) {
-    await _ytConnectCaptured(
-      context,
-      ref,
-      header: result,
-      pageId: '',
-    );
+    await _ytConnectCaptured(context, ref, header: result, pageId: '');
   }
 }
 
@@ -2043,10 +2060,8 @@ class _CookieChecklist extends StatelessWidget {
             ok
                 ? 'Session markers detected — this jar looks complete.'
                 : 'Not detected yet: ${missing.join(' · ')}. '
-                    'YouTube needs these to treat the jar as signed in.',
-            style: WaveType.meta.copyWith(
-              color: waveTextSecondary(context),
-            ),
+                      'YouTube needs these to treat the jar as signed in.',
+            style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
           ),
         ),
       ],
@@ -2134,8 +2149,9 @@ Future<void> _ytConnectCaptured(
   // from pasted cookies (no WebView to read DELEGATED_SESSION_ID from).
   // Best-effort: an empty list keeps today's single-row behavior.
   if (profile != null) {
-    final discovered =
-        await ref.read(innerTubeProvider).fetchChannelsFor(header);
+    final discovered = await ref
+        .read(innerTubeProvider)
+        .fetchChannelsFor(header);
     if (discovered.isNotEmpty) {
       await upsertYtChannels(
         ref,
@@ -2285,7 +2301,8 @@ Future<void> _ytSignInFailed(BuildContext context, WidgetRef ref) async {
   switch (failure) {
     case YtSignInFailure.browserBlocked:
       title = 'Google blocked the built-in browser';
-      body = 'Google refuses to serve its sign-in page to embedded '
+      body =
+          'Google refuses to serve its sign-in page to embedded '
           'browsers — this is expected on macOS, and no in-app retry can '
           'get past that page.\n\n'
           'Use "Connect with cookies" instead: sign in to '
@@ -2294,20 +2311,23 @@ Future<void> _ytSignInFailed(BuildContext context, WidgetRef ref) async {
           'session and works on every platform.';
     case YtSignInFailure.unavailable:
       title = 'No system WebView available';
-      body = 'This machine has no usable WebView runtime (WebView2 on '
+      body =
+          'This machine has no usable WebView runtime (WebView2 on '
           'Windows, WebKitGTK on Linux), so the sign-in window cannot '
           'open. Install the runtime, or connect with cookies instead — '
           'that path does not need a WebView.';
     case YtSignInFailure.blankPage:
       title = 'The sign-in window did not load';
-      body = 'The browser window stayed on a blank or error page even '
+      body =
+          'The browser window stayed on a blank or error page even '
           'after reloading. That usually means the WebView profile '
           'folder is not writable or the runtime is damaged.\n\n'
           'Connecting with cookies does not depend on the WebView and '
           'will work.';
     case YtSignInFailure.timeout:
       title = 'Sign-in timed out';
-      body = 'No session was captured in ten minutes. Make sure the '
+      body =
+          'No session was captured in ten minutes. Make sure the '
           'sign-in finishes on music.youtube.com — an intermediate '
           'accounts.google.com page has no YouTube session yet.\n\n'
           'You can try again, or connect with cookies instead.';
@@ -2315,7 +2335,8 @@ Future<void> _ytSignInFailed(BuildContext context, WidgetRef ref) async {
     case YtSignInFailure.none:
     case YtSignInFailure.windowClosed:
       title = 'Sign-in incomplete';
-      body = 'No session was captured. Complete the Google sign-in fully '
+      body =
+          'No session was captured. Complete the Google sign-in fully '
           'on music.youtube.com before closing the window.\n\n'
           'If Google shows a passkey step that stalls after Windows '
           'Hello, press Reload in the wait dialog, or pick "Try another '
@@ -2617,11 +2638,8 @@ class _AboutState extends ConsumerState<_About> {
 
     if (_updateAvailable != null) {
       return WaveFilledButton(
-        onPressed: () => showUpdateDialog(
-          context,
-          _updateAvailable!,
-          isManualCheck: true,
-        ),
+        onPressed: () =>
+            showUpdateDialog(context, _updateAvailable!, isManualCheck: true),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -2673,7 +2691,10 @@ class _AboutState extends ConsumerState<_About> {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text('LastWave Desktop · v$appVersion', style: WaveType.trackTitle),
+              Text(
+                'LastWave Desktop · v$appVersion',
+                style: WaveType.trackTitle,
+              ),
               _buildUpdateButton(),
             ],
           ),
@@ -2720,8 +2741,7 @@ class _AboutState extends ConsumerState<_About> {
                 ),
               ),
               WaveButton(
-                onPressed: () =>
-                    _open('https://t.me/clashprojects'),
+                onPressed: () => _open('https://t.me/clashprojects'),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2732,9 +2752,7 @@ class _AboutState extends ConsumerState<_About> {
                 ),
               ),
               WaveButton(
-                onPressed: () => _open(
-                  'https://discord.com/invite/TMCEPSUNk2',
-                ),
+                onPressed: () => _open('https://discord.com/invite/TMCEPSUNk2'),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2792,7 +2810,8 @@ class _General extends ConsumerWidget {
                   DiagnosticsLog.verbose = v;
                 },
                 title: 'Verbose logging',
-                subtitle: 'Adds per-request detail (stream clients, audio '
+                subtitle:
+                    'Adds per-request detail (stream clients, audio '
                     'probes). Reproduce the problem with it on.',
               ),
               const SizedBox(height: 10),
@@ -2908,15 +2927,24 @@ class _PlaybackState extends ConsumerState<_Playback> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('3s (Short)',
-                          style: WaveType.meta
-                              .copyWith(color: waveTextSecondary(context))),
-                      Text('7s (Standard)',
-                          style: WaveType.meta
-                              .copyWith(color: waveTextSecondary(context))),
-                      Text('12s (Long)',
-                          style: WaveType.meta
-                              .copyWith(color: waveTextSecondary(context))),
+                      Text(
+                        '3s (Short)',
+                        style: WaveType.meta.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
+                      Text(
+                        '7s (Standard)',
+                        style: WaveType.meta.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
+                      Text(
+                        '12s (Long)',
+                        style: WaveType.meta.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -2961,19 +2989,15 @@ class _Downloads extends ConsumerWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              const Icon(
-                  FluentIcons.open_folder_horizontal, size: 18),
+              const Icon(FluentIcons.open_folder_horizontal, size: 18),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Save location',
-                        style: WaveType.trackTitle),
+                    Text('Save location', style: WaveType.trackTitle),
                     Text(
-                      custom.isEmpty
-                          ? 'Default location'
-                          : custom,
+                      custom.isEmpty ? 'Default location' : custom,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: WaveType.meta,
@@ -2988,8 +3012,7 @@ class _Downloads extends ConsumerWidget {
               if (custom.isNotEmpty) ...[
                 const SizedBox(width: 8),
                 WaveButton(
-                  onPressed: () =>
-                      onUpdate((p) => p.resetDownloadDir()),
+                  onPressed: () => onUpdate((p) => p.resetDownloadDir()),
                   child: const Text('Reset'),
                 ),
               ],
@@ -3048,10 +3071,9 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
       _error = null;
     });
     try {
-      await ref.read(authRepositoryProvider.notifier).saveCustomKeys(
-            _key?.text ?? '',
-            _secret?.text ?? '',
-          );
+      await ref
+          .read(authRepositoryProvider.notifier)
+          .saveCustomKeys(_key?.text ?? '', _secret?.text ?? '');
     } catch (e) {
       if (mounted) {
         setState(() => _error = _shortError(e));
@@ -3101,9 +3123,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
           Row(
             children: [
               Icon(
-                configured
-                    ? FluentIcons.check_mark
-                    : FluentIcons.warning,
+                configured ? FluentIcons.check_mark : FluentIcons.warning,
                 size: 14,
                 color: configured ? Colors.green : Colors.orange,
               ),
@@ -3142,10 +3162,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
           ),
           if (_error != null) ...[
             const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: WaveType.meta.copyWith(color: Colors.red),
-            ),
+            Text(_error!, style: WaveType.meta.copyWith(color: Colors.red)),
           ],
           const SizedBox(height: 10),
           WaveFilledButton(
@@ -3170,9 +3187,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
           Text(
             'Saving different keys signs you out — sessions belong '
             'to their API key. Reconnect afterwards.',
-            style: WaveType.meta.copyWith(
-              color: waveTextTertiary(context),
-            ),
+            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
           ),
         ],
       ),
@@ -3443,9 +3458,10 @@ class _SwitchRow extends StatelessWidget {
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: ToggleSwitch(
-            checked: value,
-            onChanged: enabled ? onChanged : null,
-          )),
+              checked: value,
+              onChanged: enabled ? onChanged : null,
+            ),
+          ),
         ],
       ),
     );

@@ -53,14 +53,13 @@ class YtSessionKeeper {
       // Keep the roster's jar in sync so switching identities later
       // reuses the fresh cookies instead of the rotated ones.
       try {
-        await upsertYtCapture(
-          ref,
-          cookies: header,
-          pageId: conn.activePageId,
-        );
+        await upsertYtCapture(ref, cookies: header, pageId: conn.activePageId);
       } catch (_) {}
       try {
         ref.invalidate(ytAccountProvider);
+        ref.invalidate(ytLikedSongsProvider);
+        ref.invalidate(ytHistoryProvider);
+        ref.invalidate(ytAccountPlaylistsProvider);
       } catch (_) {}
       return true;
     } catch (_) {

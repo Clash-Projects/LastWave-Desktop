@@ -411,7 +411,7 @@ class _PeriodPillSwitch extends StatelessWidget {
       padding: const EdgeInsets.all(3.5),
       decoration: BoxDecoration(
         color: dark ? WaveColors.surfaceRaised : WaveColors.lightOutlineSoft,
-        borderRadius: WaveRadius.controlsRadius,
+        borderRadius: WaveRadius.floatingRadius,
         border: Border.all(
           color: waveDivider(context),
           width: 0.8,
@@ -421,41 +421,44 @@ class _PeriodPillSwitch extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: StatsPeriod.values.map((p) {
           final isSelected = p == activePeriod;
-          return GestureDetector(
-            onTap: () => onChanged(p),
-            child: AnimatedContainer(
-              duration: waveMotion(context, WaveMotion.fast),
-              curve: WaveMotion.standard,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 6,
-              ),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? (dark
-                        ? Colors.white.withValues(alpha: 0.16)
-                        : Colors.white)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(WaveRadius.controls - 2),
-                boxShadow: isSelected && !dark
-                    ? [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1),
-                        )
-                      ]
-                    : null,
-              ),
-              child: Text(
-                p.label,
-                style: WaveType.label.copyWith(
-                  fontSize: 12,
+          return MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => onChanged(p),
+              child: AnimatedContainer(
+                duration: waveMotion(context, WaveMotion.fast),
+                curve: WaveMotion.standard,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
                   color: isSelected
-                      ? waveTextPrimary(context)
-                      : waveTextTertiary(context),
-                  fontWeight:
-                      isSelected ? FontWeight.w700 : FontWeight.w500,
+                      ? (dark
+                          ? Colors.white.withValues(alpha: 0.16)
+                          : Colors.white)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(WaveRadius.floating - 2),
+                  boxShadow: isSelected && !dark
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          )
+                        ]
+                      : null,
+                ),
+                child: Text(
+                  p.label,
+                  style: WaveType.label.copyWith(
+                    fontSize: 12,
+                    color: isSelected
+                        ? waveTextPrimary(context)
+                        : waveTextTertiary(context),
+                    fontWeight:
+                        isSelected ? FontWeight.w700 : FontWeight.w500,
+                  ),
                 ),
               ),
             ),
@@ -581,19 +584,20 @@ class _LastFmProfileHub extends StatelessWidget {
           children: [
             Container(
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
+                shape: BoxShape.rectangle,
+                borderRadius: WaveRadius.artworkRadius,
                 border: Border.all(
                   color: const Color(0xFFE0506A).withValues(alpha: 0.5),
-                  width: 1.8,
+                  width: 1.5,
                 ),
                 boxShadow: [
                   BoxShadow(
                     color: const Color(0xFFE0506A).withValues(alpha: 0.25),
-                    blurRadius: 10,
+                    blurRadius: 15,
                   ),
                 ],
               ),
-              child: ClipOval(
+              child: ClipRRect(
                 child: WaveArtwork(
                   url: stats.lastFmAvatarUrl,
                   size: 46,
@@ -616,7 +620,11 @@ class _LastFmProfileHub extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6.5, vertical: 2),
@@ -629,34 +637,12 @@ class _LastFmProfileHub extends StatelessWidget {
                         ),
                       ),
                       child: Text(
-                        'LAST.FM PRO',
+                        'LAST.FM',
                         style: WaveType.overline.copyWith(
                           fontSize: 8.5,
                           fontWeight: FontWeight.w800,
                           color: const Color(0xFFE0506A),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xFF7BE3A8),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Live syncing & scrobbling',
-                      style: WaveType.meta.copyWith(
-                        fontSize: 11.5,
-                        color: const Color(0xFF7BE3A8),
-                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],

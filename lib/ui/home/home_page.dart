@@ -298,8 +298,8 @@ class WaveHomePage extends ConsumerWidget {
           child: WaveEntrance(
             index: slot(),
             rise: 8,
-            child: _SectionHead(
-              kicker: 'YouTube Music',
+            child: LWSectionHeader(
+              overline: 'YouTube Music',
               title: shelf.title,
               // The rail is capped; the header counts the whole shelf, and
               // See all is where the rest of it lives.
@@ -309,7 +309,7 @@ class WaveHomePage extends ConsumerWidget {
                       ? shelf.trackCards.length
                       : shelf.entities.length,
               actionLabel: 'See all',
-              actionPath: '/ytshelf/${Uri.encodeComponent(shelf.title)}',
+              onAction: () => context.go('/ytshelf/${Uri.encodeComponent(shelf.title)}'),
             ),
           ),
         ),
@@ -363,8 +363,8 @@ class WaveHomePage extends ConsumerWidget {
           child: WaveEntrance(
             index: slot(),
             rise: 8,
-            child: _SectionHead(
-              kicker: 'Jump back in',
+            child: LWSectionHeader(
+              overline: 'Jump back in',
               title: 'Quick Picks',
               count: picks.length,
             ),
@@ -402,12 +402,12 @@ class WaveHomePage extends ConsumerWidget {
           child: WaveEntrance(
             index: slot(),
             rise: 8,
-            child: _SectionHead(
-              kicker: 'History',
+            child: LWSectionHeader(
+              overline: 'History',
               title: 'Continue Listening',
               count: recent.length,
               actionLabel: 'See all',
-              actionPath: '/history',
+              onAction: () => context.go('/history'),
             ),
           ),
         ),
@@ -433,12 +433,12 @@ class WaveHomePage extends ConsumerWidget {
           child: WaveEntrance(
             index: slot(),
             rise: 8,
-              child: _SectionHead(
-                kicker: becauseKicker,
+              child: LWSectionHeader(
+                overline: becauseKicker,
                 title: 'Made For You',
                 count: mixes.length,
-              actionLabel: 'Open Mix Lab',
-              actionPath: '/mixes',
+                actionLabel: 'Open Mix Lab',
+                onAction: () => context.go('/mixes'),
             ),
           ),
         ),
@@ -461,12 +461,12 @@ class WaveHomePage extends ConsumerWidget {
           child: WaveEntrance(
             index: slot(),
             rise: 8,
-            child: _SectionHead(
-              kicker: 'Rotation',
+            child: LWSectionHeader(
+              overline: 'Rotation',
               title: 'Albums For You',
               count: albums.length,
               actionLabel: 'See all',
-              actionPath: '/albums',
+              onAction: () => context.go('/albums'),
             ),
           ),
         ),
@@ -514,12 +514,12 @@ class WaveHomePage extends ConsumerWidget {
             child: WaveEntrance(
               index: slot(),
               rise: 8,
-              child: _SectionHead(
-                kicker: 'Artists',
+              child: LWSectionHeader(
+                overline: 'Artists',
                 title: 'Artists For You',
                 count: artists.length,
                 actionLabel: 'See all',
-                actionPath: '/artists',
+                onAction: () => context.go('/artists'),
               ),
             ),
           ),
@@ -549,12 +549,12 @@ class WaveHomePage extends ConsumerWidget {
             child: WaveEntrance(
               index: slot(),
               rise: 8,
-              child: _SectionHead(
-                kicker: 'Social',
+              child: LWSectionHeader(
+                overline: 'Social',
                 title: 'Friends Listening',
                 count: activities.length,
                 actionLabel: 'See all',
-                actionPath: '/friends',
+                onAction: () => context.go('/friends'),
               ),
             ),
           ),
@@ -592,8 +592,8 @@ class WaveHomePage extends ConsumerWidget {
           child: WaveEntrance(
             index: slot(),
             rise: 8,
-            child: _SectionHead(
-              kicker: 'Charts',
+            child: LWSectionHeader(
+              overline: 'Charts',
               title: 'Trending Now',
               count: charts.length,
             ),
@@ -624,8 +624,8 @@ class WaveHomePage extends ConsumerWidget {
           child: WaveEntrance(
             index: slot(),
             rise: 8,
-            child: _SectionHead(
-              kicker: 'Discovery',
+            child: LWSectionHeader(
+              overline: 'Discovery',
               title: 'Fresh Finds',
               count: fresh.length,
             ),
@@ -645,31 +645,31 @@ class WaveHomePage extends ConsumerWidget {
       ));
     }
 
-    use(HomeShelfId.releases);
-    gap(26);
-    sink.add(SliverPadding(
-      padding: EdgeInsets.only(left: side, right: side),
-      sliver: SliverToBoxAdapter(
-        child: WaveEntrance(
-          index: slot(),
-          rise: 10,
-          child: const HomeNewReleasesSection(),
-        ),
-      ),
-    ));
+    // use(HomeShelfId.releases);
+    // gap(26);
+    // sink.add(SliverPadding(
+    //   padding: EdgeInsets.only(left: side, right: side),
+    //   sliver: SliverToBoxAdapter(
+    //     child: WaveEntrance(
+    //       index: slot(),
+    //       rise: 10,
+    //       child: const HomeNewReleasesSection(),
+    //     ),
+    //   ),
+    // ));
 
-    use(HomeShelfId.popular);
-    gap(26);
-    sink.add(SliverPadding(
-      padding: EdgeInsets.only(left: side, right: side),
-      sliver: SliverToBoxAdapter(
-        child: WaveEntrance(
-          index: slot(),
-          rise: 10,
-          child: const HomePopularShelvesSection(),
-        ),
-      ),
-    ));
+    // use(HomeShelfId.popular);
+    // gap(26);
+    // sink.add(SliverPadding(
+    //   padding: EdgeInsets.only(left: side, right: side),
+    //   sliver: SliverToBoxAdapter(
+    //     child: WaveEntrance(
+    //       index: slot(),
+    //       rise: 10,
+    //       child: const HomePopularShelvesSection(),
+    //     ),
+    //   ),
+    // ));
 
     use(HomeShelfId.podcasts);
     final podcastShelves =
@@ -851,85 +851,6 @@ class _YtSongCardRow extends ConsumerWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _SectionHead extends StatelessWidget {
-  final String kicker;
-  final String title;
-  final int? count;
-  final String? actionLabel;
-  final String? actionPath;
-  const _SectionHead({
-    required this.kicker,
-    required this.title,
-    this.count,
-    this.actionLabel,
-    this.actionPath,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                kicker.toUpperCase(),
-                style: WaveType.overline.copyWith(
-                  fontSize: 10,
-                  color: waveTextTertiary(context),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(title, style: WaveType.sectionTitle),
-                  if (count != null) ...[
-                    const SizedBox(width: 6),
-                    Text(
-                      '$count',
-                      style: WaveType.meta.copyWith(
-                        color: waveTextTertiary(context),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-        ),
-        if (actionLabel != null && actionPath != null)
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-            onTap: () => context.go(actionPath!),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  actionLabel!,
-                  style: WaveType.label.copyWith(
-                    fontSize: 11.5,
-                    color: waveTextTertiary(context),
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Icon(
-                  WaveIcons.chevronRight,
-                  size: 13,
-                  color: waveTextTertiary(context),
-                ),
-              ],
-            ),
-          )),
-      ],
     );
   }
 }
