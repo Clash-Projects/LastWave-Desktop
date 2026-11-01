@@ -45,6 +45,7 @@ import '../updates/update_dialog.dart';
 import 'backup_settings.dart';
 import 'diagnostics_actions.dart';
 import 'download_layout_settings.dart';
+import 'language_settings.dart';
 import 'settings_search.dart';
 
 const _waveSettingsSections = [
@@ -289,7 +290,13 @@ class _SectionBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     switch (section) {
       case 'general':
-        return _General(onUpdate: onUpdate);
+        return Column(
+          children: [
+            LanguageSettings(onUpdate: onUpdate),
+            const SizedBox(height: 16),
+            _General(onUpdate: onUpdate),
+          ],
+        );
       case 'playback':
         return _Playback(onUpdate: onUpdate);
       case 'audio':

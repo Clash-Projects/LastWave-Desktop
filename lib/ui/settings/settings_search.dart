@@ -34,6 +34,13 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'close button minimize tray background window startup',
   ),
   SettingsSearchEntry(
+    id: 'general.language',
+    section: 'general',
+    title: 'Language',
+    subtitle: 'Sidebar and new settings labels',
+    keywords: 'language translation locale i18n',
+  ),
+  SettingsSearchEntry(
     id: 'general.backup',
     section: 'general',
     title: 'Backup',
