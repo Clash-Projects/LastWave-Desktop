@@ -4958,16 +4958,21 @@ class InnerTubeMusicApi {
       } catch (_) {}
       if (collected.length >= 12) break;
     }
+    // Downloads should stay audio-only when YouTube still serves a direct
+    // audio URL; muxed itag 18 is only a fallback and would pull the video
+    // track down with it.
+    final audioOnly = collected.where((c) => c.isAudioOnly).toList();
+    final pool = audioOnly.isNotEmpty ? audioOnly : collected;
     _Candidate? best;
-    final m4a = collected.where(
+    final m4a = pool.where(
       (c) =>
           c.stream.mimeType.toLowerCase().contains('mp4') ||
           c.stream.mimeType.toLowerCase().contains('m4a'),
     );
     if (m4a.isNotEmpty) {
       best = m4a.reduce((a, b) => a.bitrate >= b.bitrate ? a : b);
-    } else if (collected.isNotEmpty) {
-      best = collected.reduce((a, b) => a.bitrate >= b.bitrate ? a : b);
+    } else if (pool.isNotEmpty) {
+      best = pool.reduce((a, b) => a.bitrate >= b.bitrate ? a : b);
     }
     if (best == null) {
       return resolveAudioStream(videoId);

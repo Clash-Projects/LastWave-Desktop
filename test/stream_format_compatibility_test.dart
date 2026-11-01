@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -15,6 +16,7 @@ import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
 void main() {
   late InnerTubeMusicApi tube;
   late _PlayerAdapter adapter;
+  late HttpServer probeServer;
 
   InnerTubeMusicApi build(Map<String, dynamic> playerResponse) {
     final dio = DioFactory.create();
@@ -22,6 +24,23 @@ void main() {
     dio.httpClientAdapter = adapter;
     return InnerTubeMusicApi(dio, SecureStore());
   }
+
+  setUp(() async {
+    // The download path validates the winner with a direct HttpClient
+    // probe, so point the candidates at a local server that answers 200.
+    probeServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    probeServer.listen((request) {
+      request.response
+        ..statusCode = 200
+        ..headers.contentType = ContentType('audio', 'mp4')
+        ..add([0, 1, 2, 3]);
+      request.response.close();
+    });
+  });
+
+  tearDown(() async {
+    await probeServer.close(force: true);
+  });
 
   test('falls back to muxed itag 18 when adaptive audio is SABR-only',
       () async {
@@ -52,21 +71,45 @@ void main() {
     expect(stream, isNotNull);
     expect(stream!.url.startsWith('sabr:'), isFalse);
   });
+
+  test('downloads prefer audio-only even when muxed has higher bitrate',
+      () async {
+    final base = 'http://127.0.0.1:${probeServer.port}/media';
+    tube = build(
+      _playerResponse(
+        downloadMuxedUrl: '$base?itag=18&expire=4102444800',
+        downloadAudioUrl: '$base?itag=140&expire=4102444800',
+      ),
+    );
+    final stream = await tube.resolveDownloadStream('dQw4w9WgXcQ');
+
+    expect(stream, isNotNull);
+    expect(stream!.url, contains('itag=140'));
+    expect(stream.mimeType, startsWith('audio/'));
+  });
 }
 
 /// One canned player response for every client. The ANDROID client is
 /// tried first, so the assertions exercise the production parse/sort
 /// path rather than a reimplementation of it.
-Map<String, dynamic> _playerResponse({bool directAudio = false}) => {
+Map<String, dynamic> _playerResponse({
+  bool directAudio = false,
+  String? downloadMuxedUrl,
+  String? downloadAudioUrl,
+}) =>
+    {
       'playabilityStatus': {'status': 'OK'},
       'streamingData': {
         'formats': [
           {
             'itag': 18,
             'mimeType': 'video/mp4; codecs="avc1.42001E, mp4a.40.2"',
-            'bitrate': 117607,
-            'url': 'https://rr1---sn-test.googlevideo.com/videoplayback'
-                '?itag=18&expire=4102444800',
+            // Higher than the audio-only bitrate on purpose: the download
+            // path must still pick audio-only.
+            'bitrate': downloadMuxedUrl != null ? 400000 : 117607,
+            'url': downloadMuxedUrl ??
+                'https://rr1---sn-test.googlevideo.com/videoplayback'
+                    '?itag=18&expire=4102444800',
           },
         ],
         'adaptiveFormats': [
@@ -75,7 +118,7 @@ Map<String, dynamic> _playerResponse({bool directAudio = false}) => {
             'itag': 140,
             'mimeType': 'audio/mp4; codecs="mp4a.40.2"',
             'bitrate': 131199,
-          },
+            'url': ?downloadAudioUrl,          },
           {
             'itag': 251,
             'mimeType': 'audio/webm; codecs="opus"',
