@@ -569,7 +569,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                           child: _ArtistAlbumCard(
                             artworkUrl: a.artworkUrl,
                             title: a.name,
-                            subtitle: '',
+                            subtitle: a.subtitle,
                             width: 118,
                             artSize: 118,
                             titleSize: 12,
@@ -803,6 +803,24 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 6),
+                    Text(widget.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: WaveType.trackTitle.copyWith(
+                            fontSize: widget.titleSize,
+                            color: dark
+                                ? WaveColors.textPrimary
+                                : WaveColors.lightTextPrimary)),
+                    if (widget.subtitle.isNotEmpty)
+                      Text(widget.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.meta.copyWith(
+                              fontSize: 11,
+                              color: dark
+                                  ? WaveColors.textSecondary
+                                  : WaveColors.lightTextSecondary)),
                   ],
                 ),
               ),
