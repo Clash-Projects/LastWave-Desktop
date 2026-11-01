@@ -350,18 +350,19 @@ int _codecRank(MusicVideoStream s) {
   return 3;
 }
 
-/// Every candidate in the order to try them. Auto (0) aims for the best
-/// picture up to 1080p, which plays smoothly everywhere; a fixed height
-/// aims for that height. Candidates at or below the target come first,
+/// Every candidate in the order to try them. Auto (0) aims for the picture
+/// that fits the display ([autoHeight], see [autoVideoHeightFor]); a fixed
+/// height aims for that height. Candidates at or below the target come first,
 /// tallest first; anything taller only follows as a last resort. At the
 /// same height: lighter codec first, then video-only over the progressive
 /// file, then ≤30 fps over 60 (half the decode work for a backdrop), then
 /// the higher bitrate.
 List<MusicVideoStream> rankVideoStreams(
   List<MusicVideoStream> streams,
-  int preferredHeight,
-) {
-  final cap = preferredHeight <= 0 ? 1080 : preferredHeight;
+  int preferredHeight, {
+  int autoHeight = 1080,
+}) {
+  final cap = preferredHeight <= 0 ? autoHeight : preferredHeight;
   final ranked = [...streams];
   ranked.sort((a, b) {
     final aOver = a.height > cap ? 1 : 0;
@@ -383,12 +384,27 @@ List<MusicVideoStream> rankVideoStreams(
   return ranked;
 }
 
+/// What Auto aims for: the smallest standard height that still fills a
+/// display [physicalHeightPx] pixels tall (a little slack allowed), so a
+/// 1080p screen gets 1080p and a 4K screen gets 2160p. Never below 720p.
+int autoVideoHeightFor(double physicalHeightPx) {
+  for (final step in const [720, 1080, 1440]) {
+    if (physicalHeightPx <= step / 0.9) return step;
+  }
+  return 2160;
+}
+
 /// The best candidate for [preferredHeight], or null when there is none.
 MusicVideoStream? pickVideoStreamForQuality(
   List<MusicVideoStream> streams,
-  int preferredHeight,
-) {
-  final ranked = rankVideoStreams(streams, preferredHeight);
+  int preferredHeight, {
+  int autoHeight = 1080,
+}) {
+  final ranked = rankVideoStreams(
+    streams,
+    preferredHeight,
+    autoHeight: autoHeight,
+  );
   return ranked.isEmpty ? null : ranked.first;
 }
 

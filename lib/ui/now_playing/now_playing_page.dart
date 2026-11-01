@@ -168,6 +168,13 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     final current = ref.watch(playbackServiceProvider.select((s) => s.current));
 
     final fullscreen = ref.watch(nowPlayingFullscreenProvider);
+    // Auto aims at the display: re-check once the window has settled.
+    ref.listen<bool>(nowPlayingFullscreenProvider, (_, _) {
+      Future<void>.delayed(const Duration(milliseconds: 900), () {
+        if (mounted)
+          ref.read(syncedVideoControllerProvider).onViewportChanged();
+      });
+    });
     ref.listen<int>(nowPlayingAutoHideProvider, (_, seconds) {
       _autoHideSeconds = seconds;
       if (seconds <= 0) {

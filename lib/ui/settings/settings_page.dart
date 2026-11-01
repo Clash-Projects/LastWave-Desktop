@@ -1059,9 +1059,10 @@ class _MusicVideo extends ConsumerWidget {
                       children: [
                         const Text('Video quality', style: WaveType.trackTitle),
                         Text(
-                          'Auto plays the video\'s own best picture (up to '
-                          '1080p). A fixed choice is kept until you change it; '
-                          'the nearest lower size is used when a video lacks it.',
+                          'Auto picks the size that fits your screen: 1080p on '
+                          'a 1080p display, up to 4K on a 4K one. A fixed '
+                          'choice is kept until you change it; the nearest '
+                          'lower size is used when a video lacks it.',
                           style: WaveType.meta.copyWith(
                             color: waveTextSecondary(context),
                           ),

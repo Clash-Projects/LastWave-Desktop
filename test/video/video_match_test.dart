@@ -453,4 +453,49 @@ void main() {
       );
     });
   });
+
+  group('auto height follows the display', () {
+    MusicVideoStream st(int h, {String codec = 'vp9'}) => MusicVideoStream(
+      label: '${h}p',
+      url: 'u$h$codec',
+      height: h,
+      codec: codec,
+    );
+
+    test('standard displays map to the size that fills them', () {
+      expect(autoVideoHeightFor(600), 720);
+      expect(autoVideoHeightFor(820), 1080); // the windowed page
+      expect(autoVideoHeightFor(1080), 1080);
+      expect(autoVideoHeightFor(1200), 1080);
+      expect(autoVideoHeightFor(1440), 1440);
+      expect(autoVideoHeightFor(1600), 1440);
+      expect(autoVideoHeightFor(2160), 2160);
+      expect(autoVideoHeightFor(4320), 2160);
+    });
+
+    test('a 4K display reaches the 4K stream, a 1080p one stops at 1080p', () {
+      final all = [st(2160), st(1440), st(1080, codec: 'avc1.640028'), st(720)];
+      expect(
+        rankVideoStreams(
+          all,
+          0,
+          autoHeight: autoVideoHeightFor(2160),
+        ).first.height,
+        2160,
+      );
+      expect(
+        rankVideoStreams(
+          all,
+          0,
+          autoHeight: autoVideoHeightFor(1080),
+        ).first.height,
+        1080,
+      );
+    });
+
+    test('a fixed choice ignores the display', () {
+      final all = [st(2160), st(1080, codec: 'avc1.640028')];
+      expect(rankVideoStreams(all, 2160, autoHeight: 720).first.height, 2160);
+    });
+  });
 }

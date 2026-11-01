@@ -4470,29 +4470,366 @@ class InnerTubeMusicApi {
     }
   }
 
-  /// Video pictures for the synced Now Playing backdrop.
+  // -- Now Playing music video clients -------------------------------------------
+  //
+  // Which clients still hand out the full picture ladder (up to 4K) changes
+  // every few months, so these follow what the maintained open-source
+  // extractors do today rather than what worked last year:
+  //  * yt-dlp (2026) defaults to tv_samsung + visionos + web, and records that
+  //    android_vr 1.65.10 now answers 403 to every format;
+  //  * NewPipeExtractor reads ALL its streams from the VISIONOS client alone.
+  // The audio resolver above keeps its own client list; nothing here changes it.
+
+  /// visionOS app, as NewPipeExtractor requests it: the app's own
+  /// User-Agent, the gapis host, `t` and `id` query parameters, API format 2.
+  static const String _gapisApi = 'https://youtubei.googleapis.com/youtubei/v1';
+  static const String _visionOsAppVersion = '1.04';
+  static const String _visionOsDeviceModel = 'RealityDevice17,1';
+  static const String _visionOsAppOsVersion = '26.6.0.23O770';
+  static const String _visionOsAppUa =
+      'com.google.visionos.youtube/$_visionOsAppVersion'
+      '($_visionOsDeviceModel; U; CPU visionOS 26_6_0 like Mac OS X; US)';
+
+  /// visionOS as yt-dlp requests it: the www host and a Safari-on-visionOS
+  /// User-Agent carried in the context.
+  static const String _visionOsWebVersion = '1.02';
+  static const String _visionOsWebOsVersion = '26.5.23O471';
+  static const String _visionOsWebUa =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 '
+      '(KHTML, like Gecko) Version/26.0 Safari/605.1.15';
+
+  /// tv_samsung, the second yt-dlp default. Needs the player script (its
+  /// signature timestamp, and the `n` challenge solved on every link).
+  static const String _tvVersion = '5.20260707';
+  static const String _tvUa =
+      'Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 '
+      '(KHTML, like Gecko) Version/2.4.0 TV Safari/538.1';
+  static const String _tvApiKey = 'AIzaSyAO_FJ2SlqAz8GlBg1fA54p0wDE7Xk80mU';
+  static const String _visionOsApiKey = 'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc';
+
+  static const String _nonceAlphabet =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  static String _nonce(int length) {
+    final r = Random.secure();
+    return String.fromCharCodes(
+      List.generate(
+        length,
+        (_) => _nonceAlphabet.codeUnitAt(r.nextInt(_nonceAlphabet.length)),
+      ),
+    );
+  }
+
+  static String _withParam(String url, String key, String value) {
+    final frag = url.indexOf('#');
+    final base = frag >= 0 ? url.substring(0, frag) : url;
+    final tail = frag >= 0 ? url.substring(frag) : '';
+    final sep = base.endsWith('?') || base.endsWith('&')
+        ? ''
+        : (base.contains('?') ? '&' : '?');
+    return '$base$sep$key=${Uri.encodeQueryComponent(value)}$tail';
+  }
+
+  /// One player request for the video clients. Unlike [_post] it neither
+  /// forces browser headers on an app client nor resets the shared web
+  /// configuration when a client is refused: these clients get refused
+  /// routinely and that must not disturb audio playback.
+  Future<Map<String, dynamic>> _postVideoPlayer(
+    String url, {
+    required Map<String, String> headers,
+    required Map<String, dynamic> body,
+  }) async {
+    final res = await _dio
+        .post<String>(
+          url,
+          data: jsonEncode(body),
+          options: Options(
+            headers: {'Content-Type': 'application/json', ...headers},
+            responseType: ResponseType.plain,
+          ),
+        )
+        .timeout(const Duration(seconds: 10));
+    final data = res.data;
+    if (data == null || data.isEmpty) return const {};
+    final decoded = jsonDecode(data);
+    return decoded is Map<String, dynamic> ? decoded : const {};
+  }
+
+  /// Every video format of a player response that has a usable link.
+  List<MusicVideoStream> _videoFormatsFrom(
+    Map? streaming, {
+    required String label,
+    required Map<String, String> headers,
+    PlayerScript? script,
+    String? cpn,
+    String? pot,
+  }) {
+    final out = <MusicVideoStream>[];
+    void collect(Object? list, {required bool progressive}) {
+      if (list is! List) return;
+      for (final format in list.whereType<Map<String, dynamic>>()) {
+        final mime = format['mimeType']?.toString() ?? '';
+        final cleanMime = mime.split(';').first.trim().toLowerCase();
+        if (!cleanMime.startsWith('video/')) continue;
+        final codecs = (RegExp(r'codecs="([^"]+)"').firstMatch(mime)?.group(1) ??
+                '')
+            .split(',')
+            .map((c) => c.trim())
+            .where((c) => c.isNotEmpty)
+            .toList();
+        String? url = format['url']?.toString();
+        if (url == null || url.isEmpty) {
+          final cipher =
+              format['signatureCipher']?.toString() ??
+              format['cipher']?.toString();
+          if (cipher == null || script == null) continue;
+          url = _decipher.decipherUrl(cipher, script);
+        } else if (script != null &&
+            Uri.tryParse(url)?.queryParameters['n'] != null) {
+          // Links from the web-family clients carry an `n` challenge; left
+          // unsolved the server throttles to a crawl or refuses them.
+          url = _decipher.decipherUrl(
+                'url=${Uri.encodeQueryComponent(url)}',
+                script,
+              ) ??
+              url;
+        }
+        if (url == null || url.isEmpty) continue;
+        if (cpn != null) url = _withParam(url, 'cpn', cpn);
+        url = appendPot(url, pot);
+        final height = (format['height'] as num?)?.toInt() ?? 0;
+        if (height < 144) continue;
+        final labelRaw = format['qualityLabel']?.toString() ?? '';
+        out.add(
+          MusicVideoStream(
+            label: labelRaw.isEmpty ? '${height}p' : labelRaw,
+            height: height,
+            bitrate: (format['bitrate'] as num?)?.toInt() ?? 0,
+            url: url,
+            mimeType: cleanMime,
+            codec: codecs.isEmpty ? '' : codecs.first,
+            fps: (format['fps'] as num?)?.toInt() ?? 0,
+            client: label,
+            muxed: progressive || codecs.length > 1,
+            requestHeaders: headers,
+          ),
+        );
+      }
+    }
+
+    collect(streaming?['adaptiveFormats'], progressive: false);
+    collect(streaming?['formats'], progressive: true);
+    return out;
+  }
+
+  Future<List<MusicVideoStream>> _visionOsVideoOptions(
+    String videoId, {
+    required bool appStyle,
+  }) async {
+    final label = appStyle ? 'VISIONOS-app' : 'VISIONOS-web';
+    final visitor = _visitorData;
+    final cpn = _nonce(16);
+    final ua = appStyle ? _visionOsAppUa : _visionOsWebUa;
+    final client = <String, dynamic>{
+      'clientName': 'VISIONOS',
+      'clientVersion': appStyle ? _visionOsAppVersion : _visionOsWebVersion,
+      if (appStyle) ...{'clientScreen': 'WATCH', 'platform': 'MOBILE'},
+      if (visitor != null && visitor.isNotEmpty) 'visitorData': visitor,
+      'deviceMake': 'Apple',
+      'deviceModel': _visionOsDeviceModel,
+      'osName': 'visionOS',
+      'osVersion': appStyle ? _visionOsAppOsVersion : _visionOsWebOsVersion,
+      if (!appStyle) 'userAgent': ua,
+      'hl': 'en',
+      'gl': 'US',
+      'utcOffsetMinutes': 0,
+    };
+    final body = <String, dynamic>{
+      'context': {
+        'client': client,
+        'request': {'internalExperimentFlags': <Object>[], 'useSsl': true},
+        'user': {'lockedSafetyMode': false},
+      },
+      'videoId': videoId,
+      if (appStyle) 'cpn': cpn,
+      'contentCheckOk': true,
+      'racyCheckOk': true,
+    };
+    final url = appStyle
+        ? '$_gapisApi/player?prettyPrint=false&t=${_nonce(12)}&id=$videoId'
+        : '$youtubeApi/player?key=$_visionOsApiKey&prettyPrint=false';
+    final headers = <String, String>{
+      'User-Agent': ua,
+      'X-Goog-Api-Format-Version': appStyle ? '2' : '1',
+      if (!appStyle) ...{
+        'X-YouTube-Client-Name': '101',
+        'X-YouTube-Client-Version': _visionOsWebVersion,
+        'Origin': youtubeOrigin,
+        'X-Origin': youtubeOrigin,
+        'Referer': '$youtubeOrigin/',
+      },
+      if (visitor != null && visitor.isNotEmpty) 'X-Goog-Visitor-Id': visitor,
+    };
+    final root = await _postVideoPlayer(url, headers: headers, body: body);
+    final status = root['playabilityStatus'] as Map?;
+    if (status?['status']?.toString() != 'OK') {
+      PlayDiag.log(
+        'video: $label refused $videoId — ${status?['status']} '
+        '${status?['reason'] ?? ''}',
+      );
+      return const [];
+    }
+    // The media server expects the same User-Agent the player request used
+    // (and, for the app shape, the same content playback nonce).
+    final streamHeaders = <String, String>{
+      'User-Agent': ua,
+      if (visitor != null && visitor.isNotEmpty) 'X-Goog-Visitor-Id': visitor,
+    };
+    return _videoFormatsFrom(
+      root['streamingData'] as Map?,
+      label: label,
+      headers: streamHeaders,
+      cpn: appStyle ? cpn : null,
+    );
+  }
+
+  Future<List<MusicVideoStream>> _tvVideoOptions(
+    String videoId,
+    Future<PlayerScript?> scriptFuture,
+  ) async {
+    final script = await scriptFuture;
+    if (script?.sts == null) {
+      PlayDiag.log('video: TVHTML5 skipped — no player script for $videoId');
+      return const [];
+    }
+    final visitor = _visitorData;
+    final body = <String, dynamic>{
+      'context': {
+        'client': {
+          'clientName': 'TVHTML5',
+          'clientVersion': _tvVersion,
+          'deviceMake': 'Samsung',
+          'deviceModel': 'UKS9800',
+          'osName': 'Tizen',
+          'osVersion': '2.4.0',
+          'userAgent': _tvUa,
+          if (visitor != null && visitor.isNotEmpty) 'visitorData': visitor,
+          'hl': 'en',
+          'gl': 'US',
+        },
+      },
+      'videoId': videoId,
+      'contentCheckOk': true,
+      'racyCheckOk': true,
+      'playbackContext': {
+        'contentPlaybackContext': {
+          'html5Preference': 'HTML5_PREF_WANTS',
+          'signatureTimestamp': script!.sts,
+        },
+      },
+    };
+    final headers = <String, String>{
+      'User-Agent': _tvUa,
+      'X-YouTube-Client-Name': '7',
+      'X-YouTube-Client-Version': _tvVersion,
+      'Origin': youtubeOrigin,
+      'X-Origin': youtubeOrigin,
+      'Referer': '$youtubeOrigin/tv',
+      if (visitor != null && visitor.isNotEmpty) 'X-Goog-Visitor-Id': visitor,
+    };
+    final root = await _postVideoPlayer(
+      '$youtubeApi/player?key=$_tvApiKey&prettyPrint=false',
+      headers: headers,
+      body: body,
+    );
+    final status = root['playabilityStatus'] as Map?;
+    if (status?['status']?.toString() != 'OK') {
+      PlayDiag.log(
+        'video: TVHTML5 refused $videoId — ${status?['status']} '
+        '${status?['reason'] ?? ''}',
+      );
+      return const [];
+    }
+    return _videoFormatsFrom(
+      root['streamingData'] as Map?,
+      label: 'TVHTML5-samsung',
+      headers: {
+        'User-Agent': _tvUa,
+        'Origin': youtubeOrigin,
+        'Referer': '$youtubeOrigin/tv',
+        if (visitor != null && visitor.isNotEmpty) 'X-Goog-Visitor-Id': visitor,
+      },
+      script: script,
+    );
+  }
+
+  /// Video pictures for the synced Now Playing backdrop: every playable link
+  /// from every client that answers, merged. Callers rank them with
+  /// `rankVideoStreams` and verify a link before using it.
   ///
-  /// Asks the direct-URL clients that serve the full ladder (ANDROID_VR,
-  /// IOS, ANDROID) at the same time and keeps every playable link from all
-  /// of them. The first client to answer used to win, and when it only had
-  /// the 360p progressive file the page was stuck at 360p; now the best
-  /// picture any client offers is available. Callers rank the result with
-  /// `rankVideoStreams` and verify a link before using it. Cipher clients
-  /// are only tried when none of those produced anything.
+  /// Round 1 asks the clients the maintained extractors rely on today
+  /// (visionOS in both request shapes, tv_samsung) at the same time. Only if
+  /// that gives nothing taller than 1080p are the older clients and the web
+  /// family consulted as well.
   Future<List<MusicVideoStream>> resolveMusicVideo(String videoId) async {
     if (videoId.isEmpty) return const [];
     try {
       await _ensureConfig().timeout(const Duration(seconds: 4));
     } catch (_) {}
-    // Mint alongside the player requests; links pick it up when it lands.
-    final pot = _mintPoToken(videoId)
+    final scriptFuture = _decipher
+        .scriptFor(videoId)
+        .timeout(const Duration(seconds: 8))
+        .then<PlayerScript?>((s) => s)
+        .catchError((_) => null);
+
+    final merged = <MusicVideoStream>[];
+    final seen = <String>{};
+    void addAll(List<MusicVideoStream> options) {
+      for (final o in options) {
+        if (seen.add(o.url)) merged.add(o);
+      }
+    }
+
+    int tallest() =>
+        merged.isEmpty ? 0 : merged.map((s) => s.height).reduce(max);
+
+    Future<List<MusicVideoStream>> guarded(
+      String label,
+      Future<List<MusicVideoStream>> Function() run,
+    ) async {
+      try {
+        return await run().timeout(const Duration(seconds: 12));
+      } catch (e) {
+        PlayDiag.log('video: $label failed for $videoId: $e');
+        return const <MusicVideoStream>[];
+      }
+    }
+
+    final round1 = await Future.wait([
+      guarded('VISIONOS-app', () => _visionOsVideoOptions(videoId, appStyle: true)),
+      guarded(
+        'VISIONOS-web',
+        () => _visionOsVideoOptions(videoId, appStyle: false),
+      ),
+      guarded('TVHTML5', () => _tvVideoOptions(videoId, scriptFuture)),
+    ]);
+    for (final r in round1) {
+      addAll(r);
+    }
+    PlayDiag.log(
+      'video: round 1 for $videoId → visionOS-app ${round1[0].length}, '
+      'visionOS-web ${round1[1].length}, tv ${round1[2].length} links, '
+      'tallest ${tallest()}p',
+    );
+    if (tallest() >= 1080) return merged;
+
+    // Round 2: the older clients, then the web family with its cipher.
+    final mint = _mintPoToken(videoId)
         .timeout(const Duration(seconds: 6), onTimeout: () => null)
         .then<String?>((po) {
           final token = po?.sessionToken ?? '';
           return token.isEmpty ? null : token;
         })
         .catchError((_) => null);
-
     Future<List<MusicVideoStream>> attempt(
       PlayerClient client,
       PlayerScript? script,
@@ -4502,40 +4839,25 @@ class InnerTubeMusicApi {
           videoId: videoId,
           client: client,
           script: script,
-          gvsPoToken: pot,
+          gvsPoToken: mint,
         ).timeout(_fastClientTimeout);
       } catch (_) {
         return const <MusicVideoStream>[];
       }
     }
 
-    const direct = ['ANDROID_VR', 'IOS', 'ANDROID'];
-    final directClients = <PlayerClient>[
-      for (final name in direct)
+    final legacy = <PlayerClient>[
+      for (final name in const ['IOS', 'ANDROID'])
         for (final c in playerClients)
           if (c.name == name) c,
     ];
-    final merged = <MusicVideoStream>[];
-    final seen = <String>{};
-    void addAll(List<MusicVideoStream> options) {
-      for (final o in options) {
-        if (seen.add(o.url)) merged.add(o);
-      }
-    }
-
-    final results = await Future.wait([
-      for (final c in directClients) attempt(c, null),
-    ]);
-    for (final r in results) {
+    for (final r in await Future.wait([for (final c in legacy) attempt(c, null)])) {
       addAll(r);
     }
-    int tallest() =>
-        merged.isEmpty ? 0 : merged.map((s) => s.height).reduce(max);
-    // Good enough: nothing more to ask for.
     if (tallest() >= 720) return merged;
 
-    PlayerScript? script;
-    final tried = directClients.map((c) => c.key).toSet();
+    PlayerScript? script = await scriptFuture;
+    final tried = legacy.map((c) => c.key).toSet();
     final rest = _orderedFastClients(videoId)
         .where((c) => !tried.contains(c.key))
         .take(3);

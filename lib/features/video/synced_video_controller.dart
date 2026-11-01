@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -10,6 +11,7 @@ import '../../core/audio/stream_models.dart';
 import '../player/play_diag.dart';
 import '../player/playback_service.dart';
 import 'music_video_settings.dart';
+import 'chunked_range_proxy.dart';
 import 'synced_video_repository.dart';
 import 'video_match.dart';
 
@@ -121,10 +123,40 @@ class SyncedVideoController extends ChangeNotifier {
     if (_quality == height) return;
     _quality = height;
     if (_bundle != null && _attached > 0 && _enabled) {
-      final next = pickVideoStreamForQuality(_bundle!.streams, height);
+      final next = pickVideoStreamForQuality(
+        _bundle!.streams,
+        height,
+        autoHeight: _autoHeight(),
+      );
       if (next != null && next.url != _stream?.url) {
         unawaited(_startPlayback(_gen));
       }
+    }
+  }
+
+  /// What Auto aims for on the display the window is on right now.
+  int _autoHeight() {
+    try {
+      final views = WidgetsBinding.instance.platformDispatcher.views;
+      if (views.isEmpty) return 1080;
+      return autoVideoHeightFor(views.first.physicalSize.height);
+    } catch (_) {
+      return 1080;
+    }
+  }
+
+  /// The window moved to a different size (full screen on or off): on Auto,
+  /// move to the picture that now fits, but only when that is a different one.
+  void onViewportChanged() {
+    final bundle = _bundle;
+    if (_disposed || _quality != 0 || bundle == null || _attached == 0) return;
+    final best = pickVideoStreamForQuality(
+      bundle.streams,
+      0,
+      autoHeight: _autoHeight(),
+    );
+    if (best != null && best.height != _stream?.height) {
+      unawaited(_startPlayback(_gen));
     }
   }
 
@@ -384,6 +416,13 @@ class SyncedVideoController extends ChangeNotifier {
   }
 
   int _startToken = 0;
+  Uri? _proxied;
+
+  void _releaseProxy() {
+    final old = _proxied;
+    _proxied = null;
+    if (old != null) ChunkedRangeProxy.shared.release(old);
+  }
 
   /// Tries the ranked candidates in turn — verified to serve bytes, then
   /// opened and checked to decode — until one is on screen. A link that
@@ -400,7 +439,11 @@ class SyncedVideoController extends ChangeNotifier {
         _attached == 0 ||
         !_enabled;
     final repo = _ref.read(syncedVideoRepositoryProvider);
-    final ranked = rankVideoStreams(bundle.streams, _quality);
+    final ranked = rankVideoStreams(
+      bundle.streams,
+      _quality,
+      autoHeight: _autoHeight(),
+    );
     var failures = 0;
     final unverified = <MusicVideoStream>[];
     for (final stream in ranked) {
@@ -452,10 +495,24 @@ class SyncedVideoController extends ChangeNotifier {
         await player.stop();
       } catch (_) {}
       if (stale()) return;
-      await player.open(
-        Media(stream.url, httpHeaders: stream.requestHeaders),
-        play: false,
-      );
+      // googlevideo throttles or refuses the open-ended range requests
+      // libmpv makes, so the stream is read through a loopback proxy that
+      // asks for it in bounded pieces, as yt-dlp and NewPipe do.
+      var url = stream.url;
+      Map<String, String>? headers = stream.requestHeaders;
+      final viaProxy =
+          Uri.tryParse(stream.url)?.host.contains('googlevideo') == true;
+      if (viaProxy) {
+        _releaseProxy();
+        final local = await ChunkedRangeProxy.shared.register(
+          stream.url,
+          headers: stream.requestHeaders,
+        );
+        _proxied = local;
+        url = local.toString();
+        headers = null;
+      }
+      await player.open(Media(url, httpHeaders: headers), play: false);
       _rate = 1.0;
       _correcting = false;
       try {
@@ -533,6 +590,7 @@ class SyncedVideoController extends ChangeNotifier {
         try {
           await _player?.stop();
         } catch (_) {}
+        _releaseProxy();
       }),
     );
     _notify();
