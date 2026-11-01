@@ -6,12 +6,15 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../core/artwork/animated_artwork_session.dart';
+import '../core/audio/stream_models.dart';
 import '../core/diagnostics/diagnostics_log.dart';
 import '../core/network/network_monitor.dart';
 import '../core/storage/prefs.dart';
 import '../features/player/playback_service.dart';
 import '../features/presence/discord_presence_service.dart';
 import '../ui/components/infobar_host.dart';
+import 'window_maximize.dart';
+import 'window_title.dart';
 
 /// App-scoped window + tray lifecycle owner.
 ///
@@ -34,6 +37,7 @@ class WindowLifecycle extends ConsumerStatefulWidget {
 class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     with TrayListener, WindowListener {
   bool _quitting = false;
+  ProviderSubscription<PlayableTrack?>? _titleSub;
 
   @override
   void initState() {
@@ -43,6 +47,30 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     } catch (_) {}
     try {
       windowManager.addListener(this);
+    } catch (_) {}
+    // The title is the current song, not the app name: keep it in step
+    // with playback across every route (including /welcome).
+    _titleSub = ref.listenManual(
+      playbackServiceProvider.select((s) => s.current),
+      (_, track) => unawaited(_applyWindowTitle(track)),
+      fireImmediately: true,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncMaximizedState());
+  }
+
+  Future<void> _applyWindowTitle(PlayableTrack? track) async {
+    try {
+      await windowManager.setTitle(windowTitleFor(track));
+    } catch (_) {}
+  }
+
+  /// The window can start maximized (OS restore or the user's last
+  /// session), so seed the icon state from the real window.
+  Future<void> _syncMaximizedState() async {
+    try {
+      final maximized = await windowManager.isMaximized();
+      if (!mounted) return;
+      ref.read(windowMaximizedProvider.notifier).sync(maximized);
     } catch (_) {}
   }
 
@@ -138,7 +166,19 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   void onWindowRestore() => _setWindowVisible(true);
 
   @override
-  void onWindowMaximize() => _setWindowVisible(true);
+  void onWindowMaximize() {
+    _setWindowVisible(true);
+    _syncMaximized(true);
+  }
+
+  @override
+  void onWindowUnmaximize() => _syncMaximized(false);
+
+  void _syncMaximized(bool value) {
+    try {
+      ref.read(windowMaximizedProvider.notifier).sync(value);
+    } catch (_) {}
+  }
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
@@ -173,6 +213,7 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
 
   @override
   void dispose() {
+    _titleSub?.close();
     try {
       trayManager.removeListener(this);
     } catch (_) {}

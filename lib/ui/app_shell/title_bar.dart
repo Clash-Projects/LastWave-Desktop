@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../app/window_maximize.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/search/search_repository.dart';
@@ -116,15 +117,8 @@ class WaveTitleBar extends ConsumerWidget {
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       // WinUI: double-click title bar toggles maximize.
-                      onDoubleTap: () async {
-                        try {
-                          if (await windowManager.isMaximized()) {
-                            await windowManager.unmaximize();
-                          } else {
-                            await windowManager.maximize();
-                          }
-                        } catch (_) {}
-                      },
+                      onDoubleTap: () =>
+                          ref.read(windowMaximizedProvider.notifier).toggle(),
                       child: const SizedBox(
                         width: double.infinity,
                         height: double.infinity,
@@ -561,16 +555,17 @@ class _CommunityBtns extends StatelessWidget {
   }
 }
 
-class _WindowButtons extends StatelessWidget {
+class _WindowButtons extends ConsumerWidget {
   const _WindowButtons();
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     Future<void> guard(Future<void> Function() fn) async {
       try {
         await fn();
       } catch (_) {}
     }
 
+    final maximized = ref.watch(windowMaximizedProvider);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -580,17 +575,9 @@ class _WindowButtons extends StatelessWidget {
           onTap: () => guard(() => windowManager.minimize()),
         ),
         _WinBtn(
-          tooltip: 'Maximize',
-          icon: FluentIcons.checkbox,
-          onTap: () async {
-            try {
-              if (await windowManager.isMaximized()) {
-                await windowManager.unmaximize();
-              } else {
-                await windowManager.maximize();
-              }
-            } catch (_) {}
-          },
+          tooltip: maximized ? 'Restore' : 'Maximize',
+          icon: maximized ? FluentIcons.chrome_restore : FluentIcons.checkbox,
+          onTap: () => ref.read(windowMaximizedProvider.notifier).toggle(),
         ),
         _WinBtn(
           tooltip: 'Close',
