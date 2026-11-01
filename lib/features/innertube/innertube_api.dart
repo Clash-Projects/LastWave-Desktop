@@ -4657,6 +4657,10 @@ class InnerTubeMusicApi {
     required String authScope,
     bool preferSmallest = false,
   }) async {
+    final clientNeedsCipher =
+        client.name == 'WEB_REMIX' ||
+        client.name == 'WEB_EMBEDDED_PLAYER' ||
+        client.name == 'MWEB';
     final body = {
       'context': _context(
         client.name,
@@ -4672,7 +4676,7 @@ class InnerTubeMusicApi {
       'videoId': videoId,
       'contentCheckOk': true,
       'racyCheckOk': true,
-      if (signatureTimestamp != null)
+      if (clientNeedsCipher && signatureTimestamp != null)
         'playbackContext': {
           'contentPlaybackContext': {'signatureTimestamp': signatureTimestamp},
         },
@@ -4749,10 +4753,14 @@ class InnerTubeMusicApi {
         return _decipher.decipherUrl(cipher, script);
       }();
       if (url == null || url.isEmpty) continue;
+      // SABR needs YouTube's UMP protocol; mpv can only open plain URLs.
+      if (url.startsWith('sabr:')) continue;
       url = appendPot(url, gvsPoToken);
       final mime = format['mimeType']?.toString() ?? '';
       final codec = _extractCodec(mime);
-      if (!_isCompatibleAudio(mime, codec)) continue;
+      final isAudioOnly = _isCompatibleAudio(mime, codec);
+      final isMuxed = !isAudioOnly && _isCompatibleMuxedAudio(mime, codec);
+      if (!isAudioOnly && !isMuxed) continue;
       final bitrate = (format['bitrate'] as num?)?.toInt() ?? 0;
       final urlExpiry = _urlExpiryMs(url);
       DateTime? expiresAt;
@@ -4765,7 +4773,12 @@ class InnerTubeMusicApi {
         );
       }
       final codecLabel = (codec?.isNotEmpty ?? false)
-          ? codec!.toUpperCase()
+          ? (codec!.toLowerCase().contains('opus')
+              ? 'OPUS'
+              : (codec.toLowerCase().contains('mp4a') ||
+                      codec.toLowerCase().contains('aac'))
+                  ? 'AAC'
+                  : codec.toUpperCase())
           : (mime.toLowerCase().contains('opus')
                 ? 'OPUS'
                 : mime.toLowerCase().contains('mp4')
@@ -4789,10 +4802,50 @@ class InnerTubeMusicApi {
           adaptive: entry.adaptive,
           bitrate: bitrate,
           itag: itag,
+          isAudioOnly: isAudioOnly,
+        ),
+      );
+    }
+    final hlsUrl = streaming?['hlsUrl']?.toString() ??
+        streaming?['hlsManifestUrl']?.toString();
+    if (hlsUrl != null && hlsUrl.isNotEmpty && !hlsUrl.startsWith('sabr:')) {
+      DateTime? expiresAt;
+      final urlExpiry = _urlExpiryMs(hlsUrl);
+      final options = [?urlExpiry, ?responseExpiry];
+      if (options.isNotEmpty) {
+        expiresAt = DateTime.fromMillisecondsSinceEpoch(options.reduce(min));
+      } else {
+        expiresAt = DateTime.now().add(
+          Duration(milliseconds: _unknownExpiryTtlMs),
+        );
+      }
+      candidates.add(
+        _Candidate(
+          stream: ResolvedStream(
+            url: hlsUrl,
+            mimeType: 'application/vnd.apple.mpegurl',
+            bitrateKbps: 128,
+            audioCodec: 'AAC',
+            cacheKey:
+                'youtube:$videoId:${client.key}:hls:$authScope:${expiresAt.millisecondsSinceEpoch}',
+            requestHeaders: headers,
+            expiresAt: expiresAt,
+            watchtimeUrl: _watchtimeUrlOf(root),
+          ),
+          adaptive: false,
+          bitrate: 128000,
+          itag: -1,
+          isAudioOnly: false,
         ),
       );
     }
     candidates.sort((a, b) {
+      if (a.isAudioOnly != b.isAudioOnly) {
+        return a.isAudioOnly ? -1 : 1;
+      }
+      final aIsHls = a.stream.mimeType.contains('mpegurl');
+      final bIsHls = b.stream.mimeType.contains('mpegurl');
+      if (aIsHls != bIsHls) return aIsHls ? 1 : -1;
       final adaptiveOrder = (b.adaptive ? 1 : 0).compareTo(a.adaptive ? 1 : 0);
       if (adaptiveOrder != 0) return adaptiveOrder;
       if (preferSmallest) {
@@ -4843,7 +4896,10 @@ class InnerTubeMusicApi {
             'videoId': videoId,
             'contentCheckOk': true,
             'racyCheckOk': true,
-            if (sts != null)
+            if ((client.name == 'WEB_REMIX' ||
+                    client.name == 'WEB_EMBEDDED_PLAYER' ||
+                    client.name == 'MWEB') &&
+                sts != null)
               'playbackContext': {
                 'contentPlaybackContext': {'signatureTimestamp': sts},
               },
@@ -4870,10 +4926,12 @@ class InnerTubeMusicApi {
               }
               return _decipher.decipherUrl(cipher, script);
             }();
-            if (url == null) continue;
+            if (url == null || url.startsWith('sabr:')) continue;
             final mime = f['mimeType']?.toString() ?? '';
             final codec = _extractCodec(mime);
-            if (!_isCompatibleAudio(mime, codec)) {
+            final isAudioOnly = _isCompatibleAudio(mime, codec);
+            final isMuxed = !isAudioOnly && _isCompatibleMuxedAudio(mime, codec);
+            if (!isAudioOnly && !isMuxed) {
               continue;
             }
             final bitrate = (f['bitrate'] as num?)?.toInt() ?? 0;
@@ -4897,6 +4955,7 @@ class InnerTubeMusicApi {
                 adaptive: true,
                 bitrate: bitrate,
                 itag: (f['itag'] as num?)?.toInt() ?? -1,
+                isAudioOnly: isAudioOnly,
               ),
             );
           }
@@ -4904,16 +4963,21 @@ class InnerTubeMusicApi {
       } catch (_) {}
       if (collected.length >= 12) break;
     }
+    // Downloads should stay audio-only when YouTube still serves a direct
+    // audio URL; muxed itag 18 is only a fallback and would pull the video
+    // track down with it.
+    final audioOnly = collected.where((c) => c.isAudioOnly).toList();
+    final pool = audioOnly.isNotEmpty ? audioOnly : collected;
     _Candidate? best;
-    final m4a = collected.where(
+    final m4a = pool.where(
       (c) =>
           c.stream.mimeType.toLowerCase().contains('mp4') ||
           c.stream.mimeType.toLowerCase().contains('m4a'),
     );
     if (m4a.isNotEmpty) {
       best = m4a.reduce((a, b) => a.bitrate >= b.bitrate ? a : b);
-    } else if (collected.isNotEmpty) {
-      best = collected.reduce((a, b) => a.bitrate >= b.bitrate ? a : b);
+    } else if (pool.isNotEmpty) {
+      best = pool.reduce((a, b) => a.bitrate >= b.bitrate ? a : b);
     }
     if (best == null) {
       return resolveAudioStream(videoId);
@@ -4960,7 +5024,10 @@ class InnerTubeMusicApi {
             'videoId': videoId,
             'contentCheckOk': true,
             'racyCheckOk': true,
-            if (sts != null)
+            if ((client.name == 'WEB_REMIX' ||
+                    client.name == 'WEB_EMBEDDED_PLAYER' ||
+                    client.name == 'MWEB') &&
+                sts != null)
               'playbackContext': {
                 'contentPlaybackContext': {'signatureTimestamp': sts},
               },
@@ -4987,7 +5054,7 @@ class InnerTubeMusicApi {
               }
               return _decipher.decipherUrl(cipher, script);
             }();
-            if (url == null) continue;
+            if (url == null || url.startsWith('sabr:')) continue;
             final mime = f['mimeType']?.toString() ?? '';
             if (!mime.toLowerCase().startsWith('audio/')) {
               continue;
@@ -5300,6 +5367,22 @@ class InnerTubeMusicApi {
     }
     if (base == 'audio/mpeg') return true;
     return false;
+  }
+
+  /// Muxed formats (itag 18) carry audio inside a video container.
+  /// YouTube serves adaptive audio as SABR-only (no direct URL) to most
+  /// clients now, so the muxed MP4 is often the only playable source.
+  /// mpv runs with `vid=no`, so only the audio track is decoded.
+  static bool _isCompatibleMuxedAudio(String mime, String? codec) {
+    final m = mime.toLowerCase();
+    final c = (codec ?? '').toLowerCase();
+    final hasAudioCodec = c.contains('mp4a') ||
+        c.contains('aac') ||
+        c.contains('opus') ||
+        c.contains('vorbis');
+    if (!hasAudioCodec) return false;
+    final base = m.split(';').first.trim();
+    return base == 'video/mp4' || base == 'video/webm';
   }
 
   static String? _extractCodec(String mime) {
@@ -6317,11 +6400,13 @@ class _Candidate {
   final bool adaptive;
   final int bitrate;
   final int itag;
+  final bool isAudioOnly;
   _Candidate({
     required this.stream,
     required this.adaptive,
     required this.bitrate,
     required this.itag,
+    this.isAudioOnly = true,
   });
 }
 
