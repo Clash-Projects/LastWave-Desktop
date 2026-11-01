@@ -46,7 +46,6 @@ import 'backup_settings.dart';
 import 'diagnostics_actions.dart';
 import 'download_layout_settings.dart';
 import 'language_settings.dart';
-import 'module_settings.dart';
 import 'settings_search.dart';
 
 const _waveSettingsSections = [
@@ -313,13 +312,7 @@ class _SectionBody extends ConsumerWidget {
       case 'integrations':
         return _Ytm(onUpdate: onUpdate);
       case 'sources':
-        return Column(
-          children: [
-            _Sources(onUpdate: onUpdate),
-            const SizedBox(height: 16),
-            const ModuleSettings(),
-          ],
-        );
+        return _Sources(onUpdate: onUpdate);
       case 'experimental':
         return _Experimental(onUpdate: onUpdate);
       default:

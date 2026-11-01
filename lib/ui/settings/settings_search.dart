@@ -156,13 +156,6 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'discord rich presence status activity',
   ),
   SettingsSearchEntry(
-    id: 'sources.modules',
-    section: 'sources',
-    title: 'Provider modules',
-    subtitle: 'Install a local .lwp module',
-    keywords: 'lwp module plugin provider install',
-  ),
-  SettingsSearchEntry(
     id: 'sources.addons',
     section: 'sources',
     title: 'Addon sources',
