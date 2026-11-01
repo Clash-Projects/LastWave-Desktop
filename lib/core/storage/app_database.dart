@@ -568,7 +568,7 @@ class AppDatabase {
 
       // Unique tracks
       final uniqueRow = _db.select(
-        'SELECT COUNT(DISTINCT lower(title || "|" || artist)) as tracks '
+        "SELECT COUNT(DISTINCT lower(title || '|' || artist)) as tracks "
         'FROM local_plays $whereClause;',
       );
       final uniqueTracks = (uniqueRow.first['tracks'] as int?) ?? 0;
@@ -598,7 +598,7 @@ class AppDatabase {
       // Top Tracks
       final topTracksRows = _db.select(
         'SELECT title, artist, COUNT(*) as cnt FROM local_plays $whereClause '
-        'GROUP BY lower(title || "|" || artist) ORDER BY cnt DESC LIMIT 20;',
+        "GROUP BY lower(title || '|' || artist) ORDER BY cnt DESC LIMIT 20;",
       );
       final topTracks = topTracksRows
           .map((r) => (
@@ -611,7 +611,7 @@ class AppDatabase {
 
       // Hourly Distribution (0..23)
       final hourlyRows = _db.select(
-        'SELECT strftime("%H", played_at_millis / 1000, "unixepoch", "localtime") as hr, '
+        "SELECT strftime('%H', played_at_millis / 1000, 'unixepoch', 'localtime') as hr, "
         'COUNT(*) as cnt FROM local_plays $whereClause GROUP BY hr ORDER BY hr ASC;',
       );
       final hourly = <int, int>{for (var h = 0; h < 24; h++) h: 0};
@@ -625,7 +625,7 @@ class AppDatabase {
 
       // Daily Activity (last 30 days)
       final dailyRows = _db.select(
-        'SELECT strftime("%Y-%m-%d", played_at_millis / 1000, "unixepoch", "localtime") as dt, '
+        "SELECT strftime('%Y-%m-%d', played_at_millis / 1000, 'unixepoch', 'localtime') as dt, "
         'COUNT(*) as cnt FROM local_plays $whereClause GROUP BY dt ORDER BY dt DESC LIMIT 30;',
       );
       final daily = dailyRows

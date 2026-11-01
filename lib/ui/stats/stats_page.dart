@@ -1295,7 +1295,9 @@ class _MetricsGrid extends StatelessWidget {
             ? 'Late night sessions'
             : (stats.peakListeningHour < 12
                 ? 'Morning energy'
-                : 'Evening groove'),
+                : (stats.peakListeningHour < 17
+                    ? 'Afternoon flow'
+                    : 'Evening groove')),
       ),
       _MetricTile(
         icon: FluentIcons.music_in_collection,
