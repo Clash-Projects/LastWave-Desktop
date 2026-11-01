@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../app/window.dart';
 import '../../app/window_lifecycle.dart';
+import '../../app/window_maximize.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/podcasts/podcast_repository.dart';
@@ -228,6 +229,8 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _dockQueueActive = false;
   bool _dockEqualizerActive = false;
   bool _dockIsLyrics = false;
+  bool _dockIsNowPlaying = false;
+  bool _dockMaximized = false;
 
   void _closeQueue() => setState(() => _queueOpen = false);
   void _closeLyrics() => setState(() => _lyricsOpen = false);
@@ -241,21 +244,30 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     required bool queueActive,
     required bool equalizerActive,
     required bool isLyrics,
+    required bool isNowPlaying,
+    required bool maximized,
   }) {
     if (_dockCache == null ||
         _dockLyricsActive != lyricsActive ||
         _dockQueueActive != queueActive ||
         _dockEqualizerActive != equalizerActive ||
-        _dockIsLyrics != isLyrics) {
+        _dockIsLyrics != isLyrics ||
+        _dockIsNowPlaying != isNowPlaying ||
+        _dockMaximized != maximized) {
       _dockLyricsActive = lyricsActive;
       _dockQueueActive = queueActive;
       _dockEqualizerActive = equalizerActive;
       _dockIsLyrics = isLyrics;
+      _dockIsNowPlaying = isNowPlaying;
+      _dockMaximized = maximized;
       // The dock is structural: reserves 80px on every view, including
       // Now Playing — its in-page transport was removed so this dock is
       // the single control surface.
       _dockCache = WavePlayerDock(
         onExpand: _openNowPlaying,
+        nowPlaying: isNowPlaying,
+        maximized: maximized,
+        onToggleMaximize: _toggleMaximize,
         lyricsActive: lyricsActive,
         queueActive: queueActive,
         equalizerActive: equalizerActive,
@@ -622,6 +634,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     waveOpen(context, '/now');
   }
 
+  void _toggleMaximize() {
+    ref.read(windowMaximizedProvider.notifier).toggle();
+  }
+
   void _goBack() {
     // A page that was opened on top of another (an album, an artist, a
     // playlist) closes back over the surface it grew out of — the reverse of
@@ -733,6 +749,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     final width = MediaQuery.sizeOf(context).width;
     ref.watch(podcastProgressCoordinatorProvider);
     final active = waveActivePath(widget.location);
+    final maximized = ref.watch(windowMaximizedProvider);
     final hasTrack = ref.watch(
       playbackServiceProvider.select((s) => s.current != null),
     );
@@ -1008,6 +1025,8 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                     queueActive: _queueOpen,
                     equalizerActive: _equalizerOpen,
                     isLyrics: isLyrics,
+                    isNowPlaying: isNowPlaying,
+                    maximized: maximized,
                   ),
                 ],
               ),

@@ -42,6 +42,18 @@ class WavePlayerDock extends ConsumerWidget {
   final bool lyricsActive;
   final bool equalizerActive;
   final VoidCallback onToggleMini;
+
+  /// True while the Now Playing route is the visible page.
+  final bool nowPlaying;
+
+  /// True while the OS window is maximized.
+  final bool maximized;
+
+  /// Maximizes/restores the window. Only used from the Now Playing route:
+  /// the page is already open there, so its expand glyph is the
+  /// window-size control instead of a dead navigation target.
+  final VoidCallback? onToggleMaximize;
+
   const WavePlayerDock({
     super.key,
     required this.onExpand,
@@ -52,6 +64,9 @@ class WavePlayerDock extends ConsumerWidget {
     this.lyricsActive = false,
     this.equalizerActive = false,
     required this.onToggleMini,
+    this.nowPlaying = false,
+    this.maximized = false,
+    this.onToggleMaximize,
   });
 
   @override
@@ -336,9 +351,16 @@ class WavePlayerDock extends ConsumerWidget {
                             const _VolumeFlyoutSection(),
                           if (showExpand)
                             _Glyph(
-                              tooltip: 'Now Playing',
-                              icon: WaveIcons.expand,
-                              onTap: onExpand,
+                              tooltip: nowPlaying
+                                  ? (maximized ? 'Restore' : 'Maximize')
+                                  : 'Now Playing',
+                              icon: nowPlaying && maximized
+                                  ? WaveIcons.restore
+                                  : WaveIcons.expand,
+                              active: nowPlaying && maximized,
+                              onTap: nowPlaying
+                                  ? onToggleMaximize
+                                  : onExpand,
                             ),
                           if (showMini)
                             _Glyph(

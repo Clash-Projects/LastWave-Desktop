@@ -67,6 +67,7 @@ class WaveIcons {
   static const IconData close = FluentIcons.chrome_close;
   static const IconData minimize = FluentIcons.chrome_minimize;
   static const IconData maximize = FluentIcons.checkbox;
+  static const IconData restore = FluentIcons.chrome_restore;
   static const IconData back = FluentIcons.chevron_left;
   static const IconData forward = FluentIcons.chevron_right;
   static const IconData chevronRight = FluentIcons.chevron_right;

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../app/window_maximize.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
@@ -213,11 +214,12 @@ class _CenterScroll extends StatelessWidget {
 /// macOS is the exception: `TitleBarStyle.hidden` hides the title bar
 /// but keeps the native traffic lights, so the custom buttons are
 /// omitted there and the brand label is inset past them.
-class _WelcomeChrome extends StatelessWidget {
+class _WelcomeChrome extends ConsumerWidget {
   const _WelcomeChrome();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final maximized = ref.watch(windowMaximizedProvider);
     return DragToMoveArea(
       child: SizedBox(
         height: WaveDensity.titleBar,
@@ -246,18 +248,11 @@ class _WelcomeChrome extends StatelessWidget {
                 },
               ),
               _ChromeBtn(
-                tooltip: 'Maximize',
-                icon: WaveIcons.maximize,
+                tooltip: maximized ? 'Restore' : 'Maximize',
+                icon: maximized ? WaveIcons.restore : WaveIcons.maximize,
                 iconSize: 12,
-                onTap: () async {
-                  try {
-                    if (await windowManager.isMaximized()) {
-                      await windowManager.unmaximize();
-                    } else {
-                      await windowManager.maximize();
-                    }
-                  } catch (_) {}
-                },
+                onTap: () =>
+                    ref.read(windowMaximizedProvider.notifier).toggle(),
               ),
               _ChromeBtn(
                 tooltip: 'Close',
