@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -14,15 +15,17 @@ import '../../core/error/fatal_crumbs.dart';
 import '../../core/storage/prefs.dart';
 import '../../ui/components/buttons.dart' show LWTooltip;
 import '../../ui/components/menus.dart'
-    show WaveMenuAction, WaveMenuButton, WaveMenuSeparator;
+    show WaveMenuAction, WaveMenuButton, WaveMenuSeparator, WaveMenuSubmenu;
 import '../../ui/components/states.dart';
 import '../../ui/lyrics/lyrics_panel.dart';
+import '../../ui/lyrics/lyrics_share_card.dart';
 import '../../ui/theme/haze.dart';
 import '../../ui/theme/tokens.dart';
 import '../../ui/theme/wave_icons.dart';
 import '../player/playback_service.dart';
 import 'lyrics_models.dart';
 import 'lyrics_providers.dart';
+import 'lyrics_translation.dart';
 
 /// Provider for track-specific lyrics timing offset in milliseconds.
 final lyricsOffsetProvider = StateNotifierProvider.family<LyricsOffsetNotifier, int, String>(
@@ -137,6 +140,11 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   double _speed = 1.0;
   int _offsetMs = 0;
   String? _currentTrackKey;
+  bool _selectMode = false;
+  final Set<int> _selectedLines = {};
+  bool _controlsShown = true;
+  Timer? _hideTimer;
+  int _armedAutoHide = 0;
   LyricsResult? _currentResult;
   bool _lastTransliteration = true;
   bool _lastWordByWord = true;
@@ -190,9 +198,13 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
 
   bool get _isEffectivelyActive {
     if (!mounted || !widget.isActive) return false;
-    final routeCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    // isActive, not isCurrent: a flyout or dialog opened above the page
+    // makes it non-current, and stopping the clock there drops the word
+    // wipe to the ~10Hz position updates. A page covered by another page
+    // is paused by TickerMode instead.
+    final routeActive = ModalRoute.of(context)?.isActive ?? true;
     final tickerEnabled = TickerMode.valuesOf(context).enabled;
-    return routeCurrent && tickerEnabled;
+    return routeActive && tickerEnabled;
   }
 
   int _lastTickMs = 0;
@@ -264,8 +276,72 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     }
   }
 
+  /// Shows the toolbar and re-arms the idle fade (Auto-hide setting).
+  void _pokeControls() {
+    final seconds = ref.read(prefsProvider).lyricsAutoHideSeconds;
+    _hideTimer?.cancel();
+    if (!_controlsShown && mounted) setState(() => _controlsShown = true);
+    if (_selectMode || seconds <= 0) return;
+    _hideTimer = Timer(Duration(seconds: seconds), () {
+      if (!mounted || _selectMode) return;
+      setState(() => _controlsShown = false);
+    });
+  }
+
+  void _toggleSelectMode() {
+    setState(() {
+      _selectMode = !_selectMode;
+      if (_selectMode) _following = false;
+      if (!_selectMode) _selectedLines.clear();
+    });
+    _pokeControls();
+  }
+
+  void _toggleShareLine(int index) {
+    setState(() {
+      if (!_selectedLines.remove(index)) _selectedLines.add(index);
+    });
+  }
+
+  /// A card with an excerpt around the line being sung.
+  Future<void> _shareSong(LyricsResult result) async {
+    final lines = _songCardLines(result, _activeLineIndex.value);
+    if (!mounted || lines.isEmpty) return;
+    await exportLyricsShareCard(context, track: widget.track, lines: lines);
+  }
+
+  /// A card with the ticked lines, in song order.
+  Future<void> _shareSelected(LyricsResult result) async {
+    final indexes = _selectedLines
+        .where((i) => i >= 0 && i < result.lines.length)
+        .toList()
+      ..sort();
+    final lines = [for (final i in indexes.take(12)) result.lines[i].text];
+    if (!mounted || lines.isEmpty) return;
+    await exportLyricsShareCard(context, track: widget.track, lines: lines);
+  }
+
+  /// A short excerpt around the line being sung, or the opening lines.
+  List<String> _songCardLines(LyricsResult result, int active) {
+    if (result.lines.isEmpty) {
+      return result.plainLyrics
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .take(8)
+          .toList();
+    }
+    if (active < 0 || active >= result.lines.length) {
+      return result.lines.take(8).map((l) => l.text).toList();
+    }
+    final start = math.max(0, active - 2);
+    final end = math.min(result.lines.length, active + 6);
+    return result.lines.sublist(start, end).map((l) => l.text).toList();
+  }
+
   @override
   void dispose() {
+    _hideTimer?.cancel();
     _posSub?.close();
     _playingSub?.close();
     _speedSub?.close();
@@ -361,7 +437,19 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     // not rebuild the karaoke view (it recreates the lyric adapter).
     final wordByWord =
         ref.watch(prefsProvider.select((p) => p.wordByWord));
+    final textScale =
+        ref.watch(prefsProvider.select((p) => p.lyricsTextScale));
+    final autoHide =
+        ref.watch(prefsProvider.select((p) => p.lyricsAutoHideSeconds));
     final async = ref.watch(waveLyricsProvider(widget.track));
+    final lyricFontSize =
+        (widget.fontSize ?? (widget.compact ? 28.0 : 36.0)) * textScale;
+    if (autoHide != _armedAutoHide) {
+      _armedAutoHide = autoHide;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _pokeControls();
+      });
+    }
 
     _offsetMs = offsetMs;
     // Covers offset/track/data-driven syncs; clock ticks arrive via the
@@ -424,6 +512,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                   compact: widget.compact,
                   wordByWord: wordByWord,
                   onClose: widget.onClose,
+                  onShareSong: () => _shareSong(effectiveResult),
                   onToggleFollowing: () {
                     if (!_following) {
                       _lyricController.stopSelection();
@@ -461,6 +550,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
             _currentResult != effectiveResult ||
             _lastTransliteration != showTransliteration ||
             _lastWordByWord != wordByWord) {
+          if (_currentTrackKey != widget.track.queueKey) {
+            _selectedLines.clear();
+            _selectMode = false;
+          }
           _currentTrackKey = widget.track.queueKey;
           _currentResult = effectiveResult;
           _lastTransliteration = showTransliteration;
@@ -476,12 +569,32 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           }
         }
 
-        return RepaintBoundary(
+        final translateKey = lyricsTranslationKey(
+          trackKey: widget.track.queueKey,
+          target: ref.watch(
+            prefsProvider.select((p) => p.lyricsTranslationLang),
+          ),
+          lines: [for (final line in effectiveResult.lines) line.text],
+        );
+        final translations = translateKey == null
+            ? const <String?>[]
+            : ref.watch(lyricsTranslationProvider(translateKey)).valueOrNull ??
+                const <String?>[];
+
+        return MouseRegion(
+          onEnter: (_) => _pokeControls(),
+          onHover: (_) => _pokeControls(),
+          child: RepaintBoundary(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (widget.showHeaderControls)
-                _KaraokeToolbar(
+                AnimatedOpacity(
+                  opacity: _controlsShown ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: IgnorePointer(
+                    ignoring: !_controlsShown,
+                    child: _KaraokeToolbar(
                   track: widget.track,
                   result: effectiveResult,
                   offsetMs: offsetMs,
@@ -490,6 +603,15 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                   compact: widget.compact,
                   wordByWord: wordByWord,
                   onClose: widget.onClose,
+                  selectMode: _selectMode,
+                  selectedCount: _selectedLines.length,
+                  onToggleSelectMode: _toggleSelectMode,
+                  onShareSong: () => _shareSong(effectiveResult),
+                  onShareSelection: () => _shareSelected(effectiveResult),
+                  onPrefsChanged: () {
+                    if (mounted) setState(() {});
+                    _pokeControls();
+                  },
                   onToggleFollowing: () {
                     if (!_following) {
                       _lyricController.stopSelection();
@@ -498,6 +620,14 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                       setState(() => _following = false);
                     }
                   },
+                    ),
+                  ),
+                ),
+              if (_selectMode)
+                _SelectBanner(
+                  count: _selectedLines.length,
+                  onShare: () => _shareSelected(effectiveResult),
+                  onCancel: _toggleSelectMode,
                 ),
               Expanded(
                 child: Stack(
@@ -509,9 +639,13 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                           activeLineListenable: _activeLineIndex,
                           positionListenable: _interpolatedPositionMs,
                           compact: widget.compact,
-                          fontSize: widget.fontSize,
+                          translations: translations,
+                          fontSize: lyricFontSize,
                           showTransliteration: showTransliteration,
                           following: _following,
+                          selectMode: _selectMode,
+                          selected: _selectedLines,
+                          onToggleSelect: _toggleShareLine,
                           onUserScroll: () {
                             if (_following) setState(() => _following = false);
                           },
@@ -543,6 +677,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                 ),
               ),
             ],
+          ),
           ),
         );
       },
@@ -616,6 +751,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
   final bool isPast;
   final bool compact;
   final bool showTransliteration;
+  final String translation;
   final double? fontSize;
   final bool karaoke;
   final bool softenIdle;
@@ -631,6 +767,7 @@ class WaveKaraokeLyricLine extends StatefulWidget {
     required this.isPast,
     this.compact = false,
     this.showTransliteration = true,
+    this.translation = '',
     this.fontSize,
     this.karaoke = true,
     this.softenIdle = true,
@@ -821,6 +958,21 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
         mainAxisSize: MainAxisSize.min,
         children: [
           content,
+          if (widget.translation.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                widget.translation,
+                style: TextStyle(
+                  fontSize: baseFontSize * 0.52,
+                  color: (dark ? Colors.white : Colors.black).withValues(
+                    alpha: widget.isActive ? 0.78 : 0.42,
+                  ),
+                ),
+                // Every offered target language is left-to-right.
+                textDirection: TextDirection.ltr,
+              ),
+            ),
           if (widget.showTransliteration && widget.line.transliteration.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
@@ -1342,6 +1494,12 @@ class _KaraokeToolbar extends ConsumerWidget {
   final bool compact;
   final bool wordByWord;
   final VoidCallback? onClose;
+  final bool selectMode;
+  final int selectedCount;
+  final VoidCallback? onToggleSelectMode;
+  final VoidCallback onShareSong;
+  final VoidCallback? onShareSelection;
+  final VoidCallback? onPrefsChanged;
   final VoidCallback onToggleFollowing;
 
   const _KaraokeToolbar({
@@ -1353,6 +1511,12 @@ class _KaraokeToolbar extends ConsumerWidget {
     required this.compact,
     this.wordByWord = true,
     this.onClose,
+    this.selectMode = false,
+    this.selectedCount = 0,
+    this.onToggleSelectMode,
+    required this.onShareSong,
+    this.onShareSelection,
+    this.onPrefsChanged,
     required this.onToggleFollowing,
   });
 
@@ -1360,6 +1524,15 @@ class _KaraokeToolbar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
+    final textScale =
+        ref.watch(prefsProvider.select((p) => p.lyricsTextScale));
+    final translationLang =
+        ref.watch(prefsProvider.select((p) => p.lyricsTranslationLang));
+    final autoHide =
+        ref.watch(prefsProvider.select((p) => p.lyricsAutoHideSeconds));
+    Widget menuMark(bool on) => on
+        ? const Icon(FluentIcons.check_mark, size: 13)
+        : const SizedBox(width: 13);
     final offsetNotifier =
         ref.read(lyricsOffsetProvider(track.queueKey).notifier);
     final transliterationNotifier =
@@ -1485,6 +1658,97 @@ class _KaraokeToolbar extends ConsumerWidget {
               onTap: transliterationNotifier.toggle,
             ),
           ),
+          if (hasLyrics) const SizedBox(width: 4),
+          if (hasLyrics) LWTooltip(
+            message: 'Lyrics size, translation, and share',
+            child: WaveMenuButton(
+              placement: FlyoutPlacementMode.bottomRight,
+              entries: [
+                if (onPrefsChanged != null) ...[
+                  WaveMenuSubmenu(
+                    leading: const Icon(FluentIcons.font_size, size: 13),
+                    label: 'Text size',
+                    items: () => [
+                      for (final entry in Prefs.lyricsTextScales)
+                        WaveMenuAction(
+                          leading: menuMark(textScale == entry.$1),
+                          label: entry.$2,
+                          onPressed: () async {
+                            await ref
+                                .read(prefsProvider)
+                                .setLyricsTextScale(entry.$1);
+                            onPrefsChanged!();
+                          },
+                        ),
+                    ],
+                  ),
+                  WaveMenuSubmenu(
+                    leading:
+                        const Icon(FluentIcons.locale_language, size: 13),
+                    label: 'Translation',
+                    items: () => [
+                      for (final entry
+                          in Prefs.lyricsTranslationOptions.entries)
+                        WaveMenuAction(
+                          leading: menuMark(translationLang == entry.key),
+                          label: entry.value,
+                          onPressed: () async {
+                            await ref
+                                .read(prefsProvider)
+                                .setLyricsTranslationLang(entry.key);
+                            onPrefsChanged!();
+                          },
+                        ),
+                    ],
+                  ),
+                  WaveMenuSubmenu(
+                    leading: const Icon(FluentIcons.clock, size: 13),
+                    label: 'Auto-hide',
+                    items: () => [
+                      for (final entry in Prefs.lyricsAutoHideOptions.entries)
+                        WaveMenuAction(
+                          leading: menuMark(autoHide == entry.key),
+                          label: entry.value,
+                          onPressed: () async {
+                            await ref
+                                .read(prefsProvider)
+                                .setLyricsAutoHideSeconds(entry.key);
+                            onPrefsChanged!();
+                          },
+                        ),
+                    ],
+                  ),
+                  const WaveMenuSeparator(),
+                ],
+                if (onToggleSelectMode != null)
+                  WaveMenuAction(
+                    leading: const Icon(FluentIcons.bulleted_list, size: 13),
+                    label: selectMode ? 'Stop selecting lines' : 'Select lines',
+                    onPressed: onToggleSelectMode,
+                  ),
+                WaveMenuAction(
+                  leading: const Icon(FluentIcons.share, size: 13),
+                  label: 'Share song card',
+                  onPressed: onShareSong,
+                ),
+                if (onToggleSelectMode != null)
+                  WaveMenuAction(
+                    leading: const Icon(FluentIcons.share, size: 13),
+                    label: selectedCount == 0
+                        ? 'Share selected lines'
+                        : 'Share $selectedCount lines',
+                    onPressed: selectMode && selectedCount > 0
+                        ? onShareSelection
+                        : null,
+                  ),
+              ],
+              buttonBuilder: (context, onOpen) => _MiniIconButton(
+                icon: FluentIcons.share,
+                active: selectMode,
+                onTap: onOpen,
+              ),
+            ),
+          ),
           if (hasLyrics && result.isSynced) const SizedBox(width: 4),
           if (hasLyrics && result.isSynced) LWTooltip(
             message: following
@@ -1567,6 +1831,57 @@ class _MiniIconButtonState extends State<_MiniIconButton> {
   }
 }
 
+/// Strip shown while ticking lyric lines for the share card.
+class _SelectBanner extends StatelessWidget {
+  final int count;
+  final VoidCallback onShare;
+  final VoidCallback onCancel;
+
+  const _SelectBanner({
+    required this.count,
+    required this.onShare,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = waveAccent(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.16),
+        borderRadius: WaveRadius.controlsRadius,
+        border: Border.all(color: accent.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        children: [
+          Icon(FluentIcons.check_list, size: 13, color: accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              count == 0
+                  ? 'Tap lines to include them on the card'
+                  : count == 1
+                      ? '1 line selected'
+                      : '$count lines selected',
+              style: WaveType.meta.copyWith(
+                color: waveTextSecondary(context),
+              ),
+            ),
+          ),
+          Button(
+            onPressed: count == 0 ? null : onShare,
+            child: const Text('Share'),
+          ),
+          const SizedBox(width: 6),
+          Button(onPressed: onCancel, child: const Text('Cancel')),
+        ],
+      ),
+    );
+  }
+}
+
 /// Floating "Return to current" pill when manual scrolling is engaged.
 class _ReturnToCurrentPill extends StatelessWidget {
   final VoidCallback onTap;
@@ -1611,24 +1926,32 @@ class _ReturnToCurrentPill extends StatelessWidget {
 /// fully lit. Past and upcoming lines stay dim with a slight blur.
 class _AppleLineLyricsView extends StatefulWidget {
   final LyricsResult result;
+  final List<String?> translations;
   final ValueNotifier<int> activeLineListenable;
   final ValueNotifier<int> positionListenable;
   final bool compact;
   final double? fontSize;
   final bool showTransliteration;
   final bool following;
+  final bool selectMode;
+  final Set<int> selected;
+  final ValueChanged<int> onToggleSelect;
   final VoidCallback onUserScroll;
   final VoidCallback onResume;
   final ValueChanged<int> onSeekLineMs;
 
   const _AppleLineLyricsView({
     required this.result,
+    this.translations = const [],
     required this.activeLineListenable,
     required this.positionListenable,
     required this.compact,
     required this.fontSize,
     required this.showTransliteration,
     required this.following,
+    required this.selectMode,
+    required this.selected,
+    required this.onToggleSelect,
     required this.onUserScroll,
     required this.onResume,
     required this.onSeekLineMs,
@@ -1654,6 +1977,46 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   void dispose() {
     widget.activeLineListenable.removeListener(_onActiveLineChanged);
     super.dispose();
+  }
+
+  String _translationAt(int i) =>
+      i < widget.translations.length ? (widget.translations[i] ?? '') : '';
+
+  /// Seeks on tap, or ticks the line for the share card in select mode.
+  Widget _tappableLine({
+    required int index,
+    required bool seekable,
+    required VoidCallback onSeek,
+    required Widget child,
+  }) {
+    final selected = widget.selected.contains(index);
+    final tappable = widget.selectMode || seekable;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: MouseRegion(
+        cursor: tappable ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: GestureDetector(
+          onTap: !tappable
+              ? null
+              : () {
+                  if (widget.selectMode) {
+                    widget.onToggleSelect(index);
+                  } else {
+                    onSeek();
+                  }
+                },
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: selected
+                  ? waveAccent(context).withValues(alpha: 0.16)
+                  : const Color(0x00000000),
+              borderRadius: WaveRadius.artworkRadius,
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1757,26 +2120,21 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           itemBuilder: (context, i) {
             final line = widget.result.lines[i];
             final canSeek = widget.result.isSynced && line.timeMs > 0;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: MouseRegion(
-                cursor: canSeek
-                    ? SystemMouseCursors.click
-                    : SystemMouseCursors.basic,
-                child: GestureDetector(
-                  onTap: canSeek ? () => widget.onSeekLineMs(line.timeMs) : null,
-                  child: WaveKaraokeLyricLine(
-                    line: line,
-                    positionMs: 0,
-                    isActive: false,
-                    isPast: false,
-                    compact: widget.compact,
-                    fontSize: widget.fontSize,
-                    showTransliteration: widget.showTransliteration,
-                    karaoke: false,
-                    softenIdle: false,
-                  ),
-                ),
+            return _tappableLine(
+              index: i,
+              seekable: canSeek,
+              onSeek: () => widget.onSeekLineMs(line.timeMs),
+              child: WaveKaraokeLyricLine(
+                line: line,
+                positionMs: 0,
+                isActive: false,
+                isPast: false,
+                compact: widget.compact,
+                fontSize: widget.fontSize,
+                showTransliteration: widget.showTransliteration,
+                translation: _translationAt(i),
+                karaoke: false,
+                softenIdle: false,
               ),
             );
           },
@@ -1856,28 +2214,26 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                 }
               }
 
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: () => widget.onSeekLineMs(line.timeMs),
-                    child: WaveKaraokeLyricLine(
-                      line: line,
-                      positionMs: 0,
-                      positionListenable:
-                          isActive ? widget.positionListenable : null,
-                      isActive: isActive,
-                      isPast: active >= 0 && i < active,
-                      compact: widget.compact,
-                      fontSize: widget.fontSize,
-                      showTransliteration: widget.showTransliteration,
-                      karaoke: widget.result.isWordSynced,
-                      softenIdle: true,
-                      lineOpacity: lineOpacity,
-                      blurSigma: blurSigma,
-                    ),
-                  ),
+              return _tappableLine(
+                index: i,
+                seekable: true,
+                onSeek: () => widget.onSeekLineMs(line.timeMs),
+                child: WaveKaraokeLyricLine(
+                  line: line,
+                  positionMs: 0,
+                  positionListenable:
+                      isActive ? widget.positionListenable : null,
+                  isActive: isActive,
+                  isPast: active >= 0 && i < active,
+                  compact: widget.compact,
+                  fontSize: widget.fontSize,
+                  showTransliteration: widget.showTransliteration,
+                  translation: _translationAt(i),
+                  karaoke: widget.result.isWordSynced,
+                  softenIdle: true,
+                  // Every line stays sharp and lit while ticking lines.
+                  lineOpacity: widget.selectMode ? 1.0 : lineOpacity,
+                  blurSigma: widget.selectMode ? 0.0 : blurSigma,
                 ),
               );
             },
