@@ -11,7 +11,9 @@ import '../theme/wave_icons.dart';
 /// One page of top genres. A row starts a tag mix through Mix Lab's
 /// existing generator.
 class WaveGenresPage extends ConsumerStatefulWidget {
-  const WaveGenresPage({super.key});
+  /// Drawn inside Stats. The page title and the side-rail route stay off.
+  final bool embedded;
+  const WaveGenresPage({super.key, this.embedded = false});
 
   @override
   ConsumerState<WaveGenresPage> createState() => _WaveGenresPageState();
@@ -68,20 +70,20 @@ class _WaveGenresPageState extends ConsumerState<WaveGenresPage> {
   @override
   Widget build(BuildContext context) {
     final chart = ref.watch(genreChartProvider(_period));
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 22, 28, 16),
-      child: Column(
+    final body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('GENRES',
-              style: WaveType.overline.copyWith(
-                color: waveAccent(context),
-              )),
-          const SizedBox(height: 4),
-          Text('Genres', style: WaveType.pageTitle.copyWith(fontSize: 24)),
-          const SizedBox(height: 4),
+          if (!widget.embedded) ...[
+            Text('GENRES',
+                style: WaveType.overline.copyWith(
+                  color: waveAccent(context),
+                )),
+            const SizedBox(height: 4),
+            Text('Genres', style: WaveType.pageTitle.copyWith(fontSize: 24)),
+            const SizedBox(height: 4),
+          ],
           Text(
-            'Your top styles. Tap a row to play a mix.',
+            'Styles from your Last.fm listening. A tap plays songs in that style, not a track named after it.',
             style: WaveType.meta.copyWith(
               color: waveTextSecondary(context),
             ),
@@ -103,8 +105,7 @@ class _WaveGenresPageState extends ConsumerState<WaveGenresPage> {
             ],
           ),
           const SizedBox(height: 8),
-          Expanded(
-            child: chart.when(
+          chart.when(
               loading: () => const WaveLoading(label: 'Loading genres…'),
               error: (e, _) => WaveError(
                 title: 'Could not load genres',
@@ -117,13 +118,13 @@ class _WaveGenresPageState extends ConsumerState<WaveGenresPage> {
                     icon: WaveIcons.genres,
                     title: 'No genres yet',
                     subtitle: data.fromLastFm
-                        ? 'Last.fm has no tags for this period.'
+                        ? 'Last.fm tags for this period were places and labels, not music styles.'
                         : 'Play a few songs whose names mention a style, or connect Last.fm for a tag chart.',
                   );
                 }
                 final max = data.bars.first.weight;
-                return ListView(
-                  padding: const EdgeInsets.only(top: 10, bottom: 20),
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       data.fromLastFm
@@ -155,9 +156,12 @@ class _WaveGenresPageState extends ConsumerState<WaveGenresPage> {
                 );
               },
             ),
-          ),
         ],
-      ),
+      );
+    if (widget.embedded) return body;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(28, 22, 28, 16),
+      child: body,
     );
   }
 }

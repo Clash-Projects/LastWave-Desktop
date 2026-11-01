@@ -152,7 +152,7 @@ class GenreSource {
     Map<String, String> labels,
   ) {
     final rows = scores.entries
-        .where((e) => e.value > 0)
+        .where((e) => e.value > 0 && isMusicGenreTag(e.key))
         .map((e) => GenreWeight(
               name: labels[e.key] ?? _pretty(e.key),
               weight: e.value,
@@ -188,6 +188,106 @@ List<_Tag> _tagsOf(Map<String, dynamic> json) {
   }
   return out;
 }
+
+/// Last.fm tags include countries, languages, and one-off words
+/// ("India", "Hindi", "Coke"). Those are not styles you can play.
+bool isMusicGenreTag(String name) {
+  final key = _canon(name);
+  if (key.length < 2) return false;
+  if (_junkTags.contains(key) || _placeTags.contains(key)) return false;
+  if (RegExp(r'^(19|20)\d{2}s?$').hasMatch(key)) return false;
+  if (RegExp(r'^\d+$').hasMatch(key)) return false;
+  return true;
+}
+
+const _junkTags = {
+  'seen live',
+  'favorites',
+  'favourite',
+  'my music',
+  'spotify',
+  'youtube',
+  'lastfm',
+  'last.fm',
+  'coke',
+  'coca cola',
+  'under 2000 listeners',
+  'all',
+  'music',
+  'songs',
+  'various',
+  'misc',
+  'other',
+  'female vocalists',
+  'male vocalists',
+  'awesome',
+  'cool',
+  'love',
+  'beautiful',
+  'epic',
+  'sexy',
+  'fun',
+  'sad',
+  'happy',
+  'chillout',
+};
+
+const _placeTags = {
+  'india',
+  'indian',
+  'pakistan',
+  'pakistani',
+  'hindi',
+  'punjabi',
+  'usa',
+  'american',
+  'uk',
+  'british',
+  'england',
+  'english',
+  'canada',
+  'canadian',
+  'australia',
+  'australian',
+  'japan',
+  'japanese',
+  'korea',
+  'korean',
+  'china',
+  'chinese',
+  'france',
+  'french',
+  'germany',
+  'german',
+  'spain',
+  'spanish',
+  'brazil',
+  'brazilian',
+  'mexico',
+  'mexican',
+  'russia',
+  'russian',
+  'italy',
+  'italian',
+  'turkey',
+  'turkish',
+  'arabic',
+  'africa',
+  'african',
+  'europe',
+  'european',
+  'asia',
+  'asian',
+  'bangladesh',
+  'bangladeshi',
+  'nepal',
+  'nepali',
+  'sri lanka',
+  'tamil',
+  'telugu',
+  'marathi',
+  'urdu',
+};
 
 String _canon(String name) {
   var key = name.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');

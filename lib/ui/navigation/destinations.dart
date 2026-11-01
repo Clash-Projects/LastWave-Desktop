@@ -33,7 +33,6 @@ const waveCollectionDestinations = [
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
   WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
-  WaveDestination('/genres', 'Genres', WaveIcons.genres),
 ];
 
 const waveOfflineDestinations = [
