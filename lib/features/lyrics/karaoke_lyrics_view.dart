@@ -693,6 +693,11 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     final accent = waveAccent(context);
 
     final baseFontSize = widget.fontSize ?? (widget.compact ? 28.0 : 36.0);
+    // Negative tracking tightens Latin type, but in joined scripts (the
+    // Devanagari headline bar) neighbouring glyphs then overlap, and the
+    // translucent idle colour composites twice there — bright dots at
+    // every join. Those scripts keep their natural advance.
+    final tracking = isJoinedScript(widget.line.text) ? 0.0 : -0.3;
 
     final activeTextColor = dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B);
     final idleTextColor = (dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B))
@@ -705,7 +710,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       fontWeight: FontWeight.w700,
       color: activeTextColor,
       height: 1.42,
-      letterSpacing: -0.3,
+      letterSpacing: tracking,
       shadows: widget.isActive
           ? [
               Shadow(
@@ -728,7 +733,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       fontWeight: FontWeight.w700,
       color: activeTextColor.withValues(alpha: 0.38),
       height: 1.42,
-      letterSpacing: -0.3,
+      letterSpacing: tracking,
       shadows: const [],
     );
 
@@ -739,7 +744,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
           ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.88)
           : idleTextColor,
       height: 1.42,
-      letterSpacing: -0.3,
+      letterSpacing: tracking,
     );
 
     Widget content;
@@ -792,13 +797,19 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       );
     } else {
       // Standard line-timed or idle line
+      final fade = widget.isActive
+          ? (style: activeStyle, alpha: 1.0)
+          : _groupFade(idleStyle, widget.line.text);
       content = Text(
         widget.line.text,
-        style: widget.isActive ? activeStyle : idleStyle,
+        style: fade.style,
         textDirection: widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
         softWrap: true,
         overflow: TextOverflow.visible,
       );
+      if (fade.alpha < 1.0) {
+        content = Opacity(opacity: fade.alpha, child: content);
+      }
     }
 
     final Widget body = AnimatedDefaultTextStyle(
@@ -890,6 +901,18 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       ),
     );
   }
+}
+
+/// Joined scripts (Devanagari, …) overlap neighbouring glyphs on purpose so
+/// the headline bar reads as one stroke. Translucent colour is applied per
+/// glyph, so those overlaps blend twice and show as bright dots. Draw the
+/// run opaque and fade it as a group instead.
+({TextStyle style, double alpha}) _groupFade(TextStyle s, String text) {
+  final c = s.color;
+  if (c == null || c.a >= 0.999 || !isJoinedScript(text)) {
+    return (style: s, alpha: 1.0);
+  }
+  return (style: s.copyWith(color: c.withValues(alpha: 1.0)), alpha: c.a);
 }
 
 enum _SyllableState { idle, singing, sung }
@@ -1045,7 +1068,7 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
       _cachedScaler = scaler;
       _idlePainter?.dispose();
       _idlePainter = TextPainter(
-        text: TextSpan(text: text, style: widget.idleStyle),
+        text: TextSpan(text: text, style: _groupFade(widget.idleStyle, text).style),
         textDirection: textDirection,
         textScaler: scaler,
       )..layout();
@@ -1110,7 +1133,11 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
 
     // Fast-path 2: Future syllable -> Plain Text with idle style (zero canvas overhead)
     if (_state == _SyllableState.idle) {
-      return Text(text, style: widget.idleStyle);
+      final fade = _groupFade(widget.idleStyle, text);
+      final label = Text(text, style: fade.style);
+      return fade.alpha < 1.0
+          ? Opacity(opacity: fade.alpha, child: label)
+          : label;
     }
 
     // Active syllable: Zero-allocation direct canvas clip driven directly by positionListenable
@@ -1128,6 +1155,7 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
             syllable: widget.syllable,
             initialPosMs: widget.initialPosMs,
             idlePainter: _idlePainter!,
+            idleAlpha: _groupFade(widget.idleStyle, text).alpha,
             activePainter: _activePainter!,
             featherPainters: _featherPainters,
             isRtl: widget.isRtl,
@@ -1147,6 +1175,7 @@ class _KaraokeSyllablePainter extends CustomPainter {
   final LyricSyllable syllable;
   final int initialPosMs;
   final TextPainter idlePainter;
+  final double idleAlpha;
   final TextPainter activePainter;
   final List<TextPainter> featherPainters;
   final bool isRtl;
@@ -1156,6 +1185,7 @@ class _KaraokeSyllablePainter extends CustomPainter {
     required this.syllable,
     required this.initialPosMs,
     required this.idlePainter,
+    required this.idleAlpha,
     required this.activePainter,
     required this.featherPainters,
     required this.isRtl,
@@ -1166,8 +1196,17 @@ class _KaraokeSyllablePainter extends CustomPainter {
     final pos = positionListenable?.value ?? initialPosMs;
     final progress = calculateSyllableProgress(syllable, pos);
 
-    // 1. Draw base idle text
-    idlePainter.paint(canvas, Offset.zero);
+    // 1. Draw base idle text (faded as one group: see [_groupFade]).
+    if (idleAlpha < 1.0) {
+      canvas.saveLayer(
+        Offset.zero & size,
+        Paint()..color = Color.fromRGBO(0, 0, 0, idleAlpha),
+      );
+      idlePainter.paint(canvas, Offset.zero);
+      canvas.restore();
+    } else {
+      idlePainter.paint(canvas, Offset.zero);
+    }
 
     if (progress <= 0.0) return;
 
@@ -1212,6 +1251,7 @@ class _KaraokeSyllablePainter extends CustomPainter {
     return oldDelegate.positionListenable != positionListenable ||
         oldDelegate.syllable != syllable ||
         oldDelegate.idlePainter != idlePainter ||
+        oldDelegate.idleAlpha != idleAlpha ||
         oldDelegate.activePainter != activePainter ||
         oldDelegate.featherPainters != featherPainters ||
         oldDelegate.isRtl != isRtl;
