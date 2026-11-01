@@ -488,3 +488,39 @@ String? pickSongAudioCandidate(
   }
   return exact ?? first;
 }
+
+/// YouTube Music's tag for an official music video from the artist or label.
+const String officialMusicVideoType = 'MUSIC_VIDEO_TYPE_OMV';
+
+/// Titles that are never the music video itself, even from an official
+/// channel: still-picture visualizers, lyric videos, audio uploads, fan
+/// and status edits. [wantedTitle] can opt a word back in (a song really
+/// called "Lyrics").
+bool isNotAMusicVideo(String candidateTitle, String wantedTitle) {
+  final words = VideoTextMatch.normalize(candidateTitle).split(' ').toSet();
+  final wanted = VideoTextMatch.normalize(wantedTitle).split(' ').toSet();
+  const banned = {
+    'visualizer',
+    'visualiser',
+    'lyric',
+    'lyrics',
+    'lyrical',
+    'audio',
+    'jukebox',
+    'fanmade',
+    'status',
+    'whatsapp',
+    'slowed',
+    'reverb',
+    '8d',
+    'teaser',
+    'trailer',
+    'karaoke',
+    'instrumental',
+  };
+  if (banned.any((w) => words.contains(w) && !wanted.contains(w))) {
+    return true;
+  }
+  final flat = ' ${words.join(' ')} ';
+  return flat.contains(' fan made ') || flat.contains(' bass boosted ');
+}

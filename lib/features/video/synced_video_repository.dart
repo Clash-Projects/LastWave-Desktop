@@ -259,7 +259,9 @@ class SyncedVideoRepository {
             '${listed ? ' "${cp.title}" — ${cp.artist}' : ''} → '
             '${same ? 'accepted' : 'rejected (not this song)'}',
           );
-          if (same) return cp.videoId;
+          if (same && !isNotAMusicVideo(cp.title, cleanTitle)) {
+            return cp.videoId;
+          }
         }
       } catch (_) {}
     }
@@ -273,15 +275,26 @@ class SyncedVideoRepository {
     }.where((q) => q.isNotEmpty);
 
     for (final query in queries) {
-      List<YouTubeMusicTrack> results;
+      List<({YouTubeMusicTrack track, String? type})> typed;
       try {
-        results = await _tube.searchVideos(query, limit: 12);
+        typed = await _tube.searchVideosTyped(query, limit: 12);
       } catch (_) {
         continue;
       }
+      final results = [for (final r in typed) r.track];
       final scored = <({YouTubeMusicTrack track, int score})>[];
-      for (final c in results) {
+      var unofficial = 0;
+      for (final r in typed) {
+        final c = r.track;
         if (c.videoId.isEmpty) continue;
+        // Only what YouTube Music itself lists as an official music video.
+        // Re-uploads, fan edits and visualizers are "UGC" there even when
+        // their titles say "Official Video".
+        if (r.type != officialMusicVideoType) {
+          unofficial++;
+          continue;
+        }
+        if (isNotAMusicVideo(c.title, cleanTitle)) continue;
         final seconds = c.durationSeconds > 0 ? c.durationSeconds : null;
         if (!isSameSongVideo(
           candidateTitle: c.title,
@@ -309,8 +322,8 @@ class SyncedVideoRepository {
       }
       scored.sort((a, b) => b.score.compareTo(a.score));
       PlayDiag.log(
-        'video: search "$query" → ${results.length} results, '
-        '${scored.length} plausible'
+        'video: search "$query" → ${results.length} results '
+        '($unofficial not official), ${scored.length} plausible'
         '${scored.isEmpty ? '' : ', best "${scored.first.track.title}" '
                   '(${scored.first.track.artist}) score ${scored.first.score}'}',
       );

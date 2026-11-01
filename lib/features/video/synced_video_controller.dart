@@ -74,20 +74,15 @@ class SyncedVideoController extends ChangeNotifier {
   String get currentQualityLabel => _stream?.label ?? '';
 
   bool _measuring = false;
-  bool _measureFailed = false;
 
   /// How long the sync measurement may take before the picture stops
   /// waiting for it. Captures take a second or two when they work.
   static const Duration _measureBudget = Duration(seconds: 45);
-  static const Duration _showGuessAfter = Duration(seconds: 8);
-  Timer? _guessTimer;
 
   /// Why the picture is not on screen yet, once a video has been found:
   /// `loading` (opening the stream), `syncing` (measuring its timing) or
   /// `unsynced` (timing could not be confirmed, so the cover stays rather
   /// than showing a picture that might be off). Empty otherwise.
-  /// Showing on a guessed timeline because the measurement failed.
-  bool get timingEstimated => visible && !_confident && _measureFailed;
 
   String get status {
     if (_attached == 0 || !_enabled || _bundle == null || visible) return '';
@@ -204,8 +199,6 @@ class SyncedVideoController extends ChangeNotifier {
     _offsetMs = 0;
     _confident = false;
     _measuring = false;
-    _measureFailed = false;
-    _guessTimer?.cancel();
     _stopSyncTimer();
     _closeMedia();
     _evaluate();
@@ -316,8 +309,6 @@ class SyncedVideoController extends ChangeNotifier {
     _confident = false;
     _refreshAllowed();
     if (repo.wasUnmatched(key)) {
-      _offsetMs = repo.guessedOffset(key) ?? _offsetMs;
-      _measureFailed = true;
       _refreshAllowed();
       _notify();
       return;
@@ -329,18 +320,7 @@ class SyncedVideoController extends ChangeNotifier {
         ? audioKey.substring(3)
         : track.videoId;
     _measuring = true;
-    _measureFailed = false;
     _notify();
-    // Do not hold the picture back for a slow measurement: after a few
-    // seconds it shows on the best guess, and snaps to the measured
-    // timeline when that arrives.
-    _guessTimer?.cancel();
-    _guessTimer = Timer(_showGuessAfter, () {
-      if (gen != _gen || _disposed || _confident) return;
-      _measureFailed = true;
-      _refreshAllowed();
-      _notify();
-    });
     unawaited(() async {
       int? measured;
       try {
@@ -372,16 +352,7 @@ class SyncedVideoController extends ChangeNotifier {
         }
       }
       if (gen != _gen || _disposed) return;
-      _guessTimer?.cancel();
       if (measured == null) {
-        // No measurement to go on: show the picture on the best guess
-        // (the opening's likely position, else the intro, else 0).
-        final guess = repo.guessedOffset(key);
-        if (guess != null && guess != _offsetMs) {
-          _offsetMs = guess;
-          _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
-        }
-        _measureFailed = true;
         _refreshAllowed();
         _notify();
         return;
@@ -399,10 +370,7 @@ class SyncedVideoController extends ChangeNotifier {
     final bundle = _bundle;
     var allowed = false;
     if (bundle != null) {
-      if (_confident || bundle.introOffsetMs > 0 || _measureFailed) {
-        // A failed measurement still shows the video: it is the right
-        // video (matched by title, artist and length), and a picture on a
-        // best-guess timeline beats a cover that never goes away.
+      if (_confident) {
         allowed = true;
       } else {
         // Edits of the same length share the song's timeline. When timing
@@ -415,7 +383,11 @@ class SyncedVideoController extends ChangeNotifier {
             .read(playbackServiceProvider)
             .duration
             .inMilliseconds;
-        final tolerance = _measureFailed ? 12000 : 4000;
+        // No measurement: only a video the same length as the song (the
+        // same edit, so the same timeline) may show. Anything else stays
+        // hidden: no video is better than a wrong or drifting one.
+        final tolerance =
+            4000 + (bundle.introOffsetMs > 0 ? bundle.introOffsetMs : 0);
         allowed =
             videoMs > 0 &&
             audioMs > 0 &&
@@ -830,7 +802,6 @@ class SyncedVideoController extends ChangeNotifier {
     _disposed = true;
     _stopSyncTimer();
     _releaseTimer?.cancel();
-    _guessTimer?.cancel();
     final player = _player;
     _player = null;
     _controller = null;

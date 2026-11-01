@@ -124,6 +124,9 @@ class YtDlpTools extends ChangeNotifier {
     _setBusy('Preparing…');
     try {
       final dir = await _toolsDir();
+      // Left behind by an earlier build's failed unpack.
+      final stale = File(p.join(dir.path, 'deno.zip.part'));
+      if (stale.existsSync()) await stale.delete();
       final latest = await Future.wait([
         _latestTag('yt-dlp/yt-dlp'),
         _latestTag('denoland/deno'),
@@ -146,7 +149,7 @@ class YtDlpTools extends ChangeNotifier {
 
       if (denoVersion == null || denoVersion != latestDeno) {
         _setBusy('Downloading Deno…');
-        final zip = p.join(dir.path, 'deno.zip.part');
+        final zip = p.join(dir.path, 'deno-download.zip');
         await _download(
           'https://github.com/denoland/deno/releases/latest/download/'
           'deno-${_denoTriple()}.zip',
@@ -324,13 +327,11 @@ class YtDlpTools extends ChangeNotifier {
   Future<String?> _run(String exe, List<String> args, Duration timeout) async {
     Process? proc;
     try {
-      // detachedWithStdio starts the child without a console of its own, so
-      // no black window flashes on Windows; stdout is still piped.
-      proc = await Process.start(
-        exe,
-        args,
-        mode: ProcessStartMode.detachedWithStdio,
-      );
+      // Normal mode on Windows creates the child with CREATE_NO_WINDOW: a
+      // hidden console that yt-dlp's own helper process and Deno inherit.
+      // (Detached mode gives the child no console at all, so each of those
+      // grandchildren opened a visible window of its own.)
+      proc = await Process.start(exe, args);
       final stdout = proc.stdout.transform(utf8.decoder).join();
       final stderr = proc.stderr.transform(utf8.decoder).join();
       final text = await stdout.timeout(timeout);

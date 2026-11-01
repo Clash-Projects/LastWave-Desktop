@@ -1189,8 +1189,10 @@ class _VideoHelper extends ConsumerWidget {
       state = 'yt-dlp ${tools.ytDlpVersion} · $deno';
     }
     final String? updateNote;
-    if (tools.installed && tools.latestYtDlp != null) {
-      updateNote = tools.updateAvailable
+    if (tools.installed && (tools.latestYtDlp != null || !tools.hasDeno)) {
+      updateNote = !tools.hasDeno
+          ? 'Deno is missing: 4K TV links need it'
+          : tools.updateAvailable
           ? 'Update available: yt-dlp ${tools.latestYtDlp}'
                 '${tools.latestDeno != null ? ', Deno ${tools.latestDeno}' : ''}'
           : 'Up to date';
@@ -1251,10 +1253,14 @@ class _VideoHelper extends ConsumerWidget {
                   ),
                   const SizedBox(width: 8),
                 ],
-                if (!tools.installed || tools.updateAvailable)
+                if (!tools.installed || !tools.hasDeno || tools.updateAvailable)
                   WaveFilledButton(
                     onPressed: tools.installOrUpdate,
-                    child: Text(tools.installed ? 'Update' : 'Download'),
+                    child: Text(
+                      !tools.installed
+                          ? 'Download'
+                          : (!tools.hasDeno ? 'Install Deno' : 'Update'),
+                    ),
                   ),
                 if (tools.installed) ...[
                   const SizedBox(width: 8),

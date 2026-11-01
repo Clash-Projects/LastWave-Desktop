@@ -2286,6 +2286,67 @@ class InnerTubeMusicApi {
     return _parseSongRenderers(root).take(limit).toList();
   }
 
+  /// [searchVideos] with YouTube Music's own classification of each result:
+  /// `MUSIC_VIDEO_TYPE_OMV` (an official music video from the artist or
+  /// label), `MUSIC_VIDEO_TYPE_UGC` (anyone's upload: re-uploads, fan
+  /// edits, visualizers), `MUSIC_VIDEO_TYPE_ATV` (a still-cover art track),
+  /// or null when the response did not say.
+  Future<List<({YouTubeMusicTrack track, String? type})>> searchVideosTyped(
+    String query, {
+    int limit = 8,
+  }) async {
+    if (query.trim().isEmpty) return const [];
+    await _ensureConfig();
+    final root = await _post(
+      '$musicApi/search?key=$_apiKey&prettyPrint=false',
+      body: {
+        'context': _webContext(_clientVersion, _visitorData),
+        'query': query.trim(),
+        'params': videosSearchFilter,
+      },
+      clientName: 'WEB_REMIX',
+      clientVersion: _clientVersion,
+      userAgent: webUserAgent,
+      callTimeout: const Duration(seconds: 8),
+    );
+    final types = musicVideoTypesIn(root);
+    return [
+      for (final t in _parseSongRenderers(root).take(limit))
+        (track: t, type: types[t.videoId]),
+    ];
+  }
+
+  /// Every `watchEndpoint` in [node] that names its music video type,
+  /// keyed by video id.
+  @visibleForTesting
+  static Map<String, String> musicVideoTypesIn(Object? node) {
+    final out = <String, String>{};
+    void walk(Object? n) {
+      if (n is Map) {
+        final we = n['watchEndpoint'];
+        if (we is Map) {
+          final id = we['videoId']?.toString();
+          final type =
+              (((we['watchEndpointMusicSupportedConfigs']
+                          as Map?)?['watchEndpointMusicConfig'])
+                      as Map?)?['musicVideoType']
+                  ?.toString();
+          if (id != null && type != null) out.putIfAbsent(id, () => type);
+        }
+        for (final v in n.values) {
+          walk(v);
+        }
+      } else if (n is List) {
+        for (final v in n) {
+          walk(v);
+        }
+      }
+    }
+
+    walk(node);
+    return out;
+  }
+
   /// The official music video YouTube Music pairs with [videoId] (the
   /// Song/Video switch), or [videoId] itself when it already is one, with
   /// the title/artist/length YouTube Music lists for it so the caller can

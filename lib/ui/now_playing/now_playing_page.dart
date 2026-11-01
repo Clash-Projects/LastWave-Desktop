@@ -1300,15 +1300,13 @@ class _TrackMetadataSection extends ConsumerWidget {
     final videoStatus = ref.watch(
       syncedVideoControllerProvider.select((c) => c.status),
     );
-    final videoEstimated = ref.watch(
-      syncedVideoControllerProvider.select((c) => c.timingEstimated),
-    );
     final videoNote = videoLabel.isNotEmpty
-        ? 'VIDEO $videoLabel${videoEstimated ? ' · timing estimated' : ''}'
+        ? 'VIDEO $videoLabel'
         : switch (videoStatus) {
             'loading' => 'VIDEO loading…',
             'syncing' => 'VIDEO syncing…',
-            'unsynced' => 'VIDEO not synced',
+            // Timing could not be confirmed, so the cover stays up.
+            'unsynced' => '',
             _ => '',
           };
     if (videoNote.isNotEmpty) {

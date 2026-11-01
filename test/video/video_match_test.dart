@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/audio/stream_models.dart';
+import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
 import 'package:lastwave_desktop/features/video/video_match.dart';
 
 bool matches(
@@ -496,6 +497,73 @@ void main() {
     test('a fixed choice ignores the display', () {
       final all = [st(2160), st(1080, codec: 'avc1.640028')];
       expect(rankVideoStreams(all, 2160, autoHeight: 720).first.height, 2160);
+    });
+  });
+
+  group('official videos only', () {
+    test('visualizers, lyric videos and fan edits are not the video', () {
+      expect(
+        isNotAMusicVideo('Machayenge 4 (Official Visualizer)', 'Machayenge 4'),
+        isTrue,
+      );
+      expect(
+        isNotAMusicVideo('Aaj Ki Raat | Lyrical Video', 'Aaj Ki Raat'),
+        isTrue,
+      );
+      expect(
+        isNotAMusicVideo('I Guess - KR\$NA (Official Audio)', 'I Guess'),
+        isTrue,
+      );
+      expect(
+        isNotAMusicVideo('Aaj Ki Raat fan made edit', 'Aaj Ki Raat'),
+        isTrue,
+      );
+      expect(
+        isNotAMusicVideo('Boom Shaka (Official Music Video)', 'Boom Shaka'),
+        isFalse,
+      );
+      expect(
+        isNotAMusicVideo('Aaj Ki Raat (Video Song) | Stree 2', 'Aaj Ki Raat'),
+        isFalse,
+      );
+    });
+
+    test('a song named with a banned word keeps it', () {
+      expect(isNotAMusicVideo('Lyrics (Official Video)', 'Lyrics'), isFalse);
+    });
+
+    test('reads YouTube Music video types from a search response', () {
+      Map<String, Object?> item(String id, String type) => {
+        'musicResponsiveListItemRenderer': {
+          'overlay': {
+            'musicItemThumbnailOverlayRenderer': {
+              'content': {
+                'musicPlayButtonRenderer': {
+                  'playNavigationEndpoint': {
+                    'watchEndpoint': {
+                      'videoId': id,
+                      'watchEndpointMusicSupportedConfigs': {
+                        'watchEndpointMusicConfig': {'musicVideoType': type},
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+      final root = {
+        'contents': [
+          item('official1', 'MUSIC_VIDEO_TYPE_OMV'),
+          item('reupload1', 'MUSIC_VIDEO_TYPE_UGC'),
+          {'other': 'x'},
+        ],
+      };
+      final types = InnerTubeMusicApi.musicVideoTypesIn(root);
+      expect(types['official1'], officialMusicVideoType);
+      expect(types['reupload1'], 'MUSIC_VIDEO_TYPE_UGC');
+      expect(types.containsKey('x'), isFalse);
     });
   });
 }
