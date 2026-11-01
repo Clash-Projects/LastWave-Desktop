@@ -4569,7 +4569,8 @@ class InnerTubeMusicApi {
       for (final format in list.whereType<Map<String, dynamic>>()) {
         final mime = format['mimeType']?.toString() ?? '';
         final cleanMime = mime.split(';').first.trim().toLowerCase();
-        if (!cleanMime.startsWith('video/')) continue;
+        final audioOnly = !progressive && cleanMime.startsWith('audio/');
+        if (!cleanMime.startsWith('video/') && !audioOnly) continue;
         final codecs = (RegExp(r'codecs="([^"]+)"').firstMatch(mime)?.group(1) ??
                 '')
             .split(',')
@@ -4597,11 +4598,13 @@ class InnerTubeMusicApi {
         if (cpn != null) url = _withParam(url, 'cpn', cpn);
         url = appendPot(url, pot);
         final height = (format['height'] as num?)?.toInt() ?? 0;
-        if (height < 144) continue;
+        if (height < 144 && !audioOnly) continue;
         final labelRaw = format['qualityLabel']?.toString() ?? '';
         out.add(
           MusicVideoStream(
-            label: labelRaw.isEmpty ? '${height}p' : labelRaw,
+            label: audioOnly
+                ? 'audio'
+                : (labelRaw.isEmpty ? '${height}p' : labelRaw),
             height: height,
             bitrate: (format['bitrate'] as num?)?.toInt() ?? 0,
             url: url,
@@ -4610,6 +4613,7 @@ class InnerTubeMusicApi {
             fps: (format['fps'] as num?)?.toInt() ?? 0,
             client: label,
             muxed: progressive || codecs.length > 1,
+            audioOnly: audioOnly,
             requestHeaders: headers,
           ),
         );
@@ -4804,6 +4808,11 @@ class InnerTubeMusicApi {
       }
     }
 
+    // ANDROID_VR is what yt-dlp falls back on without a JS runtime: direct
+    // links, no PO token, every height up to 4K. visionOS often stops at
+    // 1080p (or 480p) for the same video, so both are asked every time and
+    // the ranking picks the best that actually plays.
+    final vr = playerClients.where((c) => c.name == 'ANDROID_VR');
     final round1 = await Future.wait([
       guarded('VISIONOS-app', () => _visionOsVideoOptions(videoId, appStyle: true)),
       guarded(
@@ -4811,13 +4820,26 @@ class InnerTubeMusicApi {
         () => _visionOsVideoOptions(videoId, appStyle: false),
       ),
       guarded('TVHTML5', () => _tvVideoOptions(videoId, scriptFuture)),
+      if (vr.isNotEmpty)
+        guarded(
+          'ANDROID_VR',
+          () => _musicVideoOptions(
+            videoId: videoId,
+            client: vr.first,
+            script: null,
+            gvsPoToken: Future.value(null),
+          ),
+        ),
     ]);
     for (final r in round1) {
       addAll(r);
     }
+    int pictures(List<MusicVideoStream> list) =>
+        list.where((s) => !s.audioOnly).length;
     PlayDiag.log(
-      'video: round 1 for $videoId → visionOS-app ${round1[0].length}, '
-      'visionOS-web ${round1[1].length}, tv ${round1[2].length} links, '
+      'video: round 1 for $videoId → visionOS-app ${pictures(round1[0])}, '
+      'visionOS-web ${pictures(round1[1])}, tv ${pictures(round1[2])}, '
+      'android-vr ${round1.length > 3 ? pictures(round1[3]) : 0} links, '
       'tallest ${tallest()}p',
     );
     if (tallest() >= 1080) return merged;
@@ -4857,7 +4879,7 @@ class InnerTubeMusicApi {
     if (tallest() >= 720) return merged;
 
     PlayerScript? script = await scriptFuture;
-    final tried = legacy.map((c) => c.key).toSet();
+    final tried = {...legacy.map((c) => c.key), ...vr.map((c) => c.key)};
     final rest = _orderedFastClients(videoId)
         .where((c) => !tried.contains(c.key))
         .take(3);
@@ -4930,7 +4952,8 @@ class InnerTubeMusicApi {
       for (final format in list.whereType<Map<String, dynamic>>()) {
         final mime = format['mimeType']?.toString() ?? '';
         final cleanMime = mime.split(';').first.trim().toLowerCase();
-        if (!cleanMime.startsWith('video/')) continue;
+        final audioOnly = !progressive && cleanMime.startsWith('audio/');
+        if (!cleanMime.startsWith('video/') && !audioOnly) continue;
         final codecs =
             (RegExp(r'codecs="([^"]+)"').firstMatch(mime)?.group(1) ?? '')
                 .split(',')
@@ -4948,11 +4971,13 @@ class InnerTubeMusicApi {
         if (url == null || url.isEmpty) continue;
         url = appendPot(url, pot);
         final height = (format['height'] as num?)?.toInt() ?? 0;
-        if (height < 144) continue;
+        if (height < 144 && !audioOnly) continue;
         final labelRaw = format['qualityLabel']?.toString() ?? '';
         out.add(
           MusicVideoStream(
-            label: labelRaw.isEmpty ? '${height}p' : labelRaw,
+            label: audioOnly
+                ? 'audio'
+                : (labelRaw.isEmpty ? '${height}p' : labelRaw),
             height: height,
             bitrate: (format['bitrate'] as num?)?.toInt() ?? 0,
             url: url,
@@ -4961,6 +4986,7 @@ class InnerTubeMusicApi {
             fps: (format['fps'] as num?)?.toInt() ?? 0,
             client: client.name,
             muxed: progressive || codecs.length > 1,
+            audioOnly: audioOnly,
             requestHeaders: headers,
           ),
         );

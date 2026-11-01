@@ -23,6 +23,7 @@ Future<Uint8List?> capturePcm16Mono({
   required String url,
   Map<String, String> headers = const {},
   required int seconds,
+  int minSeconds = 22,
   Duration timeout = const Duration(seconds: 15),
   Directory? tempDir,
 }) {
@@ -31,6 +32,7 @@ Future<Uint8List?> capturePcm16Mono({
     url: url,
     headers: headers,
     seconds: seconds,
+    minSeconds: minSeconds,
     timeout: timeout,
     tempDir: tempDir,
   ).timeout(
@@ -46,6 +48,7 @@ Future<Uint8List?> _capture({
   required String url,
   required Map<String, String> headers,
   required int seconds,
+  required int minSeconds,
   required Duration timeout,
   Directory? tempDir,
 }) async {
@@ -133,7 +136,7 @@ Future<Uint8List?> _capture({
     }
     final bytes = await out.readAsBytes();
     // Too little audio cannot be aligned reliably (20s minimum overlap).
-    if (bytes.lengthInBytes < 22 * alignmentSampleRate * 2) {
+    if (bytes.lengthInBytes < minSeconds * alignmentSampleRate * 2) {
       PlayDiag.log(
         'video: audio capture — only ${bytes.lengthInBytes ~/ (alignmentSampleRate * 2)}s decoded',
       );

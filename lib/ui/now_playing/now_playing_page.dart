@@ -168,8 +168,9 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     // Auto aims at the display: re-check once the window has settled.
     ref.listen<bool>(nowPlayingFullscreenProvider, (_, _) {
       Future<void>.delayed(const Duration(milliseconds: 900), () {
-        if (mounted)
+        if (mounted) {
           ref.read(syncedVideoControllerProvider).onViewportChanged();
+        }
       });
     });
     ref.listen<int>(nowPlayingAutoHideProvider, (_, seconds) {
@@ -1299,8 +1300,11 @@ class _TrackMetadataSection extends ConsumerWidget {
     final videoStatus = ref.watch(
       syncedVideoControllerProvider.select((c) => c.status),
     );
+    final videoEstimated = ref.watch(
+      syncedVideoControllerProvider.select((c) => c.timingEstimated),
+    );
     final videoNote = videoLabel.isNotEmpty
-        ? 'VIDEO $videoLabel'
+        ? 'VIDEO $videoLabel${videoEstimated ? ' · timing estimated' : ''}'
         : switch (videoStatus) {
             'loading' => 'VIDEO loading…',
             'syncing' => 'VIDEO syncing…',

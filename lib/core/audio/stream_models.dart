@@ -262,6 +262,10 @@ class MusicVideoStream {
   /// and lighter on bitrate than the video-only formats, so it only wins
   /// when nothing else exists at that height.
   final bool muxed;
+
+  /// An audio-only soundtrack link from the same client (no picture). Used
+  /// to measure the video's timing, never shown.
+  final bool audioOnly;
   final Map<String, String> requestHeaders;
 
   const MusicVideoStream({
@@ -274,6 +278,7 @@ class MusicVideoStream {
     this.fps = 0,
     this.client = '',
     this.muxed = false,
+    this.audioOnly = false,
     this.requestHeaders = const {},
   });
 }

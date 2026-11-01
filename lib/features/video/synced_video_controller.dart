@@ -76,12 +76,17 @@ class SyncedVideoController extends ChangeNotifier {
 
   /// How long the sync measurement may take before the picture stops
   /// waiting for it. Captures take a second or two when they work.
-  static const Duration _measureBudget = Duration(seconds: 30);
+  static const Duration _measureBudget = Duration(seconds: 45);
+  static const Duration _showGuessAfter = Duration(seconds: 8);
+  Timer? _guessTimer;
 
   /// Why the picture is not on screen yet, once a video has been found:
   /// `loading` (opening the stream), `syncing` (measuring its timing) or
   /// `unsynced` (timing could not be confirmed, so the cover stays rather
   /// than showing a picture that might be off). Empty otherwise.
+  /// Showing on a guessed timeline because the measurement failed.
+  bool get timingEstimated => visible && !_confident && _measureFailed;
+
   String get status {
     if (_attached == 0 || !_enabled || _bundle == null || visible) return '';
     if (!_ready) return 'loading';
@@ -181,6 +186,7 @@ class SyncedVideoController extends ChangeNotifier {
     _confident = false;
     _measuring = false;
     _measureFailed = false;
+    _guessTimer?.cancel();
     _stopSyncTimer();
     _closeMedia();
     _evaluate();
@@ -290,6 +296,7 @@ class SyncedVideoController extends ChangeNotifier {
     _confident = false;
     _refreshAllowed();
     if (repo.wasUnmatched(key)) {
+      _offsetMs = repo.guessedOffset(key) ?? _offsetMs;
       _measureFailed = true;
       _refreshAllowed();
       _notify();
@@ -304,6 +311,16 @@ class SyncedVideoController extends ChangeNotifier {
     _measuring = true;
     _measureFailed = false;
     _notify();
+    // Do not hold the picture back for a slow measurement: after a few
+    // seconds it shows on the best guess, and snaps to the measured
+    // timeline when that arrives.
+    _guessTimer?.cancel();
+    _guessTimer = Timer(_showGuessAfter, () {
+      if (gen != _gen || _disposed || _confident) return;
+      _measureFailed = true;
+      _refreshAllowed();
+      _notify();
+    });
     unawaited(() async {
       int? measured;
       try {
@@ -319,6 +336,7 @@ class SyncedVideoController extends ChangeNotifier {
                   ? track.duration.inMilliseconds
                   : null,
               songVideoId: songVideoId,
+              videoSources: [...bundle.soundtracks, ...bundle.streams],
             )
             .timeout(_measureBudget);
       } on TimeoutException {
@@ -334,9 +352,15 @@ class SyncedVideoController extends ChangeNotifier {
         }
       }
       if (gen != _gen || _disposed) return;
+      _guessTimer?.cancel();
       if (measured == null) {
-        // No measurement to go on. Stop waiting for one: the picture may
-        // now show on a looser length check (see [_refreshAllowed]).
+        // No measurement to go on: show the picture on the best guess
+        // (the opening's likely position, else the intro, else 0).
+        final guess = repo.guessedOffset(key);
+        if (guess != null && guess != _offsetMs) {
+          _offsetMs = guess;
+          _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
+        }
         _measureFailed = true;
         _refreshAllowed();
         _notify();
@@ -355,7 +379,10 @@ class SyncedVideoController extends ChangeNotifier {
     final bundle = _bundle;
     var allowed = false;
     if (bundle != null) {
-      if (_confident || bundle.introOffsetMs > 0) {
+      if (_confident || bundle.introOffsetMs > 0 || _measureFailed) {
+        // A failed measurement still shows the video: it is the right
+        // video (matched by title, artist and length), and a picture on a
+        // best-guess timeline beats a cover that never goes away.
         allowed = true;
       } else {
         // Edits of the same length share the song's timeline. When timing
@@ -478,9 +505,13 @@ class SyncedVideoController extends ChangeNotifier {
     );
     var failures = 0;
     final unverified = <MusicVideoStream>[];
+    // A client whose link would not decode refuses its other links the same
+    // way; move on to the next client instead of waiting on each of them.
+    final failedClients = <String>{};
     for (final stream in ranked) {
       if (stale()) return;
-      if (failures >= 4) break;
+      if (failures >= 6) break;
+      if (failedClients.contains(stream.client)) continue;
       if (!await repo.probeVideoStream(stream)) {
         unverified.add(stream);
         failures++;
@@ -488,12 +519,14 @@ class SyncedVideoController extends ChangeNotifier {
       }
       if (stale()) return;
       if (await _openStream(gen, token, stream)) return;
+      failedClients.add(stream.client);
       failures++;
     }
     // The probe is a different HTTP stack from the player's, so a failed
     // probe is a hint, not a verdict: let the player itself try the best
     // few links that did not pass it.
-    for (final stream in unverified.take(2)) {
+    for (final stream
+        in unverified.where((s) => !failedClients.contains(s.client)).take(2)) {
       if (stale()) return;
       PlayDiag.log(
         'video: trying unverified ${stream.label} ${stream.codec} '
@@ -777,6 +810,7 @@ class SyncedVideoController extends ChangeNotifier {
     _disposed = true;
     _stopSyncTimer();
     _releaseTimer?.cancel();
+    _guessTimer?.cancel();
     final player = _player;
     _player = null;
     _controller = null;

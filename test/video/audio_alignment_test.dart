@@ -120,4 +120,91 @@ void main() {
       expect(falsePositives, 0);
     });
   });
+
+  group('spectral flux', () {
+    const rate = 8000;
+
+    /// Tonal "notes" at random pitches and times over quiet noise, so the
+    /// signal has spectral structure, not only loudness.
+    Float64List music(int seconds, int seed) {
+      final rng = math.Random(seed);
+      final out = Float64List(seconds * rate);
+      var i = 0;
+      while (i < out.length) {
+        final len = 800 + rng.nextInt(3200);
+        final freq = 110.0 * math.pow(2, rng.nextInt(36) / 12);
+        final amp = 0.1 + rng.nextDouble() * 0.4;
+        for (var k = 0; k < len && i + k < out.length; k++) {
+          final env = math.exp(-k / (len / 3));
+          out[i + k] += amp * env * math.sin(2 * math.pi * freq * k / rate);
+        }
+        i += len ~/ (1 + rng.nextInt(2));
+      }
+      return out;
+    }
+
+    Uint8List pcm(Float64List x) {
+      final b = ByteData(x.length * 2);
+      for (var i = 0; i < x.length; i++) {
+        b.setInt16(
+          i * 2,
+          (x[i].clamp(-1.0, 1.0) * 32767).round(),
+          Endian.little,
+        );
+      }
+      return b.buffer.asUint8List();
+    }
+
+    test('one value per hop', () {
+      final flux = spectralFluxFromPcm16(pcm(music(10, 1)), rate);
+      expect(flux.length, closeTo(10000 / alignmentHopMs, 2));
+    });
+
+    test('finds a film-style intro under a different mix', () {
+      final track = music(120, 3);
+      final song = Float64List.sublistView(track, 0, 60 * rate);
+      // 25 s of unrelated "dialogue" first, then the song at lower level
+      // with other sound laid over it.
+      final noise = music(160, 9);
+      final video = Float64List(150 * rate);
+      for (var i = 0; i < video.length; i++) {
+        final t = i - 25 * rate;
+        final s = t >= 0 && t < track.length ? track[t] * 0.6 : 0.0;
+        video[i] = s + noise[i] * (t < 0 ? 0.8 : 0.25);
+      }
+      final r = alignPcm16((
+        song: pcm(song),
+        video: pcm(video),
+        sampleRate: rate,
+      ));
+      expect(r?.offsetMs, 25000);
+    });
+
+    test('unrelated music does not align', () {
+      expect(
+        alignPcm16((
+          song: pcm(music(60, 21)),
+          video: pcm(music(150, 22)),
+          sampleRate: rate,
+        )),
+        isNull,
+      );
+    });
+
+    test('a re-edit is not confirmed but its opening is guessed', () {
+      final track = music(120, 5);
+      final song = Float64List.sublistView(track, 0, 60 * rate);
+      // Video: 10 s intro, first 35 s of the song, a 20 s scene, the rest.
+      final scene = music(20, 31);
+      final intro = music(10, 32);
+      final video = Float64List.fromList([
+        ...intro,
+        ...track.sublist(0, 35 * rate),
+        ...scene,
+        ...track.sublist(35 * rate, 100 * rate),
+      ]);
+      final input = (song: pcm(song), video: pcm(video), sampleRate: rate);
+      expect(guessOffsetPcm16(input), 10000);
+    });
+  });
 }

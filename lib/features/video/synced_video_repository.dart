@@ -19,12 +19,17 @@ class SyncedVideoBundle {
   final String videoId;
   final List<MusicVideoStream> streams;
 
+  /// The video's own audio-only links, from the same clients that gave the
+  /// pictures. Read to measure the video's timing.
+  final List<MusicVideoStream> soundtracks;
+
   /// Intro the community marked as non-music (SponsorBlock), 0 if none.
   final int introOffsetMs;
 
   const SyncedVideoBundle({
     required this.videoId,
     required this.streams,
+    this.soundtracks = const [],
     this.introOffsetMs = 0,
   });
 }
@@ -33,11 +38,11 @@ const _bundleTtl = Duration(hours: 3);
 
 /// A search that found no video is retried after this, not never.
 const _missTtl = Duration(minutes: 15);
-const _songAlignmentSeconds = 50;
+const _songAlignmentSeconds = 70;
 
 /// Longer than the song window so a long video intro still leaves the
 /// song in range.
-const _videoAlignmentSeconds = 100;
+const _videoAlignmentSeconds = 160;
 
 /// Finds the official music video for a track and the offset that keeps
 /// it in step with the audio. Port of LastWave-Native's
@@ -55,6 +60,12 @@ class SyncedVideoRepository {
   final Map<String, ({SyncedVideoBundle? bundle, DateTime at})> _cache = {};
   final Map<String, Future<SyncedVideoBundle?>> _inflight = {};
   final Map<String, Future<int?>> _measuring = {};
+
+  /// Unconfirmed offsets for pairs that could not be measured, this
+  /// session only: where to place a picture that shows anyway.
+  final Map<String, int> _guesses = {};
+
+  int? guessedOffset(String key) => _guesses[key];
 
   /// Resolves (and caches) the official video for [track]; null when no
   /// trustworthy match exists. [fallbackDurationMs] is the playing audio's
@@ -110,7 +121,15 @@ class SyncedVideoRepository {
         _tube.resolveMusicVideo(id),
         id == track.videoId ? Future.value(0) : fetchIntroOffsetMs(id),
       ]);
-      final streams = results[0] as List<MusicVideoStream>;
+      final all = results[0] as List<MusicVideoStream>;
+      final streams = [
+        for (final s in all)
+          if (!s.audioOnly) s,
+      ];
+      final soundtracks = [
+        for (final s in all)
+          if (s.audioOnly) s,
+      ];
       if (streams.isEmpty) {
         // The video exists; its links just did not come back. That is a
         // failure to retry, not a verdict to cache for hours.
@@ -126,6 +145,7 @@ class SyncedVideoRepository {
       final bundle = SyncedVideoBundle(
         videoId: id,
         streams: streams,
+        soundtracks: soundtracks,
         introOffsetMs: results[1] as int,
       );
       _cache[track.queueKey] = (bundle: bundle, at: DateTime.now());
@@ -328,6 +348,7 @@ class SyncedVideoRepository {
     required String artist,
     int? durationMs,
     String? songVideoId,
+    List<MusicVideoStream> videoSources = const [],
   }) {
     return _measuring[key] ??= _measure(
       key: key,
@@ -338,6 +359,7 @@ class SyncedVideoRepository {
       artist: artist,
       durationMs: durationMs,
       songVideoId: songVideoId,
+      videoSources: videoSources,
     ).whenComplete(() => _measuring.remove(key));
   }
 
@@ -350,6 +372,7 @@ class SyncedVideoRepository {
     required String artist,
     required int? durationMs,
     String? songVideoId,
+    List<MusicVideoStream> videoSources = const [],
   }) async {
     if (hasSavedOffset(key)) return savedOffset(key);
     if (_unmatched.contains(key)) return null;
@@ -358,13 +381,6 @@ class SyncedVideoRepository {
     final clock = Stopwatch()..start();
     PlayDiag.log('video: align start $key');
     try {
-      final videoAudio = await _tube
-          .resolveAudioStream(videoId)
-          .timeout(const Duration(seconds: 20));
-      if (videoAudio == null) {
-        PlayDiag.log('video: align — no soundtrack stream for $videoId');
-        return null;
-      }
       final captures = await Future.wait([
         _captureSong(
           songUrl: songUrl,
@@ -375,11 +391,7 @@ class SyncedVideoRepository {
           artist: artist,
           durationMs: durationMs,
         ),
-        capturePcm16Mono(
-          url: videoAudio.url,
-          headers: videoAudio.requestHeaders,
-          seconds: _videoAlignmentSeconds,
-        ),
+        _captureVideoSide(videoId, videoSources),
       ]);
       final song = captures[0];
       final video = captures[1];
@@ -395,8 +407,17 @@ class SyncedVideoRepository {
       }
       final result = await alignPcm16Async(song, video, alignmentSampleRate);
       if (result == null) {
-        PlayDiag.log('video: align $key → no confident match');
+        final guess = await guessOffsetPcm16Async(
+          song,
+          video,
+          alignmentSampleRate,
+        );
+        PlayDiag.log(
+          'video: align $key → no confident match'
+          '${guess == null ? '' : ', best guess $guess ms'}',
+        );
         _unmatched.add(key);
+        if (guess != null) _guesses[key] = guess;
         return null;
       }
       PlayDiag.log(
@@ -445,6 +466,70 @@ class SyncedVideoRepository {
         durationMs: durationMs,
         excludeId: excludeId,
       );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The video's own audio: first the soundtrack links that came with the
+  /// pictures (same client, already known to be served), then a muxed
+  /// picture file read with its picture switched off, then the audio
+  /// resolver used for songs.
+  Future<Uint8List?> _captureVideoSide(
+    String videoId,
+    List<MusicVideoStream> sources,
+  ) async {
+    int rank(MusicVideoStream s) {
+      if (s.audioOnly) return s.client == 'ANDROID_VR' ? 0 : 1;
+      return s.muxed ? 2 : 3;
+    }
+
+    final ordered =
+        [
+          for (final s in sources)
+            if (s.audioOnly || s.muxed) s,
+        ]..sort((a, b) {
+          final r = rank(a).compareTo(rank(b));
+          // Lighter files decode sooner; timing does not need fidelity.
+          return r != 0 ? r : a.bitrate.compareTo(b.bitrate);
+        });
+    final tried = <String>{};
+    for (final s in ordered) {
+      // One try per client and kind: a refused client refuses them all.
+      if (!tried.add('${s.client}|${s.audioOnly}')) continue;
+      if (tried.length > 3) break;
+      final pcm = await capturePcm16Mono(
+        url: s.url,
+        headers: s.requestHeaders,
+        seconds: _videoAlignmentSeconds,
+        minSeconds: 40,
+      );
+      if (pcm != null) {
+        PlayDiag.log(
+          'video: align — video side from ${s.client} '
+          '${s.audioOnly ? 'soundtrack' : '${s.label} file'}',
+        );
+        return pcm;
+      }
+    }
+    try {
+      final alt = await _tube
+          .resolveAudioStream(videoId)
+          .timeout(const Duration(seconds: 20));
+      if (alt == null) {
+        PlayDiag.log('video: align — no soundtrack stream for $videoId');
+        return null;
+      }
+      final pcm = await capturePcm16Mono(
+        url: alt.url,
+        headers: alt.requestHeaders,
+        seconds: _videoAlignmentSeconds,
+        minSeconds: 40,
+      );
+      if (pcm != null) {
+        PlayDiag.log('video: align — video side from the audio resolver');
+      }
+      return pcm;
     } catch (_) {
       return null;
     }
