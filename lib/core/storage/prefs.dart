@@ -421,6 +421,25 @@ class Prefs {
   Future<void> setLyricsTransliteration(bool v) =>
       _sp.setBool('lw_lyrics_transliteration', v);
 
+  /// Seconds of inactivity before Now Playing hides its controls (1–10);
+  /// 0 turns auto-hide off. Click anywhere to bring them back.
+  int get nowPlayingAutoHideSeconds {
+    final v = _sp.getInt('lw_np_autohide_seconds') ?? 3;
+    return v <= 0 ? 0 : v.clamp(1, 10);
+  }
+
+  Future<void> setNowPlayingAutoHideSeconds(int seconds) => _sp.setInt(
+        'lw_np_autohide_seconds',
+        seconds <= 0 ? 0 : seconds.clamp(1, 10),
+      );
+
+  /// Stretch the video to exactly fill the window (may look squashed)
+  /// instead of cropping its edges to keep the proportions.
+  bool get musicVideoStretch => _sp.getBool('lw_music_video_stretch') ?? false;
+
+  Future<void> setMusicVideoStretch(bool v) =>
+      _sp.setBool('lw_music_video_stretch', v);
+
   /// Synced music video behind Now Playing. On by default.
   bool get musicVideoEnabled => _sp.getBool('lw_music_video_enabled') ?? true;
 

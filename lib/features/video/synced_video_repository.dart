@@ -2,13 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../innertube/innertube_api.dart';
+import '../player/play_diag.dart';
 import 'audio_alignment.dart';
 import 'pcm_capture.dart';
 import 'video_match.dart';
@@ -29,6 +30,9 @@ class SyncedVideoBundle {
 }
 
 const _bundleTtl = Duration(hours: 3);
+
+/// A search that found no video is retried after this, not never.
+const _missTtl = Duration(minutes: 15);
 const _songAlignmentSeconds = 50;
 
 /// Longer than the song window so a long video intro still leaves the
@@ -53,52 +57,83 @@ class SyncedVideoRepository {
   final Map<String, Future<int?>> _measuring = {};
 
   /// Resolves (and caches) the official video for [track]; null when no
-  /// trustworthy match exists.
-  Future<SyncedVideoBundle?> resolve(PlayableTrack track) {
+  /// trustworthy match exists. [fallbackDurationMs] is the playing audio's
+  /// length, used only when the track row never carried one.
+  Future<SyncedVideoBundle?> resolve(
+    PlayableTrack track, {
+    int? fallbackDurationMs,
+  }) {
     final key = track.queueKey;
     final cached = _cache[key];
-    if (cached != null && DateTime.now().difference(cached.at) < _bundleTtl) {
+    if (cached != null &&
+        DateTime.now().difference(cached.at) <
+            (cached.bundle == null ? _missTtl : _bundleTtl)) {
       return Future.value(cached.bundle);
     }
-    return _inflight[key] ??= _resolve(track).whenComplete(() {
-      _inflight.remove(key);
-    });
+    return _inflight[key] ??= _resolve(track, fallbackDurationMs).whenComplete(
+      () {
+        _inflight.remove(key);
+      },
+    );
   }
 
   void invalidate(PlayableTrack track) => _cache.remove(track.queueKey);
 
-  Future<SyncedVideoBundle?> _resolve(PlayableTrack track) async {
-    SyncedVideoBundle? bundle;
+  Future<SyncedVideoBundle?> _resolve(
+    PlayableTrack track,
+    int? fallbackDurationMs,
+  ) async {
+    final label = '"${track.title}" — ${track.artist}';
+    final durationMs = track.duration.inMilliseconds > 0
+        ? track.duration.inMilliseconds
+        : fallbackDurationMs;
+    String? id;
     try {
-      final id = await findOfficialVideoId(
+      id = await findOfficialVideoId(
         title: track.title,
         artist: track.artist,
         audioVideoId: track.videoId,
-        durationMs: track.duration.inMilliseconds > 0
-            ? track.duration.inMilliseconds
-            : null,
+        durationMs: durationMs,
       );
-      if (id != null) {
-        final results = await Future.wait([
-          _tube.resolveMusicVideo(id),
-          id == track.videoId ? Future.value(0) : fetchIntroOffsetMs(id),
-        ]);
-        final streams = results[0] as List<MusicVideoStream>;
-        if (streams.isNotEmpty) {
-          bundle = SyncedVideoBundle(
-            videoId: id,
-            streams: streams,
-            introOffsetMs: results[1] as int,
-          );
-        }
-      }
     } catch (e) {
-      if (kDebugMode) debugPrint('[video-sync] resolve failed: $e');
-      // Transient failure: do not remember "no video" for three hours.
+      PlayDiag.log('video: lookup failed for $label: $e');
+      return null; // transient: do not remember "no video"
+    }
+    if (id == null) {
+      PlayDiag.log('video: no matching official video for $label');
+      // A true miss is remembered, but only for a short while.
+      _cache[track.queueKey] = (bundle: null, at: DateTime.now());
       return null;
     }
-    _cache[track.queueKey] = (bundle: bundle, at: DateTime.now());
-    return bundle;
+    try {
+      final results = await Future.wait([
+        _tube.resolveMusicVideo(id),
+        id == track.videoId ? Future.value(0) : fetchIntroOffsetMs(id),
+      ]);
+      final streams = results[0] as List<MusicVideoStream>;
+      if (streams.isEmpty) {
+        // The video exists; its links just did not come back. That is a
+        // failure to retry, not a verdict to cache for hours.
+        PlayDiag.log('video: $id matched $label but no playable streams');
+        return null;
+      }
+      final top = rankVideoStreams(streams, 0).first;
+      final tallest = streams.map((s) => s.height).reduce(math.max);
+      PlayDiag.log(
+        'video: $id for $label — ${streams.length} streams, tallest '
+        '${tallest}p, auto → ${top.label} ${top.codec} via ${top.client}',
+      );
+      final bundle = SyncedVideoBundle(
+        videoId: id,
+        streams: streams,
+        introOffsetMs: results[1] as int,
+      );
+      _cache[track.queueKey] = (bundle: bundle, at: DateTime.now());
+      return bundle;
+    } catch (e) {
+      PlayDiag.log('video: stream resolve failed for $id: $e');
+      return null;
+    }
   }
 
   Future<String?> findOfficialVideoId({
@@ -107,29 +142,54 @@ class SyncedVideoRepository {
     String? audioVideoId,
     int? durationMs,
   }) async {
-    // Tier 1: YouTube Music's own official counterpart.
-    if (audioVideoId != null && audioVideoId.isNotEmpty) {
-      try {
-        final counterpart = await _tube.findCounterpartVideoId(audioVideoId);
-        if (counterpart != null && counterpart.isNotEmpty) return counterpart;
-      } catch (_) {}
-    }
-
-    // Tier 2: verified search.
     final cleanTitle = cleanTrackTitleForVideo(title);
     final cleanArtist = artist.toLowerCase() == 'unknown artist'
         ? ''
         : artist.trim();
+
+    // Tier 1: YouTube Music's own official counterpart — but only when what
+    // it lists really is this song. The id on the track can be a different
+    // upload that was matched loosely, and its counterpart then belongs to
+    // some other song.
+    if (audioVideoId != null && audioVideoId.isNotEmpty) {
+      try {
+        final cp = await _tube.findOfficialVideoCandidate(audioVideoId);
+        if (cp != null && cp.videoId.isNotEmpty) {
+          final listed = cp.title.isNotEmpty;
+          final same =
+              !listed ||
+              isSameSongVideo(
+                candidateTitle: cp.title,
+                candidateChannel: cp.artist,
+                candidateSeconds: cp.durationSeconds > 0
+                    ? cp.durationSeconds
+                    : null,
+                songTitle: cleanTitle,
+                songArtist: cleanArtist,
+                songDurationMs: durationMs,
+              );
+          PlayDiag.log(
+            'video: tier1 ${cp.videoId}'
+            '${listed ? ' "${cp.title}" — ${cp.artist}' : ''} → '
+            '${same ? 'accepted' : 'rejected (not this song)'}',
+          );
+          if (same) return cp.videoId;
+        }
+      } catch (_) {}
+    }
+
+    // Tier 2: verified search.
     final queries = <String>{
       '$cleanArtist - $cleanTitle Official Music Video'.trim(),
       '$cleanTitle $cleanArtist official video'.trim(),
       '$cleanTitle $cleanArtist'.trim(),
+      '$cleanTitle official music video'.trim(),
     }.where((q) => q.isNotEmpty);
 
     for (final query in queries) {
       List<YouTubeMusicTrack> results;
       try {
-        results = await _tube.searchVideos(query, limit: 8);
+        results = await _tube.searchVideos(query, limit: 12);
       } catch (_) {
         continue;
       }
@@ -162,6 +222,12 @@ class SyncedVideoRepository {
         ));
       }
       scored.sort((a, b) => b.score.compareTo(a.score));
+      PlayDiag.log(
+        'video: search "$query" → ${results.length} results, '
+        '${scored.length} plausible'
+        '${scored.isEmpty ? '' : ', best "${scored.first.track.title}" '
+                  '(${scored.first.track.artist}) score ${scored.first.score}'}',
+      );
       if (scored.isNotEmpty && scored.first.score >= minVideoCandidateScore) {
         return scored.first.track.videoId;
       }
@@ -206,6 +272,32 @@ class SyncedVideoRepository {
     }
   }
 
+  /// Whether [stream] really serves bytes right now. Some links come back
+  /// from the player request but refuse the actual download (expired,
+  /// needs a token the client did not get); finding that out before
+  /// opening beats a long black wait followed by a failure.
+  Future<bool> probeVideoStream(MusicVideoStream stream) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final req = await client
+          .getUrl(Uri.parse(stream.url))
+          .timeout(const Duration(seconds: 6));
+      stream.requestHeaders.forEach(req.headers.set);
+      req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-1023');
+      req.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+      final res = await req.close().timeout(const Duration(seconds: 8));
+      final ok = res.statusCode == 206 || res.statusCode == 200;
+      // A server that ignores Range would stream the whole file: one chunk
+      // is proof enough, and closing the client cuts the rest.
+      if (ok) await res.first.timeout(const Duration(seconds: 8));
+      return ok;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   /// Whether an offset was already measured for [key] (possibly "none").
   bool hasSavedOffset(String key) => _prefs.musicVideoOffsets.containsKey(key);
 
@@ -220,12 +312,14 @@ class SyncedVideoRepository {
     required String songUrl,
     required Map<String, String> songHeaders,
     required String videoId,
+    String? songVideoId,
   }) {
     return _measuring[key] ??= _measure(
       key: key,
       songUrl: songUrl,
       songHeaders: songHeaders,
       videoId: videoId,
+      songVideoId: songVideoId,
     ).whenComplete(() => _measuring.remove(key));
   }
 
@@ -234,6 +328,7 @@ class SyncedVideoRepository {
     required String songUrl,
     required Map<String, String> songHeaders,
     required String videoId,
+    String? songVideoId,
   }) async {
     if (hasSavedOffset(key)) return savedOffset(key);
     // Let the track's own start win the network first.
@@ -242,7 +337,10 @@ class SyncedVideoRepository {
       final videoAudio = await _tube
           .resolveAudioStream(videoId)
           .timeout(const Duration(seconds: 20));
-      if (videoAudio == null) return null;
+      if (videoAudio == null) {
+        PlayDiag.log('video: align — no soundtrack stream for $videoId');
+        return null;
+      }
       final captures = await Future.wait([
         capturePcm16Mono(
           url: songUrl,
@@ -255,25 +353,56 @@ class SyncedVideoRepository {
           seconds: _videoAlignmentSeconds,
         ),
       ]);
-      final song = captures[0];
+      var song = captures[0];
       final video = captures[1];
+      if (song == null &&
+          songVideoId != null &&
+          songVideoId.isNotEmpty &&
+          songVideoId != videoId) {
+        // The playing source (a lossless proxy, a local file) could not be
+        // decoded here; the same recording's YouTube audio shares its
+        // timeline, so measure against that instead.
+        PlayDiag.log(
+          'video: align — playing source unreadable, '
+          'using YouTube audio of $songVideoId',
+        );
+        final alt = await _tube
+            .resolveAudioStream(songVideoId)
+            .timeout(const Duration(seconds: 20));
+        if (alt != null) {
+          song = await capturePcm16Mono(
+            url: alt.url,
+            headers: alt.requestHeaders,
+            seconds: _songAlignmentSeconds,
+          );
+        }
+      }
       // Capture failure is not a measurement: leave it unsaved so the
       // next play tries again.
-      if (song == null || video == null) return null;
+      if (song == null || video == null) {
+        PlayDiag.log(
+          'video: align — capture failed '
+          '(song ${song == null ? 'no' : 'ok'}, '
+          'video ${video == null ? 'no' : 'ok'})',
+        );
+        return null;
+      }
+      final songPcm = song;
       final offset = await Isolate.run(
         () => alignPcm16((
-          song: song,
+          song: songPcm,
           video: video,
           sampleRate: alignmentSampleRate,
         )),
       );
-      if (kDebugMode) {
-        debugPrint('[video-sync] measured $key → ${offset ?? 'no match'} ms');
-      }
+      PlayDiag.log(
+        'video: align $key → '
+        '${offset == null ? 'no confident match' : '$offset ms'}',
+      );
       await _prefs.saveMusicVideoOffset(key, offset);
       return offset;
     } catch (e) {
-      if (kDebugMode) debugPrint('[video-sync] measure failed: $e');
+      PlayDiag.log('video: align failed: $e');
       return null;
     }
   }

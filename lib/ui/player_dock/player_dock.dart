@@ -19,6 +19,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, LWVolumeSlider, WaveLink;
 import '../components/menus.dart';
 import '../theme/haze.dart';
+import '../now_playing/now_playing_chrome.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -57,6 +58,10 @@ class WavePlayerDock extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
+    // On Now Playing the expand button goes full screen instead.
+    final onNowPlaying = ref.watch(nowPlayingOpenProvider);
+    final expandLabel =
+        onNowPlaying ? 'Full screen' : 'Now Playing';
     // NOTE: position/duration/buffered/volume/speed deliberately excluded
     // here so 1s ticks and volume drags never rebuild the whole dock.
     // _DockProgress owns position; _VolumeSection owns volume; _DockOverflow
@@ -335,7 +340,7 @@ class WavePlayerDock extends ConsumerWidget {
                             const _VolumeFlyoutSection(),
                           if (showExpand)
                             _Glyph(
-                              tooltip: 'Now Playing',
+                              tooltip: expandLabel,
                               icon: WaveIcons.expand,
                               onTap: onExpand,
                             ),
@@ -351,6 +356,7 @@ class WavePlayerDock extends ConsumerWidget {
                                 player.stream != null,
                             showOutputItem: !showOutput,
                             showExpandItem: !showExpand,
+                            expandLabel: expandLabel,
                             showMiniItem: !showMini,
                             onToggleLyrics: onToggleLyrics,
                             onExpand: onExpand,
@@ -1482,6 +1488,7 @@ class _DockOverflow extends ConsumerWidget {
   final bool showQualityItem;
   final bool showOutputItem;
   final bool showExpandItem;
+  final String expandLabel;
   final bool showMiniItem;
   final VoidCallback onToggleLyrics;
   final VoidCallback onExpand;
@@ -1492,6 +1499,7 @@ class _DockOverflow extends ConsumerWidget {
     this.showQualityItem = false,
     this.showOutputItem = false,
     this.showExpandItem = false,
+    this.expandLabel = 'Open Now Playing',
     this.showMiniItem = false,
     required this.onToggleLyrics,
     required this.onExpand,
@@ -1547,7 +1555,7 @@ class _DockOverflow extends ConsumerWidget {
         if (showExpandItem)
           WaveMenuAction(
             leading: const Icon(WaveIcons.expand, size: 15),
-            label: 'Open Now Playing',
+            label: expandLabel,
             onPressed: onExpand,
           ),
         if (showMiniItem)

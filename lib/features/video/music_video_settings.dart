@@ -44,3 +44,19 @@ const musicVideoQualityOptions = <(int, String)>[
   (480, '480p'),
   (360, '360p'),
 ];
+
+/// Stretch to fill (true) or crop to keep proportions (false, default).
+final musicVideoStretchProvider =
+    StateNotifierProvider<MusicVideoStretchNotifier, bool>((ref) {
+      return MusicVideoStretchNotifier(ref.watch(prefsProvider));
+    });
+
+class MusicVideoStretchNotifier extends StateNotifier<bool> {
+  MusicVideoStretchNotifier(this._prefs) : super(_prefs.musicVideoStretch);
+  final Prefs _prefs;
+
+  void set(bool stretch) {
+    state = stretch;
+    _prefs.setMusicVideoStretch(stretch);
+  }
+}

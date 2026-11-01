@@ -126,6 +126,87 @@ void main() {
     });
   });
 
+  group('real-world titles', () {
+    test('stage names with symbols still match (KR\$NA)', () {
+      expect(
+        matches(
+          'KR\$NA - Boom Shaka (Official Music Video)',
+          channel: 'KR\$NA',
+          song: 'Boom Shaka',
+          artist: 'KR\$NA',
+        ),
+        isTrue,
+      );
+      final score = scoreVideoCandidate(
+        candidateTitle: 'KR\$NA - Boom Shaka (Official Music Video)',
+        candidateArtist: 'KR\$NA',
+        candidateDurationSec: 212,
+        wantedTitle: 'Boom Shaka',
+        wantedArtist: 'KR\$NA',
+        expectedDurationMs: null,
+      );
+      expect(score, isNotNull);
+      expect(score!, greaterThanOrEqualTo(minVideoCandidateScore));
+    });
+
+    test('Machayenge 4 official video is found without a known length', () {
+      const title =
+          'Emiway - Machayenge 4 (Prod by Flamboy) (Official Music Video)';
+      expect(
+        matches(
+          title,
+          channel: 'Emiway Bantai',
+          song: 'Machayenge 4',
+          artist: 'Emiway Bantai',
+        ),
+        isTrue,
+      );
+      final score = scoreVideoCandidate(
+        candidateTitle: title,
+        candidateArtist: 'Emiway Bantai',
+        candidateDurationSec: 230,
+        wantedTitle: 'Machayenge 4',
+        wantedArtist: 'Emiway Bantai',
+        expectedDurationMs: null,
+      );
+      expect(score, isNotNull);
+      expect(score!, greaterThanOrEqualTo(minVideoCandidateScore));
+    });
+
+    test('another number in the series is a different song', () {
+      expect(
+        matches(
+          'Emiway - Machayenge 3 (Official Music Video)',
+          channel: 'Emiway Bantai',
+          song: 'Machayenge 4',
+          artist: 'Emiway Bantai',
+        ),
+        isFalse,
+      );
+      expect(
+        matches(
+          'Emiway - Machayenge (Official Music Video)',
+          channel: 'Emiway Bantai',
+          song: 'Machayenge 4',
+          artist: 'Emiway Bantai',
+        ),
+        isFalse,
+      );
+    });
+
+    test('a short stage name never matches by accident', () {
+      expect(
+        matches(
+          'Some Rapper - Boom Shaka (Official Video)',
+          channel: 'Some Rapper',
+          song: 'Boom Shaka',
+          artist: 'DJ',
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('scoreVideoCandidate', () {
     test('official video on the artist channel clears the bar', () {
       final score = scoreVideoCandidate(
@@ -211,6 +292,93 @@ void main() {
     test('everything above the choice falls to the lowest', () {
       final big = streams.where((s) => s.height >= 1080).toList();
       expect(pickVideoStreamForQuality(big, 360)!.height, 1080);
+    });
+  });
+
+  group('rankVideoStreams', () {
+    MusicVideoStream st(
+      int h, {
+      String codec = 'avc1.640028',
+      bool muxed = false,
+      int fps = 30,
+      int bitrate = 1000,
+      String client = 'ANDROID_VR',
+    }) => MusicVideoStream(
+      label: '${h}p',
+      url: 'u$h-$codec-$muxed-$fps-$bitrate-$client',
+      height: h,
+      codec: codec,
+      muxed: muxed,
+      fps: fps,
+      bitrate: bitrate,
+      client: client,
+    );
+
+    test('a client that only has 360p no longer caps the picture', () {
+      final ranked = rankVideoStreams([
+        st(360, muxed: true, client: 'ANDROID'),
+        st(1080),
+        st(720),
+      ], 0);
+      expect(ranked.first.height, 1080);
+      expect(ranked.map((s) => s.height), [1080, 720, 360]);
+    });
+
+    test('same height prefers H.264 over VP9 over AV1', () {
+      final ranked = rankVideoStreams([
+        st(1080, codec: 'av01.0.08M.08'),
+        st(1080, codec: 'vp9'),
+        st(1080),
+      ], 0);
+      expect(ranked.map((s) => s.codec), [
+        'avc1.640028',
+        'vp9',
+        'av01.0.08M.08',
+      ]);
+    });
+
+    test('video-only beats the progressive file at the same height', () {
+      final ranked = rankVideoStreams([
+        st(720, muxed: true, codec: 'avc1.64001F'),
+        st(720),
+      ], 0);
+      expect(ranked.first.muxed, isFalse);
+    });
+
+    test('30 fps beats 60 fps, then higher bitrate wins', () {
+      final ranked = rankVideoStreams([
+        st(1080, fps: 60, bitrate: 9000),
+        st(1080, bitrate: 2000),
+        st(1080, bitrate: 3000),
+      ], 0);
+      expect(ranked.map((s) => s.fps), [30, 30, 60]);
+      expect(ranked.first.bitrate, 3000);
+    });
+
+    test('auto never starts above 1080p, a fixed choice can', () {
+      final all = [
+        st(2160, codec: 'vp9'),
+        st(1440, codec: 'vp9'),
+        st(1080),
+        st(720),
+      ];
+      expect(rankVideoStreams(all, 0).first.height, 1080);
+      expect(rankVideoStreams(all, 2160).first.height, 2160);
+      expect(rankVideoStreams(all, 720).first.height, 720);
+    });
+
+    test('taller candidates only follow as a last resort, smallest first', () {
+      final ranked = rankVideoStreams([
+        st(2160, codec: 'vp9'),
+        st(1440, codec: 'vp9'),
+        st(1080),
+      ], 720);
+      expect(ranked.map((s) => s.height), [1080, 1440, 2160]);
+    });
+
+    test('empty input stays empty', () {
+      expect(rankVideoStreams(const [], 0), isEmpty);
+      expect(pickVideoStreamForQuality(const [], 0), isNull);
     });
   });
 }

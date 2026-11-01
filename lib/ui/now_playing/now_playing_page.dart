@@ -25,6 +25,7 @@ import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import 'music_video_backdrop.dart';
+import 'now_playing_chrome.dart';
 
 /// Centerpiece Fullscreen Player — Apple Music Split View & Cinematic Centering.
 ///
@@ -60,6 +61,9 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   // Same instance across builds => element update short-circuits.
   // No changing params (reads providers internally, stable onClose).
   Widget? _queueDrawerCache;
+  // True once the video has fully faded in: the ambient mesh behind it is
+  // then unmounted instead of being re-rasterized under every video frame.
+  bool _videoCovers = false;
   // Held so dispose() can detach without touching `ref` (not allowed then).
   SyncedVideoController? _video;
 
@@ -71,6 +75,12 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   void initState() {
     super.initState();
     _resetIdleTimer();
+    _autoHideSeconds = ref.read(nowPlayingAutoHideProvider);
+    _chromeHidden = ref.read(nowPlayingChromeHiddenProvider.notifier);
+    final open = ref.read(nowPlayingOpenProvider.notifier);
+    _openFlag = open;
+    // Provider state cannot change while the tree is building.
+    Future.microtask(() => open.state = true);
     // The synced music video only plays while this page is open.
     final video = ref.read(syncedVideoControllerProvider);
     _video = video;
@@ -81,20 +91,35 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   void dispose() {
     _idleTimer?.cancel();
     _video?.detach();
+    // Leaving the page brings the app's side rail back. Deferred: provider
+    // state cannot change while the tree is being torn down.
+    final chrome = _chromeHidden;
+    if (chrome != null) Future.microtask(() => chrome.state = false);
+    final open = _openFlag;
+    if (open != null) Future.microtask(() => open.state = false);
     super.dispose();
   }
 
+  int _autoHideSeconds = 3;
+  StateController<bool>? _chromeHidden;
+  StateController<bool>? _openFlag;
+
+  /// Hides (or brings back) every control on the page and the app's side
+  /// rail. Only a click brings them back: hovering never does.
+  void _setHidden(bool hidden) {
+    if (_controlsIdle == hidden || !mounted) return;
+    setState(() => _controlsIdle = hidden);
+    _chromeHidden?.state = hidden;
+  }
+
+  /// Pointer activity while the controls are showing keeps them up. While
+  /// they are hidden it does nothing: they return on a click only.
   void _resetIdleTimer() {
     _lastHoverAt = DateTime.now();
-    if (_controlsIdle) {
-      setState(() => _controlsIdle = false);
-      _armIdleTimer();
-      return;
-    }
-    // Throttle per-pixel hover re-arms while visible: high-DPI mice poll
-    // ~1000Hz and each event cancelled/armed a Timer. The timeout below
-    // self-corrects against _lastHoverAt, so hide still lands exactly
-    // 3.5s after the last movement. Showing from hidden stays instant.
+    if (_controlsIdle) return;
+    // Throttle per-pixel hover re-arms: high-DPI mice poll ~1000Hz and each
+    // event cancelled/armed a Timer. The timeout self-corrects against
+    // _lastHoverAt, so hide still lands exactly N s after the last move.
     final now = DateTime.now();
     if (now.difference(_lastArmAt).inMilliseconds < 200 &&
         (_idleTimer?.isActive ?? false)) {
@@ -103,30 +128,56 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     _armIdleTimer();
   }
 
+  /// A click or tap anywhere: shows the controls again.
+  void _onPointerDown() {
+    if (_controlsIdle) {
+      _lastHoverAt = DateTime.now();
+      _setHidden(false);
+      _armIdleTimer();
+    } else {
+      _resetIdleTimer();
+    }
+  }
+
   void _armIdleTimer() {
     _lastArmAt = DateTime.now();
     _idleTimer?.cancel();
-    _idleTimer = Timer(const Duration(milliseconds: 3500), _onIdleTimeout);
+    if (_autoHideSeconds <= 0) return;
+    _idleTimer = Timer(Duration(seconds: _autoHideSeconds), _onIdleTimeout);
   }
 
   void _onIdleTimeout() {
     if (!mounted) return;
-    // A throttled hover may have landed after the last arm: re-arm for
-    // the remainder instead of hiding early.
-    final elapsed = DateTime.now().difference(_lastHoverAt).inMilliseconds;
-    if (elapsed < 3500) {
-      _idleTimer =
-          Timer(Duration(milliseconds: 3500 - elapsed), _onIdleTimeout);
+    final limit = Duration(seconds: _autoHideSeconds);
+    final elapsed = DateTime.now().difference(_lastHoverAt);
+    if (elapsed < limit) {
+      // A throttled hover landed after the last arm: wait the remainder.
+      _idleTimer = Timer(limit - elapsed, _onIdleTimeout);
       return;
     }
-    setState(() => _controlsIdle = true);
+    // Never hide the controls out from under an open queue drawer.
+    if (_queueVisible) {
+      _armIdleTimer();
+      return;
+    }
+    _setHidden(true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final current = ref.watch(
-      playbackServiceProvider.select((s) => s.current),
-    );
+    final current = ref.watch(playbackServiceProvider.select((s) => s.current));
+
+    final fullscreen = ref.watch(nowPlayingFullscreenProvider);
+    ref.listen<int>(nowPlayingAutoHideProvider, (_, seconds) {
+      _autoHideSeconds = seconds;
+      if (seconds <= 0) {
+        _idleTimer?.cancel();
+        _setHidden(false);
+      } else {
+        _lastHoverAt = DateTime.now();
+        _armIdleTimer();
+      }
+    });
 
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
     // True only once the official video is fetched, decoded and locked to
@@ -134,6 +185,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     final videoOn = ref.watch(
       syncedVideoControllerProvider.select((c) => c.visible),
     );
+    if (!videoOn) _videoCovers = false;
 
     if (current == null) {
       // Same stage as the playing page, for the same reason: this route must
@@ -146,8 +198,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
             child: WaveEmpty(
               icon: WaveIcons.music,
               title: 'Nothing playing',
-              subtitle:
-                  'Pick something from Home, Discover or Search and it will take centre stage here.',
+              subtitle: 'Pick something from Home, Discover or Search and it will take centre stage here.',
               actionLabel: 'Browse music',
               onAction: () => context.go('/home'),
             ),
@@ -189,26 +240,32 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
       final q = snap.queue;
       final i = snap.currentIndex;
       final anim = ref.read(animatedArtworkServiceProvider);
-      anim.prefetch(AnimatedArtworkQuery(
-        artist: current.artist,
-        album: current.album,
-        title: current.title,
-      ));
+      anim.prefetch(
+        AnimatedArtworkQuery(
+          artist: current.artist,
+          album: current.album,
+          title: current.title,
+        ),
+      );
       for (final offset in [1, 2]) {
         if (i + offset >= q.length) continue;
         final track = q[i + offset];
-        anim.prefetch(AnimatedArtworkQuery(
-          artist: track.artist,
-          album: track.album,
-          title: track.title,
-        ));
+        anim.prefetch(
+          AnimatedArtworkQuery(
+            artist: track.artist,
+            album: track.album,
+            title: track.title,
+          ),
+        );
       }
     }
 
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_queueVisible) {
+          if (ref.read(nowPlayingFullscreenProvider)) {
+            ref.read(nowPlayingFullscreenProvider.notifier).state = false;
+          } else if (_queueVisible) {
             setState(() => _queueVisible = false);
           } else {
             if (context.canPop()) {
@@ -220,152 +277,186 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
         },
       },
       child: MouseRegion(
-        cursor: _controlsIdle ? SystemMouseCursors.none : SystemMouseCursors.basic,
+        cursor: _controlsIdle
+            ? SystemMouseCursors.none
+            : SystemMouseCursors.basic,
         onHover: (_) => _resetIdleTimer(),
-        child: Stack(
-          children: [
-            // The stage belongs to the page. Without a background of its own
-            // the black was borrowed from whatever sat behind the route, so
-            // closing faded the ambient out over a backdrop that could not
-            // fade with it — and then the backdrop vanished the instant the
-            // route did. Painting it here keeps the whole screen, backdrop
-            // included, inside the page's own transition.
-            Positioned.fill(
-              child: ColoredBox(color: waveBackground(context)),
-            ),
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => _onPointerDown(),
+          child: Stack(
+            children: [
+              // The stage belongs to the page. Without a background of its own
+              // the black was borrowed from whatever sat behind the route, so
+              // closing faded the ambient out over a backdrop that could not
+              // fade with it — and then the backdrop vanished the instant the
+              // route did. Painting it here keeps the whole screen, backdrop
+              // included, inside the page's own transition.
+              Positioned.fill(
+                child: ColoredBox(color: waveBackground(context)),
+              ),
 
-            // Background Visualizer (frozen while the video covers it).
-            Positioned.fill(
-              child: TickerMode(
-                enabled: !videoOn,
-                child: RepaintBoundary(
-                  child: _NowAmbient(artworkUrl: current.artworkUrl),
+              // Background Visualizer. Fully hidden by an opaque video, so it
+              // is dropped once the video covers it: Flutter still paints
+              // layers that are merely occluded.
+              if (!(videoOn && _videoCovers))
+                Positioned.fill(
+                  child: TickerMode(
+                    enabled: !videoOn,
+                    child: RepaintBoundary(
+                      child: _NowAmbient(artworkUrl: current.artworkUrl),
+                    ),
+                  ),
+                ),
+
+              // Synced music video, stretched edge to edge behind everything.
+              Positioned.fill(
+                child: MusicVideoBackdrop(
+                  visible: videoOn,
+                  lyricsVisible: _lyricsVisible,
+                  onFadeEnd: (covering) {
+                    if (mounted && _videoCovers != covering) {
+                      setState(() => _videoCovers = covering);
+                    }
+                  },
                 ),
               ),
-            ),
 
-            // Synced music video, stretched edge to edge behind everything.
-            Positioned.fill(
-              child: MusicVideoBackdrop(
-                visible: videoOn,
-                lyricsVisible: _lyricsVisible,
-              ),
-            ),
+              // Main Layout Content
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth > 860;
 
-            // Main Layout Content
-            Positioned.fill(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth > 860;
-
-                  final page = Column(
-                    children: [
-                      // Top Actions Bar (Fadeable on idle)
-                      AnimatedOpacity(
-                        duration: waveMotion(context, const Duration(milliseconds: 350)),
-                        opacity: _controlsIdle ? 0.0 : 1.0,
-                        child: ExcludeFocus(
-                          excluding: _controlsIdle,
-                          child: IgnorePointer(
-                            ignoring: _controlsIdle,
-                            child: _TopActionsBar(
-                              lyricsVisible: _lyricsVisible,
-                              queueVisible: _queueVisible,
-                              visualizerEnabled: visualizerEnabled,
-                              onToggleLyrics: () {
-                                _resetIdleTimer();
-                                setState(() => _lyricsVisible = !_lyricsVisible);
-                              },
-                              onToggleQueue: () {
-                                _resetIdleTimer();
-                                setState(() => _queueVisible = !_queueVisible);
-                              },
-                              onToggleVisualizer: () {
-                                _resetIdleTimer();
-                                ref.read(visualizerEnabledProvider.notifier).toggle();
-                              },
-                              onClose: () {
-                                if (context.canPop()) {
-                                  context.pop();
-                                } else {
-                                  context.go('/home');
-                                }
-                              },
+                    final page = Column(
+                      children: [
+                        // Top Actions Bar (Fadeable on idle)
+                        AnimatedOpacity(
+                          duration: waveMotion(
+                            context,
+                            const Duration(milliseconds: 350),
+                          ),
+                          opacity: _controlsIdle ? 0.0 : 1.0,
+                          child: ExcludeFocus(
+                            excluding: _controlsIdle,
+                            child: IgnorePointer(
+                              ignoring: _controlsIdle,
+                              child: _TopActionsBar(
+                                fullscreen: fullscreen,
+                                onExitFullscreen: () =>
+                                    ref
+                                            .read(
+                                              nowPlayingFullscreenProvider
+                                                  .notifier,
+                                            )
+                                            .state =
+                                        false,
+                                lyricsVisible: _lyricsVisible,
+                                queueVisible: _queueVisible,
+                                visualizerEnabled: visualizerEnabled,
+                                onToggleLyrics: () {
+                                  _resetIdleTimer();
+                                  setState(
+                                    () => _lyricsVisible = !_lyricsVisible,
+                                  );
+                                },
+                                onToggleQueue: () {
+                                  _resetIdleTimer();
+                                  setState(
+                                    () => _queueVisible = !_queueVisible,
+                                  );
+                                },
+                                onToggleVisualizer: () {
+                                  _resetIdleTimer();
+                                  ref
+                                      .read(visualizerEnabledProvider.notifier)
+                                      .toggle();
+                                },
+                                onClose: () {
+                                  if (context.canPop()) {
+                                    context.pop();
+                                  } else {
+                                    context.go('/home');
+                                  }
+                                },
+                              ),
                             ),
                           ),
                         ),
-                      ),
 
-                      // Body
-                      Expanded(
-                        child: isWide
-                            ? _DesktopDualPane(
-                                track: current,
-                                lyricsVisible: _lyricsVisible,
-                                hideArtwork: videoOn,
-                              )
-                            : _NarrowCenteredPane(
-                                track: current,
-                                lyricsVisible: _lyricsVisible,
-                                hideArtwork: videoOn,
-                              ),
-                      ),
-                    ],
-                  );
-                  // Light text would vanish on a light theme over moving
-                  // footage, so the chrome reads as dark while it plays.
-                  if (!videoOn || waveIsDark(context)) return page;
-                  return FluentTheme(
-                    data: FluentTheme.of(context)
-                        .copyWith(brightness: Brightness.dark),
-                    child: page,
-                  );
-                },
-              ),
-            ),
-
-            // Scrim backdrop when queue drawer is active
-            Positioned.fill(
-              child: IgnorePointer(
-                ignoring: !_queueVisible,
-                child: AnimatedOpacity(
-                  duration: waveMotion(context, WaveMotion.normal),
-                  curve: Curves.easeOutCubic,
-                  opacity: _queueVisible ? 1.0 : 0.0,
-                  child: GestureDetector(
-                    onTap: () => setState(() => _queueVisible = false),
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.45),
-                    ),
-                  ),
+                        // Body
+                        Expanded(
+                          child: isWide
+                              ? _DesktopDualPane(
+                                  track: current,
+                                  lyricsVisible: _lyricsVisible,
+                                  hideArtwork: videoOn,
+                                  hideChrome: _controlsIdle,
+                                )
+                              : _NarrowCenteredPane(
+                                  track: current,
+                                  lyricsVisible: _lyricsVisible,
+                                  hideArtwork: videoOn,
+                                  hideChrome: _controlsIdle,
+                                ),
+                        ),
+                      ],
+                    );
+                    // Light text would vanish on a light theme over moving
+                    // footage, so the chrome reads as dark while it plays.
+                    if (!videoOn || waveIsDark(context)) return page;
+                    return FluentTheme(
+                      data: FluentTheme.of(context)
+                          .copyWith(brightness: Brightness.dark),
+                      child: page,
+                    );
+                  },
                 ),
               ),
-            ),
 
-            // Contextual Queue drawer smoothly sliding from right.
-            // Offstage when shut: skips paint/raster of the 8 image rows
-            // while closed (scroll offset preserved, no remount).
-            AnimatedPositioned(
-              duration: waveMotion(context, WaveMotion.normal),
-              curve: Curves.easeOutCubic,
-              top: 0,
-              bottom: 0,
-              right: _queueVisible ? 0 : -380,
-              width: 360,
-              child: ExcludeFocus(
-                excluding: !_queueVisible,
+              // Scrim backdrop when queue drawer is active
+              Positioned.fill(
                 child: IgnorePointer(
                   ignoring: !_queueVisible,
-                  child: Offstage(
-                    offstage: !_queueVisible,
-                    child: _queueDrawerCache ??= WaveQueuePanel(
-                      onClose: _closeQueueDrawer,
+                  child: AnimatedOpacity(
+                    duration: waveMotion(context, WaveMotion.normal),
+                    curve: Curves.easeOutCubic,
+                    opacity: _queueVisible ? 1.0 : 0.0,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _queueVisible = false),
+                      child: Container(
+                        color: Colors.black.withValues(alpha: 0.45),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+
+              // Contextual Queue drawer smoothly sliding from right.
+              // Offstage when shut: skips paint/raster of the 8 image rows
+              // while closed (scroll offset preserved, no remount).
+              AnimatedPositioned(
+                duration: waveMotion(context, WaveMotion.normal),
+                curve: Curves.easeOutCubic,
+                top: 0,
+                bottom: 0,
+                right: _queueVisible ? 0 : -380,
+                width: 360,
+                child: ExcludeFocus(
+                  excluding: !_queueVisible,
+                  child: IgnorePointer(
+                    ignoring: !_queueVisible,
+                    child: Offstage(
+                      offstage: !_queueVisible,
+                      child: _queueDrawerCache ??= WaveQueuePanel(
+                        onClose: _closeQueueDrawer,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -381,7 +472,14 @@ class _TopActionsBar extends StatelessWidget {
   final VoidCallback onToggleVisualizer;
   final VoidCallback onClose;
 
+  /// Full screen shows only an X, like a browser's: everything else on the
+  /// bar would be app chrome in a view that is meant to be just the picture.
+  final bool fullscreen;
+  final VoidCallback onExitFullscreen;
+
   const _TopActionsBar({
+    required this.fullscreen,
+    required this.onExitFullscreen,
     required this.lyricsVisible,
     required this.queueVisible,
     required this.visualizerEnabled,
@@ -393,6 +491,29 @@ class _TopActionsBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (fullscreen) {
+      return Container(
+        height: 54,
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Row(
+          children: [
+            const Spacer(),
+            WaveGlass(
+              blur: false,
+              borderRadius: WaveRadius.menuRadius,
+              padding: const EdgeInsets.all(4),
+              child: LWTooltip(
+                message: 'Exit full screen (Esc)',
+                child: _FsIconButton(
+                  icon: WaveIcons.close,
+                  onTap: onExitFullscreen,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       height: 54,
       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -446,10 +567,7 @@ class _TopActionsBar extends StatelessWidget {
                 ),
                 LWTooltip(
                   message: 'Close (Esc)',
-                  child: _FsIconButton(
-                    icon: WaveIcons.close,
-                    onTap: onClose,
-                  ),
+                  child: _FsIconButton(icon: WaveIcons.close, onTap: onClose),
                 ),
               ],
             ),
@@ -485,7 +603,7 @@ class _FsIconButtonState extends State<_FsIconButton> {
     final color = widget.active
         ? accent
         : (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
-            .withValues(alpha: _hover ? 1.0 : 0.92);
+              .withValues(alpha: _hover ? 1.0 : 0.92);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -502,8 +620,8 @@ class _FsIconButtonState extends State<_FsIconButton> {
             color: widget.active
                 ? accent.withValues(alpha: 0.15)
                 : _hover
-                    ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.10)
-                    : Colors.transparent,
+                ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.10)
+                : Colors.transparent,
             borderRadius: WaveRadius.controlsRadius,
             border: Border.all(
               color: widget.active
@@ -511,9 +629,7 @@ class _FsIconButtonState extends State<_FsIconButton> {
                   : Colors.transparent,
             ),
           ),
-          child: Center(
-            child: Icon(widget.icon, size: 16, color: color),
-          ),
+          child: Center(child: Icon(widget.icon, size: 16, color: color)),
         ),
       ),
     );
@@ -559,7 +675,8 @@ class _VisibleTickerState extends ConsumerState<_VisibleTicker> {
   }
 
   void _onRouteStatus(AnimationStatus status) {
-    final settled = status == AnimationStatus.completed ||
+    final settled =
+        status == AnimationStatus.completed ||
         status == AnimationStatus.dismissed;
     if (settled != _routeSettled && mounted) {
       setState(() => _routeSettled = settled);
@@ -588,10 +705,14 @@ class _DesktopDualPane extends StatelessWidget {
   final bool lyricsVisible;
   final bool hideArtwork;
 
+  /// Fades the title block, Up Next and the lyrics header bar; lyrics stay.
+  final bool hideChrome;
+
   const _DesktopDualPane({
     required this.track,
     required this.lyricsVisible,
     this.hideArtwork = false,
+    this.hideChrome = false,
   });
 
   @override
@@ -612,7 +733,10 @@ class _DesktopDualPane extends StatelessWidget {
 
         // Harmonized lyrics column width, balancing the visual weight of the left column
         final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
-        final maxAllowedLyricsWidth = math.max(320.0, maxWidth - colWidth - gap - 48.0);
+        final maxAllowedLyricsWidth = math.max(
+          320.0,
+          maxWidth - colWidth - gap - 48.0,
+        );
         final lyricsWidth = lyricsVisible
             ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
             : 0.0;
@@ -630,8 +754,10 @@ class _DesktopDualPane extends StatelessWidget {
                   // Left Column (Media Player) — the metadata keeps its
                   // intrinsic height; artwork takes whatever remains.
                   AnimatedContainer(
-                    duration:
-                        waveMotion(context, const Duration(milliseconds: 500)),
+                    duration: waveMotion(
+                      context,
+                      const Duration(milliseconds: 500),
+                    ),
                     curve: Curves.easeInOutCubic,
                     width: colWidth,
                     height: maxHeight,
@@ -670,11 +796,14 @@ class _DesktopDualPane extends StatelessWidget {
                           const SizedBox(height: 16),
 
                           // Track Info & Badges — crossfades on track change.
-                          _TrackSwap(
-                            child: _TrackMetadataSection(
-                              key: ValueKey(track.queueKey),
-                              track: track,
-                              alignCenter: !lyricsVisible,
+                          _ChromeFade(
+                            hidden: hideChrome,
+                            child: _TrackSwap(
+                              child: _TrackMetadataSection(
+                                key: ValueKey(track.queueKey),
+                                track: track,
+                                alignCenter: !lyricsVisible,
+                              ),
                             ),
                           ),
                         ],
@@ -684,23 +813,29 @@ class _DesktopDualPane extends StatelessWidget {
 
                   // Gap
                   AnimatedContainer(
-                    duration:
-                        waveMotion(context, const Duration(milliseconds: 500)),
+                    duration: waveMotion(
+                      context,
+                      const Duration(milliseconds: 500),
+                    ),
                     curve: Curves.easeInOutCubic,
                     width: gap,
                   ),
 
                   // Right Column (Apple Music Karaoke Lyrics Pane)
                   AnimatedContainer(
-                    duration:
-                        waveMotion(context, const Duration(milliseconds: 500)),
+                    duration: waveMotion(
+                      context,
+                      const Duration(milliseconds: 500),
+                    ),
                     curve: Curves.easeInOutCubic,
                     width: lyricsWidth,
                     height: maxHeight,
                     child: ClipRect(
                       child: AnimatedOpacity(
                         duration: waveMotion(
-                            context, const Duration(milliseconds: 350)),
+                          context,
+                          const Duration(milliseconds: 350),
+                        ),
                         curve: Curves.easeInOutCubic,
                         opacity: lyricsVisible ? 1.0 : 0.0,
                         child: ExcludeFocus(
@@ -719,6 +854,7 @@ class _DesktopDualPane extends StatelessWidget {
                                       track: track,
                                       compact: false,
                                       showHeaderControls: true,
+                                      controlsVisible: !hideChrome,
                                       fontSize: 36.0,
                                       isActive: lyricsVisible,
                                     ),
@@ -747,10 +883,14 @@ class _NarrowCenteredPane extends StatelessWidget {
   final bool lyricsVisible;
   final bool hideArtwork;
 
+  /// Fades the title block, Up Next and the lyrics header bar; lyrics stay.
+  final bool hideChrome;
+
   const _NarrowCenteredPane({
     required this.track,
     required this.lyricsVisible,
     this.hideArtwork = false,
+    this.hideChrome = false,
   });
 
   @override
@@ -780,21 +920,21 @@ class _NarrowCenteredPane extends StatelessWidget {
                     return Center(
                       child: _ArtworkFade(
                         hidden: hideArtwork,
-                        child: _HeroArtworkCard(
-                          track: track,
-                          size: artSize,
-                        ),
+                        child: _HeroArtworkCard(track: track, size: artSize),
                       ),
                     );
                   },
                 ),
               ),
               const SizedBox(height: 16),
-              _TrackSwap(
-                child: _TrackMetadataSection(
-                  key: ValueKey(track.queueKey),
-                  track: track,
-                  alignCenter: true,
+              _ChromeFade(
+                hidden: hideChrome,
+                child: _TrackSwap(
+                  child: _TrackMetadataSection(
+                    key: ValueKey(track.queueKey),
+                    track: track,
+                    alignCenter: true,
+                  ),
                 ),
               ),
             ],
@@ -812,6 +952,7 @@ class _NarrowCenteredPane extends StatelessWidget {
             track: track,
             compact: true,
             showHeaderControls: true,
+            controlsVisible: !hideChrome,
             isActive: lyricsVisible,
           ),
         ),
@@ -820,10 +961,7 @@ class _NarrowCenteredPane extends StatelessWidget {
 
     return IndexedStack(
       index: lyricsVisible ? 1 : 0,
-      children: [
-        coverArtSubtree,
-        lyricsSubtree,
-      ],
+      children: [coverArtSubtree, lyricsSubtree],
     );
   }
 }
@@ -851,14 +989,10 @@ class _HeroArtworkCard extends ConsumerStatefulWidget {
   final PlayableTrack track;
   final double size;
 
-  const _HeroArtworkCard({
-    required this.track,
-    required this.size,
-  });
+  const _HeroArtworkCard({required this.track, required this.size});
 
   @override
-  ConsumerState<_HeroArtworkCard> createState() =>
-      _HeroArtworkCardState();
+  ConsumerState<_HeroArtworkCard> createState() => _HeroArtworkCardState();
 }
 
 class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
@@ -877,15 +1011,18 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     final dark = waveIsDark(context);
     // Visualizer toggle owns ALL page motion: aura + motion-art clip.
     final visualizerOn = ref.watch(visualizerEnabledProvider);
-    final motion = ref.watch(animatedArtworkProvider(
-      AnimatedArtworkQuery(
-        artist: track.artist,
-        album: track.album,
-        title: track.title,
+    final motion = ref.watch(
+      animatedArtworkProvider(
+        AnimatedArtworkQuery(
+          artist: track.artist,
+          album: track.album,
+          title: track.title,
+        ),
       ),
-    ));
-    final motionUrl =
-        motion.valueOrNull?.hasUrl == true ? motion.valueOrNull!.url : '';
+    );
+    final motionUrl = motion.valueOrNull?.hasUrl == true
+        ? motion.valueOrNull!.url
+        : '';
     final motionFallbackUrl = motion.valueOrNull?.fallbackUrl ?? '';
     if (!motion.isLoading) {
       _lastMotionUrl = motionUrl;
@@ -894,12 +1031,14 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       _lastMotionUrl = motionUrl;
       _lastMotionFallbackUrl = motionFallbackUrl;
     }
-    final activeVideoUrl =
-        motionUrl.isNotEmpty ? motionUrl : (motion.isLoading ? _lastMotionUrl : '');
+    final activeVideoUrl = motionUrl.isNotEmpty
+        ? motionUrl
+        : (motion.isLoading ? _lastMotionUrl : '');
     final activeVideoFallbackUrl = motionUrl.isNotEmpty
         ? motionFallbackUrl
         : (motion.isLoading ? _lastMotionFallbackUrl : '');
-    final motionReady = visualizerOn &&
+    final motionReady =
+        visualizerOn &&
         motionUrl.isNotEmpty &&
         ref.watch(
           animatedArtworkSessionProvider.select((s) => s.isReadyFor(motionUrl)),
@@ -910,14 +1049,14 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     if (!motionReady) _sleeveGone = false;
     final showSleeve = !motionReady || !_sleeveGone;
     WaveArtwork stillCover() => WaveArtwork(
-          url: track.artworkUrl,
-          videoId: track.videoId,
-          size: size,
-          radius: WaveRadius.hero,
-          label: track.title,
-          title: track.title,
-          artist: track.artist,
-        );
+      url: track.artworkUrl,
+      videoId: track.videoId,
+      size: size,
+      radius: WaveRadius.hero,
+      label: track.title,
+      title: track.title,
+      artist: track.artist,
+    );
 
     return Container(
       width: size,
@@ -990,6 +1129,30 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Fades a block of controls out and makes it untouchable, keeping its
+/// space so nothing on the page moves when controls hide or return.
+class _ChromeFade extends StatelessWidget {
+  final bool hidden;
+  final Widget child;
+  const _ChromeFade({required this.hidden, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: hidden,
+      child: ExcludeFocus(
+        excluding: hidden,
+        child: AnimatedOpacity(
+          duration: waveMotion(context, const Duration(milliseconds: 350)),
+          curve: Curves.easeOutCubic,
+          opacity: hidden ? 0 : 1,
+          child: child,
         ),
       ),
     );
@@ -1098,10 +1261,7 @@ const _metadataShadow = [Shadow(color: Color(0x59000000), blurRadius: 10)];
     if (stream.bitrateKbps > 0) '${stream.bitrateKbps} kbps',
   ];
   if (tier.isEmpty && detailParts.isEmpty) return null;
-  return (
-    tier: tier.isEmpty ? 'AUDIO' : tier,
-    detail: detailParts.join(' · '),
-  );
+  return (tier: tier.isEmpty ? 'AUDIO' : tier, detail: detailParts.join(' · '));
 }
 
 class _TrackMetadataSection extends ConsumerWidget {
@@ -1116,12 +1276,27 @@ class _TrackMetadataSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final stream = ref.watch(
-      playbackServiceProvider.select((s) => s.stream),
+    final stream = ref.watch(playbackServiceProvider.select((s) => s.stream));
+    var quality = stream == null ? null : _streamQualityParts(stream);
+    // What the picture behind the page is actually playing at.
+    final videoLabel = ref.watch(
+      syncedVideoControllerProvider.select(
+        (c) => c.visible ? c.currentQualityLabel : '',
+      ),
     );
-    final quality = stream == null ? null : _streamQualityParts(stream);
+    if (videoLabel.isNotEmpty) {
+      quality = quality == null
+          ? (tier: 'VIDEO', detail: videoLabel)
+          : (
+              tier: quality.tier,
+              detail: quality.detail.isEmpty
+                  ? 'VIDEO $videoLabel'
+                  : '${quality.detail} · VIDEO $videoLabel',
+            );
+    }
 
-    final showDistinctAlbum = track.album.isNotEmpty &&
+    final showDistinctAlbum =
+        track.album.isNotEmpty &&
         track.album.toLowerCase().trim() != track.title.toLowerCase().trim();
 
     final artistStyle = WaveType.meta.copyWith(
@@ -1134,8 +1309,9 @@ class _TrackMetadataSection extends ConsumerWidget {
 
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment:
-          alignCenter ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      crossAxisAlignment: alignCenter
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
       children: [
         Text(
           track.title,
@@ -1292,10 +1468,7 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
               color: Colors.white.withValues(alpha: 0.30),
             ),
           ),
-          TextSpan(
-            text: nextTrack.artist,
-            style: nextStyle,
-          ),
+          TextSpan(text: nextTrack.artist, style: nextStyle),
         ],
       ),
       maxLines: 1,
@@ -1342,8 +1515,9 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Column(
-        crossAxisAlignment:
-            widget.centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+        crossAxisAlignment: widget.centered
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.start,
         children: [
           Container(
             width: 28,

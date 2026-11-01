@@ -2287,10 +2287,12 @@ class InnerTubeMusicApi {
   }
 
   /// The official music video YouTube Music pairs with [videoId] (the
-  /// Song/Video switch), or [videoId] itself when it already is one.
-  /// Null when YouTube Music links no official video to this track; a
-  /// user upload or another queue item's video never counts.
-  Future<String?> findCounterpartVideoId(String videoId) async {
+  /// Song/Video switch), or [videoId] itself when it already is one, with
+  /// the title/artist/length YouTube Music lists for it so the caller can
+  /// check it really is this song. Null when YouTube Music links no
+  /// official video to this track; a user upload or another queue item's
+  /// video never counts.
+  Future<YouTubeMusicTrack?> findOfficialVideoCandidate(String videoId) async {
     if (videoId.trim().isEmpty) return null;
     await _ensureConfig();
     Map<String, dynamic> root;
@@ -2311,31 +2313,55 @@ class InnerTubeMusicApi {
     }
     const omv = 'MUSIC_VIDEO_TYPE_OMV';
     String? typeOf(Map? endpointHolder) =>
-        ((((endpointHolder?['watchEndpointMusicSupportedConfigs'] as Map?)?[
-                        'watchEndpointMusicConfig'])
-                    as Map?)?['musicVideoType'])
+        ((((endpointHolder?['watchEndpointMusicSupportedConfigs']
+                    as Map?)?['watchEndpointMusicConfig'])
+                as Map?)?['musicVideoType'])
             ?.toString();
     String? rendererType(Map? renderer) => typeOf(
-          ((renderer?['navigationEndpoint'] as Map?)?['watchEndpoint'])
-              as Map?,
-        );
+      ((renderer?['navigationEndpoint'] as Map?)?['watchEndpoint']) as Map?,
+    );
     String? rendererId(Map? renderer) =>
         renderer?['videoId']?.toString() ??
         (((renderer?['navigationEndpoint'] as Map?)?['watchEndpoint']
                 as Map?)?['videoId'])
             ?.toString();
+    YouTubeMusicTrack? metaOf(Map? renderer, String id) {
+      if (renderer == null) return null;
+      try {
+        final parsed = _parsePlaylistPanelSong(
+          Map<String, dynamic>.from(renderer),
+        );
+        if (parsed == null) return null;
+        return YouTubeMusicTrack(
+          videoId: id,
+          title: parsed.title,
+          artist: parsed.artist,
+          durationSeconds: parsed.durationSeconds,
+        );
+      } catch (_) {
+        return null;
+      }
+    }
 
+    // The track itself is the official video.
     final current =
         ((root['currentVideoEndpoint'] as Map?)?['watchEndpoint']) as Map?;
-    if (typeOf(current) == omv) return videoId;
+    if (typeOf(current) == omv) {
+      final panels = <Map<String, dynamic>>[];
+      _collectObjects(root, 'playlistPanelVideoRenderer', panels);
+      final own = panels.where((r) => rendererId(r) == videoId).firstOrNull;
+      return metaOf(own, videoId) ??
+          YouTubeMusicTrack(videoId: videoId, title: '', artist: '');
+    }
 
     // The response also holds the autoplay queue; only this track's
     // wrapper counts, any other wrapper's video is another song.
     final wrappers = <Map<String, dynamic>>[];
     _collectObjects(root, 'playlistPanelVideoWrapperRenderer', wrappers);
     for (final wrapper in wrappers) {
-      final primary = ((wrapper['primaryRenderer'] as Map?)?[
-          'playlistPanelVideoRenderer']) as Map?;
+      final primary =
+          ((wrapper['primaryRenderer'] as Map?)?['playlistPanelVideoRenderer'])
+              as Map?;
       final counterparts = <Map>[
         for (final c in (wrapper['counterpart'] as List?) ?? const [])
           if (c is Map &&
@@ -2352,11 +2378,15 @@ class InnerTubeMusicApi {
       if (primaryId != null &&
           primaryId.isNotEmpty &&
           rendererType(primary) == omv) {
-        return primaryId;
+        return metaOf(primary, primaryId) ??
+            YouTubeMusicTrack(videoId: primaryId, title: '', artist: '');
       }
       for (final c in counterparts) {
         final id = rendererId(c);
-        if (id != null && id.isNotEmpty && rendererType(c) == omv) return id;
+        if (id != null && id.isNotEmpty && rendererType(c) == omv) {
+          return metaOf(c, id) ??
+              YouTubeMusicTrack(videoId: id, title: '', artist: '');
+        }
       }
     }
     return null;
@@ -4440,27 +4470,76 @@ class InnerTubeMusicApi {
     }
   }
 
-  /// Video picture for the synced Now Playing pane.
+  /// Video pictures for the synced Now Playing backdrop.
   ///
-  /// Uses the same player clients and URL decipher as audio resolution,
-  /// then keeps `video/*` formats (audio resolution drops those). Does
-  /// not replace or stop the audio stream. Empty when no client returns
-  /// a playable video URL.
+  /// Asks the direct-URL clients that serve the full ladder (ANDROID_VR,
+  /// IOS, ANDROID) at the same time and keeps every playable link from all
+  /// of them. The first client to answer used to win, and when it only had
+  /// the 360p progressive file the page was stuck at 360p; now the best
+  /// picture any client offers is available. Callers rank the result with
+  /// `rankVideoStreams` and verify a link before using it. Cipher clients
+  /// are only tried when none of those produced anything.
   Future<List<MusicVideoStream>> resolveMusicVideo(String videoId) async {
     if (videoId.isEmpty) return const [];
     try {
       await _ensureConfig().timeout(const Duration(seconds: 4));
     } catch (_) {}
-    String? pot;
-    try {
-      final po = await _mintPoToken(videoId)
-          .timeout(const Duration(seconds: 6));
-      final token = po?.sessionToken ?? '';
-      if (token.isNotEmpty) pot = token;
-    } catch (_) {}
+    // Mint alongside the player requests; links pick it up when it lands.
+    final pot = _mintPoToken(videoId)
+        .timeout(const Duration(seconds: 6), onTimeout: () => null)
+        .then<String?>((po) {
+          final token = po?.sessionToken ?? '';
+          return token.isEmpty ? null : token;
+        })
+        .catchError((_) => null);
+
+    Future<List<MusicVideoStream>> attempt(
+      PlayerClient client,
+      PlayerScript? script,
+    ) async {
+      try {
+        return await _musicVideoOptions(
+          videoId: videoId,
+          client: client,
+          script: script,
+          gvsPoToken: pot,
+        ).timeout(_fastClientTimeout);
+      } catch (_) {
+        return const <MusicVideoStream>[];
+      }
+    }
+
+    const direct = ['ANDROID_VR', 'IOS', 'ANDROID'];
+    final directClients = <PlayerClient>[
+      for (final name in direct)
+        for (final c in playerClients)
+          if (c.name == name) c,
+    ];
+    final merged = <MusicVideoStream>[];
+    final seen = <String>{};
+    void addAll(List<MusicVideoStream> options) {
+      for (final o in options) {
+        if (seen.add(o.url)) merged.add(o);
+      }
+    }
+
+    final results = await Future.wait([
+      for (final c in directClients) attempt(c, null),
+    ]);
+    for (final r in results) {
+      addAll(r);
+    }
+    int tallest() =>
+        merged.isEmpty ? 0 : merged.map((s) => s.height).reduce(max);
+    // Good enough: nothing more to ask for.
+    if (tallest() >= 720) return merged;
+
     PlayerScript? script;
-    final clients = _orderedFastClients(videoId);
-    for (final client in clients.take(3)) {
+    final tried = directClients.map((c) => c.key).toSet();
+    final rest = _orderedFastClients(videoId)
+        .where((c) => !tried.contains(c.key))
+        .take(3);
+    for (final client in rest) {
       final needsCipher =
           client.name == 'WEB_REMIX' ||
           client.name == 'WEB_EMBEDDED_PLAYER' ||
@@ -4472,26 +4551,17 @@ class InnerTubeMusicApi {
               .timeout(const Duration(seconds: 8));
         } catch (_) {}
       }
-      try {
-        final options = await _musicVideoOptions(
-          videoId: videoId,
-          client: client,
-          script: script,
-          gvsPoToken: pot,
-        ).timeout(_fastClientTimeout);
-        if (options.isNotEmpty) return options;
-      } catch (_) {
-        continue;
-      }
+      addAll(await attempt(client, script));
+      if (tallest() >= 720) break;
     }
-    return const [];
+    return merged;
   }
 
   Future<List<MusicVideoStream>> _musicVideoOptions({
     required String videoId,
     required PlayerClient client,
     required PlayerScript? script,
-    required String? gvsPoToken,
+    required Future<String?> gvsPoToken,
   }) async {
     final root = await _post(
       '${client.name == 'WEB_REMIX' ? musicApi : youtubeApi}/player?key=${client.apiKey}&prettyPrint=false',
@@ -4525,81 +4595,59 @@ class InnerTubeMusicApi {
     );
     final status = root['playabilityStatus'] as Map?;
     if (status?['status']?.toString() != 'OK') return const [];
+    final pot = await gvsPoToken;
     final headers = Map<String, String>.from(client.streamRequestHeaders);
     final visitor = _visitorData;
     if (visitor != null && visitor.isNotEmpty) {
       headers['X-Goog-Visitor-Id'] = visitor;
     }
     final streaming = root['streamingData'] as Map?;
-    final formats = <Map<String, dynamic>>[];
-    final rawFormats = streaming?['formats'];
-    if (rawFormats is List) {
-      for (final f in rawFormats.whereType<Map<String, dynamic>>()) {
-        formats.add(f);
+    final out = <MusicVideoStream>[];
+    void collect(Object? list, {required bool progressive}) {
+      if (list is! List) return;
+      for (final format in list.whereType<Map<String, dynamic>>()) {
+        final mime = format['mimeType']?.toString() ?? '';
+        final cleanMime = mime.split(';').first.trim().toLowerCase();
+        if (!cleanMime.startsWith('video/')) continue;
+        final codecs =
+            (RegExp(r'codecs="([^"]+)"').firstMatch(mime)?.group(1) ?? '')
+                .split(',')
+                .map((c) => c.trim())
+                .where((c) => c.isNotEmpty)
+                .toList();
+        String? url = format['url']?.toString();
+        url ??= () {
+          final cipher =
+              format['signatureCipher']?.toString() ??
+              format['cipher']?.toString();
+          if (cipher == null || script == null) return null;
+          return _decipher.decipherUrl(cipher, script);
+        }();
+        if (url == null || url.isEmpty) continue;
+        url = appendPot(url, pot);
+        final height = (format['height'] as num?)?.toInt() ?? 0;
+        if (height < 144) continue;
+        final labelRaw = format['qualityLabel']?.toString() ?? '';
+        out.add(
+          MusicVideoStream(
+            label: labelRaw.isEmpty ? '${height}p' : labelRaw,
+            height: height,
+            bitrate: (format['bitrate'] as num?)?.toInt() ?? 0,
+            url: url,
+            mimeType: cleanMime,
+            codec: codecs.isEmpty ? '' : codecs.first,
+            fps: (format['fps'] as num?)?.toInt() ?? 0,
+            client: client.name,
+            muxed: progressive || codecs.length > 1,
+            requestHeaders: headers,
+          ),
+        );
       }
     }
-    final adaptive = streaming?['adaptiveFormats'];
-    if (adaptive is List) {
-      for (final f in adaptive.whereType<Map<String, dynamic>>()) {
-        formats.add(f);
-      }
-    }
-    final byHeight = <int, MusicVideoStream>{};
-    for (final format in formats) {
-      final mime = format['mimeType']?.toString() ?? '';
-      final cleanMime = mime.split(';').first.trim().toLowerCase();
-      if (!cleanMime.startsWith('video/')) continue;
-      final codecMatch = RegExp(r'codecs="([^"]+)"').firstMatch(mime);
-      final codec = (codecMatch?.group(1) ?? '').split(',').first.trim();
-      String? url = format['url']?.toString();
-      url ??= () {
-        final cipher =
-            format['signatureCipher']?.toString() ??
-            format['cipher']?.toString();
-        if (cipher == null || script == null) return null;
-        return _decipher.decipherUrl(cipher, script);
-      }();
-      if (url == null || url.isEmpty) continue;
-      url = appendPot(url, gvsPoToken);
-      final height = (format['height'] as num?)?.toInt() ?? 0;
-      if (height < 144) continue;
-      final bitrate = (format['bitrate'] as num?)?.toInt() ?? 0;
-      final labelRaw = format['qualityLabel']?.toString() ?? '';
-      final label = labelRaw.isEmpty ? '${height}p' : labelRaw;
-      final next = MusicVideoStream(
-        label: label,
-        height: height,
-        bitrate: bitrate,
-        url: url,
-        mimeType: cleanMime,
-        codec: codec,
-        fps: (format['fps'] as num?)?.toInt() ?? 0,
-        requestHeaders: headers,
-      );
-      final prev = byHeight[height];
-      if (prev == null || _preferVideo(next, prev)) {
-        byHeight[height] = next;
-      }
-    }
-    final heights = byHeight.keys.toList()..sort((a, b) => b.compareTo(a));
-    return [for (final h in heights) byHeight[h]!];
-  }
 
-  /// H.264 decodes in hardware nearly everywhere, VP9 widely, AV1 often
-  /// only in software; a heavy decoder shows up as dropped frames.
-  static int _codecRank(MusicVideoStream s) {
-    final c = s.codec.toLowerCase();
-    if (c.startsWith('avc')) return 3;
-    if (c.startsWith('vp9') || c.startsWith('vp09')) return 2;
-    if (c.startsWith('av01')) return 1;
-    return s.mimeType.contains('mp4') ? 2 : 1;
-  }
-
-  static bool _preferVideo(MusicVideoStream next, MusicVideoStream prev) {
-    final rank = _codecRank(next).compareTo(_codecRank(prev));
-    if (rank != 0) return rank > 0;
-    if (next.fps != prev.fps) return next.fps > prev.fps;
-    return next.bitrate > prev.bitrate;
+    collect(streaming?['adaptiveFormats'], progressive: false);
+    collect(streaming?['formats'], progressive: true);
+    return out;
   }
 
   Future<ResolvedStream?> _resolveAudioStreamInternal(

@@ -24,6 +24,7 @@ import '../navigation/route_origin.dart';
 import '../navigation/side_rail.dart';
 import '../navigation/wave_nav.dart';
 import '../player_dock/player_dock.dart';
+import '../now_playing/now_playing_chrome.dart';
 import '../queue/queue_panel.dart';
 import '../theme/tokens.dart';
 import '../updates/update_dialog.dart';
@@ -403,6 +404,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   /// Esc priority chain. Returns true when something was closed/unfocused.
   bool _handleEscape() {
+    if (ref.read(nowPlayingFullscreenProvider)) {
+      ref.read(nowPlayingFullscreenProvider.notifier).state = false;
+      return true;
+    }
     if (_searchFocus.hasFocus) {
       _searchFocus.unfocus();
       return true;
@@ -612,8 +617,13 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   /// Opens Now Playing *on top* of the current page, so the page the user was
   /// on is still underneath when it crossfades closed over it (see waveOpen).
   void _openNowPlaying() {
-    // Already there (the dock is on every view, Now Playing included).
-    if (widget.location.startsWith('/now')) return;
+    // Already there (the dock is on every view, Now Playing included): the
+    // same button then takes the page full screen.
+    if (widget.location.startsWith('/now')) {
+      final fullscreen = ref.read(nowPlayingFullscreenProvider.notifier);
+      fullscreen.state = !fullscreen.state;
+      return;
+    }
     if (_searchFocus.hasFocus) _searchFocus.unfocus();
     _searchController.clear();
     setState(() {
@@ -744,6 +754,25 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     final routePath = waveRoutePath(widget.location);
     final isLyrics = routePath.startsWith('/lyrics');
     final isNowPlaying = routePath.startsWith('/now');
+    // Full screen drops every piece of app chrome: title bar, side rail and
+    // the player dock. Only meaningful on Now Playing.
+    final fullscreenRequested = ref.watch(nowPlayingFullscreenProvider);
+    final fullscreen = fullscreenRequested && isNowPlaying;
+    if (fullscreenRequested && !isNowPlaying) {
+      // Navigated away while full screen: leave it.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted)
+          ref.read(nowPlayingFullscreenProvider.notifier).state = false;
+      });
+    }
+    ref.listen<bool>(nowPlayingFullscreenProvider, (_, on) async {
+      try {
+        await windowManager.setFullScreen(on);
+      } catch (_) {}
+    });
+    final railHidden =
+        fullscreen ||
+        (isNowPlaying && ref.watch(nowPlayingChromeHiddenProvider));
 
     // Snapshot for the focus-independent Esc chain (the global
     // HardwareKeyboard handler reads these fields).
@@ -780,8 +809,23 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         onPointerUp: (event) => WaveRouteOrigin.record(event.position),
         child: Column(
           children: [
-            _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
-            const WaveInfoBarHost(),
+            // Offstage (not removed) in full screen so the search box and
+            // dock keep their state; TickerMode stops their animations.
+            Offstage(
+              offstage: fullscreen,
+              child: TickerMode(
+                enabled: !fullscreen,
+                child: Column(
+                  children: [
+                    _titleBarFor(
+                      _backStack.isNotEmpty,
+                      _forwardStack.isNotEmpty,
+                    ),
+                    const WaveInfoBarHost(),
+                  ],
+                ),
+              ),
+            ),
             // Overlay rail: the content below keeps full width and the
             // rail floats above its left edge (60 collapsed, 200
             // expanded). Toggling used to reflow the whole window, so
@@ -827,7 +871,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               // Page reserves the collapsed rail
                               // strip; the rail floats above it.
                               Positioned.fill(
-                                left: WaveDensity.railCollapsed,
+                                left: fullscreen
+                                    ? 0
+                                    : WaveDensity.railCollapsed,
                                 child: widget.child,
                               ),
                               // Light-dismiss: tapping outside the
@@ -854,10 +900,26 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 left: 0,
                                 top: 0,
                                 bottom: 0,
-                                child: WaveSideRail(
-                                  expanded: !collapsed,
-                                  active: active,
-                                  onGo: _go,
+                                // Now Playing hides its chrome when idle;
+                                // the rail goes with it until a click.
+                                child: IgnorePointer(
+                                  ignoring: railHidden,
+                                  child: ExcludeFocus(
+                                    excluding: railHidden,
+                                    child: AnimatedOpacity(
+                                      duration: waveMotion(
+                                        context,
+                                        const Duration(milliseconds: 350),
+                                      ),
+                                      curve: Curves.easeOutCubic,
+                                      opacity: railHidden ? 0.0 : 1.0,
+                                      child: WaveSideRail(
+                                        expanded: !collapsed,
+                                        active: active,
+                                        onGo: _go,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
                               if (_draggingFiles)
@@ -1005,11 +1067,17 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                       ),
                     ),
                   ),
-                  _dockFor(
-                    lyricsActive: _lyricsOpen || isLyrics,
-                    queueActive: _queueOpen,
-                    equalizerActive: _equalizerOpen,
-                    isLyrics: isLyrics,
+                  Offstage(
+                    offstage: fullscreen,
+                    child: TickerMode(
+                      enabled: !fullscreen,
+                      child: _dockFor(
+                        lyricsActive: _lyricsOpen || isLyrics,
+                        queueActive: _queueOpen,
+                        equalizerActive: _equalizerOpen,
+                        isLyrics: isLyrics,
+                      ),
+                    ),
                   ),
                 ],
               ),

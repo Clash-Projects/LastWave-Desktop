@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../features/video/music_video_settings.dart';
 import '../../features/video/synced_video_controller.dart';
 import '../theme/tokens.dart';
 
@@ -15,10 +16,15 @@ class MusicVideoBackdrop extends ConsumerWidget {
   final bool visible;
   final bool lyricsVisible;
 
+  /// Called when a fade finishes, with whether the video is now fully
+  /// showing. The page uses it to stop painting what the video hides.
+  final ValueChanged<bool>? onFadeEnd;
+
   const MusicVideoBackdrop({
     super.key,
     required this.visible,
     required this.lyricsVisible,
+    this.onFadeEnd,
   });
 
   @override
@@ -27,12 +33,14 @@ class MusicVideoBackdrop extends ConsumerWidget {
       syncedVideoControllerProvider.select((c) => c.controller),
     );
     if (controller == null) return const SizedBox.shrink();
+    final stretch = ref.watch(musicVideoStretchProvider);
     final duration = waveMotion(context, const Duration(milliseconds: 520));
     return IgnorePointer(
       child: AnimatedOpacity(
         duration: duration,
         curve: Curves.easeOutCubic,
         opacity: visible ? 1 : 0,
+        onEnd: () => onFadeEnd?.call(visible),
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -43,7 +51,7 @@ class MusicVideoBackdrop extends ConsumerWidget {
                 controller: controller,
                 controls: NoVideoControls,
                 fill: const Color(0xFF000000),
-                fit: BoxFit.cover,
+                fit: stretch ? BoxFit.fill : BoxFit.cover,
                 wakelock: false,
                 pauseUponEnteringBackgroundMode: false,
                 resumeUponEnteringForegroundMode: false,

@@ -119,6 +119,19 @@ bool isSameSongVideo({
       );
   if (namesArtist) return true;
 
+  // Stage names with symbols ("KR$NA", "Ke$ha") fall apart into short
+  // words once punctuation is stripped, so also compare each credited
+  // artist as one squashed word against the squashed title and channel.
+  final squashed =
+      title.replaceAll(' ', '') +
+      VideoTextMatch.normalize(candidateChannel).replaceAll(' ', '');
+  for (final part in songArtist.split(_artistSeparator)) {
+    final compact = VideoTextMatch.normalize(part).replaceAll(' ', '');
+    if (compact.length >= _minArtistWordLength && squashed.contains(compact)) {
+      return true;
+    }
+  }
+
   if (candidateSeconds == null ||
       candidateSeconds <= 0 ||
       songDurationMs == null ||
@@ -327,18 +340,54 @@ String cleanTrackTitleForVideo(String title) {
   return out.trim();
 }
 
-/// Auto (0) keeps the video's own best picture up to 1080p, which plays
-/// smoothly everywhere. A fixed height picks that height, or the closest
-/// one below it, or the lowest available when everything is above.
+int _codecRank(MusicVideoStream s) {
+  final c = s.codec.toLowerCase();
+  // H.264 decodes in hardware nearly everywhere, VP9 widely, AV1 often only
+  // in software; a heavy decoder shows up as dropped frames.
+  if (c.startsWith('avc')) return 0;
+  if (c.startsWith('vp9') || c.startsWith('vp09')) return 1;
+  if (c.startsWith('av01')) return 2;
+  return 3;
+}
+
+/// Every candidate in the order to try them. Auto (0) aims for the best
+/// picture up to 1080p, which plays smoothly everywhere; a fixed height
+/// aims for that height. Candidates at or below the target come first,
+/// tallest first; anything taller only follows as a last resort. At the
+/// same height: lighter codec first, then video-only over the progressive
+/// file, then ≤30 fps over 60 (half the decode work for a backdrop), then
+/// the higher bitrate.
+List<MusicVideoStream> rankVideoStreams(
+  List<MusicVideoStream> streams,
+  int preferredHeight,
+) {
+  final cap = preferredHeight <= 0 ? 1080 : preferredHeight;
+  final ranked = [...streams];
+  ranked.sort((a, b) {
+    final aOver = a.height > cap ? 1 : 0;
+    final bOver = b.height > cap ? 1 : 0;
+    if (aOver != bOver) return aOver.compareTo(bOver);
+    if (a.height != b.height) {
+      return aOver == 0
+          ? b.height.compareTo(a.height)
+          : a.height.compareTo(b.height);
+    }
+    final codec = _codecRank(a).compareTo(_codecRank(b));
+    if (codec != 0) return codec;
+    if (a.muxed != b.muxed) return a.muxed ? 1 : -1;
+    final aFast = a.fps > 30 ? 1 : 0;
+    final bFast = b.fps > 30 ? 1 : 0;
+    if (aFast != bFast) return aFast.compareTo(bFast);
+    return b.bitrate.compareTo(a.bitrate);
+  });
+  return ranked;
+}
+
+/// The best candidate for [preferredHeight], or null when there is none.
 MusicVideoStream? pickVideoStreamForQuality(
   List<MusicVideoStream> streams,
   int preferredHeight,
 ) {
-  if (streams.isEmpty) return null;
-  final sorted = [...streams]..sort((a, b) => b.height.compareTo(a.height));
-  final cap = preferredHeight <= 0 ? 1080 : preferredHeight;
-  for (final s in sorted) {
-    if (s.height <= cap) return s;
-  }
-  return sorted.last;
+  final ranked = rankVideoStreams(streams, preferredHeight);
+  return ranked.isEmpty ? null : ranked.first;
 }

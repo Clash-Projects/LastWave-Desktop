@@ -109,7 +109,7 @@ class SyncedVideoController extends ChangeNotifier {
     if (_bundle != null && _attached > 0 && _enabled) {
       final next = pickVideoStreamForQuality(_bundle!.streams, height);
       if (next != null && next.url != _stream?.url) {
-        unawaited(_openStream(_gen, next));
+        unawaited(_startPlayback(_gen));
       }
     }
   }
@@ -153,9 +153,7 @@ class SyncedVideoController extends ChangeNotifier {
       unawaited(_load(gen, track));
     } else if (!_mediaOpen) {
       // Quality may have changed while the page was closed.
-      final stream =
-          pickVideoStreamForQuality(_bundle!.streams, _quality) ?? _stream;
-      if (stream != null) unawaited(_openStream(gen, stream));
+      unawaited(_startPlayback(gen));
     } else if (_ready) {
       _startSyncTimer();
     }
@@ -168,15 +166,26 @@ class SyncedVideoController extends ChangeNotifier {
     if (_loading) return;
     _loading = true;
     try {
+      // The playing audio's length helps match a video when the track row
+      // never had one — but only once the audio belongs to this track.
+      final snap = _ref.read(playbackServiceProvider);
+      final audioReady =
+          snap.current?.queueKey == track.queueKey &&
+          snap.stream != null &&
+          snap.stream!.url != _staleAudioUrl &&
+          snap.duration > Duration.zero;
       final bundle = await _ref
           .read(syncedVideoRepositoryProvider)
-          .resolve(track);
+          .resolve(
+            track,
+            fallbackDurationMs: audioReady
+                ? snap.duration.inMilliseconds
+                : null,
+          );
       if (gen != _gen || _disposed || bundle == null) return;
       _bundle = bundle;
       _computeOffset(gen, bundle);
-      final stream = pickVideoStreamForQuality(bundle.streams, _quality);
-      if (stream == null) return;
-      if (_attached > 0 && _enabled) await _openStream(gen, stream);
+      if (_attached > 0 && _enabled) await _startPlayback(gen);
     } finally {
       _loading = false;
       // A track change while resolving is picked up on the next pass.
@@ -231,6 +240,7 @@ class SyncedVideoController extends ChangeNotifier {
         songUrl: source.url,
         songHeaders: source.requestHeaders,
         videoId: bundle.videoId,
+        songVideoId: track.videoId,
       );
       if (gen != _gen || _disposed || measured == null) return;
       _offsetMs = measured;
@@ -273,7 +283,7 @@ class SyncedVideoController extends ChangeNotifier {
         muted: true,
         title: 'LastWave Music Video',
         logLevel: MPVLogLevel.error,
-        bufferSize: 48 * 1024 * 1024,
+        bufferSize: 64 * 1024 * 1024,
       ),
     );
     _player = player;
@@ -292,16 +302,32 @@ class SyncedVideoController extends ChangeNotifier {
     } catch (_) {}
     final native = player.platform;
     if (native is NativePlayer) {
-      for (final e in const {
+      final props = <String, String>{
+        // A silent follower: no audio device, no subtitles.
         'ao': 'null',
         'aid': 'no',
         'sid': 'no',
         'keep-open': 'yes',
+        // Land seeks on the exact frame (the sync target is exact), and
+        // never decode frames that are already late: staying current beats
+        // showing every frame of a backdrop.
         'hr-seek': 'yes',
         'hr-seek-framedrop': 'yes',
-        'framedrop': 'vo',
+        'framedrop': 'decoder+vo',
+        // No audio clock to chase; pace by the wall clock.
+        'video-sync': 'desync',
+        // Read well ahead so a slow patch of network never starves decode,
+        // and after a stall refill a few seconds before resuming rather
+        // than stuttering on every packet.
         'cache': 'yes',
-      }.entries) {
+        'demuxer-readahead-secs': '30',
+        'cache-secs': '60',
+        'demuxer-max-back-bytes': '${8 * 1024 * 1024}',
+        'cache-pause': 'yes',
+        'cache-pause-wait': '3',
+        if (Platform.isLinux) 'vd-lavc-fast': 'yes',
+      };
+      for (final e in props.entries) {
         try {
           await native.setProperty(e.key, e.value);
         } catch (_) {}
@@ -310,11 +336,46 @@ class SyncedVideoController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> _openStream(
-    int gen,
-    MusicVideoStream stream, {
-    bool allowFallback = true,
-  }) async {
+  int _startToken = 0;
+
+  /// Tries the ranked candidates in turn — verified to serve bytes, then
+  /// opened and checked to decode — until one is on screen. A link that
+  /// fails moves on to the next best, never silently to a worse picture
+  /// than necessary and never to a wrong video.
+  Future<void> _startPlayback(int gen) async {
+    final bundle = _bundle;
+    if (bundle == null || _attached == 0 || !_enabled) return;
+    final token = ++_startToken;
+    bool stale() =>
+        gen != _gen ||
+        token != _startToken ||
+        _disposed ||
+        _attached == 0 ||
+        !_enabled;
+    final repo = _ref.read(syncedVideoRepositoryProvider);
+    final ranked = rankVideoStreams(bundle.streams, _quality);
+    var failures = 0;
+    for (final stream in ranked) {
+      if (stale()) return;
+      if (failures >= 4) break;
+      if (!await repo.probeVideoStream(stream)) {
+        failures++;
+        continue;
+      }
+      if (stale()) return;
+      if (await _openStream(gen, token, stream)) return;
+      failures++;
+    }
+    if (stale()) return;
+    // Nothing played: links may have expired, so resolve afresh next time.
+    final track = _track;
+    if (track != null) repo.invalidate(track);
+    _bundle = null;
+    _closeMedia();
+  }
+
+  Future<bool> _openStream(int gen, int token, MusicVideoStream stream) async {
+    bool stale() => gen != _gen || token != _startToken || _disposed;
     _stream = stream;
     _ready = false;
     // Marks the media as requested so a second evaluate does not reopen.
@@ -323,62 +384,58 @@ class SyncedVideoController extends ChangeNotifier {
     _notify();
     var opened = false;
     await _serialized(() async {
-      if (gen != _gen || _disposed) return;
+      if (stale()) return;
       await _ensurePlayer();
       final player = _player;
-      if (player == null || gen != _gen) return;
+      if (player == null || stale()) return;
       try {
         await player.stop();
       } catch (_) {}
-      if (gen != _gen || _disposed || _stream?.url != stream.url) return;
+      if (stale()) return;
       await player.open(
         Media(stream.url, httpHeaders: stream.requestHeaders),
         play: false,
       );
       _rate = 1.0;
+      _correcting = false;
       try {
         await player.setRate(1.0);
       } catch (_) {}
       opened = true;
     });
-    if (!opened || gen != _gen || _disposed) return;
+    if (!opened || stale()) return false;
     final player = _player!;
 
-    // Wait for real picture dimensions (the stream is decodable).
-    final ok = await _waitFor(
-      () => (player.state.width ?? 0) > 0 && !player.state.buffering,
+    // Real picture dimensions mean the stream is decodable.
+    final decodable = await _waitFor(
+      () => (player.state.width ?? 0) > 0,
       const Duration(seconds: 15),
     );
-    if (gen != _gen || _disposed || _stream?.url != stream.url) return;
-    if (!ok) {
-      // This height did not play: step down once before giving up.
-      final lower = _bundle?.streams
-          .where((s) => s.height < stream.height)
-          .toList();
-      if (allowFallback && lower != null && lower.isNotEmpty) {
-        await _openStream(gen, lower.first, allowFallback: false);
-      } else if (_track != null) {
-        // Links may have expired: the next visit resolves fresh ones.
-        _ref.read(syncedVideoRepositoryProvider).invalidate(_track!);
-        _bundle = null;
-        _closeMedia();
-      }
-      return;
-    }
-    // Land on the audio's current frame before showing anything.
+    if (stale()) return false;
+    if (!decodable) return false;
+
+    // Land on the audio's current frame, then let a few seconds buffer so
+    // the first moments on screen do not stall.
     final target = _targetMs();
     if (target > 0) {
       try {
         await player.seek(Duration(milliseconds: target));
       } catch (_) {}
-      await _waitFor(() => !player.state.buffering, const Duration(seconds: 6));
     }
-    if (gen != _gen || _disposed || _stream?.url != stream.url) return;
+    await _waitFor(
+      () =>
+          !player.state.buffering &&
+          player.state.buffer - player.state.position >=
+              const Duration(milliseconds: 2500),
+      const Duration(seconds: 7),
+    );
+    if (stale()) return false;
     _refreshAllowed();
     _ready = true;
     _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
     if (_attached > 0) _startSyncTimer();
     _notify();
+    return true;
   }
 
   Future<bool> _waitFor(bool Function() test, Duration timeout) async {
@@ -428,6 +485,14 @@ class SyncedVideoController extends ChangeNotifier {
   }
 
   bool _ticking = false;
+  bool _correcting = false;
+  DateTime _lastRateAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Drift (video position minus where it should be) that starts and stops
+  /// a rate correction, and the size past which only a seek will do.
+  static const int _driftStartMs = 70;
+  static const int _driftStopMs = 20;
+  static const int _driftSeekMs = 500;
 
   Future<void> _syncTick() async {
     final player = _player;
@@ -462,35 +527,63 @@ class SyncedVideoController extends ChangeNotifier {
         return;
       }
 
-      if (now.isBefore(_cooldownUntil)) {
-        if (!player.state.playing) await player.play();
+      // A stalled stream is refilling its buffer. Seeking or re-timing it
+      // now only throws the buffer away and stalls it again — that loop is
+      // what turned a slow patch of network into a stuttering picture. Let
+      // it catch up; the next tick corrects whatever drift remains.
+      if (player.state.buffering) return;
+      if (!player.state.playing) await player.play();
+      if (now.isBefore(_cooldownUntil)) return;
+
+      final base = snap.speed <= 0 ? 1.0 : snap.speed;
+      if (drift.abs() > _driftSeekMs) {
+        // Seek a touch ahead: the seek itself takes time to land.
+        _cooldownUntil = now.add(const Duration(milliseconds: 1500));
+        _correcting = false;
+        await _setRate(player, base, now, force: true);
+        await player.seek(Duration(milliseconds: target + 80));
         return;
       }
 
-      final base = snap.speed <= 0 ? 1.0 : snap.speed;
-      if (drift.abs() > 400) {
-        // Seek a touch ahead: the seek itself takes time to land.
-        _cooldownUntil = now.add(const Duration(milliseconds: 700));
-        await player.seek(Duration(milliseconds: target + 60));
-        await _setRate(player, base);
-        if (!player.state.playing) await player.play();
-        return;
+      // Small drift is closed by running slightly fast or slow. Hysteresis
+      // keeps it from hunting around zero, and rate changes are rationed:
+      // each one restarts mpv's frame pacing, so tweaking the speed every
+      // tick was itself a source of judder.
+      if (_correcting) {
+        if (drift.abs() <= _driftStopMs) {
+          _correcting = false;
+          await _setRate(player, base, now, force: true);
+          return;
+        }
+      } else if (drift.abs() > _driftStartMs) {
+        _correcting = true;
       }
-      if (!player.state.playing) await player.play();
-      // Proportional catch-up: closes the gap over ~1.5 s without a
-      // visible jump; inside ±25 ms the video simply runs at audio speed.
-      final rate = drift.abs() <= 25
-          ? base
-          : base * (1 - drift / 1500).clamp(0.92, 1.08);
-      await _setRate(player, rate);
+      if (_correcting) {
+        // Video ahead (drift > 0) → slow down; behind → speed up.
+        final factor = (1 - drift / 2500).clamp(0.94, 1.06);
+        await _setRate(player, base * factor, now);
+      } else {
+        await _setRate(player, base, now);
+      }
     } catch (_) {
     } finally {
       _ticking = false;
     }
   }
 
-  Future<void> _setRate(Player player, double rate) async {
-    if ((rate - _rate).abs() < 0.004) return;
+  Future<void> _setRate(
+    Player player,
+    double rate,
+    DateTime now, {
+    bool force = false,
+  }) async {
+    if (!force &&
+        (now.difference(_lastRateAt).inMilliseconds < 400 ||
+            (rate - _rate).abs() < 0.01)) {
+      return;
+    }
+    if ((rate - _rate).abs() < 0.001) return;
+    _lastRateAt = now;
     _rate = rate;
     await player.setRate(rate);
   }
