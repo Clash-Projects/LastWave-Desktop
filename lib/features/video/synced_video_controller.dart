@@ -129,6 +129,8 @@ class SyncedVideoController extends ChangeNotifier {
   void setQuality(int height) {
     if (_quality == height) return;
     _quality = height;
+    // A new choice gets a fresh chance at its height.
+    _decodeCap = 0;
     final bundle = _bundle;
     final track = _track;
     if (bundle != null && track != null && _attached > 0 && _enabled) {
@@ -159,6 +161,19 @@ class SyncedVideoController extends ChangeNotifier {
   }
 
   /// What Auto aims for on the display the window is on right now.
+  /// Highest picture this machine has shown it can play smoothly this
+  /// session (0 = no limit found yet). Set when frames start dropping or
+  /// the GPU cannot decode a 4K codec, so the next song does not start at
+  /// a height that stutters too.
+  int _decodeCap = 0;
+
+  /// The height to aim for: the chosen quality (or Auto's), never above
+  /// what decoded smoothly.
+  int _wantHeight() {
+    final base = _quality > 0 ? _quality : _autoHeight();
+    return _decodeCap > 0 && _decodeCap < base ? _decodeCap : base;
+  }
+
   int _autoHeight() {
     try {
       final views = WidgetsBinding.instance.platformDispatcher.views;
@@ -472,7 +487,7 @@ class SyncedVideoController extends ChangeNotifier {
   void _releaseProxy() {
     final old = _proxied;
     _proxied = null;
-    if (old != null) ChunkedRangeProxy.shared.release(old);
+    if (old != null) RangeProxy.shared.release(old);
   }
 
   /// Tries the ranked candidates in turn — verified to serve bytes, then
@@ -490,11 +505,7 @@ class SyncedVideoController extends ChangeNotifier {
         _attached == 0 ||
         !_enabled;
     final repo = _ref.read(syncedVideoRepositoryProvider);
-    final ranked = rankVideoStreams(
-      bundle.streams,
-      _quality,
-      autoHeight: _autoHeight(),
-    );
+    final ranked = rankVideoStreams(bundle.streams, _wantHeight());
     var failures = 0;
     final unverified = <MusicVideoStream>[];
     // A client whose link would not decode refuses its other links the same
@@ -561,7 +572,7 @@ class SyncedVideoController extends ChangeNotifier {
           Uri.tryParse(stream.url)?.host.contains('googlevideo') == true;
       if (viaProxy) {
         _releaseProxy();
-        final local = await ChunkedRangeProxy.shared.register(
+        final local = await RangeProxy.shared.register(
           stream.url,
           headers: stream.requestHeaders,
         );
@@ -613,6 +624,10 @@ class SyncedVideoController extends ChangeNotifier {
       'video: playing ${stream.label} ${stream.codec} via ${stream.client} '
       '(decoding ${player.state.width}x${player.state.height})',
     );
+    _dropBaseline = null;
+    _dropStrikes = 0;
+    _seekCheckPending = false;
+    unawaited(_checkHardwareDecode(gen, stream));
     _refreshAllowed();
     _ready = true;
     _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
@@ -668,8 +683,90 @@ class SyncedVideoController extends ChangeNotifier {
     _syncTimer = null;
   }
 
+  // -- smoothness -------------------------------------------------------
+
+  int? _dropBaseline;
+  int _dropStrikes = 0;
+  DateTime _lastDropCheck = DateTime.fromMillisecondsSinceEpoch(0);
+
+  Future<int?> _intProperty(String name) async {
+    final native = _player?.platform;
+    if (native is! NativePlayer) return null;
+    try {
+      return int.tryParse((await native.getProperty(name)).trim());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Above 1080p the codecs are VP9 and AV1; a GPU without a decoder for
+  /// them leaves libmpv decoding 4K on the CPU, which cannot keep up.
+  Future<void> _checkHardwareDecode(int gen, MusicVideoStream stream) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    if (gen != _gen || _disposed || _stream?.url != stream.url) return;
+    final native = _player?.platform;
+    if (native is! NativePlayer) return;
+    String hw = '';
+    try {
+      hw = (await native.getProperty('hwdec-current')).trim();
+    } catch (_) {}
+    PlayDiag.log(
+      'video: decoder for ${stream.label} ${stream.codec}: '
+      '${hw.isEmpty || hw == 'no' ? 'software' : hw}',
+    );
+    if ((hw.isEmpty || hw == 'no') &&
+        stream.height > 1080 &&
+        !Platform.isLinux) {
+      _stepDown('no hardware decoder for ${stream.codec}', maxHeight: 1080);
+    }
+  }
+
+  /// Watches libmpv's dropped-frame counters; two bad windows in a row
+  /// (more than ~1 in 8 frames dropped) move to the next lower picture.
+  Future<void> _checkDroppedFrames(Player player, DateTime now) async {
+    if (now.difference(_lastDropCheck).inMilliseconds < 3000) return;
+    _lastDropCheck = now;
+    final vo = await _intProperty('frame-drop-count') ?? 0;
+    final dec = await _intProperty('decoder-frame-drop-count') ?? 0;
+    final total = vo + dec;
+    final before = _dropBaseline;
+    _dropBaseline = total;
+    if (before == null) return;
+    final dropped = total - before;
+    final fps = (_stream?.fps ?? 30) > 0 ? _stream!.fps : 30;
+    if (dropped > fps * 3 / 8) {
+      _dropStrikes++;
+      PlayDiag.log('video: $dropped frames dropped in 3s at ${_stream?.label}');
+      if (_dropStrikes >= 2) _stepDown('dropping frames');
+    } else {
+      _dropStrikes = 0;
+    }
+  }
+
+  void _stepDown(String why, {int? maxHeight}) {
+    final bundle = _bundle;
+    final current = _stream;
+    if (bundle == null || current == null) return;
+    final limit = maxHeight ?? current.height - 1;
+    final lower = bundle.streams
+        .where((s) => s.height <= limit && s.height < current.height)
+        .map((s) => s.height)
+        .fold(0, math.max);
+    if (lower <= 0) return;
+    _decodeCap = lower;
+    _dropStrikes = 0;
+    PlayDiag.log('video: ${current.label} $why → stepping down to ${lower}p');
+    unawaited(_startPlayback(_gen));
+  }
+
   bool _ticking = false;
   bool _correcting = false;
+
+  /// How far ahead of the target a seek aims, learnt from where seeks
+  /// actually land: a 4K VP9 seek takes far longer than a 1080p H.264 one,
+  /// and a fixed lead left the picture behind after every correction.
+  int _seekLeadMs = 200;
+  bool _seekCheckPending = false;
   DateTime _lastRateAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Drift (video position minus where it should be) that starts and stops
@@ -718,14 +815,21 @@ class SyncedVideoController extends ChangeNotifier {
       if (player.state.buffering) return;
       if (!player.state.playing) await player.play();
       if (now.isBefore(_cooldownUntil)) return;
+      if (_seekCheckPending) {
+        // First settled look after a seek: learn how far off it landed.
+        _seekCheckPending = false;
+        _seekLeadMs = (_seekLeadMs - drift).clamp(80, 2500);
+      }
+      await _checkDroppedFrames(player, now);
 
       final base = snap.speed <= 0 ? 1.0 : snap.speed;
       if (drift.abs() > _driftSeekMs) {
-        // Seek a touch ahead: the seek itself takes time to land.
-        _cooldownUntil = now.add(const Duration(milliseconds: 1500));
+        // Seek ahead by what seeks have been taking to land.
+        _cooldownUntil = now.add(Duration(milliseconds: 1000 + _seekLeadMs));
         _correcting = false;
+        _seekCheckPending = true;
         await _setRate(player, base, now, force: true);
-        await player.seek(Duration(milliseconds: target + 80));
+        await player.seek(Duration(milliseconds: target + _seekLeadMs));
         return;
       }
 

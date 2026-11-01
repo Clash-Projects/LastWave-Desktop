@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 
@@ -21,7 +22,8 @@ import 'package:flutter/foundation.dart';
 class ChunkedRangeProxy {
   ChunkedRangeProxy({this.chunkBytes = 2 * 1024 * 1024});
 
-  /// App-wide instance.
+  /// In-process instance: the fallback when the proxy isolate cannot start.
+  /// The app normally goes through [RangeProxy.shared].
   static final ChunkedRangeProxy shared = ChunkedRangeProxy();
 
   final int chunkBytes;
@@ -301,4 +303,104 @@ class _Source {
   }
 
   void dispose() => resetClient();
+}
+
+/// [ChunkedRangeProxy] running in its own isolate.
+///
+/// A 4K stream is 3–4 MB/s; relaying it on the UI isolate made every byte
+/// compete with layout and painting, and the whole app (and the picture
+/// itself) stuttered. In a background isolate the relay never touches the
+/// UI thread. Same API as the in-process proxy, which it falls back to if
+/// the isolate cannot start.
+class RangeProxy {
+  RangeProxy._();
+
+  static final RangeProxy shared = RangeProxy._();
+
+  /// Bigger pieces mean fewer round trips at 4K bitrates (yt-dlp uses
+  /// 10 MiB); 4 MiB still starts quickly.
+  static const int _chunkBytes = 4 * 1024 * 1024;
+
+  SendPort? _commands;
+  Future<bool>? _starting;
+  final Map<int, Completer<String>> _pending = {};
+  final Set<String> _fallbackUrls = {};
+  int _request = 0;
+  ChunkedRangeProxy? _fallback;
+
+  Future<bool> _start() async {
+    final replies = ReceivePort();
+    final ready = Completer<bool>();
+    replies.listen((message) {
+      if (message is SendPort) {
+        _commands = message;
+        if (!ready.isCompleted) ready.complete(true);
+      } else if (message is List && message.length == 3) {
+        _pending.remove(message[1])?.complete(message[2] as String);
+      }
+    });
+    try {
+      await Isolate.spawn(
+        _isolateMain,
+        replies.sendPort,
+        debugName: 'range-proxy',
+      );
+      return await ready.future.timeout(const Duration(seconds: 5));
+    } catch (_) {
+      replies.close();
+      return false;
+    }
+  }
+
+  Future<Uri> register(
+    String url, {
+    Map<String, String> headers = const {},
+  }) async {
+    final ok = await (_starting ??= _start());
+    final commands = _commands;
+    if (ok && commands != null) {
+      final id = ++_request;
+      final reply = Completer<String>();
+      _pending[id] = reply;
+      commands.send(['register', id, url, Map<String, String>.of(headers)]);
+      try {
+        return Uri.parse(
+          await reply.future.timeout(const Duration(seconds: 5)),
+        );
+      } catch (_) {
+        _pending.remove(id);
+      }
+    }
+    final fallback = _fallback ??= ChunkedRangeProxy(chunkBytes: _chunkBytes);
+    final local = await fallback.register(url, headers: headers);
+    _fallbackUrls.add(local.toString());
+    return local;
+  }
+
+  void release(Uri local) {
+    if (_fallbackUrls.remove(local.toString())) {
+      _fallback?.release(local);
+      return;
+    }
+    _commands?.send(['release', local.toString()]);
+  }
+
+  static void _isolateMain(SendPort replies) {
+    final proxy = ChunkedRangeProxy(chunkBytes: _chunkBytes);
+    final commands = ReceivePort();
+    replies.send(commands.sendPort);
+    commands.listen((message) async {
+      if (message is! List || message.isEmpty) return;
+      switch (message[0]) {
+        case 'register':
+          final local = await proxy.register(
+            message[2] as String,
+            headers: Map<String, String>.from(message[3] as Map),
+          );
+          replies.send(['registered', message[1], local.toString()]);
+        case 'release':
+          proxy.release(Uri.parse(message[1] as String));
+      }
+    });
+  }
 }

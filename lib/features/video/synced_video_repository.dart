@@ -397,10 +397,10 @@ class SyncedVideoRepository {
     }
   }
 
-  /// Whether an offset was already measured for [key] (possibly "none").
-  /// Saved offsets are versioned: results from before the matcher was
-  /// reworked (many of them "no match") must not hide videos forever.
-  static String _stored(String key) => 'v2|$key';
+  /// Saved offsets are versioned so older measurements are redone. v3: the
+  /// song side is now the audio actually heard, so offsets measured against
+  /// a YouTube master (whose lead-in silence can differ) no longer count.
+  static String _stored(String key) => 'v3|$key';
 
   /// Measured offsets live in the prefs; "measured, nothing matched" lives
   /// only for this session so it gets another chance next time.
@@ -631,12 +631,10 @@ class SyncedVideoRepository {
   }
 
   /// The song side of the comparison, from the first source that reads:
-  ///  1. the YouTube audio of the track's own id (same recording, plain
-  ///     https this player always reads);
-  ///  2. the song's studio audio found by search — most lossless-catalog
-  ///     tracks have no YouTube id at all;
-  ///  3. the playing source itself, which for lossless is the app's own
-  ///     loopback server and is the exact audio being heard.
+  ///  1. the playing source itself, the exact audio being heard;
+  ///  2. the YouTube audio of the track's own id;
+  ///  3. the song's studio audio found by search (most lossless-catalog
+  ///     tracks have no YouTube id at all).
   Future<Uint8List?> _captureSong({
     required String songUrl,
     required Map<String, String> songHeaders,
@@ -646,6 +644,19 @@ class SyncedVideoRepository {
     required String artist,
     required int? durationMs,
   }) async {
+    // The audio actually being heard comes first: the offset has to fit
+    // this file. Another master of the same song (YouTube's) can start
+    // with more or less silence, and the picture is then off by exactly
+    // that much for the whole song.
+    final heard = await capturePcm16Mono(
+      url: songUrl,
+      headers: songHeaders,
+      seconds: _songAlignmentSeconds,
+    );
+    if (heard != null) {
+      PlayDiag.log('video: align — song side from the playing source');
+      return heard;
+    }
     if (songVideoId != null &&
         songVideoId.isNotEmpty &&
         songVideoId != videoId) {
@@ -668,16 +679,8 @@ class SyncedVideoRepository {
         return pcm;
       }
     }
-    final pcm = await capturePcm16Mono(
-      url: songUrl,
-      headers: songHeaders,
-      seconds: _songAlignmentSeconds,
-    );
-    PlayDiag.log(
-      'video: align — song side from the playing source: '
-      '${pcm == null ? 'unreadable' : 'ok'}',
-    );
-    return pcm;
+    PlayDiag.log('video: align — no readable song audio');
+    return null;
   }
 }
 

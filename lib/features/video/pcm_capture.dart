@@ -106,7 +106,7 @@ Future<Uint8List?> _capture({
     var source = url;
     Map<String, String>? sourceHeaders = headers.isEmpty ? null : headers;
     if (Uri.tryParse(url)?.host.contains('googlevideo') == true) {
-      proxied = await ChunkedRangeProxy.shared.register(url, headers: headers);
+      proxied = await RangeProxy.shared.register(url, headers: headers);
       source = proxied.toString();
       sourceHeaders = null;
     }
@@ -156,7 +156,7 @@ Future<Uint8List?> _capture({
         p.dispose().timeout(const Duration(seconds: 10)).catchError((_) {}),
       );
     }
-    if (proxied != null) ChunkedRangeProxy.shared.release(proxied);
+    if (proxied != null) RangeProxy.shared.release(proxied);
     try {
       if (out != null && await out.exists()) await out.delete();
     } catch (_) {}

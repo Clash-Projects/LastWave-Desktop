@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -198,5 +197,18 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
     final again = await _get(local, range: 'bytes=0-1023');
     expect(again.body, Uint8List.sublistView(data, 0, 1024));
+  });
+
+  test('the isolate-hosted proxy serves the same bytes', () async {
+    final viaIsolate = await RangeProxy.shared.register(origin.uri.toString());
+    expect(viaIsolate.host, '127.0.0.1');
+    final r = await _get(viaIsolate, range: 'bytes=0-');
+    expect(r.status, 206);
+    expect(r.body, data);
+    expect(origin.rejected, 0);
+    RangeProxy.shared.release(viaIsolate);
+    // Released links are gone.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect((await _get(viaIsolate, range: 'bytes=0-9')).status, 404);
   });
 }
