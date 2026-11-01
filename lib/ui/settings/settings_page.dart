@@ -43,6 +43,7 @@ import '../../features/presence/discord_presence_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
 import 'diagnostics_actions.dart';
+import 'download_layout_settings.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
@@ -2897,6 +2898,8 @@ class _Downloads extends ConsumerWidget {
               ],
             ],
           ),
+          const SizedBox(height: 12),
+          DownloadLayoutSettings(onUpdate: onUpdate),
         ],
       ),
     );

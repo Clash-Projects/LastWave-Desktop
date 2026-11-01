@@ -14,9 +14,11 @@ import '../../core/storage/prefs.dart';
 import '../innertube/innertube_api.dart';
 import '../addons/addon_api.dart';
 import '../lossless/lossless_source.dart';
+import '../library/local_audio_tags.dart';
 import '../lyrics/lyrics_models.dart';
 import '../lyrics/lyrics_repository.dart';
 import '../search/shared_providers.dart';
+import 'folder_layout.dart';
 import 'media_tagger.dart';
 
 enum DownloadStatus { queued, downloading, done, error }
@@ -241,6 +243,109 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   String _sanitize(String s) =>
       s.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
 
+  /// Target file for a new download under the chosen folder layout.
+  Future<File> _layoutFile(
+    Directory root, {
+    required String artist,
+    required String album,
+    required String year,
+    required String filename,
+  }) async {
+    final sub = downloadSubpath(
+      structure: DownloadFolderLayout.fromId(_prefs.downloadStructure),
+      artist: artist,
+      album: album,
+      year: year,
+    );
+    final dir = sub.isEmpty ? root : Directory(p.join(root.path, sub));
+    await dir.create(recursive: true);
+    return File(p.join(dir.path, filename));
+  }
+
+  /// Moves a file, falling back to copy + delete across volumes. If the
+  /// source can't be removed (still playing), the copy is dropped so no
+  /// duplicate is left behind. Returns false when nothing moved.
+  Future<bool> _moveFile(File from, String to) async {
+    try {
+      await from.rename(to);
+      return true;
+    } catch (_) {}
+    try {
+      await from.copy(to);
+    } catch (_) {
+      return false;
+    }
+    try {
+      await from.delete();
+      return true;
+    } catch (_) {
+      try {
+        await File(to).delete();
+      } catch (_) {}
+      return false;
+    }
+  }
+
+  /// Moves tracked downloads into the current folder layout.
+  ///
+  /// Runs only when the user asks. Files already in place, missing, or
+  /// that would overwrite another file are skipped.
+  Future<({int moved, int skipped})> reorganize() async {
+    final root = await _musicDir();
+    final rows = _db.raw.select(
+      'SELECT track_key, artist, album, file_path, lrc_file_path '
+      'FROM downloaded_tracks;',
+    );
+    var moved = 0;
+    var skipped = 0;
+    for (final row in rows) {
+      final currentPath = row['file_path'] as String? ?? '';
+      final current = File(currentPath);
+      if (currentPath.isEmpty || !current.existsSync()) {
+        skipped++;
+        continue;
+      }
+      final album = row['album'] as String? ?? '';
+      var year = LocalAudioTags.read(currentPath).year;
+      if (year.isEmpty) year = LocalAudioTags.yearIn(album);
+      final dest = await _layoutFile(
+        root,
+        artist: row['artist'] as String? ?? '',
+        album: album,
+        year: year,
+        filename: p.basename(currentPath),
+      );
+      if (p.equals(dest.path, current.path) || dest.existsSync()) {
+        skipped++;
+        continue;
+      }
+      if (!await _moveFile(current, dest.path)) {
+        skipped++;
+        continue;
+      }
+      var newLrc = row['lrc_file_path'] as String? ?? '';
+      if (newLrc.isNotEmpty && File(newLrc).existsSync()) {
+        final lrcDest = '${dest.path}.lrc';
+        if (!File(lrcDest).existsSync() &&
+            await _moveFile(File(newLrc), lrcDest)) {
+          newLrc = lrcDest;
+        }
+      }
+      final key = row['track_key'] as String? ?? '';
+      _db.raw.execute(
+        'UPDATE downloaded_tracks SET file_path = ?, lrc_file_path = ? '
+        'WHERE track_key = ?;',
+        [dest.path, newLrc, key],
+      );
+      state = [
+        for (final entry in state)
+          if (entry.key == key) entry.copyWith(filePath: dest.path) else entry,
+      ];
+      moved++;
+    }
+    return (moved: moved, skipped: skipped);
+  }
+
   void _upsert(DownloadEntry entry) {
     final others = state.where((e) => e.key != entry.key).toList();
     state = [entry, ...others];
@@ -343,6 +448,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     required String artist,
     String album = '',
     String artworkUrl = '',
+    String year = '',
   }) async {
     final key = keyOf(title, artist);
     final generation = _cancelGeneration[key] ?? 0;
@@ -542,9 +648,22 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       }
 
       if (cancelled()) throw const DownloadCancelled();
+      var folderYear = year;
+      if (folderYear.isEmpty && outBytes.isNotEmpty) {
+        final headLen = outBytes.length < 262144 ? outBytes.length : 262144;
+        folderYear = LocalAudioTags.fromHead(
+          Uint8List.fromList(outBytes.sublist(0, headLen)),
+        ).year;
+      }
+      if (folderYear.isEmpty) folderYear = LocalAudioTags.yearIn(album);
       final dir = await _musicDir();
-      final file = File(p.join(
-          dir.path, '${_sanitize('$artist - $title')}.$finalExt'));
+      final file = await _layoutFile(
+        dir,
+        artist: artist,
+        album: album,
+        year: folderYear,
+        filename: '${_sanitize('$artist - $title')}.$finalExt',
+      );
       await file.writeAsBytes(outBytes, flush: true);
       writtenPath = file.path;
       if (cancelled()) throw const DownloadCancelled();
