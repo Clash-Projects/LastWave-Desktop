@@ -1347,6 +1347,14 @@ class AddonApi implements LosslessSource {
         if (h.isNotEmpty && h != cleanT) add('$h $cleanA');
       }
     }
+    // Version/feat/film billing stripped ("Kiliye Kiliye (Afrobeat Mix)" →
+    // "kiliye kiliye"): catalogs often file the plain title, and a query
+    // carrying the billing words only returns echoes of itself. Recall
+    // only — the title, artist and version gates still decide the match.
+    final plainT = _strippedTitle(title);
+    if (cleanA.isNotEmpty && plainT.isNotEmpty && plainT != cleanT) {
+      add('$cleanA $plainT');
+    }
     add('$title $artist');
     return out.take(4).toList();
   }

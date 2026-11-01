@@ -103,6 +103,12 @@ class LocalMediaServer {
       if (existing != null && existing.failed) {
         _sessions.remove(safe);
         _slog('evict failed session $safe (retry will be fresh)');
+      } else if (existing != null && existing.fileGone) {
+        // Cache pruning reaps old assembled files while their session
+        // stays `done` in memory; replaying it would hand mpv a URL that
+        // 404s into a YouTube fallback. Assemble again instead.
+        _sessions.remove(safe);
+        _slog('evict stale session $safe (assembled file pruned)');
       }
       final session = _sessions.putIfAbsent(
         safe,
@@ -224,6 +230,17 @@ class _Session {
   String get _finalPath =>
       LocalMediaServer.pathFor(name, part: false);
   String get _partPath => LocalMediaServer.pathFor(name, part: true);
+
+  /// Finished in this process, but neither the published file nor its
+  /// partial is on disk any more (pruned).
+  bool get fileGone {
+    if (!done) return false;
+    try {
+      return !File(_finalPath).existsSync() && !File(_partPath).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
 
   void kickoff() {
     if (started) return;
