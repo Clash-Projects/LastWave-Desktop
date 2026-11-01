@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -299,9 +300,21 @@ class SyncedVideoRepository {
   }
 
   /// Whether an offset was already measured for [key] (possibly "none").
-  bool hasSavedOffset(String key) => _prefs.musicVideoOffsets.containsKey(key);
+  /// Saved offsets are versioned: results from before the matcher was
+  /// reworked (many of them "no match") must not hide videos forever.
+  static String _stored(String key) => 'v2|$key';
 
-  int? savedOffset(String key) => _prefs.musicVideoOffsets[key];
+  /// Measured offsets live in the prefs; "measured, nothing matched" lives
+  /// only for this session so it gets another chance next time.
+  final Set<String> _unmatched = {};
+
+  bool hasSavedOffset(String key) =>
+      _prefs.musicVideoOffsets[_stored(key)] != null;
+
+  /// True when this session already measured [key] and found no match.
+  bool wasUnmatched(String key) => _unmatched.contains(key);
+
+  int? savedOffset(String key) => _prefs.musicVideoOffsets[_stored(key)];
 
   /// Compares the playing audio with the video's own soundtrack and
   /// returns what to add to the audio position to get the video position.
@@ -331,8 +344,9 @@ class SyncedVideoRepository {
     String? songVideoId,
   }) async {
     if (hasSavedOffset(key)) return savedOffset(key);
+    if (_unmatched.contains(key)) return null;
     // Let the track's own start win the network first.
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await Future<void>.delayed(const Duration(seconds: 1));
     try {
       final videoAudio = await _tube
           .resolveAudioStream(videoId)
@@ -342,10 +356,11 @@ class SyncedVideoRepository {
         return null;
       }
       final captures = await Future.wait([
-        capturePcm16Mono(
-          url: songUrl,
-          headers: songHeaders,
-          seconds: _songAlignmentSeconds,
+        _captureSong(
+          songUrl: songUrl,
+          songHeaders: songHeaders,
+          songVideoId: songVideoId,
+          videoId: videoId,
         ),
         capturePcm16Mono(
           url: videoAudio.url,
@@ -353,30 +368,8 @@ class SyncedVideoRepository {
           seconds: _videoAlignmentSeconds,
         ),
       ]);
-      var song = captures[0];
+      final song = captures[0];
       final video = captures[1];
-      if (song == null &&
-          songVideoId != null &&
-          songVideoId.isNotEmpty &&
-          songVideoId != videoId) {
-        // The playing source (a lossless proxy, a local file) could not be
-        // decoded here; the same recording's YouTube audio shares its
-        // timeline, so measure against that instead.
-        PlayDiag.log(
-          'video: align — playing source unreadable, '
-          'using YouTube audio of $songVideoId',
-        );
-        final alt = await _tube
-            .resolveAudioStream(songVideoId)
-            .timeout(const Duration(seconds: 20));
-        if (alt != null) {
-          song = await capturePcm16Mono(
-            url: alt.url,
-            headers: alt.requestHeaders,
-            seconds: _songAlignmentSeconds,
-          );
-        }
-      }
       // Capture failure is not a measurement: leave it unsaved so the
       // next play tries again.
       if (song == null || video == null) {
@@ -387,24 +380,73 @@ class SyncedVideoRepository {
         );
         return null;
       }
-      final songPcm = song;
-      final offset = await Isolate.run(
+      final result = await Isolate.run(
         () => alignPcm16((
-          song: songPcm,
+          song: song,
           video: video,
           sampleRate: alignmentSampleRate,
         )),
       );
+      if (result == null) {
+        PlayDiag.log('video: align $key → no confident match');
+        _unmatched.add(key);
+        return null;
+      }
       PlayDiag.log(
-        'video: align $key → '
-        '${offset == null ? 'no confident match' : '$offset ms'}',
+        'video: align $key → ${result.offsetMs} ms'
+        '${result.relaxed ? ' (loose match)' : ''}',
       );
-      await _prefs.saveMusicVideoOffset(key, offset);
-      return offset;
+      await _prefs.saveMusicVideoOffset(_stored(key), result.offsetMs);
+      return result.offsetMs;
     } catch (e) {
       PlayDiag.log('video: align failed: $e');
       return null;
     }
+  }
+
+  /// The song side of the comparison. The same recording's YouTube audio is
+  /// preferred over whatever is playing: it is plain https that this player
+  /// can always read, and it leaves a lossless proxy or local file the user
+  /// is listening to alone (a second connection to it could disturb
+  /// playback). The playing source is used only when it is itself plain
+  /// remote audio and no YouTube id is known.
+  Future<Uint8List?> _captureSong({
+    required String songUrl,
+    required Map<String, String> songHeaders,
+    required String? songVideoId,
+    required String videoId,
+  }) async {
+    if (songVideoId != null &&
+        songVideoId.isNotEmpty &&
+        songVideoId != videoId) {
+      try {
+        final alt = await _tube
+            .resolveAudioStream(songVideoId)
+            .timeout(const Duration(seconds: 20));
+        if (alt != null) {
+          final pcm = await capturePcm16Mono(
+            url: alt.url,
+            headers: alt.requestHeaders,
+            seconds: _songAlignmentSeconds,
+          );
+          if (pcm != null) return pcm;
+        }
+      } catch (_) {}
+    }
+    final uri = Uri.tryParse(songUrl);
+    final remote =
+        uri != null &&
+        (uri.scheme == 'https' || uri.scheme == 'http') &&
+        uri.host != '127.0.0.1' &&
+        uri.host != 'localhost' &&
+        uri.host != '::1' &&
+        uri.host.isNotEmpty;
+    if (!remote) return null;
+    return capturePcm16Mono(
+      url: songUrl,
+      headers: songHeaders,
+      seconds: _songAlignmentSeconds,
+    );
   }
 }
 

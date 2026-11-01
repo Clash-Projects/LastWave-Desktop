@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../player/play_diag.dart';
 import '../player/playback_service.dart';
 import 'music_video_settings.dart';
 import 'synced_video_repository.dart';
@@ -68,6 +69,19 @@ class SyncedVideoController extends ChangeNotifier {
   /// Height of the picture currently playing, for diagnostics/labels.
   String get currentQualityLabel => _stream?.label ?? '';
 
+  bool _measuring = false;
+
+  /// Why the picture is not on screen yet, once a video has been found:
+  /// `loading` (opening the stream), `syncing` (measuring its timing) or
+  /// `unsynced` (timing could not be confirmed, so the cover stays rather
+  /// than showing a picture that might be off). Empty otherwise.
+  String get status {
+    if (_attached == 0 || !_enabled || _bundle == null || visible) return '';
+    if (!_ready) return 'loading';
+    if (!_allowed) return _measuring ? 'syncing' : 'unsynced';
+    return '';
+  }
+
   // -- inputs -----------------------------------------------------------
 
   void attach() {
@@ -128,6 +142,7 @@ class SyncedVideoController extends ChangeNotifier {
     _inRange = true;
     _offsetMs = 0;
     _confident = false;
+    _measuring = false;
     _stopSyncTimer();
     _closeMedia();
     _evaluate();
@@ -160,11 +175,15 @@ class SyncedVideoController extends ChangeNotifier {
     _notify();
   }
 
-  bool _loading = false;
+  // Which track generation is being looked up. A lookup for an older track
+  // must never hold up the current one (skipping through songs used to queue
+  // each lookup behind the last), so this only stops the same generation
+  // from being started twice.
+  int _loadingGen = -1;
 
   Future<void> _load(int gen, PlayableTrack track) async {
-    if (_loading) return;
-    _loading = true;
+    if (_loadingGen == gen) return;
+    _loadingGen = gen;
     try {
       // The playing audio's length helps match a video when the track row
       // never had one — but only once the audio belongs to this track.
@@ -187,7 +206,7 @@ class SyncedVideoController extends ChangeNotifier {
       _computeOffset(gen, bundle);
       if (_attached > 0 && _enabled) await _startPlayback(gen);
     } finally {
-      _loading = false;
+      if (_loadingGen == gen) _loadingGen = -1;
       // A track change while resolving is picked up on the next pass.
       if (gen != _gen && !_disposed) _evaluate();
     }
@@ -224,24 +243,42 @@ class SyncedVideoController extends ChangeNotifier {
     }
     final key = '$audioKey|${bundle.videoId}';
     if (repo.hasSavedOffset(key)) {
-      final saved = repo.savedOffset(key);
-      _offsetMs = saved ?? bundle.introOffsetMs;
-      _confident = saved != null;
+      _offsetMs = repo.savedOffset(key)!;
+      _confident = true;
       _refreshAllowed();
       return;
     }
     _offsetMs = bundle.introOffsetMs;
     _confident = false;
     _refreshAllowed();
+    if (repo.wasUnmatched(key)) {
+      _notify();
+      return;
+    }
     final source = audio;
+    // The playing YouTube id, when that is what is playing, is the
+    // authority for the song's timeline; otherwise the track's own id.
+    final songVideoId = audioKey.startsWith('yt:')
+        ? audioKey.substring(3)
+        : track.videoId;
+    _measuring = true;
+    _notify();
     unawaited(() async {
-      final measured = await repo.measureOffsetMs(
-        key: key,
-        songUrl: source.url,
-        songHeaders: source.requestHeaders,
-        videoId: bundle.videoId,
-        songVideoId: track.videoId,
-      );
+      int? measured;
+      try {
+        measured = await repo.measureOffsetMs(
+          key: key,
+          songUrl: source.url,
+          songHeaders: source.requestHeaders,
+          videoId: bundle.videoId,
+          songVideoId: songVideoId,
+        );
+      } finally {
+        if (gen == _gen && !_disposed) {
+          _measuring = false;
+          _notify();
+        }
+      }
       if (gen != _gen || _disposed || measured == null) return;
       _offsetMs = measured;
       _confident = true;
@@ -271,6 +308,11 @@ class SyncedVideoController extends ChangeNotifier {
     }
     if (allowed != _allowed) {
       _allowed = allowed;
+      PlayDiag.log(
+        'video: ${allowed ? 'timing trusted' : 'timing not trusted'} '
+        '(measured=$_confident, intro=${bundle?.introOffsetMs ?? 0}ms, '
+        'offset=${_offsetMs}ms)',
+      );
       _notify();
     }
   }
@@ -355,16 +397,29 @@ class SyncedVideoController extends ChangeNotifier {
     final repo = _ref.read(syncedVideoRepositoryProvider);
     final ranked = rankVideoStreams(bundle.streams, _quality);
     var failures = 0;
+    final unverified = <MusicVideoStream>[];
     for (final stream in ranked) {
       if (stale()) return;
       if (failures >= 4) break;
       if (!await repo.probeVideoStream(stream)) {
+        unverified.add(stream);
         failures++;
         continue;
       }
       if (stale()) return;
       if (await _openStream(gen, token, stream)) return;
       failures++;
+    }
+    // The probe is a different HTTP stack from the player's, so a failed
+    // probe is a hint, not a verdict: let the player itself try the best
+    // few links that did not pass it.
+    for (final stream in unverified.take(2)) {
+      if (stale()) return;
+      PlayDiag.log(
+        'video: trying unverified ${stream.label} ${stream.codec} '
+        'via ${stream.client}',
+      );
+      if (await _openStream(gen, token, stream)) return;
     }
     if (stale()) return;
     // Nothing played: links may have expired, so resolve afresh next time.
@@ -409,10 +464,15 @@ class SyncedVideoController extends ChangeNotifier {
     // Real picture dimensions mean the stream is decodable.
     final decodable = await _waitFor(
       () => (player.state.width ?? 0) > 0,
-      const Duration(seconds: 15),
+      const Duration(seconds: 10),
     );
     if (stale()) return false;
-    if (!decodable) return false;
+    if (!decodable) {
+      PlayDiag.log(
+        'video: ${stream.label} ${stream.codec} via ${stream.client} did not start',
+      );
+      return false;
+    }
 
     // Land on the audio's current frame, then let a few seconds buffer so
     // the first moments on screen do not stall.
@@ -430,6 +490,10 @@ class SyncedVideoController extends ChangeNotifier {
       const Duration(seconds: 7),
     );
     if (stale()) return false;
+    PlayDiag.log(
+      'video: playing ${stream.label} ${stream.codec} via ${stream.client} '
+      '(decoding ${player.state.width}x${player.state.height})',
+    );
     _refreshAllowed();
     _ready = true;
     _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);

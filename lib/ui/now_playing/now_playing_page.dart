@@ -1284,14 +1284,26 @@ class _TrackMetadataSection extends ConsumerWidget {
         (c) => c.visible ? c.currentQualityLabel : '',
       ),
     );
-    if (videoLabel.isNotEmpty) {
+    // Why a video that exists is not showing yet.
+    final videoStatus = ref.watch(
+      syncedVideoControllerProvider.select((c) => c.status),
+    );
+    final videoNote = videoLabel.isNotEmpty
+        ? 'VIDEO $videoLabel'
+        : switch (videoStatus) {
+            'loading' => 'VIDEO loading…',
+            'syncing' => 'VIDEO syncing…',
+            'unsynced' => 'VIDEO not synced',
+            _ => '',
+          };
+    if (videoNote.isNotEmpty) {
       quality = quality == null
-          ? (tier: 'VIDEO', detail: videoLabel)
+          ? (tier: 'VIDEO', detail: videoNote.replaceFirst('VIDEO ', ''))
           : (
               tier: quality.tier,
               detail: quality.detail.isEmpty
-                  ? 'VIDEO $videoLabel'
-                  : '${quality.detail} · VIDEO $videoLabel',
+                  ? videoNote
+                  : '${quality.detail} · $videoNote',
             );
     }
 

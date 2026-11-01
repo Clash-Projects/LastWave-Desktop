@@ -17,6 +17,8 @@ const double _minCorrelation = 0.45;
 
 /// Music repeats, so the best match must clearly beat the best elsewhere.
 const double _minPeakMargin = 1.15;
+const double _relaxedMinCorrelation = 0.30;
+const double _relaxedMinPeakMargin = 1.06;
 const int _peakExclusionMs = 1000;
 const int _maxHalfDisagreementMs = 150;
 
@@ -55,7 +57,12 @@ Float32List onsetEnvelope(Float32List rms) {
 
 /// Where [song] lines up inside [video]: what to add to a song position to
 /// get the matching video position (positive when the video has an intro).
-int? estimateVideoOffsetMs(Float32List song, Float32List video) {
+int? estimateVideoOffsetMs(
+  Float32List song,
+  Float32List video, {
+  double minCorrelation = _minCorrelation,
+  double minMargin = _minPeakMargin,
+}) {
   const minOverlap = _minOverlapMs ~/ alignmentHopMs;
   if (song.length < minOverlap || video.length < minOverlap) return null;
 
@@ -70,7 +77,7 @@ int? estimateVideoOffsetMs(Float32List song, Float32List video) {
     if (correlations[i] > correlations[bestIndex]) bestIndex = i;
   }
   final best = correlations[bestIndex];
-  if (best < _minCorrelation) return null;
+  if (best < minCorrelation) return null;
 
   const exclusion = _peakExclusionMs ~/ alignmentHopMs;
   var runnerUp = 0.0;
@@ -78,27 +85,40 @@ int? estimateVideoOffsetMs(Float32List song, Float32List video) {
     if ((i - bestIndex).abs() <= exclusion) continue;
     if (correlations[i] > runnerUp) runnerUp = correlations[i];
   }
-  if (runnerUp > 0 && best / runnerUp < _minPeakMargin) return null;
+  if (runnerUp > 0 && best / runnerUp < minMargin) return null;
 
   return (minLag + bestIndex) * alignmentHopMs;
 }
 
-/// Accepts the whole-song offset only if a half of the song independently
-/// lands on it and neither half points elsewhere. A chance match on
-/// repeating music rarely confirms itself, and a re-edit gets contradicted.
-int? estimateConsistentVideoOffsetMs(Float32List song, Float32List video) {
-  final whole = estimateVideoOffsetMs(song, video);
+int? _confirmedOffset(
+  Float32List song,
+  Float32List video, {
+  required double minCorrelation,
+  required double minMargin,
+  required bool bothHalves,
+}) {
+  final whole = estimateVideoOffsetMs(
+    song,
+    video,
+    minCorrelation: minCorrelation,
+    minMargin: minMargin,
+  );
   if (whole == null) return null;
   final middle = song.length ~/ 2;
   final first = estimateVideoOffsetMs(
     Float32List.sublistView(song, 0, middle),
     video,
+    minCorrelation: minCorrelation,
+    minMargin: minMargin,
   );
   final secondRaw = estimateVideoOffsetMs(
     Float32List.sublistView(song, middle),
     video,
+    minCorrelation: minCorrelation,
+    minMargin: minMargin,
   );
   final second = secondRaw == null ? null : secondRaw - middle * alignmentHopMs;
+  if (bothHalves && (first == null || second == null)) return null;
   final halves = [?first, ?second];
   final confirmed =
       halves.isNotEmpty &&
@@ -106,11 +126,45 @@ int? estimateConsistentVideoOffsetMs(Float32List song, Float32List video) {
   return confirmed ? whole : null;
 }
 
+/// The offset and whether it needed the relaxed thresholds, or null.
+///
+/// A clean match is accepted when one half of the song independently lands
+/// on it and neither half points elsewhere (a chance match on repeating
+/// music rarely confirms itself, and a re-edit gets contradicted). When the
+/// video is a different master or mix the correlation is weaker, so a
+/// second, looser pass accepts it only if BOTH halves find the same spot.
+({int offsetMs, bool relaxed})? estimateAlignment(
+  Float32List song,
+  Float32List video,
+) {
+  final strict = _confirmedOffset(
+    song,
+    video,
+    minCorrelation: _minCorrelation,
+    minMargin: _minPeakMargin,
+    bothHalves: false,
+  );
+  if (strict != null) return (offsetMs: strict, relaxed: false);
+  final loose = _confirmedOffset(
+    song,
+    video,
+    minCorrelation: _relaxedMinCorrelation,
+    minMargin: _relaxedMinPeakMargin,
+    bothHalves: true,
+  );
+  return loose == null ? null : (offsetMs: loose, relaxed: true);
+}
+
+int? estimateConsistentVideoOffsetMs(Float32List song, Float32List video) =>
+    estimateAlignment(song, video)?.offsetMs;
+
 /// Isolate entry: raw PCM of both sides in, offset (or null) out.
-int? alignPcm16(({Uint8List song, Uint8List video, int sampleRate}) input) {
+({int offsetMs, bool relaxed})? alignPcm16(
+  ({Uint8List song, Uint8List video, int sampleRate}) input,
+) {
   final song = onsetEnvelope(rmsFromPcm16(input.song, input.sampleRate));
   final video = onsetEnvelope(rmsFromPcm16(input.video, input.sampleRate));
-  return estimateConsistentVideoOffsetMs(song, video);
+  return estimateAlignment(song, video);
 }
 
 /// Pearson correlation of the overlap when song[i] meets video[i + lag].

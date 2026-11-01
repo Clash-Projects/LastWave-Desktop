@@ -69,8 +69,55 @@ void main() {
     final song = render(100, 1000); // song starts 5 s into the video
     final video = render(0, 2000);
     expect(
-      alignPcm16((song: song, video: video, sampleRate: rate)),
+      alignPcm16((song: song, video: video, sampleRate: rate))?.offsetMs,
       100 * alignmentHopMs,
     );
+  });
+
+  group('different master or mix', () {
+    Float32List mixed(double noise) {
+      final base = pattern(3000, 1);
+      final other = pattern(2200, 77);
+      final v = Float32List(2000);
+      for (var i = 0; i < 2000; i++) {
+        final s = i >= 240 && i - 240 < base.length ? base[i - 240] : 0.0;
+        v[i] = s + noise * other[i];
+      }
+      return v;
+    }
+
+    test('a weak match is accepted on the loose pass, at the right spot', () {
+      final song = pattern(1000, 1);
+      final video = mixed(2.0);
+      expect(estimateVideoOffsetMs(song, video), isNull);
+      final result = estimateAlignment(song, video);
+      expect(result, isNotNull);
+      expect(result!.relaxed, isTrue);
+      expect(result.offsetMs, 240 * alignmentHopMs);
+    });
+
+    test('a clean match does not need the loose pass', () {
+      final result = estimateAlignment(pattern(1000, 1), mixed(0.5));
+      expect(result!.relaxed, isFalse);
+      expect(result.offsetMs, 240 * alignmentHopMs);
+    });
+
+    test('drowned-out audio still yields nothing', () {
+      expect(estimateAlignment(pattern(1000, 1), mixed(4.0)), isNull);
+    });
+
+    test('loose pass never invents a match between unrelated tracks', () {
+      var falsePositives = 0;
+      for (var seed = 100; seed < 140; seed++) {
+        if (estimateAlignment(
+              pattern(1000, seed),
+              pattern(2000, seed + 1000),
+            ) !=
+            null) {
+          falsePositives++;
+        }
+      }
+      expect(falsePositives, 0);
+    });
   });
 }
