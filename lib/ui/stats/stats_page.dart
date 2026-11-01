@@ -1262,7 +1262,7 @@ class _MetricsGrid extends StatelessWidget {
         accentColor: const Color(0xFF4FC3E8),
         title: 'Time Listened',
         value: _formatListeningTime(stats.totalMinutesListened),
-        subtext: '~3.5 min/track avg',
+        subtext: 'Estimated at 3.5 min/play',
       ),
       _MetricTile(
         icon: FluentIcons.play,

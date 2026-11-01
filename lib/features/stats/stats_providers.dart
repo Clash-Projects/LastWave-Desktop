@@ -196,11 +196,12 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
   var lastFmAlbumsCount = 0;
   var lastFmTracksCount = 0;
   var lastFmAvatar = '';
+  int? lastFmPeriodPlayCount;
   List<HomeTrack> lastFmTopTracks = const [];
   List<({String name, int playCount, String artworkUrl})> lastFmTopArtists =
       const [];
   List<({String name, String artist, int playCount, String artworkUrl})>
-      lastFmTopAlbums = const [];
+  lastFmTopAlbums = const [];
 
   if (auth.status == AuthStatus.signedIn && auth.username.isNotEmpty) {
     isLastFm = true;
@@ -219,6 +220,18 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
         period: period.lastFmPeriod,
         limit: 20,
       );
+      final periodPlayCountFuture = period.days == null
+          ? null
+          : (() async {
+              try {
+                return await homeRepo.fetchPeriodPlayCount(
+                  fromMillis: sinceMillis!,
+                  toMillis: DateTime.now().millisecondsSinceEpoch,
+                );
+              } catch (_) {
+                return null;
+              }
+            })();
 
       final results = await Future.wait([
         statsFuture,
@@ -242,6 +255,7 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
         int playCount,
         String artworkUrl
       })>;
+      lastFmPeriodPlayCount = await periodPlayCountFuture;
     } catch (_) {}
   }
 
@@ -327,9 +341,12 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
   }
 
   // Estimate total listening minutes (~3.5 minutes per play on average)
-  final effectivePlays = isLastFm && period == StatsPeriod.allTime && lastFmScrobbles > localTotalPlays
-      ? lastFmScrobbles
+    final effectivePlays = isLastFm
+      ? (period.days == null
+        ? lastFmScrobbles
+        : lastFmPeriodPlayCount ?? localTotalPlays)
       : localTotalPlays;
+  // Estimate total listening minutes (~3.5 minutes per play on average).
   final totalMinutes = (effectivePlays * 3.5).round();
 
   return ListeningStatsData(
