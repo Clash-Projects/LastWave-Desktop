@@ -1279,7 +1279,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     _sleepDeadline = DateTime.now().add(duration);
-    state = state.copyWith(sleepRemaining: duration);
+    state = state.copyWith(
+      sleepRemaining: duration,
+      sleepMinutes: duration.inMinutes < 1 ? 1 : duration.inMinutes,
+    );
     _sleepTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) {
