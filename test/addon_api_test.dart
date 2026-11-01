@@ -355,6 +355,61 @@ void main() {
             album: album,
             durationSeconds: dur);
 
+    test('solo recording never answers a duet request', () {
+      const duet = 'Rahat Fateh Ali Khan & Momina Mustehsan';
+      expect(
+        AddonApi.bestMatch(
+          [t('solo', 'Afreen Afreen', 'Rahat Fateh Ali Khan')],
+          title: 'Afreen Afreen',
+          artist: duet,
+        ),
+        isNull,
+      );
+      // Both exist: the duet wins whatever the pool order.
+      final m = AddonApi.bestMatch(
+        [
+          t('solo', 'Afreen Afreen', 'Rahat Fateh Ali Khan'),
+          t('duet', 'Afreen Afreen', 'Rahat Fateh Ali Khan, Momina Mustehsan'),
+        ],
+        title: 'Afreen Afreen',
+        artist: duet,
+      );
+      expect(m?.id, 'duet');
+    });
+
+    test('duet credited via title feat still answers the duet request', () {
+      final m = AddonApi.bestMatch(
+        [
+          t('d', 'Afreen Afreen (feat. Momina Mustehsan)',
+              'Rahat Fateh Ali Khan'),
+        ],
+        title: 'Afreen Afreen',
+        artist: 'Rahat Fateh Ali Khan & Momina Mustehsan',
+      );
+      expect(m?.id, 'd');
+    });
+
+    test('solo request prefers the solo recording over the duet', () {
+      final m = AddonApi.bestMatch(
+        [
+          t('duet', 'Afreen Afreen', 'Rahat Fateh Ali Khan, Momina Mustehsan'),
+          t('solo', 'Afreen Afreen', 'Rahat Fateh Ali Khan'),
+        ],
+        title: 'Afreen Afreen',
+        artist: 'Rahat Fateh Ali Khan',
+      );
+      expect(m?.id, 'solo');
+    });
+
+    test('Last.fm ";" collab billing is not held to every co-artist', () {
+      final m = AddonApi.bestMatch(
+        [t('1', 'Song', 'Lead Artist')],
+        title: 'Song',
+        artist: 'Lead Artist; Guest One; Guest Two',
+      );
+      expect(m?.id, '1');
+    });
+
     test('exact match wins', () {
       final m = AddonApi.bestMatch(
         [

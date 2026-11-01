@@ -601,7 +601,14 @@ class AddonApi implements LosslessSource {
     int expectedDurationSeconds = 0,
     String album = '',
   }) {
-    final scored = <({AddonTrack track, int title, int feat, int raw, int album})>[];
+    final scored = <({
+      AddonTrack track,
+      int title,
+      int feat,
+      int raw,
+      int album,
+      int extra
+    })>[];
     final wantAlbum = _clean(album);
     for (final c in candidates) {
       // Bilingual-aware: any dash-separated half may carry the match
@@ -648,13 +655,25 @@ class AddonApi implements LosslessSource {
           wantAlbum.isNotEmpty && wantAlbum == _clean(title);
       final soundtrackAlbumWaivesArtist = albumBonus >= 2 && !isTitleMatchingAlbum;
       if (!artistOk && !soundtrackAlbumWaivesArtist) continue;
+      // A co-billed request needs its co-artists credited (see
+      // [_missingCredits]); a soundtrack-album waiver already means the
+      // catalog bills different performers, so it is exempt.
+      if (!soundtrackAlbumWaivesArtist && _missingCredits(c, title, artist) > 0) {
+        continue;
+      }
       if (expectedDurationSeconds > 0 && c.durationSeconds > 0) {
         if ((c.durationSeconds - expectedDurationSeconds).abs() > 8) {
           continue;
         }
       }
-      scored.add(
-          (track: c, title: titleScore, feat: feat, raw: rawScore, album: albumBonus));
+      scored.add((
+        track: c,
+        title: titleScore,
+        feat: feat,
+        raw: rawScore,
+        album: albumBonus,
+        extra: _extraCredits(c, artist),
+      ));
     }
     // Duration proximity. With a known length it separates the album
     // cut from the radio edit. Without one, trust catalog consensus:
@@ -681,6 +700,7 @@ class AddonApi implements LosslessSource {
     scored.sort((a, b) {
       if (a.title != b.title) return b.title.compareTo(a.title);
       if (a.feat != b.feat) return b.feat.compareTo(a.feat);
+      if (a.extra != b.extra) return a.extra.compareTo(b.extra);
       final ad = durScore(a.track);
       final bd = durScore(b.track);
       if (ad != bd) return bd.compareTo(ad);
@@ -766,6 +786,83 @@ class AddonApi implements LosslessSource {
     }
     return false;
   }
+
+  static final RegExp _creditSplit = RegExp(
+    r'\s*(?:,|&|\band\b|\bx\b|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b)\s*',
+    caseSensitive: false,
+  );
+
+  static const Set<String> _creditStop = {
+    'the', 'and', 'feat', 'ft', 'featuring', 'with', 'x', '&'
+  };
+
+  /// Distinct billed names of a visibly co-billed artist string
+  /// ("Rahat Fateh Ali Khan & Momina Mustehsan"), each as its token set.
+  /// Empty for a solo billing and for Last.fm-style `;` lists, whose
+  /// catalog entries routinely carry the primary artist only.
+  static List<Set<String>> _creditNames(String artist) {
+    if (artist.contains(';')) return const [];
+    final names = <Set<String>>[];
+    for (final part in artist.split(_creditSplit)) {
+      final toks = _clean(part)
+          .split(' ')
+          .where((t) => t.isNotEmpty && !_creditStop.contains(t))
+          .toSet();
+      if (toks.isNotEmpty) names.add(toks);
+    }
+    return names.length >= 2 ? names : const [];
+  }
+
+  /// Whether a billed name is represented in [pool]: every token for a
+  /// short name, a majority for a longer one (transliteration drift).
+  static bool _nameCovered(Set<String> name, Set<String> pool) {
+    final hit = name.where(pool.contains).length;
+    return name.length == 1 ? hit == 1 : hit * 2 >= name.length;
+  }
+
+  /// Tokens that credit a candidate's performers: its artist field plus
+  /// any feat credit carried in its title.
+  static Set<String> _candidateCreditTokens(AddonTrack c) =>
+      '${_clean(c.artist)} ${_featPart(c.title)}'
+          .split(' ')
+          .where((t) => t.isNotEmpty && !_creditStop.contains(t))
+          .toSet();
+
+  /// Billed names in the REQUEST that the candidate does not credit.
+  /// A solo recording must not answer a duet request just because its one
+  /// artist is a subset of the request's ("Afreen Afreen" solo vs
+  /// "Rahat Fateh Ali Khan & Momina Mustehsan") — same title, same lead
+  /// artist, different recording.
+  ///
+  /// Names the request's own title already credits ("Dracula (feat.
+  /// JENNIE)") are exempt: that guest is part of the requested title, and
+  /// a plain catalog "Dracula" is the same recording.
+  static int _missingCredits(
+      AddonTrack c, String wantedTitle, String wantedArtist) {
+    final wanted = _creditNames(wantedArtist);
+    if (wanted.isEmpty) return 0;
+    final pool = _candidateCreditTokens(c);
+    final titleCredit = _candidateCreditTokensOfRequest(_featPart(wantedTitle));
+    return wanted
+        .where((n) => !_nameCovered(n, pool) && !_nameCovered(n, titleCredit))
+        .length;
+  }
+
+  /// Billed names on the CANDIDATE that the request does not name: the
+  /// reverse case (solo requested, duet served). Ranking only — a lone
+  /// duet entry still beats silence.
+  static int _extraCredits(AddonTrack c, String wantedArtist) {
+    final cand = _creditNames(c.artist);
+    if (cand.isEmpty) return 0;
+    final pool = _candidateCreditTokensOfRequest(wantedArtist);
+    return cand.where((n) => !_nameCovered(n, pool)).length;
+  }
+
+  static Set<String> _candidateCreditTokensOfRequest(String artist) =>
+      _clean(artist)
+          .split(' ')
+          .where((t) => t.isNotEmpty && !_creditStop.contains(t))
+          .toSet();
 
   static bool _artistOk(String candidate, String target) {
     final a = _clean(candidate);
