@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 import '../../core/diagnostics/trace_crumb.dart';
 import '../../core/network/dio_factory.dart';
 import 'dash_assembler.dart';
+import 'hybrid_cenc.dart';
 import 'mp4_boxes.dart';
 
 /// Loopback origin server for assembled addon audio.
@@ -116,6 +117,46 @@ class LocalMediaServer {
     }
   }
 
+  /// Hybrid registration for direct CDN streaming with local decryption.
+  Future<Uri?> urlForHybrid({
+    required HybridPlan hybridPlan,
+    required String cacheName,
+  }) async {
+    try {
+      final port = await ensureStarted();
+      final safe =
+          cacheName.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      if (_sessions.length > 256) _evict();
+      final existing = _sessions[safe];
+      if (existing != null && existing.failed) {
+        _sessions.remove(safe);
+        _slog('evict failed hybrid session $safe (retry will be fresh)');
+      }
+      final session = _sessions.putIfAbsent(
+        safe,
+        () => _Session.hybrid(_dio, safe, hybridPlan),
+      );
+      session.kickoff();
+      final token = _authToken;
+      return Uri.parse('http://127.0.0.1:$port/a/$safe.m4a?token=$token');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Evicts in-memory session and on-disk assembled files for a track.
+  void evict(String cacheName) {
+    final safe = cacheName.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    _sessions.remove(safe);
+    try {
+      final f = File(pathFor(safe, part: false));
+      if (f.existsSync()) f.deleteSync();
+      final p = File(pathFor(safe, part: true));
+      if (p.existsSync()) p.deleteSync();
+    } catch (_) {}
+    _slog('evicted session and disk cache for $safe');
+  }
+
   void _evict() {
     for (final key in _sessions.keys.toList()) {
       if (_sessions.length <= 192) break;
@@ -189,11 +230,17 @@ void _slog(String line) => TraceCrumb.write('addon-server $line');
 
 class _Session {
   _Session(this._dio, this.name, String manifestXml)
-      : _manifestXml = manifestXml;
+      : _manifestXml = manifestXml,
+        _hybridPlan = null;
+
+  _Session.hybrid(this._dio, this.name, HybridPlan hybridPlan)
+      : _manifestXml = null,
+        _hybridPlan = hybridPlan;
 
   final Dio _dio;
   final String name;
   String? _manifestXml;
+  final HybridPlan? _hybridPlan;
   bool started = false;
   bool done = false;
   bool failed = false;
@@ -248,6 +295,10 @@ class _Session {
         // ignore: avoid_print
         print('SRV $name: cache hit');
         done = true;
+        return;
+      }
+      if (_hybridPlan != null) {
+        await _runHybrid(_hybridPlan!);
         return;
       }
       final plan =
@@ -370,6 +421,127 @@ class _Session {
       if (!_totalReady.isCompleted) _totalReady.complete();
       if (!_completion.isCompleted) _completion.complete();
     }
+  }
+
+  Future<void> _runHybrid(HybridPlan plan) async {
+    _slog('hybrid start $name segments=${plan.ranges.length} enc=${plan.encrypted}');
+    if (plan.encrypted && plan.key.isEmpty) {
+      throw StateError('encrypted hybrid plan missing decryption key');
+    }
+    final part = File(_partPath);
+    await part.parent.create(recursive: true);
+
+    final keyBytes = plan.key.isNotEmpty ? importContentKey(plan.key) : Uint8List(0);
+    final constantIvBytes = plan.constantIv.isNotEmpty
+        ? Uint8List.fromList(base64Decode(plan.constantIv))
+        : Uint8List(0);
+
+    final fetchResults = await Future.wait([
+      DashAssembler.fetchInitRange(
+        _dio,
+        plan.cdnUrl,
+        start: plan.initRange.start,
+        end: plan.initRange.end,
+      ),
+      DashAssembler.fetchRangeBytes(
+        _dio,
+        plan.cdnUrl,
+        start: plan.ranges[0].start,
+        end: plan.ranges[0].end,
+      ),
+    ]);
+
+    final rawInit = fetchResults[0];
+    final rawSeg0 = fetchResults[1];
+    if (rawInit == null) throw StateError('hybrid init fetch failed');
+    if (rawSeg0 == null) throw StateError('hybrid seg0 fetch failed');
+
+    final init = Uint8List.fromList(rawInit);
+    var ivSize = plan.ivSize;
+    var constantIv = constantIvBytes;
+
+    if (plan.encrypted) {
+      try {
+        final tenc = patchInitSegment(init);
+        ivSize = tenc.ivSize;
+        if (tenc.constantIv.isNotEmpty) {
+          constantIv = tenc.constantIv;
+        }
+      } catch (_) {}
+    }
+    _slog('hybrid init $name ${init.length}b');
+
+    final seg0 = Uint8List.fromList(rawSeg0);
+    if (plan.encrypted && keyBytes.isNotEmpty) {
+      decryptSegment(seg0, keyBytes, ivSize, constantIv, plan.ranges[0].start);
+    }
+
+    final sizes = plan.ranges.map((r) => r.end - r.start + 1).toList();
+    final sink = part.openWrite(mode: FileMode.write);
+    try {
+      sink.add(init);
+      var sum = 0;
+      for (final n in sizes) {
+        sum += n;
+      }
+      _totalBytes = init.length + sum;
+      if (!_totalReady.isCompleted) _totalReady.complete();
+      _slog('hybrid size $name total=$_totalBytes');
+
+      sink.add(seg0);
+      await sink.flush();
+
+      final slots = List<Uint8List?>.filled(plan.ranges.length, null);
+      final ok = await DashAssembler.fetchHybridSegments(
+        _dio,
+        cdnUrl: plan.cdnUrl,
+        ranges: plan.ranges,
+        from: 1,
+        totalTimeout: const Duration(seconds: 120),
+        onSegment: (i, rawBytes) {
+          final bytes = Uint8List.fromList(rawBytes);
+          if (plan.encrypted && keyBytes.isNotEmpty) {
+            decryptSegment(bytes, keyBytes, ivSize, constantIv, plan.ranges[i].start);
+          }
+          slots[i] = bytes;
+        },
+        onBatch: (base, end) async {
+          for (var i = base; i < end; i++) {
+            final chunk = slots[i];
+            if (chunk != null) {
+              sink.add(chunk);
+              slots[i] = null;
+            }
+          }
+          await sink.flush();
+        },
+      );
+      if (!ok) throw StateError('hybrid segments fetch failed');
+    } finally {
+      await sink.close();
+    }
+
+    // Atomic-ish publish
+    try {
+      final stale = File(_finalPath);
+      if (await stale.exists()) await stale.delete();
+    } catch (_) {}
+    var published = false;
+    for (var attempt = 0; attempt < 80; attempt++) {
+      if (_openReaders == 0) {
+        try {
+          await File(_partPath).rename(_finalPath);
+          published = true;
+          break;
+        } catch (_) {}
+      }
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    done = true;
+    _slog(published
+        ? 'assemble done $name'
+        : 'assemble done $name publish=partial');
+    unawaited(DashAssembler.pruneCache(Set.of(_activePartials)));
   }
 
   /// The finished bytes: the published file, or the partial when the

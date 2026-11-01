@@ -14,6 +14,7 @@ import '../audio_output/pcm_format.dart';
 import '../audio_output/wasapi_engine.dart';
 import '../downloads/download_manager.dart';
 import '../addons/addon_api.dart';
+import '../addons/local_media_server.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/scrobble_repository.dart';
 import '../lossless/lossless_source.dart';
@@ -2063,12 +2064,26 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       // tier once (fresh mint, settled session) before YouTube.
       // Terminates: the retry runs at attempt 1, which falls through.
       _crumb('retry same-tier key=${track.queueKey}');
+      final parts = streamKey.split(':');
+      if (parts.length >= 4) {
+        final host = Uri.tryParse('https://${parts[1]}')?.host ?? parts[1];
+        final safeName = '${host}_${parts[2]}_${parts[3]}';
+        LocalMediaServer.instance.evict(safeName);
+      }
       await _resolveAndOpen(state.currentIndex,
           forceRefresh: true, attempt: 1);
       return;
     }
     if (_playbackAttempt <= 1) {
       _crumb('retry youtube key=${track.queueKey}');
+      if (streamKey.startsWith('addon:')) {
+        final parts = streamKey.split(':');
+        if (parts.length >= 4) {
+          final host = Uri.tryParse('https://${parts[1]}')?.host ?? parts[1];
+          final safeName = '${host}_${parts[2]}_${parts[3]}';
+          LocalMediaServer.instance.evict(safeName);
+        }
+      }
       await _resolveAndOpen(state.currentIndex,
           forceYoutube: true, forceRefresh: true, attempt: 2);
       return;
