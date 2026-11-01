@@ -1486,6 +1486,51 @@ class WaveAmbientBand extends StatelessWidget {
   }
 }
 
+/// Smoothstep on [0, 1] (clamped): zero slope at both ends, so gradients
+/// built from it have no visible start or stop line.
+double _smooth(double x) {
+  final t = x.clamp(0.0, 1.0);
+  return t * t * (3 - 2 * t);
+}
+
+/// Stretches a radial gradient horizontally about its own centre, turning
+/// the circle (radius = shortest side) into an ellipse across a wide band.
+class _StretchX extends GradientTransform {
+  final double sx;
+  final double cx;
+  const _StretchX(this.sx, this.cx);
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
+    final x = bounds.left + bounds.width * cx;
+    return Matrix4.identity()
+      ..translateByDouble(x, 0, 0, 1)
+      ..scaleByDouble(sx, 1, 1, 1)
+      ..translateByDouble(-x, 0, 0, 1);
+  }
+}
+
+/// One eased elliptical glow, centred at [at] (alignment in the band).
+Widget _glow(
+    Color color, double alpha, Alignment at, double radius, double stretch) {
+  const n = 14;
+  final ts = [for (var i = 0; i <= n; i++) i / n];
+  return DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: RadialGradient(
+        center: at,
+        radius: radius,
+        colors: [
+          for (final t in ts)
+            color.withValues(alpha: alpha * (1 - _smooth(t))),
+        ],
+        stops: ts,
+        transform: _StretchX(stretch, (at.x + 1) / 2),
+      ),
+    ),
+  );
+}
+
 /// Artwork-derived ambient wash for editorial headers and containers.
 class AmbientWash extends StatelessWidget {
   final String artworkUrl;
@@ -1537,32 +1582,61 @@ class AmbientWash extends StatelessWidget {
             ? (palette?.primary ?? ArtworkPalette.fallback.primary)
             : (palette?.cream ?? ArtworkPalette.fallback.cream);
         final a = ((dark ? 0.44 : 0.32) * strength).clamp(0.0, 0.92);
+        // One hue, not lead + tail: two glows in different colours read as
+        // two separate blobs. Tail only tints the lead.
+        final hue = Color.lerp(lead, tail, 0.3)!;
 
+        // Soft elliptical glows with an eased falloff, so there is no
+        // visible banding. Two masks take the wash to zero at the sides,
+        // top and foot: the band has no edge at all — it just lifts the
+        // header's own surface.
         return IgnorePointer(
           child: AnimatedOpacity(
             opacity: palette == null ? 0 : 1,
             duration: waveMotion(context, WaveMotion.slow),
             curve: WaveMotion.standard,
-            child: Container(
-              height: height,
-              decoration: BoxDecoration(
-                // Vertical fade, not a radial: a glow anchored above the
-                // box always has non-zero alpha where the header's top edge
-                // cuts the box, and that straight line of colour reads as
-                // the artwork being clipped. This is transparent at the top
-                // and at the foot, so the band has no edge at all — it just
-                // lifts the header's own surface.
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              // Side fade: without it the glow is cut flat at the band's
+              // left edge, right behind the portrait.
+              shaderCallback: (bounds) {
+                const n = 12;
+                final ts = [for (var i = 0; i <= n; i++) i / n];
+                return LinearGradient(
                   colors: [
-                    tail.withValues(alpha: 0.0),
-                    lead.withValues(alpha: a * 0.5),
-                    lead.withValues(alpha: a),
-                    tail.withValues(alpha: a * 0.28),
-                    tail.withValues(alpha: 0.0),
+                    for (final t in ts)
+                      Colors.white.withValues(
+                          alpha: _smooth(t / 0.16) *
+                              (1 - _smooth((t - 0.8) / 0.2))),
                   ],
-                  stops: const [0.0, 0.24, 0.5, 0.8, 1.0],
+                  stops: ts,
+                ).createShader(bounds);
+              },
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (bounds) {
+                  const n = 16;
+                  final ts = [for (var i = 0; i <= n; i++) i / n];
+                  return LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      for (final t in ts)
+                        Colors.white.withValues(
+                            alpha: _smooth(t / 0.3) *
+                                (1 - _smooth((t - 0.7) / 0.3))),
+                    ],
+                    stops: ts,
+                  ).createShader(bounds);
+                },
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Wide, faint fill so the band reads as one lit surface.
+                    _glow(hue, a * 0.38, const Alignment(0.0, 0.2), 1.3, 2.4),
+                    // Main glow, hugging the portrait and easing out right.
+                    _glow(hue, a * 1.15, const Alignment(-0.85, 0.1), 1.0, 3.0),
+                  ],
                 ),
               ),
             ),
