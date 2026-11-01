@@ -23,6 +23,7 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
   late final TextEditingController _name;
   late final TextEditingController _code;
   late final TextEditingController _chat;
+  late final TextEditingController _server;
   final _chatFocus = FocusNode();
   final _chatScroll = ScrollController();
   bool _collaborative = true;
@@ -33,6 +34,9 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
     super.initState();
     _name = TextEditingController(
       text: ref.read(prefsProvider).jamDisplayName,
+    );
+    _server = TextEditingController(
+      text: ref.read(prefsProvider).jamServerUrl,
     );
     _code = TextEditingController(text: widget.initialCode ?? '');
     _chat = TextEditingController();
@@ -81,6 +85,7 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
     _name.dispose();
     _code.dispose();
     _chat.dispose();
+    _server.dispose();
     _chatFocus.dispose();
     _chatScroll.dispose();
     super.dispose();
@@ -163,6 +168,27 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
                       controller: _name,
                       placeholder: 'Listener',
                       decoration: waveInputDecoration(),
+                    ),
+                    const SizedBox(height: 14),
+                    _Label('Server'),
+                    const SizedBox(height: 6),
+                    TextBox(
+                      controller: _server,
+                      placeholder: 'wss://jam.clashprojects.qd.je/ws',
+                      decoration: waveInputDecoration(),
+                      onSubmitted: (_) => ref
+                          .read(prefsProvider)
+                          .setJamServerUrl(_server.text),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: WaveButton(
+                        onPressed: () => ref
+                            .read(prefsProvider)
+                            .setJamServerUrl(_server.text),
+                        child: const Text('Save server'),
+                      ),
                     ),
                   ],
                 ),
