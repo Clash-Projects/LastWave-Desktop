@@ -90,6 +90,10 @@ class YouTubeMusicTrack {
   final String artworkUrl;
   final int durationSeconds;
 
+  /// `MPRE…` of the album the row links to; empty when unknown or the
+  /// track came from a cache that does not store it.
+  final String albumBrowseId;
+
   const YouTubeMusicTrack({
     required this.videoId,
     required this.title,
@@ -97,6 +101,7 @@ class YouTubeMusicTrack {
     this.album = '',
     this.artworkUrl = '',
     this.durationSeconds = 0,
+    this.albumBrowseId = '',
   });
 }
 
@@ -5485,6 +5490,7 @@ class InnerTubeMusicApi {
     }
     if (artist.isEmpty) artist = 'Unknown artist';
     String album = '';
+    var albumBrowseId = '';
     for (final run in details) {
       final browseId =
           ((run['navigationEndpoint'] as Map?)?['browseEndpoint']
@@ -5492,6 +5498,7 @@ class InnerTubeMusicApi {
               ?.toString();
       if (browseId != null && browseId.startsWith('MPRE')) {
         album = run['text']?.toString() ?? '';
+        albumBrowseId = browseId;
         break;
       }
     }
@@ -5515,6 +5522,7 @@ class InnerTubeMusicApi {
       album: album,
       artworkUrl: _rendererArtwork(r),
       durationSeconds: duration,
+      albumBrowseId: albumBrowseId,
     );
   }
 
@@ -5565,6 +5573,7 @@ class InnerTubeMusicApi {
     }
     if (artist.isEmpty) artist = 'Unknown artist';
     String album = '';
+    var albumBrowseId = '';
     for (final run in details) {
       final browseId =
           ((run['navigationEndpoint'] as Map?)?['browseEndpoint']
@@ -5572,6 +5581,7 @@ class InnerTubeMusicApi {
               ?.toString();
       if (browseId != null && browseId.startsWith('MPRE')) {
         album = run['text']?.toString() ?? '';
+        albumBrowseId = browseId;
         break;
       }
     }
@@ -5582,6 +5592,7 @@ class InnerTubeMusicApi {
       album: album,
       artworkUrl: _rendererArtwork(r),
       durationSeconds: _durationFromRenderer(r),
+      albumBrowseId: albumBrowseId,
     );
   }
 

@@ -8,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/track_actions.dart' show playGenerated, relativeTime;
 import '../../features/feed/feed_repository.dart';
+import '../../features/innertube/album_match.dart';
+import '../../features/innertube/innertube_api.dart' show innerTubeProvider;
 import '../../features/stats/stats_providers.dart';
 import '../components/artist_line.dart';
 import '../components/artwork.dart';
@@ -2650,28 +2652,40 @@ class _ArtistGridCardState extends State<_ArtistGridCard> {
   }
 }
 
-class _AlbumGridCard extends StatelessWidget {
+class _AlbumGridCard extends ConsumerWidget {
   final StatAlbum album;
   final int rank;
 
   const _AlbumGridCard({required this.album, required this.rank});
 
+  /// Last.fm gives no browseId, and `/album/` with an empty one is a
+  /// dead route — resolve it, else fall back to a search.
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    final bid = await resolveAlbumBrowseId(ref.read(innerTubeProvider),
+        title: album.name, artist: album.artist);
+    if (!context.mounted) return;
+    if (bid.isEmpty) {
+      context.go(
+          '/search?q=${Uri.encodeComponent('${album.artist} ${album.name}')}');
+      return;
+    }
+    waveOpen(
+      context,
+      waveAlbumLocation(
+        browseId: bid,
+        title: album.name,
+        artist: album.artist,
+        artworkUrl: album.artworkUrl,
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
 
     return WavePressable(
-      onTap: () {
-        waveOpen(
-          context,
-          waveAlbumLocation(
-            browseId: '',
-            title: album.name,
-            artist: album.artist,
-            artworkUrl: album.artworkUrl,
-          ),
-        );
-      },
+      onTap: () => _open(context, ref),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
