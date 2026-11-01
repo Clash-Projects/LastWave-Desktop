@@ -13,6 +13,7 @@ import '../player/play_diag.dart';
 import 'audio_alignment.dart';
 import 'pcm_capture.dart';
 import 'video_match.dart';
+import 'ytdlp_tools.dart';
 
 /// A resolved official music video: its id and every playable height.
 class SyncedVideoBundle {
@@ -26,12 +27,42 @@ class SyncedVideoBundle {
   /// Intro the community marked as non-music (SponsorBlock), 0 if none.
   final int introOffsetMs;
 
+  /// Whether yt-dlp's links are in [streams] (or it was asked and gave
+  /// none), so a bundle made before the tools were installed is redone.
+  final bool withYtDlp;
+
   const SyncedVideoBundle({
     required this.videoId,
     required this.streams,
     this.soundtracks = const [],
     this.introOffsetMs = 0,
+    this.withYtDlp = false,
   });
+
+  SyncedVideoBundle merged(List<MusicVideoStream> extra) {
+    final seen = {
+      for (final s in [...streams, ...soundtracks]) s.url,
+    };
+    final add = [
+      for (final s in extra)
+        if (seen.add(s.url)) s,
+    ];
+    return SyncedVideoBundle(
+      videoId: videoId,
+      streams: [
+        ...streams,
+        for (final s in add)
+          if (!s.audioOnly) s,
+      ],
+      soundtracks: [
+        ...soundtracks,
+        for (final s in add)
+          if (s.audioOnly) s,
+      ],
+      introOffsetMs: introOffsetMs,
+      withYtDlp: true,
+    );
+  }
 }
 
 const _bundleTtl = Duration(hours: 3);
@@ -53,10 +84,11 @@ const _videoAlignmentSeconds = 160;
 /// There is deliberately no "use whatever the track id is" fallback: an
 /// art track's picture is the cover, and a near-miss is a wrong video.
 class SyncedVideoRepository {
-  SyncedVideoRepository(this._tube, this._prefs);
+  SyncedVideoRepository(this._tube, this._prefs, [this._tools]);
 
   final InnerTubeMusicApi _tube;
   final Prefs _prefs;
+  final YtDlpTools? _tools;
   final Map<String, ({SyncedVideoBundle? bundle, DateTime at})> _cache = {};
   final Map<String, Future<SyncedVideoBundle?>> _inflight = {};
   final Map<String, Future<int?>> _measuring = {};
@@ -70,22 +102,28 @@ class SyncedVideoRepository {
   /// Resolves (and caches) the official video for [track]; null when no
   /// trustworthy match exists. [fallbackDurationMs] is the playing audio's
   /// length, used only when the track row never carried one.
+  ///
+  /// [wantHeight] is the picture height the player will aim for: when the
+  /// built-in lookup already reaches it, yt-dlp (if installed) finishes in
+  /// the background instead of holding the video back.
   Future<SyncedVideoBundle?> resolve(
     PlayableTrack track, {
     int? fallbackDurationMs,
+    int wantHeight = 1080,
   }) {
     final key = track.queueKey;
     final cached = _cache[key];
+    final toolsNow = _tools?.installed ?? false;
     if (cached != null &&
         DateTime.now().difference(cached.at) <
-            (cached.bundle == null ? _missTtl : _bundleTtl)) {
+            (cached.bundle == null ? _missTtl : _bundleTtl) &&
+        !(toolsNow && cached.bundle != null && !cached.bundle!.withYtDlp)) {
       return Future.value(cached.bundle);
     }
-    return _inflight[key] ??= _resolve(track, fallbackDurationMs).whenComplete(
-      () {
-        _inflight.remove(key);
-      },
-    );
+    return _inflight[key] ??= _resolve(track, fallbackDurationMs, wantHeight)
+        .whenComplete(() {
+          _inflight.remove(key);
+        });
   }
 
   void invalidate(PlayableTrack track) => _cache.remove(track.queueKey);
@@ -93,6 +131,7 @@ class SyncedVideoRepository {
   Future<SyncedVideoBundle?> _resolve(
     PlayableTrack track,
     int? fallbackDurationMs,
+    int wantHeight,
   ) async {
     final label = '"${track.title}" — ${track.artist}';
     final durationMs = track.duration.inMilliseconds > 0
@@ -116,12 +155,25 @@ class SyncedVideoRepository {
       _cache[track.queueKey] = (bundle: null, at: DateTime.now());
       return null;
     }
+    final tools = _tools;
+    await tools?.ensureChecked();
+    final ytDlp = (tools != null && tools.installed)
+        ? tools.formatsFor(id).catchError((_) => <MusicVideoStream>[])
+        : null;
     try {
       final results = await Future.wait([
         _tube.resolveMusicVideo(id),
         id == track.videoId ? Future.value(0) : fetchIntroOffsetMs(id),
       ]);
-      final all = results[0] as List<MusicVideoStream>;
+      var all = results[0] as List<MusicVideoStream>;
+      int tallestOf(List<MusicVideoStream> list) => list
+          .where((s) => !s.audioOnly)
+          .fold(0, (m, s) => math.max(m, s.height));
+      // Wait for yt-dlp only when the built-in links fall short of what the
+      // player wants; otherwise its links join the cached bundle later.
+      final waitForYtDlp =
+          ytDlp != null && (all.isEmpty || tallestOf(all) < wantHeight);
+      if (waitForYtDlp) all = [...all, ...await ytDlp];
       final streams = [
         for (final s in all)
           if (!s.audioOnly) s,
@@ -136,6 +188,7 @@ class SyncedVideoRepository {
         PlayDiag.log('video: $id matched $label but no playable streams');
         return null;
       }
+      final queueKey = track.queueKey;
       final top = rankVideoStreams(streams, 0).first;
       final tallest = streams.map((s) => s.height).reduce(math.max);
       PlayDiag.log(
@@ -147,8 +200,21 @@ class SyncedVideoRepository {
         streams: streams,
         soundtracks: soundtracks,
         introOffsetMs: results[1] as int,
+        withYtDlp: ytDlp != null && waitForYtDlp,
       );
-      _cache[track.queueKey] = (bundle: bundle, at: DateTime.now());
+      _cache[queueKey] = (bundle: bundle, at: DateTime.now());
+      if (ytDlp != null && !waitForYtDlp) {
+        unawaited(
+          ytDlp.then((extra) {
+            final current = _cache[queueKey]?.bundle;
+            if (current == null || current.videoId != id) return;
+            _cache[queueKey] = (
+              bundle: current.merged(extra),
+              at: DateTime.now(),
+            );
+          }),
+        );
+      }
       return bundle;
     } catch (e) {
       PlayDiag.log('video: stream resolve failed for $id: $e');
@@ -606,5 +672,6 @@ final syncedVideoRepositoryProvider = Provider<SyncedVideoRepository>((ref) {
   return SyncedVideoRepository(
     ref.watch(innerTubeProvider),
     ref.watch(prefsProvider),
+    ref.read(ytDlpToolsProvider),
   );
 });

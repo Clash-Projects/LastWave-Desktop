@@ -35,6 +35,7 @@ import '../../features/audio_output/output_controller.dart';
 import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
 import '../../features/video/music_video_settings.dart';
+import '../../features/video/ytdlp_tools.dart';
 import '../now_playing/now_playing_chrome.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
@@ -1163,7 +1164,110 @@ class _MusicVideo extends ConsumerWidget {
             ],
           ),
         ),
+        if (YtDlpTools.supported) ...[
+          const SizedBox(height: 12),
+          const _VideoHelper(),
+        ],
       ],
+    );
+  }
+}
+
+/// yt-dlp + Deno, downloaded on request, for more and taller video links.
+class _VideoHelper extends ConsumerWidget {
+  const _VideoHelper();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tools = ref.watch(ytDlpToolsProvider);
+    final secondary = WaveType.meta.copyWith(color: waveTextSecondary(context));
+    final String state;
+    if (!tools.installed) {
+      state = 'Not installed';
+    } else {
+      final deno = tools.hasDeno ? 'Deno ${tools.denoVersion}' : 'no Deno';
+      state = 'yt-dlp ${tools.ytDlpVersion} · $deno';
+    }
+    final String? updateNote;
+    if (tools.installed && tools.latestYtDlp != null) {
+      updateNote = tools.updateAvailable
+          ? 'Update available: yt-dlp ${tools.latestYtDlp}'
+                '${tools.latestDeno != null ? ', Deno ${tools.latestDeno}' : ''}'
+          : 'Up to date';
+    } else {
+      updateNote = null;
+    }
+    return _Group(
+      title: 'Video helper',
+      subtitle: 'yt-dlp + Deno',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Optional. Downloads yt-dlp and Deno from their GitHub '
+            'releases (about 60 MB). Music videos then also use YouTube\'s '
+            'TV and web links, which carry 1440p and 4K for more videos, and keep '
+            'working after YouTube changes once yt-dlp is updated. Used only '
+            'for finding video links; the music never goes through it.',
+            style: secondary,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tools.busy ? tools.activity : state,
+                      style: WaveType.trackTitle,
+                    ),
+                    if (!tools.busy && updateNote != null)
+                      Text(updateNote, style: secondary),
+                    if (tools.error != null && !tools.busy)
+                      Text(
+                        tools.error!,
+                        style: secondary.copyWith(color: Colors.red),
+                      ),
+                    if (tools.busy && tools.progress != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, right: 16),
+                        child: ProgressBar(value: tools.progress! * 100),
+                      ),
+                  ],
+                ),
+              ),
+              if (tools.busy)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: ProgressRing(strokeWidth: 2),
+                )
+              else ...[
+                if (tools.installed) ...[
+                  WaveButton(
+                    onPressed: tools.checkForUpdates,
+                    child: const Text('Check for updates'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                if (!tools.installed || tools.updateAvailable)
+                  WaveFilledButton(
+                    onPressed: tools.installOrUpdate,
+                    child: Text(tools.installed ? 'Update' : 'Download'),
+                  ),
+                if (tools.installed) ...[
+                  const SizedBox(width: 8),
+                  WaveButton(
+                    onPressed: tools.remove,
+                    child: const Text('Remove'),
+                  ),
+                ],
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

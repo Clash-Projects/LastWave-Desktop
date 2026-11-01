@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -14,6 +15,7 @@ import 'music_video_settings.dart';
 import 'chunked_range_proxy.dart';
 import 'synced_video_repository.dart';
 import 'video_match.dart';
+import 'ytdlp_tools.dart';
 
 /// Drives the muted music video behind Now Playing and keeps it locked to
 /// the audio clock — whatever the audio is (YouTube Opus or lossless).
@@ -132,6 +134,23 @@ class SyncedVideoController extends ChangeNotifier {
   void setQuality(int height) {
     if (_quality == height) return;
     _quality = height;
+    final bundle = _bundle;
+    final track = _track;
+    if (bundle != null && track != null && _attached > 0 && _enabled) {
+      // Asked for more than the built-in links have, and yt-dlp is there
+      // but was not waited for: look the video up again with it.
+      final want = height > 0 ? height : _autoHeight();
+      final tallest = bundle.streams.fold(0, (m, s) => math.max(m, s.height));
+      if (tallest < want &&
+          !bundle.withYtDlp &&
+          _ref.read(ytDlpToolsProvider).installed) {
+        _ref.read(syncedVideoRepositoryProvider).invalidate(track);
+        _bundle = null;
+        _closeMedia();
+        _evaluate();
+        return;
+      }
+    }
     if (_bundle != null && _attached > 0 && _enabled) {
       final next = pickVideoStreamForQuality(
         _bundle!.streams,
@@ -244,6 +263,7 @@ class SyncedVideoController extends ChangeNotifier {
             fallbackDurationMs: audioReady
                 ? snap.duration.inMilliseconds
                 : null,
+            wantHeight: _quality > 0 ? _quality : _autoHeight(),
           );
       if (gen != _gen || _disposed || bundle == null) return;
       _bundle = bundle;
