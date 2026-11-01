@@ -145,7 +145,7 @@ class _WaveSmoothScrollState extends State<WaveSmoothScroll>
 
   void _onTick(Duration elapsed) {
     _lastTickElapsed = elapsed;
-    final position = _activePosition ?? _resolvePosition();
+    final position = _activePosition;
     if (position == null || !position.hasPixels || _targetPixels == null) {
       _stopGliding();
       return;
@@ -187,21 +187,6 @@ class _WaveSmoothScrollState extends State<WaveSmoothScroll>
     _lastTickElapsed = Duration.zero;
   }
 
-  ScrollPosition? _resolvePosition() {
-    if (widget.controller?.hasClients == true) {
-      return widget.controller!.position;
-    }
-    final primary = PrimaryScrollController.maybeOf(context);
-    if (primary?.hasClients == true) {
-      return primary!.position;
-    }
-    final scrollable = Scrollable.maybeOf(context);
-    if (scrollable?.position.hasPixels == true) {
-      return scrollable!.position;
-    }
-    return null;
-  }
-
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
 
@@ -221,8 +206,21 @@ class _WaveSmoothScrollState extends State<WaveSmoothScroll>
       return;
     }
 
-    final position = _resolvePosition();
-    if (position == null || !position.hasPixels) return;
+    // Only claim the wheel when THIS scrollable can actually move in the
+    // wheel's direction. Registering unconditionally let a non-scrollable
+    // (or shrink-wrapped / edge-pinned) inner list swallow the event, so the
+    // page scrollable behind it never saw it. Unclaimed events fall through
+    // to the next scrollable up the hit-test chain.
+    final controller = widget.controller;
+    if (controller == null || controller.positions.length != 1) return;
+    final position = controller.position;
+    if (!position.hasPixels) return;
+    final atStart = position.pixels <= position.minScrollExtent;
+    final atEnd = position.pixels >= position.maxScrollExtent;
+    if (position.maxScrollExtent <= position.minScrollExtent) return;
+    if ((delta < 0 && atStart) || (delta > 0 && atEnd)) {
+      if (_targetPixels == null) return;
+    }
 
     // Register with pointerSignalResolver so Flutter's default stepped pointerScroll does NOT fire
     GestureBinding.instance.pointerSignalResolver.register(event, (resolved) {
