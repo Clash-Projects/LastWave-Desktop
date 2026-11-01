@@ -642,13 +642,19 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
       body = Scrollbar(
         controller: _scrollController,
         interactive: true,
-        child: SingleChildScrollView(
-          controller: _scrollController,
-          physics: const ClampingScrollPhysics(),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: rows,
+        // Desktop ScrollBehavior would add its own Scrollbar on top of the
+        // explicit one above (doubled bars), so switch the implicit one off.
+        child: ScrollConfiguration(
+          behavior:
+              ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            physics: const ClampingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: rows,
+            ),
           ),
         ),
       );
@@ -847,8 +853,14 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
   void openNow() {
     _hoverTimer?.cancel();
     if (_controller.isOpen) return;
+    // No barrier: a full-screen one would swallow hover/clicks meant for
+    // the parent menu. The submenu instead closes when the pointer leaves
+    // it and its row (dismissOnPointerMoveAway); the parent's own barrier
+    // still handles outside clicks.
     _controller.showFlyout(
       barrierColor: Colors.transparent,
+      barrierDismissible: false,
+      dismissOnPointerMoveAway: true,
       placementMode: FlyoutPlacementMode.rightTop,
       transitionDuration: const Duration(milliseconds: 90),
       transitionBuilder: fastFlyoutTransition,
