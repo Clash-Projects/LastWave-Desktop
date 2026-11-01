@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -732,6 +733,14 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         child: Listener(
         behavior: HitTestBehavior.translucent,
         onPointerUp: (event) => WaveRouteOrigin.record(event.position),
+        onPointerDown: (event) {
+          if (event.kind != PointerDeviceKind.mouse) return;
+          if (event.buttons & kBackMouseButton != 0) {
+            _goBack();
+          } else if (event.buttons & kForwardMouseButton != 0) {
+            _goForward();
+          }
+        },
         child: Column(
           children: [
             _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
