@@ -14,6 +14,7 @@ import '../../core/matching/match_vocab.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/storage/prefs.dart';
 import '../lossless/lossless_source.dart';
+import 'hybrid_cenc.dart';
 import 'local_media_server.dart';
 
 /// Personal addon source (LastWave addon protocol).
@@ -1207,6 +1208,35 @@ class AddonApi implements LosslessSource {
         }
       }
     }
+    final hybridRaw = data['hybrid'] as Map<String, dynamic>?;
+    final hybridPlan = HybridPlan.fromJson(hybridRaw);
+    if (hybridPlan != null) {
+      TraceCrumb.write('resolve stage=hybrid $mlabel '
+          'ranges=${hybridPlan.ranges.length} enc=${hybridPlan.encrypted}');
+      final serverSw = Stopwatch()..start();
+      final uri = await LocalMediaServer.instance.urlForHybrid(
+        hybridPlan: hybridPlan,
+        cacheName:
+            '${Uri.tryParse(root)?.host ?? 'addon'}_${trackId}_$serverQuality',
+      );
+      serverSw.stop();
+      TraceCrumb.write('resolve stage=server-hybrid $mlabel '
+          'ms=${serverSw.elapsedMilliseconds} hit=${uri != null}');
+      if (uri != null) {
+        return ResolvedStream(
+          url: uri.toString(),
+          mimeType: 'audio/mp4',
+          bitrateKbps: bitrateKbps,
+          audioCodec: codec,
+          cacheKey: cacheKey,
+          isLossless: !mp3,
+          bitDepth: bitDepth,
+          samplingRateKhz: sampleRate,
+          expiresAt: DateTime.now().add(const Duration(hours: 24)),
+        );
+      }
+    }
+
     if (inlineManifest != null && inlineManifest.contains('<MPD')) {
       // Windows libmpv 0.36 dies on its second DASH manifest per
       // process, and full pre-assembly stalls first audio for tens
