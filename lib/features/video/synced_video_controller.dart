@@ -1,0 +1,946 @@
+import 'dart:async';
+import 'dart:math' as math;
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show WidgetsBinding;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
+
+import '../../core/audio/stream_models.dart';
+import '../player/play_diag.dart';
+import '../player/playback_service.dart';
+import 'music_video_settings.dart';
+import 'chunked_range_proxy.dart';
+import 'synced_video_repository.dart';
+import 'video_match.dart';
+import 'ytdlp_tools.dart';
+
+/// Drives the muted music video behind Now Playing and keeps it locked to
+/// the audio clock — whatever the audio is (YouTube Opus or lossless).
+///
+/// The audio player is the master; the video only ever follows it:
+///  * big gaps (user seek, buffering, track start) → precise seek,
+///  * small drift → the video's rate is nudged until it is back on time,
+///  * audio paused → video paused on the matching frame.
+/// The video position is `audio position + offset`, where the offset comes
+/// from measuring the song against the video's own soundtrack (see
+/// [SyncedVideoRepository.measureOffsetMs]).
+///
+/// Nothing is shown unless the timing is trustworthy: a measured offset,
+/// the track's own video, a known intro length, or an edit of the same
+/// length as the song. Otherwise the cover art stays.
+class SyncedVideoController extends ChangeNotifier {
+  SyncedVideoController(this._ref);
+
+  final Ref _ref;
+
+  Player? _player;
+  VideoController? _controller;
+  VideoController? get controller => _controller;
+
+  int _attached = 0;
+  bool _enabled = true;
+  int _quality = 0;
+  PlayableTrack? _track;
+  SyncedVideoBundle? _bundle;
+  MusicVideoStream? _stream;
+  int _gen = 0;
+  bool _mediaOpen = false;
+  bool _ready = false;
+  bool _inRange = true;
+  bool _allowed = false;
+  int _offsetMs = 0;
+  bool _confident = false;
+  Timer? _syncTimer;
+  Timer? _releaseTimer;
+  DateTime _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  double _rate = 1.0;
+  bool _disposed = false;
+  String? _staleAudioUrl;
+  Future<void> _tail = Future.value();
+
+  /// True while the video should be on screen in place of the cover.
+  bool get visible =>
+      _attached > 0 &&
+      _enabled &&
+      _ready &&
+      _allowed &&
+      _inRange &&
+      _controller != null;
+
+  /// Height of the picture currently playing, for diagnostics/labels.
+  String get currentQualityLabel => _stream?.label ?? '';
+
+  bool _measuring = false;
+
+  /// How long the sync measurement may take before the picture stops
+  /// waiting for it. Captures take a second or two when they work.
+  static const Duration _measureBudget = Duration(seconds: 45);
+
+  /// Why the picture is not on screen yet, once a video has been found:
+  /// `loading` (opening the stream), `syncing` (measuring its timing) or
+  /// `unsynced` (timing could not be confirmed, so the cover stays rather
+  /// than showing a picture that might be off). Empty otherwise.
+
+  String get status {
+    if (_attached == 0 || !_enabled || _bundle == null || visible) return '';
+    if (!_ready) return 'loading';
+    if (!_allowed) return _measuring ? 'syncing' : 'unsynced';
+    return '';
+  }
+
+  // -- inputs -----------------------------------------------------------
+
+  void attach() {
+    _attached++;
+    _releaseTimer?.cancel();
+    _evaluate();
+  }
+
+  void detach() {
+    if (_attached > 0) _attached--;
+    if (_attached > 0) return;
+    _stopSyncTimer();
+    unawaited(
+      _serialized(() async {
+        try {
+          await _player?.pause();
+        } catch (_) {}
+      }),
+    );
+    // Leaving Now Playing for a while releases the decoder; coming back
+    // quickly resumes the same stream without a reload.
+    _releaseTimer?.cancel();
+    _releaseTimer = Timer(const Duration(seconds: 20), () {
+      if (_attached == 0) _closeMedia();
+    });
+    _notify();
+  }
+
+  void setEnabled(bool enabled) {
+    if (_enabled == enabled) return;
+    _enabled = enabled;
+    if (!enabled) _closeMedia();
+    _evaluate();
+  }
+
+  void setQuality(int height) {
+    if (_quality == height) return;
+    _quality = height;
+    // A new choice gets a fresh chance at its height.
+    _decodeCap = 0;
+    final bundle = _bundle;
+    final track = _track;
+    if (bundle != null && track != null && _attached > 0 && _enabled) {
+      // Asked for more than the built-in links have, and yt-dlp is there
+      // but was not waited for: look the video up again with it.
+      final want = height > 0 ? height : _autoHeight();
+      final tallest = bundle.streams.fold(0, (m, s) => math.max(m, s.height));
+      if (tallest < want &&
+          !bundle.withYtDlp &&
+          _ref.read(ytDlpToolsProvider).installed) {
+        _ref.read(syncedVideoRepositoryProvider).invalidate(track);
+        _bundle = null;
+        _closeMedia();
+        _evaluate();
+        return;
+      }
+    }
+    if (_bundle != null && _attached > 0 && _enabled) {
+      final next = pickVideoStreamForQuality(
+        _bundle!.streams,
+        height,
+        autoHeight: _autoHeight(),
+      );
+      if (next != null && next.url != _stream?.url) {
+        unawaited(_startPlayback(_gen));
+      }
+    }
+  }
+
+  /// What Auto aims for on the display the window is on right now.
+  /// Highest picture this machine has shown it can play smoothly this
+  /// session (0 = no limit found yet). Set when frames start dropping or
+  /// the GPU cannot decode a 4K codec, so the next song does not start at
+  /// a height that stutters too.
+  int _decodeCap = 0;
+
+  /// The height to aim for: the chosen quality (or Auto's), never above
+  /// what decoded smoothly.
+  int _wantHeight() {
+    final base = _quality > 0 ? _quality : _autoHeight();
+    return _decodeCap > 0 && _decodeCap < base ? _decodeCap : base;
+  }
+
+  int _autoHeight() {
+    try {
+      final views = WidgetsBinding.instance.platformDispatcher.views;
+      if (views.isEmpty) return 1080;
+      return autoVideoHeightFor(views.first.physicalSize.height);
+    } catch (_) {
+      return 1080;
+    }
+  }
+
+  /// The window moved to a different size (full screen on or off): on Auto,
+  /// move to the picture that now fits, but only when that is a different one.
+  void onViewportChanged() {
+    final bundle = _bundle;
+    if (_disposed || _quality != 0 || bundle == null || _attached == 0) return;
+    final best = pickVideoStreamForQuality(
+      bundle.streams,
+      0,
+      autoHeight: _autoHeight(),
+    );
+    if (best != null && best.height != _stream?.height) {
+      unawaited(_startPlayback(_gen));
+    }
+  }
+
+  void onTrackChanged(PlayableTrack? track) {
+    if (track?.queueKey == _track?.queueKey) return;
+    _track = track;
+    // The snapshot still carries the previous song's stream until the new
+    // one resolves; measuring against it would save a wrong offset.
+    _staleAudioUrl = _ref.read(playbackServiceProvider).stream?.url;
+    _gen++;
+    _bundle = null;
+    _stream = null;
+    _ready = false;
+    _allowed = false;
+    _inRange = true;
+    _offsetMs = 0;
+    _confident = false;
+    _measuring = false;
+    _stopSyncTimer();
+    _closeMedia();
+    _evaluate();
+  }
+
+  /// The audio source can change under the same track (YouTube fallback
+  /// replaced by lossless, quality switch); its timeline may differ.
+  void onAudioStreamChanged() {
+    if (_bundle != null && _track != null) _computeOffset(_gen, _bundle!);
+  }
+
+  // -- pipeline ---------------------------------------------------------
+
+  void _evaluate() {
+    if (_disposed) return;
+    final track = _track;
+    if (_attached == 0 || !_enabled || track == null) {
+      _notify();
+      return;
+    }
+    final gen = _gen;
+    if (_bundle == null) {
+      unawaited(_load(gen, track));
+    } else if (!_mediaOpen) {
+      // Quality may have changed while the page was closed.
+      unawaited(_startPlayback(gen));
+    } else if (_ready) {
+      _startSyncTimer();
+    }
+    _notify();
+  }
+
+  // Which track generation is being looked up. A lookup for an older track
+  // must never hold up the current one (skipping through songs used to queue
+  // each lookup behind the last), so this only stops the same generation
+  // from being started twice.
+  int _loadingGen = -1;
+
+  Future<void> _load(int gen, PlayableTrack track) async {
+    if (_loadingGen == gen) return;
+    _loadingGen = gen;
+    try {
+      // The playing audio's length helps match a video when the track row
+      // never had one — but only once the audio belongs to this track.
+      final snap = _ref.read(playbackServiceProvider);
+      final audioReady =
+          snap.current?.queueKey == track.queueKey &&
+          snap.stream != null &&
+          snap.stream!.url != _staleAudioUrl &&
+          snap.duration > Duration.zero;
+      final bundle = await _ref
+          .read(syncedVideoRepositoryProvider)
+          .resolve(
+            track,
+            fallbackDurationMs: audioReady
+                ? snap.duration.inMilliseconds
+                : null,
+            wantHeight: _quality > 0 ? _quality : _autoHeight(),
+          );
+      if (gen != _gen || _disposed || bundle == null) return;
+      _bundle = bundle;
+      _computeOffset(gen, bundle);
+      if (_attached > 0 && _enabled) await _startPlayback(gen);
+    } finally {
+      if (_loadingGen == gen) _loadingGen = -1;
+      // A track change while resolving is picked up on the next pass.
+      if (gen != _gen && !_disposed) _evaluate();
+    }
+  }
+
+  String _audioKey(ResolvedStream audio, PlayableTrack track) {
+    final ck = audio.cacheKey;
+    if (ck.startsWith('youtube:')) {
+      final parts = ck.split(':');
+      if (parts.length > 1 && parts[1].isNotEmpty) return 'yt:${parts[1]}';
+    }
+    return '${audio.isLossless ? 'lossless' : 'src'}:${track.queueKey}';
+  }
+
+  void _computeOffset(int gen, SyncedVideoBundle bundle) {
+    final track = _track;
+    if (track == null) return;
+    var audio = _ref.read(playbackServiceProvider).stream;
+    if (audio != null && audio.url == _staleAudioUrl) audio = null;
+    final repo = _ref.read(syncedVideoRepositoryProvider);
+    if (audio == null) {
+      _offsetMs = bundle.introOffsetMs;
+      _confident = false;
+      _refreshAllowed();
+      return;
+    }
+    final audioKey = _audioKey(audio, track);
+    // The audio is this very video's soundtrack: same timeline.
+    if (audioKey == 'yt:${bundle.videoId}') {
+      _offsetMs = 0;
+      _confident = true;
+      _refreshAllowed();
+      return;
+    }
+    final key = '$audioKey|${bundle.videoId}';
+    if (repo.hasSavedOffset(key)) {
+      _offsetMs = repo.savedOffset(key)!;
+      _confident = true;
+      _refreshAllowed();
+      return;
+    }
+    _offsetMs = bundle.introOffsetMs;
+    _confident = false;
+    _refreshAllowed();
+    if (repo.wasUnmatched(key)) {
+      _refreshAllowed();
+      _notify();
+      return;
+    }
+    final source = audio;
+    // The playing YouTube id, when that is what is playing, is the
+    // authority for the song's timeline; otherwise the track's own id.
+    final songVideoId = audioKey.startsWith('yt:')
+        ? audioKey.substring(3)
+        : track.videoId;
+    _measuring = true;
+    _notify();
+    unawaited(() async {
+      int? measured;
+      try {
+        measured = await repo
+            .measureOffsetMs(
+              key: key,
+              songUrl: source.url,
+              songHeaders: source.requestHeaders,
+              videoId: bundle.videoId,
+              title: track.title,
+              artist: track.artist,
+              durationMs: track.duration.inMilliseconds > 0
+                  ? track.duration.inMilliseconds
+                  : null,
+              songVideoId: songVideoId,
+              videoSources: [...bundle.soundtracks, ...bundle.streams],
+            )
+            .timeout(_measureBudget);
+      } on TimeoutException {
+        PlayDiag.log(
+          'video: align gave up after ${_measureBudget.inSeconds}s for $key',
+        );
+      } catch (e) {
+        PlayDiag.log('video: align error: $e');
+      } finally {
+        if (gen == _gen && !_disposed) {
+          _measuring = false;
+          _notify();
+        }
+      }
+      if (gen != _gen || _disposed) return;
+      if (measured == null) {
+        _refreshAllowed();
+        _notify();
+        return;
+      }
+      _offsetMs = measured;
+      _confident = true;
+      _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
+      _refreshAllowed();
+      _notify();
+    }());
+  }
+
+  /// Whether the timing can be trusted enough to show the picture.
+  void _refreshAllowed() {
+    final bundle = _bundle;
+    var allowed = false;
+    if (bundle != null) {
+      if (_confident) {
+        allowed = true;
+      } else {
+        // Edits of the same length share the song's timeline. When timing
+        // could not be measured at all, a looser length is accepted rather
+        // than leaving the cover up forever: an official video that runs
+        // within a few seconds of the song is almost always the song from
+        // its first frame.
+        final videoMs = _player?.state.duration.inMilliseconds ?? 0;
+        final audioMs = _ref
+            .read(playbackServiceProvider)
+            .duration
+            .inMilliseconds;
+        // No measurement: only a video the same length as the song (the
+        // same edit, so the same timeline) may show. Anything else stays
+        // hidden: no video is better than a wrong or drifting one.
+        final tolerance =
+            4000 + (bundle.introOffsetMs > 0 ? bundle.introOffsetMs : 0);
+        allowed =
+            videoMs > 0 &&
+            audioMs > 0 &&
+            (videoMs - audioMs).abs() <= tolerance;
+      }
+    }
+    if (allowed != _allowed) {
+      _allowed = allowed;
+      PlayDiag.log(
+        'video: ${allowed ? 'timing trusted' : 'timing not trusted'} '
+        '(measured=$_confident, intro=${bundle?.introOffsetMs ?? 0}ms, '
+        'offset=${_offsetMs}ms)',
+      );
+      _notify();
+    }
+  }
+
+  Future<void> _ensurePlayer() async {
+    if (_player != null && _controller != null) return;
+    MediaKit.ensureInitialized();
+    final player = Player(
+      configuration: const PlayerConfiguration(
+        muted: true,
+        title: 'LastWave Music Video',
+        logLevel: MPVLogLevel.error,
+        bufferSize: 64 * 1024 * 1024,
+      ),
+    );
+    _player = player;
+    _controller = VideoController(
+      player,
+      configuration: VideoControllerConfiguration(
+        // Same platform split as the motion-art player: Linux presents
+        // through the software path (no cross-context EGL stalls) and
+        // decodes in software; Windows/macOS use their hardware paths.
+        enableHardwareAcceleration: !Platform.isLinux,
+        hwdec: Platform.isLinux ? 'no' : 'auto-safe',
+      ),
+    );
+    try {
+      await _controller!.platform.future.timeout(const Duration(seconds: 6));
+    } catch (_) {}
+    final native = player.platform;
+    if (native is NativePlayer) {
+      final props = <String, String>{
+        // A silent follower: no audio device, no subtitles.
+        'ao': 'null',
+        'aid': 'no',
+        'sid': 'no',
+        'keep-open': 'yes',
+        // Land seeks on the exact frame (the sync target is exact), and
+        // never decode frames that are already late: staying current beats
+        // showing every frame of a backdrop.
+        'hr-seek': 'yes',
+        'hr-seek-framedrop': 'yes',
+        'framedrop': 'decoder+vo',
+        // No audio clock to chase; pace by the wall clock.
+        'video-sync': 'desync',
+        // Read well ahead so a slow patch of network never starves decode,
+        // and after a stall refill a few seconds before resuming rather
+        // than stuttering on every packet.
+        'cache': 'yes',
+        'demuxer-readahead-secs': '30',
+        'cache-secs': '60',
+        'demuxer-max-back-bytes': '${8 * 1024 * 1024}',
+        'cache-pause': 'yes',
+        'cache-pause-wait': '3',
+        if (Platform.isLinux) 'vd-lavc-fast': 'yes',
+      };
+      for (final e in props.entries) {
+        try {
+          await native.setProperty(e.key, e.value);
+        } catch (_) {}
+      }
+    }
+    _notify();
+  }
+
+  int _startToken = 0;
+  Uri? _proxied;
+
+  void _releaseProxy() {
+    final old = _proxied;
+    _proxied = null;
+    if (old != null) RangeProxy.shared.release(old);
+  }
+
+  /// Tries the ranked candidates in turn — verified to serve bytes, then
+  /// opened and checked to decode — until one is on screen. A link that
+  /// fails moves on to the next best, never silently to a worse picture
+  /// than necessary and never to a wrong video.
+  Future<void> _startPlayback(int gen) async {
+    final bundle = _bundle;
+    if (bundle == null || _attached == 0 || !_enabled) return;
+    final token = ++_startToken;
+    bool stale() =>
+        gen != _gen ||
+        token != _startToken ||
+        _disposed ||
+        _attached == 0 ||
+        !_enabled;
+    final repo = _ref.read(syncedVideoRepositoryProvider);
+    final ranked = rankVideoStreams(bundle.streams, _wantHeight());
+    var failures = 0;
+    final unverified = <MusicVideoStream>[];
+    // A client whose link would not decode refuses its other links the same
+    // way; move on to the next client instead of waiting on each of them.
+    final failedClients = <String>{};
+    for (final stream in ranked) {
+      if (stale()) return;
+      if (failures >= 6) break;
+      if (failedClients.contains(stream.client)) continue;
+      if (!await repo.probeVideoStream(stream)) {
+        unverified.add(stream);
+        failures++;
+        continue;
+      }
+      if (stale()) return;
+      if (await _openStream(gen, token, stream)) return;
+      failedClients.add(stream.client);
+      failures++;
+    }
+    // The probe is a different HTTP stack from the player's, so a failed
+    // probe is a hint, not a verdict: let the player itself try the best
+    // few links that did not pass it.
+    for (final stream
+        in unverified.where((s) => !failedClients.contains(s.client)).take(2)) {
+      if (stale()) return;
+      PlayDiag.log(
+        'video: trying unverified ${stream.label} ${stream.codec} '
+        'via ${stream.client}',
+      );
+      if (await _openStream(gen, token, stream)) return;
+    }
+    if (stale()) return;
+    // Nothing played: links may have expired, so resolve afresh next time.
+    final track = _track;
+    if (track != null) repo.invalidate(track);
+    _bundle = null;
+    _closeMedia();
+  }
+
+  Future<bool> _openStream(int gen, int token, MusicVideoStream stream) async {
+    bool stale() => gen != _gen || token != _startToken || _disposed;
+    _stream = stream;
+    _ready = false;
+    // Marks the media as requested so a second evaluate does not reopen.
+    _mediaOpen = true;
+    _stopSyncTimer();
+    _notify();
+    var opened = false;
+    await _serialized(() async {
+      if (stale()) return;
+      await _ensurePlayer();
+      final player = _player;
+      if (player == null || stale()) return;
+      try {
+        await player.stop();
+      } catch (_) {}
+      if (stale()) return;
+      // googlevideo throttles or refuses the open-ended range requests
+      // libmpv makes, so the stream is read through a loopback proxy that
+      // asks for it in bounded pieces, as yt-dlp and NewPipe do.
+      var url = stream.url;
+      Map<String, String>? headers = stream.requestHeaders;
+      final viaProxy =
+          Uri.tryParse(stream.url)?.host.contains('googlevideo') == true;
+      if (viaProxy) {
+        _releaseProxy();
+        final local = await RangeProxy.shared.register(
+          stream.url,
+          headers: stream.requestHeaders,
+        );
+        _proxied = local;
+        url = local.toString();
+        headers = null;
+      }
+      await player.open(Media(url, httpHeaders: headers), play: false);
+      _rate = 1.0;
+      _correcting = false;
+      try {
+        await player.setRate(1.0);
+      } catch (_) {}
+      opened = true;
+    });
+    if (!opened || stale()) return false;
+    final player = _player!;
+
+    // Real picture dimensions mean the stream is decodable.
+    final decodable = await _waitFor(
+      () => (player.state.width ?? 0) > 0,
+      const Duration(seconds: 10),
+    );
+    if (stale()) return false;
+    if (!decodable) {
+      PlayDiag.log(
+        'video: ${stream.label} ${stream.codec} via ${stream.client} did not start',
+      );
+      return false;
+    }
+
+    // Land on the audio's current frame, then let a few seconds buffer so
+    // the first moments on screen do not stall.
+    final target = _targetMs();
+    if (target > 0) {
+      try {
+        await player.seek(Duration(milliseconds: target));
+      } catch (_) {}
+    }
+    await _waitFor(
+      () =>
+          !player.state.buffering &&
+          player.state.buffer - player.state.position >=
+              const Duration(milliseconds: 2500),
+      const Duration(seconds: 7),
+    );
+    if (stale()) return false;
+    PlayDiag.log(
+      'video: playing ${stream.label} ${stream.codec} via ${stream.client} '
+      '(decoding ${player.state.width}x${player.state.height})',
+    );
+    _dropBaseline = null;
+    _dropStrikes = 0;
+    _seekCheckPending = false;
+    unawaited(_checkHardwareDecode(gen, stream));
+    _refreshAllowed();
+    _ready = true;
+    _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
+    if (_attached > 0) _startSyncTimer();
+    _notify();
+    return true;
+  }
+
+  Future<bool> _waitFor(bool Function() test, Duration timeout) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (_disposed) return false;
+      if (test()) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+    return test();
+  }
+
+  int _targetMs() {
+    final audio = _ref.read(playbackServiceProvider.notifier).livePosition;
+    return audio.inMilliseconds + _offsetMs;
+  }
+
+  void _closeMedia() {
+    _stopSyncTimer();
+    final wasOpen = _mediaOpen;
+    _mediaOpen = false;
+    _ready = false;
+    if (!wasOpen) return;
+    unawaited(
+      _serialized(() async {
+        try {
+          await _player?.stop();
+        } catch (_) {}
+        _releaseProxy();
+      }),
+    );
+    _notify();
+  }
+
+  // -- sync loop --------------------------------------------------------
+
+  void _startSyncTimer() {
+    if (_syncTimer?.isActive == true) return;
+    _syncTimer = Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => _syncTick(),
+    );
+  }
+
+  void _stopSyncTimer() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+  }
+
+  // -- smoothness -------------------------------------------------------
+
+  int? _dropBaseline;
+  int _dropStrikes = 0;
+  DateTime _lastDropCheck = DateTime.fromMillisecondsSinceEpoch(0);
+
+  Future<int?> _intProperty(String name) async {
+    final native = _player?.platform;
+    if (native is! NativePlayer) return null;
+    try {
+      return int.tryParse((await native.getProperty(name)).trim());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Above 1080p the codecs are VP9 and AV1; a GPU without a decoder for
+  /// them leaves libmpv decoding 4K on the CPU, which cannot keep up.
+  Future<void> _checkHardwareDecode(int gen, MusicVideoStream stream) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    if (gen != _gen || _disposed || _stream?.url != stream.url) return;
+    final native = _player?.platform;
+    if (native is! NativePlayer) return;
+    String hw = '';
+    try {
+      hw = (await native.getProperty('hwdec-current')).trim();
+    } catch (_) {}
+    PlayDiag.log(
+      'video: decoder for ${stream.label} ${stream.codec}: '
+      '${hw.isEmpty || hw == 'no' ? 'software' : hw}',
+    );
+    if ((hw.isEmpty || hw == 'no') &&
+        stream.height > 1080 &&
+        !Platform.isLinux) {
+      _stepDown('no hardware decoder for ${stream.codec}', maxHeight: 1080);
+    }
+  }
+
+  /// Watches libmpv's dropped-frame counters; two bad windows in a row
+  /// (more than ~1 in 8 frames dropped) move to the next lower picture.
+  Future<void> _checkDroppedFrames(Player player, DateTime now) async {
+    if (now.difference(_lastDropCheck).inMilliseconds < 3000) return;
+    _lastDropCheck = now;
+    final vo = await _intProperty('frame-drop-count') ?? 0;
+    final dec = await _intProperty('decoder-frame-drop-count') ?? 0;
+    final total = vo + dec;
+    final before = _dropBaseline;
+    _dropBaseline = total;
+    if (before == null) return;
+    final dropped = total - before;
+    final fps = (_stream?.fps ?? 30) > 0 ? _stream!.fps : 30;
+    if (dropped > fps * 3 / 8) {
+      _dropStrikes++;
+      PlayDiag.log('video: $dropped frames dropped in 3s at ${_stream?.label}');
+      if (_dropStrikes >= 2) _stepDown('dropping frames');
+    } else {
+      _dropStrikes = 0;
+    }
+  }
+
+  void _stepDown(String why, {int? maxHeight}) {
+    final bundle = _bundle;
+    final current = _stream;
+    if (bundle == null || current == null) return;
+    final limit = maxHeight ?? current.height - 1;
+    final lower = bundle.streams
+        .where((s) => s.height <= limit && s.height < current.height)
+        .map((s) => s.height)
+        .fold(0, math.max);
+    if (lower <= 0) return;
+    _decodeCap = lower;
+    _dropStrikes = 0;
+    PlayDiag.log('video: ${current.label} $why → stepping down to ${lower}p');
+    unawaited(_startPlayback(_gen));
+  }
+
+  bool _ticking = false;
+  bool _correcting = false;
+
+  /// How far ahead of the target a seek aims, learnt from where seeks
+  /// actually land: a 4K VP9 seek takes far longer than a 1080p H.264 one,
+  /// and a fixed lead left the picture behind after every correction.
+  int _seekLeadMs = 200;
+  bool _seekCheckPending = false;
+  DateTime _lastRateAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Drift (video position minus where it should be) that starts and stops
+  /// a rate correction, and the size past which only a seek will do.
+  static const int _driftStartMs = 70;
+  static const int _driftStopMs = 20;
+  static const int _driftSeekMs = 500;
+
+  Future<void> _syncTick() async {
+    final player = _player;
+    if (_ticking || !_ready || player == null || _disposed) return;
+    _ticking = true;
+    try {
+      final snap = _ref.read(playbackServiceProvider);
+      final target = _targetMs();
+      final videoMs = player.state.duration.inMilliseconds;
+      final inRange = target >= 0 && (videoMs <= 0 || target < videoMs - 80);
+      if (inRange != _inRange) {
+        _inRange = inRange;
+        _notify();
+      }
+      if (!_allowed) _refreshAllowed();
+      if (!inRange || !_allowed) {
+        if (player.state.playing) await player.pause();
+        return;
+      }
+
+      final now = DateTime.now();
+      final drift = player.state.position.inMilliseconds - target;
+      final audioRunning = snap.isPlaying && !snap.isBuffering;
+
+      if (!audioRunning) {
+        if (player.state.playing) await player.pause();
+        // Paused scrubbing: keep the still frame on the audio position.
+        if (drift.abs() > 80 && now.isAfter(_cooldownUntil)) {
+          _cooldownUntil = now.add(const Duration(milliseconds: 350));
+          await player.seek(Duration(milliseconds: target));
+        }
+        return;
+      }
+
+      // A stalled stream is refilling its buffer. Seeking or re-timing it
+      // now only throws the buffer away and stalls it again — that loop is
+      // what turned a slow patch of network into a stuttering picture. Let
+      // it catch up; the next tick corrects whatever drift remains.
+      if (player.state.buffering) return;
+      if (!player.state.playing) await player.play();
+      if (now.isBefore(_cooldownUntil)) return;
+      if (_seekCheckPending) {
+        // First settled look after a seek: learn how far off it landed.
+        _seekCheckPending = false;
+        _seekLeadMs = (_seekLeadMs - drift).clamp(80, 2500);
+      }
+      await _checkDroppedFrames(player, now);
+
+      final base = snap.speed <= 0 ? 1.0 : snap.speed;
+      if (drift.abs() > _driftSeekMs) {
+        // Seek ahead by what seeks have been taking to land.
+        _cooldownUntil = now.add(Duration(milliseconds: 1000 + _seekLeadMs));
+        _correcting = false;
+        _seekCheckPending = true;
+        await _setRate(player, base, now, force: true);
+        await player.seek(Duration(milliseconds: target + _seekLeadMs));
+        return;
+      }
+
+      // Small drift is closed by running slightly fast or slow. Hysteresis
+      // keeps it from hunting around zero, and rate changes are rationed:
+      // each one restarts mpv's frame pacing, so tweaking the speed every
+      // tick was itself a source of judder.
+      if (_correcting) {
+        if (drift.abs() <= _driftStopMs) {
+          _correcting = false;
+          await _setRate(player, base, now, force: true);
+          return;
+        }
+      } else if (drift.abs() > _driftStartMs) {
+        _correcting = true;
+      }
+      if (_correcting) {
+        // Video ahead (drift > 0) → slow down; behind → speed up.
+        final factor = (1 - drift / 2500).clamp(0.94, 1.06);
+        await _setRate(player, base * factor, now);
+      } else {
+        await _setRate(player, base, now);
+      }
+    } catch (_) {
+    } finally {
+      _ticking = false;
+    }
+  }
+
+  Future<void> _setRate(
+    Player player,
+    double rate,
+    DateTime now, {
+    bool force = false,
+  }) async {
+    if (!force &&
+        (now.difference(_lastRateAt).inMilliseconds < 400 ||
+            (rate - _rate).abs() < 0.01)) {
+      return;
+    }
+    if ((rate - _rate).abs() < 0.001) return;
+    _lastRateAt = now;
+    _rate = rate;
+    await player.setRate(rate);
+  }
+
+  // -- plumbing ---------------------------------------------------------
+
+  Future<void> _serialized(Future<void> Function() fn) {
+    final run = _tail.then((_) async {
+      try {
+        await fn();
+      } catch (e) {
+        if (kDebugMode) debugPrint('[video-sync] $e');
+      }
+    });
+    _tail = run;
+    return run;
+  }
+
+  bool _notifyPending = false;
+
+  void _notify() {
+    if (_notifyPending || _disposed) return;
+    _notifyPending = true;
+    scheduleMicrotask(() {
+      _notifyPending = false;
+      if (!_disposed) notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _stopSyncTimer();
+    _releaseTimer?.cancel();
+    final player = _player;
+    _player = null;
+    _controller = null;
+    unawaited(() async {
+      try {
+        await player?.dispose();
+      } catch (_) {}
+    }());
+    super.dispose();
+  }
+}
+
+final syncedVideoControllerProvider =
+    ChangeNotifierProvider<SyncedVideoController>((ref) {
+      final controller = SyncedVideoController(ref);
+      controller._enabled = ref.read(musicVideoEnabledProvider);
+      controller._quality = ref.read(musicVideoQualityProvider);
+      controller._track = ref.read(playbackServiceProvider).current;
+      ref.listen<bool>(
+        musicVideoEnabledProvider,
+        (_, v) => controller.setEnabled(v),
+      );
+      ref.listen<int>(
+        musicVideoQualityProvider,
+        (_, v) => controller.setQuality(v),
+      );
+      ref.listen<PlayableTrack?>(
+        playbackServiceProvider.select((s) => s.current),
+        (_, t) => controller.onTrackChanged(t),
+      );
+      ref.listen<ResolvedStream?>(
+        playbackServiceProvider.select((s) => s.stream),
+        (prev, next) {
+          if (prev?.url != next?.url) controller.onAudioStreamChanged();
+        },
+      );
+      return controller;
+    });

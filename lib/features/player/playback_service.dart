@@ -1009,6 +1009,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _schedulePersist();
   }
 
+  /// Unthrottled audio clock straight from libmpv (the snapshot position
+  /// is gated to 10 Hz). Used to keep the synced music video in step.
+  Duration get livePosition {
+    if (_resolving) return state.position;
+    return _player?.state.position ?? state.position;
+  }
+
   Future<void> seek(Duration position) async {
     cancelCrossfade();
     await _player?.seek(position);

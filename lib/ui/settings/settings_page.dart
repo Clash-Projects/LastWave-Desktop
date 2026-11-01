@@ -34,6 +34,9 @@ import '../../features/settings/theme_controller.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
+import '../../features/video/music_video_settings.dart';
+import '../../features/video/ytdlp_tools.dart';
+import '../now_playing/now_playing_chrome.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
 import '../../features/equalizer/equalizer_controller.dart';
@@ -53,6 +56,7 @@ const _waveSettingsSections = [
   ('audio', 'Audio', FluentIcons.speakers),
   ('downloads', 'Downloads', FluentIcons.download),
   ('lyrics', 'Lyrics', FluentIcons.microphone),
+  ('video', 'Now Playing', FluentIcons.video),
   ('appearance', 'Appearance', FluentIcons.brush),
   ('lastfm', 'Last.fm', FluentIcons.heart),
   ('integrations', 'Integrations', FluentIcons.link),
@@ -300,6 +304,8 @@ class _SectionBody extends ConsumerWidget {
         return _Appearance(onUpdate: onUpdate);
       case 'lyrics':
         return _Lyrics(onUpdate: onUpdate);
+      case 'video':
+        return const _MusicVideo();
       case 'lastfm':
         return _LastFm(onUpdate: onUpdate);
       case 'integrations':
@@ -1023,6 +1029,248 @@ class _Lyrics extends ConsumerWidget {
           Text(
             LyricsProviderId.fromId(prefs.lyricsProviderId).subtitle,
             style: WaveType.meta,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MusicVideo extends ConsumerWidget {
+  const _MusicVideo();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(musicVideoEnabledProvider);
+    final quality = ref.watch(musicVideoQualityProvider);
+    final known = musicVideoQualityOptions.any((o) => o.$1 == quality);
+    final hideSeconds = ref.watch(nowPlayingAutoHideProvider);
+    final hideOn = hideSeconds > 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Group(
+          title: 'Controls',
+          subtitle: 'Now Playing',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SwitchRow(
+                value: hideOn,
+                onChanged: (v) => ref
+                    .read(nowPlayingAutoHideProvider.notifier)
+                    .set(v ? 3 : 0),
+                title: 'Hide controls while a video plays',
+                subtitle:
+                    'Over a music video, fades the title, Up Next, lyrics '
+                    'bar and top buttons after a few seconds of no activity, '
+                    'leaving the lyrics. The side bar stays. Click anywhere '
+                    'to bring the controls back.',
+              ),
+              if (hideOn)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Hide after $hideSeconds '
+                          '${hideSeconds == 1 ? 'second' : 'seconds'}',
+                          style: WaveType.trackTitle,
+                        ),
+                      ),
+                      SizedBox(
+                        width: 220,
+                        child: Slider(
+                          value: hideSeconds.toDouble(),
+                          min: 1,
+                          max: 10,
+                          divisions: 9,
+                          onChanged: (v) => ref
+                              .read(nowPlayingAutoHideProvider.notifier)
+                              .set(v.round()),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _Group(
+          title: 'Synced music video',
+          subtitle: 'Now Playing background',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SwitchRow(
+                value: enabled,
+                onChanged: (v) =>
+                    ref.read(musicVideoEnabledProvider.notifier).set(v),
+                title: 'Play music video',
+                subtitle:
+                    'Plays the official video behind the lyrics, in sync with '
+                    'the audio (lossless or Opus). The cover art shows whenever '
+                    'no exact video is found.',
+              ),
+              _SwitchRow(
+                value: ref.watch(musicVideoStretchProvider),
+                enabled: enabled,
+                onChanged: (v) =>
+                    ref.read(musicVideoStretchProvider.notifier).set(v),
+                title: 'Stretch to fill',
+                subtitle:
+                    'Off keeps the picture\'s proportions and trims its '
+                    'edges to fill the window. On stretches it to fit '
+                    'exactly, which can look squashed in a wide window. '
+                    'Full screen on a 16:9 display fills perfectly either way.',
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Video quality', style: WaveType.trackTitle),
+                        Text(
+                          'Auto picks the size that fits your screen: 1080p on '
+                          'a 1080p display, up to 4K on a 4K one. A fixed '
+                          'choice is kept until you change it; the nearest '
+                          'lower size is used when a video lacks it.',
+                          style: WaveType.meta.copyWith(
+                            color: waveTextSecondary(context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  WaveSelect<int>(
+                    value: known ? quality : 0,
+                    options: [
+                      for (final o in musicVideoQualityOptions)
+                        WaveSelectOption(value: o.$1, label: o.$2),
+                    ],
+                    onChanged: enabled
+                        ? (v) => ref
+                              .read(musicVideoQualityProvider.notifier)
+                              .set(v)
+                        : null,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        if (YtDlpTools.supported) ...[
+          const SizedBox(height: 12),
+          const _VideoHelper(),
+        ],
+      ],
+    );
+  }
+}
+
+/// yt-dlp + Deno, downloaded on request, for more and taller video links.
+class _VideoHelper extends ConsumerWidget {
+  const _VideoHelper();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tools = ref.watch(ytDlpToolsProvider);
+    final secondary = WaveType.meta.copyWith(color: waveTextSecondary(context));
+    final String state;
+    if (!tools.installed) {
+      state = 'Not installed';
+    } else {
+      final deno = tools.hasDeno ? 'Deno ${tools.denoVersion}' : 'no Deno';
+      state = 'yt-dlp ${tools.ytDlpVersion} · $deno';
+    }
+    final String? updateNote;
+    if (tools.installed && (tools.latestYtDlp != null || !tools.hasDeno)) {
+      updateNote = !tools.hasDeno
+          ? 'Deno is missing: 4K TV links need it'
+          : tools.updateAvailable
+          ? 'Update available: yt-dlp ${tools.latestYtDlp}'
+                '${tools.latestDeno != null ? ', Deno ${tools.latestDeno}' : ''}'
+          : 'Up to date';
+    } else {
+      updateNote = null;
+    }
+    return _Group(
+      title: 'Video helper',
+      subtitle: 'yt-dlp + Deno',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Optional. Downloads yt-dlp and Deno from their GitHub '
+            'releases (about 60 MB). Music videos then also use YouTube\'s '
+            'TV and web links, which carry 1440p and 4K for more videos, and keep '
+            'working after YouTube changes once yt-dlp is updated. Used only '
+            'for finding video links; the music never goes through it.',
+            style: secondary,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tools.busy ? tools.activity : state,
+                      style: WaveType.trackTitle,
+                    ),
+                    if (!tools.busy && updateNote != null)
+                      Text(updateNote, style: secondary),
+                    if (tools.error != null && !tools.busy)
+                      Text(
+                        tools.error!,
+                        style: secondary.copyWith(color: Colors.red),
+                      ),
+                    if (tools.busy && tools.progress != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, right: 16),
+                        child: ProgressBar(value: tools.progress! * 100),
+                      ),
+                  ],
+                ),
+              ),
+              if (tools.busy)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: ProgressRing(strokeWidth: 2),
+                )
+              else ...[
+                if (tools.installed) ...[
+                  WaveButton(
+                    onPressed: tools.checkForUpdates,
+                    child: const Text('Check for updates'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                if (!tools.installed || !tools.hasDeno || tools.updateAvailable)
+                  WaveFilledButton(
+                    onPressed: tools.installOrUpdate,
+                    child: Text(
+                      !tools.installed
+                          ? 'Download'
+                          : (!tools.hasDeno ? 'Install Deno' : 'Update'),
+                    ),
+                  ),
+                if (tools.installed) ...[
+                  const SizedBox(width: 8),
+                  WaveButton(
+                    onPressed: tools.remove,
+                    child: const Text('Remove'),
+                  ),
+                ],
+              ],
+            ],
           ),
         ],
       ),

@@ -249,6 +249,23 @@ class MusicVideoStream {
   final int bitrate;
   final String url;
   final String mimeType;
+
+  /// First codec of the format (`avc1.640028`, `vp9`, `av01.0.08M.08`).
+  final String codec;
+  final int fps;
+
+  /// InnerTube client that produced the link (its URLs only play with that
+  /// client's headers).
+  final String client;
+
+  /// A progressive file carrying audio too (itag 18/22). Capped at 720p
+  /// and lighter on bitrate than the video-only formats, so it only wins
+  /// when nothing else exists at that height.
+  final bool muxed;
+
+  /// An audio-only soundtrack link from the same client (no picture). Used
+  /// to measure the video's timing, never shown.
+  final bool audioOnly;
   final Map<String, String> requestHeaders;
 
   const MusicVideoStream({
@@ -257,6 +274,11 @@ class MusicVideoStream {
     this.height = 0,
     this.bitrate = 0,
     this.mimeType = 'video/mp4',
+    this.codec = '',
+    this.fps = 0,
+    this.client = '',
+    this.muxed = false,
+    this.audioOnly = false,
     this.requestHeaders = const {},
   });
 }

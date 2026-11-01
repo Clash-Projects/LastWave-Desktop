@@ -421,6 +421,64 @@ class Prefs {
   Future<void> setLyricsTransliteration(bool v) =>
       _sp.setBool('lw_lyrics_transliteration', v);
 
+  /// Seconds of inactivity before Now Playing hides its controls (1–10);
+  /// 0 turns auto-hide off. Click anywhere to bring them back.
+  int get nowPlayingAutoHideSeconds {
+    final v = _sp.getInt('lw_np_autohide_seconds') ?? 3;
+    return v <= 0 ? 0 : v.clamp(1, 10);
+  }
+
+  Future<void> setNowPlayingAutoHideSeconds(int seconds) => _sp.setInt(
+        'lw_np_autohide_seconds',
+        seconds <= 0 ? 0 : seconds.clamp(1, 10),
+      );
+
+  /// Stretch the video to exactly fill the window (may look squashed)
+  /// instead of cropping its edges to keep the proportions.
+  bool get musicVideoStretch => _sp.getBool('lw_music_video_stretch') ?? false;
+
+  Future<void> setMusicVideoStretch(bool v) =>
+      _sp.setBool('lw_music_video_stretch', v);
+
+  /// Synced music video behind Now Playing. On by default.
+  bool get musicVideoEnabled => _sp.getBool('lw_music_video_enabled') ?? true;
+
+  Future<void> setMusicVideoEnabled(bool v) =>
+      _sp.setBool('lw_music_video_enabled', v);
+
+  /// Preferred music video height; 0 = Auto (the video's own best picture).
+  int get musicVideoQuality => _sp.getInt('lw_music_video_quality') ?? 0;
+
+  Future<void> setMusicVideoQuality(int height) =>
+      _sp.setInt('lw_music_video_quality', height < 0 ? 0 : height);
+
+  /// Measured audio→video offsets keyed `audioSource|videoId`. A value of
+  /// null records "measured, no confident match" so it is not re-measured.
+  Map<String, int?> get musicVideoOffsets {
+    final raw = _sp.getString('lw_music_video_offsets');
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return {};
+      return {
+        for (final e in decoded.entries)
+          e.key.toString(): (e.value as num?)?.toInt(),
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> saveMusicVideoOffset(String key, int? offsetMs) {
+    final map = musicVideoOffsets;
+    map.remove(key);
+    map[key] = offsetMs;
+    while (map.length > 1500) {
+      map.remove(map.keys.first);
+    }
+    return _sp.setString('lw_music_video_offsets', jsonEncode(map));
+  }
+
   bool get visualizerEnabled => _sp.getBool('lw_visualizer_enabled') ?? true;
 
   Future<void> setVisualizerEnabled(bool v) =>

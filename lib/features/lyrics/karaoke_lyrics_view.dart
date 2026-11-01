@@ -105,6 +105,10 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
   final bool fillRemainingSpace;
   final bool isActive;
 
+  /// Fades the header bar out (keeping its space, so lyrics never shift)
+  /// and makes it untouchable; the lyrics themselves stay.
+  final bool controlsVisible;
+
   const WaveKaraokeLyricsView({
     super.key,
     required this.track,
@@ -114,6 +118,7 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
     this.fontSize,
     this.fillRemainingSpace = true,
     this.isActive = true,
+    this.controlsVisible = true,
   });
 
   @override
@@ -425,6 +430,20 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     _updateTickerState();
   }
 
+  /// Header bar that can fade away without giving up its space.
+  Widget _fadeControls(Widget toolbar) => IgnorePointer(
+        ignoring: !widget.controlsVisible,
+        child: ExcludeFocus(
+          excluding: !widget.controlsVisible,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOutCubic,
+            opacity: widget.controlsVisible ? 1.0 : 0.0,
+            child: toolbar,
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     // NOTE: position/isPlaying/speed are subscribed in initState
@@ -503,7 +522,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _KaraokeToolbar(
+                _fadeControls(_KaraokeToolbar(
                   track: widget.track,
                   result: effectiveResult,
                   offsetMs: offsetMs,
@@ -521,7 +540,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                       setState(() => _following = false);
                     }
                   },
-                ),
+                )),
                 Expanded(child: body),
               ],
             ),
@@ -590,10 +609,12 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
             children: [
               if (widget.showHeaderControls)
                 AnimatedOpacity(
-                  opacity: _controlsShown ? 1 : 0,
+                  // Hidden by the lyrics' own idle timer, or by Now Playing
+                  // while a music video plays.
+                  opacity: (_controlsShown && widget.controlsVisible) ? 1 : 0,
                   duration: const Duration(milliseconds: 180),
                   child: IgnorePointer(
-                    ignoring: !_controlsShown,
+                    ignoring: !(_controlsShown && widget.controlsVisible),
                     child: _KaraokeToolbar(
                   track: widget.track,
                   result: effectiveResult,
