@@ -487,7 +487,7 @@ class WaveFlyoutPanel extends StatefulWidget {
 
 class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
   int _highlight = -1;
-  FlyoutController? _openSubmenu;
+  _WaveSubmenuRowState? _openSubmenu;
   final Map<int, GlobalKey<_WaveSubmenuRowState>> _subKeys = {};
   final Map<int, GlobalKey> _rowKeys = {};
   late final ScrollController _scrollController;
@@ -501,14 +501,8 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
   @override
   void dispose() {
     _scrollController.dispose();
-    // Cascaded submenu is its own route: close it with the parent.
-    // Guarded + caught: dispose order vs. the child route is not
-    // contractual, and close() asserts attached+open in debug.
-    try {
-      final sub = _openSubmenu;
-      _openSubmenu = null;
-      if (sub != null && sub.isOpen) sub.close();
-    } catch (_) {}
+    // The cascaded submenu is an OverlayPortal child of its row, so it
+    // goes away with the parent; nothing to close here.
     super.dispose();
   }
 
@@ -542,6 +536,13 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
         );
       }
     });
+  }
+
+  void _closeSubmenu() {
+    final sub = _openSubmenu;
+    if (sub == null) return;
+    _openSubmenu = null;
+    sub.close();
   }
 
   void _activate(BuildContext context, int index) {
@@ -607,9 +608,7 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
             entry: entry,
             highlighted: i == _highlight,
             onOpened: (c) {
-              if (_openSubmenu != null &&
-                  _openSubmenu != c &&
-                  _openSubmenu!.isOpen) {
+              if (_openSubmenu != null && _openSubmenu != c) {
                 _openSubmenu!.close();
               }
               _openSubmenu = c;
@@ -617,25 +616,29 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
           ));
         } else if (entry is WaveMenuAction) {
           final onPressed = entry.onPressed;
-          rows.add(WaveMenuRow(
+          rows.add(MouseRegion(
             key: rowKey,
-            selected: i == _highlight,
-            icon: entry.leading,
-            text: Text(
-              entry.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            opaque: false,
+            onEnter: (_) => _closeSubmenu(),
+            child: WaveMenuRow(
+              selected: i == _highlight,
+              icon: entry.leading,
+              text: Text(
+                entry.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: entry.hint == null
+                  ? null
+                  : Text(entry.hint!,
+                      style: const TextStyle(fontSize: 11)),
+              onPressed: onPressed == null
+                  ? null
+                  : () {
+                      Navigator.of(context).maybePop();
+                      onPressed();
+                    },
             ),
-            trailing: entry.hint == null
-                ? null
-                : Text(entry.hint!,
-                    style: const TextStyle(fontSize: 11)),
-            onPressed: onPressed == null
-                ? null
-                : () {
-                    Navigator.of(context).maybePop();
-                    onPressed();
-                  },
           ));
         }
       }
@@ -821,7 +824,7 @@ class WaveMenuRow extends StatelessWidget {
 class _WaveSubmenuRow extends StatefulWidget {
   final WaveMenuSubmenu entry;
   final bool highlighted;
-  final ValueChanged<FlyoutController> onOpened;
+  final ValueChanged<_WaveSubmenuRowState> onOpened;
   const _WaveSubmenuRow({
     super.key,
     required this.entry,
@@ -834,68 +837,88 @@ class _WaveSubmenuRow extends StatefulWidget {
 }
 
 class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
-  final _controller = FlyoutController();
+  // The submenu is an OverlayPortal child of its row, NOT a second route:
+  // a second route either needs a barrier (which swallows the parent's
+  // hover/clicks) or has none (outside clicks then pop only the top route
+  // and Windows beeps on the swallowed click). In the parent's own overlay
+  // entry, the parent's barrier handles outside clicks and Esc as usual.
+  final _portal = OverlayPortalController();
+  final _link = LayerLink();
   Timer? _hoverTimer;
+  bool _flipLeft = false;
+
+  bool get isOpen => _portal.isShowing;
 
   @override
   void dispose() {
     _hoverTimer?.cancel();
-    // If the parent route is torn down with our submenu open, close it
-    // ourselves; the panel dispose covers the reverse order. Caught:
-    // the target may already be detached in debug asserts.
-    try {
-      if (_controller.isOpen) _controller.close();
-    } catch (_) {}
-    _controller.dispose();
     super.dispose();
+  }
+
+  void close() {
+    _hoverTimer?.cancel();
+    if (_portal.isShowing) _portal.hide();
   }
 
   void openNow() {
     _hoverTimer?.cancel();
-    if (_controller.isOpen) return;
-    // No barrier: a full-screen one would swallow hover/clicks meant for
-    // the parent menu. The submenu instead closes when the pointer leaves
-    // it and its row (dismissOnPointerMoveAway); the parent's own barrier
-    // still handles outside clicks.
-    _controller.showFlyout(
-      barrierColor: Colors.transparent,
-      barrierDismissible: false,
-      dismissOnPointerMoveAway: true,
-      placementMode: FlyoutPlacementMode.rightTop,
-      transitionDuration: const Duration(milliseconds: 90),
-      transitionBuilder: fastFlyoutTransition,
-      builder: (context) => WaveFlyoutPanel.items(
-        entries: widget.entry.items(),
-      ),
-    );
-    widget.onOpened(_controller);
+    if (_portal.isShowing) return;
+    // Flip to the left when the submenu (max 280 wide) would run off screen.
+    final box = context.findRenderObject();
+    if (box is RenderBox && box.hasSize) {
+      final right = box.localToGlobal(Offset(box.size.width, 0)).dx;
+      final screenW = MediaQuery.sizeOf(context).width;
+      _flipLeft = right + 284 > screenW;
+    }
+    _portal.show();
+    widget.onOpened(this);
   }
 
   @override
   Widget build(BuildContext context) {
-    return FlyoutTarget(
-      controller: _controller,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) {
-          _hoverTimer?.cancel();
-          _hoverTimer = Timer(
-            const Duration(milliseconds: 250),
-            openNow,
-          );
-        },
-        onExit: (_) => _hoverTimer?.cancel(),
-        child: WaveMenuRow(
-          selected: widget.highlighted,
-          icon: widget.entry.leading,
-          text: Text(
-            widget.entry.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+    return CompositedTransformTarget(
+      link: _link,
+      child: OverlayPortal(
+        controller: _portal,
+        overlayChildBuilder: (context) => Align(
+          alignment: Alignment.topLeft,
+          child: CompositedTransformFollower(
+            link: _link,
+            showWhenUnlinked: false,
+            targetAnchor:
+                _flipLeft ? Alignment.topLeft : Alignment.topRight,
+            followerAnchor:
+                _flipLeft ? Alignment.topRight : Alignment.topLeft,
+            offset: Offset(_flipLeft ? -2 : 2, -WaveMenuRow.inset),
+            child: WaveFlyoutPanel.items(entries: widget.entry.items()),
           ),
-          trailing: const Icon(FluentIcons.chevron_right, size: 12),
-          onPressed: openNow,
         ),
+        child: _row(),
+      ),
+    );
+  }
+
+  Widget _row() {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        _hoverTimer?.cancel();
+        _hoverTimer = Timer(
+          const Duration(milliseconds: 250),
+          openNow,
+        );
+      },
+      onExit: (_) => _hoverTimer?.cancel(),
+      child: WaveMenuRow(
+        selected: widget.highlighted,
+        icon: widget.entry.leading,
+        text: Text(
+          widget.entry.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(FluentIcons.chevron_right, size: 12),
+        onPressed: openNow,
       ),
     );
   }
@@ -940,7 +963,10 @@ class _WaveContextMenuState extends State<WaveContextMenu> {
     return FlyoutTarget(
       controller: _controller,
       child: GestureDetector(
-        onSecondaryTapDown: (_) => _open(),
+        // On release, like native Windows menus: opening on press leaves the
+        // right button held under the new menu, and Flutter sends no hover
+        // events while a button is down, so rows only lit up after a focus.
+        onSecondaryTapUp: (_) => _open(),
         onLongPressStart: (_) => _open(),
         child: widget.child,
       ),
