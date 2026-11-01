@@ -42,6 +42,7 @@ import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
+import 'backup_settings.dart';
 import 'diagnostics_actions.dart';
 import 'download_layout_settings.dart';
 
@@ -2676,6 +2677,12 @@ class _General extends ConsumerWidget {
               ),
             ],
           ),
+        ),
+        const SizedBox(height: 16),
+        const _Group(
+          title: 'Backup',
+          subtitle: 'Move your playlists and settings to another device',
+          child: BackupSettings(),
         ),
         const SizedBox(height: 16),
         // Diagnostics live on the General page on purpose: a user with a

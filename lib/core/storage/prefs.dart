@@ -575,14 +575,25 @@ class Prefs {
     return false;
   }
 
+  /// Settings that only make sense on the machine they were set on (a
+  /// folder path, an audio device id, the signed-in name).
+  static bool isDeviceBoundPref(String key) => const {
+        'lw_download_dir',
+        'lw_audio_device_id',
+        'lw_username',
+      }.contains(key.toLowerCase());
+
+  static bool _isPortable(String key) =>
+      !isSecretPref(key) && !isDeviceBoundPref(key);
+
   Set<String> get portablePrefKeys =>
-      _sp.getKeys().where((k) => !isSecretPref(k)).toSet();
+      _sp.getKeys().where(_isPortable).toSet();
 
   Object? portablePref(String key) =>
-      isSecretPref(key) ? null : _sp.get(key);
+      _isPortable(key) ? _sp.get(key) : null;
 
   Future<void> setPortablePref(String key, Object value) async {
-    if (isSecretPref(key)) return;
+    if (!_isPortable(key)) return;
     if (value is bool) {
       await _sp.setBool(key, value);
     } else if (value is int) {
