@@ -39,6 +39,9 @@ import '../theme/brand_icons.dart';
 import '../../features/equalizer/equalizer_controller.dart';
 import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
+import '../../features/equalizer/headphone_profiles.dart';
+import '../../features/player/loudness.dart';
+import '../../features/player/playback_service.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
@@ -709,6 +712,57 @@ class _Audio extends ConsumerWidget {
             ],
           ),
         ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'audio.loudness',
+          title: 'Loudness',
+          subtitle: LoudnessMath.settingsSubtitle(prefs.loudnessMode),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Normalization', style: WaveType.trackTitle),
+              const SizedBox(height: 6),
+              WaveSelect<String>(
+                value: prefs.loudnessMode,
+                options: const [
+                  WaveSelectOption(value: 'off', label: 'Off'),
+                  WaveSelectOption(value: 'track', label: 'Track'),
+                  WaveSelectOption(value: 'album', label: 'Album'),
+                ],
+                onChanged: (mode) async {
+                  await onUpdate((p) => p.setLoudnessMode(mode));
+                  await ref
+                      .read(playbackServiceProvider.notifier)
+                      .applyAudioPrefs();
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'audio.headphones',
+          title: 'Headphone correction',
+          subtitle: 'A built-in curve for a few common headphones',
+          child: WaveSelect<String>(
+            expanded: true,
+            value: HeadphoneProfiles.byId(prefs.headphoneProfile).id,
+            options: [
+              for (final profile in HeadphoneProfiles.all)
+                WaveSelectOption(
+                  value: profile.id,
+                  label: profile.name,
+                  hint: profile.isOff ? null : profile.description,
+                ),
+            ],
+            onChanged: (id) async {
+              await onUpdate((p) => p.setHeadphoneProfile(id));
+              await ref.read(playbackServiceProvider.notifier).applyAudioPrefs();
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        _TimedMixSettings(onUpdate: onUpdate),
         const SizedBox(height: 8),
         _Group(
           id: 'audio.equalizer',
@@ -2849,12 +2903,17 @@ class _PlaybackState extends ConsumerState<_Playback> {
             value: prefs.crossfadeEnabled,
             onChanged: (v) async {
               await widget.onUpdate((p) => p.setCrossfade(v));
+              await ref
+                  .read(playbackServiceProvider.notifier)
+                  .applyAudioPrefs();
               ref.read(audioOutputProvider.notifier).refreshPath();
             },
             title: 'Crossfade',
-            subtitle: prefs.crossfadeEnabled
-                ? '${prefs.crossfadeSeconds}s crossfade duration'
-                : 'Gapless direct transition (crossfade disabled)',
+            subtitle: prefs.autoMixEnabled
+                ? 'Off while timed AutoMix is on'
+                : prefs.crossfadeEnabled
+                    ? '${prefs.crossfadeSeconds}s crossfade duration'
+                    : 'Gapless direct transition (crossfade disabled)',
           ),
           if (prefs.crossfadeEnabled) ...[
             const SizedBox(height: 6),
@@ -3197,6 +3256,101 @@ class _Experimental extends ConsumerWidget {
   }
 }
 
+class _TimedMixSettings extends ConsumerStatefulWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _TimedMixSettings({required this.onUpdate});
+
+  @override
+  ConsumerState<_TimedMixSettings> createState() => _TimedMixSettingsState();
+}
+
+class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
+  double? _dragSeconds;
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = ref.watch(prefsProvider);
+    final seconds = _dragSeconds ?? prefs.autoMixSeconds.toDouble();
+    return _Group(
+      id: 'audio.automix',
+      title: 'AutoMix',
+      subtitle: prefs.autoMixEnabled
+          ? 'Timed dual-deck overlap, not beat-matched. Turns crossfade off.'
+          : 'Off. A timed mix between tracks, not a beat or key match.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SwitchRow(
+            value: prefs.autoMixEnabled,
+            onChanged: (v) async {
+              await widget.onUpdate((p) => p.setAutoMixEnabled(v));
+              await ref
+                  .read(playbackServiceProvider.notifier)
+                  .applyAudioPrefs();
+            },
+            title: 'Timed mix',
+            subtitle: prefs.autoMixEnabled
+                ? '${prefs.autoMixSeconds}s overlap on the standby deck'
+                : 'Gapless until you turn this on',
+          ),
+          if (prefs.autoMixEnabled) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Text('Transition length', style: WaveType.trackTitle),
+                const Spacer(),
+                Text(
+                  '${seconds.round()}s',
+                  style: WaveType.meta.copyWith(
+                    color: waveAccent(context),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            Slider(
+              value: seconds.clamp(12.0, 30.0),
+              min: 12,
+              max: 30,
+              divisions: 18,
+              onChanged: (v) => setState(() => _dragSeconds = v),
+              onChangeEnd: (v) async {
+                setState(() => _dragSeconds = null);
+                await widget.onUpdate(
+                    (p) => p.setAutoMixSeconds(v.round().clamp(12, 30)));
+              },
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('12s',
+                    style: WaveType.meta
+                        .copyWith(color: waveTextSecondary(context))),
+                Text('30s',
+                    style: WaveType.meta
+                        .copyWith(color: waveTextSecondary(context))),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _SwitchRow(
+              value: prefs.autoMixSpectral,
+              onChanged: (v) async {
+                await widget.onUpdate((p) => p.setAutoMixSpectral(v));
+                await ref
+                    .read(playbackServiceProvider.notifier)
+                    .applyAudioPrefs();
+              },
+              title: 'Filter sweep',
+              subtitle:
+                  'Low-pass on the way out and high-pass on the way in. Volume overlap stays if the player rejects the filter.',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _WasapiOutputSettings extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _WasapiOutputSettings({required this.onUpdate});
@@ -3289,6 +3443,10 @@ class _QualityRow extends StatelessWidget {
             WaveSelectOption(value: 7, label: 'Hi-Res · 24/96'),
             WaveSelectOption(value: 6, label: 'Lossless · 16/44.1'),
             WaveSelectOption(value: 5, label: '320k MP3'),
+            WaveSelectOption(
+              value: 4,
+              label: 'Data saver · smallest YouTube audio',
+            ),
             WaveSelectOption(value: -1, label: 'Opus · YouTube'),
           ],
           onChanged: onChanged,
