@@ -120,6 +120,10 @@ WaveKeyNavScope? _navScope() {
   return ctx.findAncestorWidgetOfExactType<WaveKeyNavScope>();
 }
 
+/// True when the focused widget sits in a [WaveKeyNavScope] that owns
+/// Up/Down (so the global volume keys must yield to it).
+bool waveNavScopeOwnsUpDown() => _navScope()?.consumeUpDown == true;
+
 /// True for OS-level media/volume keys. SMTC (Windows) and MPRIS
 /// (Linux) own these — the in-app dispatcher must never swallow them,
 /// or a focused press would fire through both the OS path and this one.

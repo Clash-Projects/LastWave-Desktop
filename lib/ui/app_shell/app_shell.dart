@@ -773,7 +773,40 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       // and pointer-up is dispatched before the gesture arena resolves
       // the tap, so the anchor is always in place for the navigation it
       // caused.
-      child: Listener(
+      child: Focus(
+        // Arrow-key guard, NOT a shortcut layer (see NOTE above): the global
+        // handler already seeked / changed volume, but the key still reaches
+        // the focus tree, where WidgetsApp's directional-focus shortcut moves
+        // focus to the next button. Swallow exactly the keys it acts on.
+        canRequestFocus: false,
+        skipTraversal: true,
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+            return KeyEventResult.ignored;
+          }
+          final k = event.logicalKey;
+          final vertical = k == LogicalKeyboardKey.arrowUp ||
+              k == LogicalKeyboardKey.arrowDown;
+          if (k != LogicalKeyboardKey.arrowLeft &&
+              k != LogicalKeyboardKey.arrowRight &&
+              !vertical) {
+            return KeyEventResult.ignored;
+          }
+          // Up/Down are volume only outside nav scopes (menus, tables).
+          if (vertical && waveNavScopeOwnsUpDown()) {
+            return KeyEventResult.ignored;
+          }
+          final hk = HardwareKeyboard.instance;
+          if (hk.isControlPressed || hk.isAltPressed || hk.isMetaPressed) {
+            return KeyEventResult.ignored;
+          }
+          if (waveIsTypingFocused(_searchFocus) ||
+              ref.read(playbackServiceProvider).current == null) {
+            return KeyEventResult.ignored;
+          }
+          return KeyEventResult.handled;
+        },
+        child: Listener(
         behavior: HitTestBehavior.translucent,
         onPointerUp: (event) => WaveRouteOrigin.record(event.position),
         child: Column(
@@ -1013,6 +1046,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );
