@@ -249,6 +249,10 @@ class MusicVideoStream {
   final int bitrate;
   final String url;
   final String mimeType;
+
+  /// First codec of the format (`avc1.640028`, `vp9`, `av01.0.08M.08`).
+  final String codec;
+  final int fps;
   final Map<String, String> requestHeaders;
 
   const MusicVideoStream({
@@ -257,6 +261,8 @@ class MusicVideoStream {
     this.height = 0,
     this.bitrate = 0,
     this.mimeType = 'video/mp4',
+    this.codec = '',
+    this.fps = 0,
     this.requestHeaders = const {},
   });
 }

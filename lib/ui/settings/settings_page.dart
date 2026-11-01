@@ -34,6 +34,7 @@ import '../../features/settings/theme_controller.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
+import '../../features/video/music_video_settings.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
 import '../../features/equalizer/equalizer_controller.dart';
@@ -50,6 +51,7 @@ const _waveSettingsSections = [
   ('audio', 'Audio', FluentIcons.speakers),
   ('downloads', 'Downloads', FluentIcons.download),
   ('lyrics', 'Lyrics', FluentIcons.microphone),
+  ('video', 'Music video', FluentIcons.video),
   ('appearance', 'Appearance', FluentIcons.brush),
   ('lastfm', 'Last.fm', FluentIcons.heart),
   ('integrations', 'Integrations', FluentIcons.link),
@@ -243,6 +245,8 @@ class _SectionBody extends ConsumerWidget {
         return _Appearance(onUpdate: onUpdate);
       case 'lyrics':
         return _Lyrics(onUpdate: onUpdate);
+      case 'video':
+        return const _MusicVideo();
       case 'lastfm':
         return _LastFm(onUpdate: onUpdate);
       case 'integrations':
@@ -949,6 +953,69 @@ class _Lyrics extends ConsumerWidget {
           Text(
             LyricsProviderId.fromId(prefs.lyricsProviderId).subtitle,
             style: WaveType.meta,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MusicVideo extends ConsumerWidget {
+  const _MusicVideo();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(musicVideoEnabledProvider);
+    final quality = ref.watch(musicVideoQualityProvider);
+    final known = musicVideoQualityOptions.any((o) => o.$1 == quality);
+    return _Group(
+      title: 'Synced music video',
+      subtitle: 'Now Playing background',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SwitchRow(
+            value: enabled,
+            onChanged: (v) =>
+                ref.read(musicVideoEnabledProvider.notifier).set(v),
+            title: 'Play music video',
+            subtitle:
+                'Plays the official video behind the lyrics, in sync with '
+                'the audio (lossless or Opus). The cover art shows whenever '
+                'no exact video is found.',
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Video quality', style: WaveType.trackTitle),
+                    Text(
+                      'Auto plays the video\'s own best picture (up to '
+                      '1080p). A fixed choice is kept until you change it; '
+                      'the nearest lower size is used when a video lacks it.',
+                      style: WaveType.meta.copyWith(
+                        color: waveTextSecondary(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              WaveSelect<int>(
+                value: known ? quality : 0,
+                options: [
+                  for (final o in musicVideoQualityOptions)
+                    WaveSelectOption(value: o.$1, label: o.$2),
+                ],
+                onChanged: enabled
+                    ? (v) =>
+                        ref.read(musicVideoQualityProvider.notifier).set(v)
+                    : null,
+              ),
+            ],
           ),
         ],
       ),

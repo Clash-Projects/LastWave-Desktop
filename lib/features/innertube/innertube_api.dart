@@ -511,6 +511,7 @@ class InnerTubeMusicApi {
   };
 
   static const String songsSearchFilter = 'EgWKAQIIAWoKEAkQBRAKEAMQBA==';
+  static const String videosSearchFilter = 'EgWKAQIQAWoKEAkQBRAKEAMQBA==';
   static const String artistSearchFilter = 'EgWKAQIgAWoKEAkQBRAKEAMQBA==';
   static const String albumSearchFilter = 'EgWKAQIYAWoKEAkQBRAKEAMQBA==';
   static const String playlistSearchFilter = 'Eg-KAQwIABAAGAAgACgB';
@@ -2260,6 +2261,105 @@ class InnerTubeMusicApi {
     // likely queue track is pre-resolved (see prefetchNextTrack).
     // The flag is kept for API compatibility but ignored.
     return results;
+  }
+
+  /// YouTube Music "Videos" search. Rows carry the channel as `artist`
+  /// and the video length; used by the synced music video lookup.
+  Future<List<YouTubeMusicTrack>> searchVideos(
+    String query, {
+    int limit = 8,
+  }) async {
+    if (query.trim().isEmpty) return const [];
+    await _ensureConfig();
+    final root = await _post(
+      '$musicApi/search?key=$_apiKey&prettyPrint=false',
+      body: {
+        'context': _webContext(_clientVersion, _visitorData),
+        'query': query.trim(),
+        'params': videosSearchFilter,
+      },
+      clientName: 'WEB_REMIX',
+      clientVersion: _clientVersion,
+      userAgent: webUserAgent,
+      callTimeout: const Duration(seconds: 8),
+    );
+    return _parseSongRenderers(root).take(limit).toList();
+  }
+
+  /// The official music video YouTube Music pairs with [videoId] (the
+  /// Song/Video switch), or [videoId] itself when it already is one.
+  /// Null when YouTube Music links no official video to this track; a
+  /// user upload or another queue item's video never counts.
+  Future<String?> findCounterpartVideoId(String videoId) async {
+    if (videoId.trim().isEmpty) return null;
+    await _ensureConfig();
+    Map<String, dynamic> root;
+    try {
+      root = await _post(
+        '$musicApi/next?key=$_apiKey&prettyPrint=false',
+        body: {
+          'context': _webContext(_clientVersion, _visitorData),
+          'videoId': videoId,
+        },
+        clientName: 'WEB_REMIX',
+        clientVersion: _clientVersion,
+        userAgent: webUserAgent,
+        callTimeout: const Duration(seconds: 8),
+      );
+    } catch (_) {
+      return null;
+    }
+    const omv = 'MUSIC_VIDEO_TYPE_OMV';
+    String? typeOf(Map? endpointHolder) =>
+        ((((endpointHolder?['watchEndpointMusicSupportedConfigs'] as Map?)?[
+                        'watchEndpointMusicConfig'])
+                    as Map?)?['musicVideoType'])
+            ?.toString();
+    String? rendererType(Map? renderer) => typeOf(
+          ((renderer?['navigationEndpoint'] as Map?)?['watchEndpoint'])
+              as Map?,
+        );
+    String? rendererId(Map? renderer) =>
+        renderer?['videoId']?.toString() ??
+        (((renderer?['navigationEndpoint'] as Map?)?['watchEndpoint']
+                as Map?)?['videoId'])
+            ?.toString();
+
+    final current =
+        ((root['currentVideoEndpoint'] as Map?)?['watchEndpoint']) as Map?;
+    if (typeOf(current) == omv) return videoId;
+
+    // The response also holds the autoplay queue; only this track's
+    // wrapper counts, any other wrapper's video is another song.
+    final wrappers = <Map<String, dynamic>>[];
+    _collectObjects(root, 'playlistPanelVideoWrapperRenderer', wrappers);
+    for (final wrapper in wrappers) {
+      final primary = ((wrapper['primaryRenderer'] as Map?)?[
+          'playlistPanelVideoRenderer']) as Map?;
+      final counterparts = <Map>[
+        for (final c in (wrapper['counterpart'] as List?) ?? const [])
+          if (c is Map &&
+              (c['counterpartRenderer'] as Map?)?['playlistPanelVideoRenderer']
+                  is Map)
+            (c['counterpartRenderer'] as Map)['playlistPanelVideoRenderer']
+                as Map,
+      ];
+      final primaryId = rendererId(primary);
+      if (primaryId != videoId &&
+          !counterparts.any((c) => rendererId(c) == videoId)) {
+        continue;
+      }
+      if (primaryId != null &&
+          primaryId.isNotEmpty &&
+          rendererType(primary) == omv) {
+        return primaryId;
+      }
+      for (final c in counterparts) {
+        final id = rendererId(c);
+        if (id != null && id.isNotEmpty && rendererType(c) == omv) return id;
+      }
+    }
+    return null;
   }
 
   Future<List<YouTubeMusicEntity>> searchArtists(
@@ -4449,6 +4549,8 @@ class InnerTubeMusicApi {
       final mime = format['mimeType']?.toString() ?? '';
       final cleanMime = mime.split(';').first.trim().toLowerCase();
       if (!cleanMime.startsWith('video/')) continue;
+      final codecMatch = RegExp(r'codecs="([^"]+)"').firstMatch(mime);
+      final codec = (codecMatch?.group(1) ?? '').split(',').first.trim();
       String? url = format['url']?.toString();
       url ??= () {
         final cipher =
@@ -4470,6 +4572,8 @@ class InnerTubeMusicApi {
         bitrate: bitrate,
         url: url,
         mimeType: cleanMime,
+        codec: codec,
+        fps: (format['fps'] as num?)?.toInt() ?? 0,
         requestHeaders: headers,
       );
       final prev = byHeight[height];
@@ -4478,13 +4582,23 @@ class InnerTubeMusicApi {
       }
     }
     final heights = byHeight.keys.toList()..sort((a, b) => b.compareTo(a));
-    return [for (final h in heights.take(5)) byHeight[h]!];
+    return [for (final h in heights) byHeight[h]!];
+  }
+
+  /// H.264 decodes in hardware nearly everywhere, VP9 widely, AV1 often
+  /// only in software; a heavy decoder shows up as dropped frames.
+  static int _codecRank(MusicVideoStream s) {
+    final c = s.codec.toLowerCase();
+    if (c.startsWith('avc')) return 3;
+    if (c.startsWith('vp9') || c.startsWith('vp09')) return 2;
+    if (c.startsWith('av01')) return 1;
+    return s.mimeType.contains('mp4') ? 2 : 1;
   }
 
   static bool _preferVideo(MusicVideoStream next, MusicVideoStream prev) {
-    final nextMp4 = next.mimeType.contains('mp4') ? 1 : 0;
-    final prevMp4 = prev.mimeType.contains('mp4') ? 1 : 0;
-    if (nextMp4 != prevMp4) return nextMp4 > prevMp4;
+    final rank = _codecRank(next).compareTo(_codecRank(prev));
+    if (rank != 0) return rank > 0;
+    if (next.fps != prev.fps) return next.fps > prev.fps;
     return next.bitrate > prev.bitrate;
   }
 

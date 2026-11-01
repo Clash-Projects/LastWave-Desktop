@@ -13,6 +13,7 @@ import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/video/synced_video_controller.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artist_line.dart';
@@ -23,6 +24,7 @@ import '../queue/queue_panel.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
+import 'music_video_backdrop.dart';
 
 /// Centerpiece Fullscreen Player — Apple Music Split View & Cinematic Centering.
 ///
@@ -58,6 +60,8 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   // Same instance across builds => element update short-circuits.
   // No changing params (reads providers internally, stable onClose).
   Widget? _queueDrawerCache;
+  // Held so dispose() can detach without touching `ref` (not allowed then).
+  SyncedVideoController? _video;
 
   void _closeQueueDrawer() {
     if (_queueVisible) setState(() => _queueVisible = false);
@@ -67,11 +71,16 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   void initState() {
     super.initState();
     _resetIdleTimer();
+    // The synced music video only plays while this page is open.
+    final video = ref.read(syncedVideoControllerProvider);
+    _video = video;
+    video.attach();
   }
 
   @override
   void dispose() {
     _idleTimer?.cancel();
+    _video?.detach();
     super.dispose();
   }
 
@@ -120,6 +129,11 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     );
 
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
+    // True only once the official video is fetched, decoded and locked to
+    // the audio clock; until then the page is exactly as before.
+    final videoOn = ref.watch(
+      syncedVideoControllerProvider.select((c) => c.visible),
+    );
 
     if (current == null) {
       // Same stage as the playing page, for the same reason: this route must
@@ -220,10 +234,21 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
               child: ColoredBox(color: waveBackground(context)),
             ),
 
-            // Background Visualizer
+            // Background Visualizer (frozen while the video covers it).
             Positioned.fill(
-              child: RepaintBoundary(
-                child: _NowAmbient(artworkUrl: current.artworkUrl),
+              child: TickerMode(
+                enabled: !videoOn,
+                child: RepaintBoundary(
+                  child: _NowAmbient(artworkUrl: current.artworkUrl),
+                ),
+              ),
+            ),
+
+            // Synced music video, stretched edge to edge behind everything.
+            Positioned.fill(
+              child: MusicVideoBackdrop(
+                visible: videoOn,
+                lyricsVisible: _lyricsVisible,
               ),
             ),
 
@@ -233,7 +258,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth > 860;
 
-                  return Column(
+                  final page = Column(
                     children: [
                       // Top Actions Bar (Fadeable on idle)
                       AnimatedOpacity(
@@ -277,13 +302,23 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                             ? _DesktopDualPane(
                                 track: current,
                                 lyricsVisible: _lyricsVisible,
+                                hideArtwork: videoOn,
                               )
                             : _NarrowCenteredPane(
                                 track: current,
                                 lyricsVisible: _lyricsVisible,
+                                hideArtwork: videoOn,
                               ),
                       ),
                     ],
+                  );
+                  // Light text would vanish on a light theme over moving
+                  // footage, so the chrome reads as dark while it plays.
+                  if (!videoOn || waveIsDark(context)) return page;
+                  return FluentTheme(
+                    data: FluentTheme.of(context)
+                        .copyWith(brightness: Brightness.dark),
+                    child: page,
                   );
                 },
               ),
@@ -551,10 +586,12 @@ class _VisibleTickerState extends ConsumerState<_VisibleTicker> {
 class _DesktopDualPane extends StatelessWidget {
   final PlayableTrack track;
   final bool lyricsVisible;
+  final bool hideArtwork;
 
   const _DesktopDualPane({
     required this.track,
     required this.lyricsVisible,
+    this.hideArtwork = false,
   });
 
   @override
@@ -619,9 +656,12 @@ class _DesktopDualPane extends StatelessWidget {
                                   return const SizedBox.shrink();
                                 }
                                 return Center(
-                                  child: _HeroArtworkCard(
-                                    track: track,
-                                    size: artSize,
+                                  child: _ArtworkFade(
+                                    hidden: hideArtwork,
+                                    child: _HeroArtworkCard(
+                                      track: track,
+                                      size: artSize,
+                                    ),
                                   ),
                                 );
                               },
@@ -705,10 +745,12 @@ class _DesktopDualPane extends StatelessWidget {
 class _NarrowCenteredPane extends StatelessWidget {
   final PlayableTrack track;
   final bool lyricsVisible;
+  final bool hideArtwork;
 
   const _NarrowCenteredPane({
     required this.track,
     required this.lyricsVisible,
+    this.hideArtwork = false,
   });
 
   @override
@@ -736,9 +778,12 @@ class _NarrowCenteredPane extends StatelessWidget {
                       return const SizedBox.shrink();
                     }
                     return Center(
-                      child: _HeroArtworkCard(
-                        track: track,
-                        size: artSize,
+                      child: _ArtworkFade(
+                        hidden: hideArtwork,
+                        child: _HeroArtworkCard(
+                          track: track,
+                          size: artSize,
+                        ),
                       ),
                     );
                   },
@@ -946,6 +991,48 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Fades the cover away while the music video plays behind the page. The
+/// slot keeps its size so the title, lyrics and controls never move; once
+/// faded out the card leaves the tree so it stops rasterizing.
+class _ArtworkFade extends StatefulWidget {
+  final bool hidden;
+  final Widget child;
+  const _ArtworkFade({required this.hidden, required this.child});
+
+  @override
+  State<_ArtworkFade> createState() => _ArtworkFadeState();
+}
+
+class _ArtworkFadeState extends State<_ArtworkFade> {
+  bool _gone = false;
+
+  @override
+  void didUpdateWidget(covariant _ArtworkFade oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.hidden) _gone = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: widget.hidden,
+      child: AnimatedOpacity(
+        duration: waveMotion(context, const Duration(milliseconds: 420)),
+        curve: Curves.easeOutCubic,
+        opacity: widget.hidden ? 0 : 1,
+        onEnd: () {
+          if (mounted && widget.hidden && !_gone) {
+            setState(() => _gone = true);
+          }
+        },
+        // The card sits in a Center inside an Expanded slot, so dropping
+        // it moves nothing; it also stops any motion-art decoding.
+        child: _gone && widget.hidden ? const SizedBox.shrink() : widget.child,
       ),
     );
   }
