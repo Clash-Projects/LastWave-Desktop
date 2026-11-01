@@ -58,6 +58,13 @@ class WaveScrollBehavior extends FluentScrollBehavior {
 
   @override
   ScrollPhysics getScrollPhysics(BuildContext context) {
+    // Mouse is a drag device (carousels), so inside a text field the
+    // internal scrollable would grab the press and pan the text instead of
+    // extending the selection. Caret/selection auto-scroll is programmatic
+    // and unaffected by this.
+    if (context.findAncestorWidgetOfExactType<EditableText>() != null) {
+      return const NeverScrollableScrollPhysics();
+    }
     return const BouncingScrollPhysics(
       parent: AlwaysScrollableScrollPhysics(),
     );

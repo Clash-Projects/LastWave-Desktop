@@ -310,6 +310,7 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
               const SizedBox(height: 6),
               SelectableText(
                 jam.roomCode,
+                contextMenuBuilder: TextBox.defaultContextMenuBuilder,
                 style: const TextStyle(
                   fontSize: 30,
                   fontWeight: FontWeight.w700,
@@ -632,7 +633,11 @@ class _Bubble extends StatelessWidget {
                     : waveSurfaceRaised(context),
                 borderRadius: BorderRadius.circular(WaveRadius.menu),
               ),
-              child: SelectableText(line.text, style: WaveType.body),
+              child: SelectableText(
+                line.text,
+                style: WaveType.body,
+                contextMenuBuilder: TextBox.defaultContextMenuBuilder,
+              ),
             ),
           ),
         ],
