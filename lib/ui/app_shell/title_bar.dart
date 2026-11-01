@@ -490,12 +490,6 @@ class _AppMenu extends StatelessWidget {
           hint: 'Ctrl+K',
           onPressed: () => context.go('/search'),
         ),
-        WaveMenuAction(
-          leading: const Icon(WaveIcons.lyrics, size: 15),
-          label: 'Lyrics',
-          hint: 'Ctrl+L',
-          onPressed: () => context.go('/lyrics'),
-        ),
         const WaveMenuSeparator(),
         WaveMenuAction(
           leading: const Icon(WaveIcons.history, size: 15),

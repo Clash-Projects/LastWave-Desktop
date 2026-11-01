@@ -10,7 +10,6 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/window.dart';
-import '../../app/window_lifecycle.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/podcasts/podcast_repository.dart';
@@ -18,7 +17,6 @@ import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
 import '../mini_player/mini_player.dart';
 import '../components/infobar_host.dart';
-import '../lyrics/lyrics_side_panel.dart';
 import '../navigation/destinations.dart';
 import '../navigation/route_origin.dart';
 import '../navigation/side_rail.dart';
@@ -55,33 +53,11 @@ class WaveShell extends ConsumerStatefulWidget {
   ConsumerState<WaveShell> createState() => _WaveShellState();
 }
 
-/// Drawer lyrics gate: Offstage skips raster while shut; TickerMode mutes
-/// the karaoke ticker while shut OR while the window is minimized.
-/// Side-by-side (unfocused but visible) keeps ticking. Single gate on
-/// purpose (nested TickerModes don't AND — nearest wins — so nothing may
-/// add an inner gate inside the side panel). Scoped ConsumerWidget so
-/// visibility flips rebuild only this leaf, never the shell.
-class _DrawerTicker extends ConsumerWidget {
-  final bool open;
-  final Widget child;
-  const _DrawerTicker({required this.open, required this.child});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final visible = ref.watch(windowVisibleProvider);
-    return Offstage(
-      offstage: !open,
-      child: TickerMode(enabled: open && visible, child: child),
-    );
-  }
-}
-
 class _WaveShellState extends ConsumerState<WaveShell> {
   // Boot collapsed: the overlay rail covers content when open, so it
   // starts shut (toggle via hamburger, auto-collapses on outside tap).
   bool _railExpanded = false;
   bool _queueOpen = false;
-  bool _lyricsOpen = false;
   bool _equalizerOpen = false;
   bool _miniOpen = false;
   bool _draggingFiles = false;
@@ -138,7 +114,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     setState(() {
       _miniOpen = true;
       _queueOpen = false;
-      _lyricsOpen = false;
       _equalizerOpen = false;
     });
 
@@ -208,9 +183,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   // no changing params (reads providers internally); lyrics is recreated
   // only on visibility flips (reopen refollows to the current line).
   Widget? _queuePanelCache;
-  Widget? _lyricsPanelCache;
   Widget? _equalizerPanelCache;
-  bool _lyricsCacheVisible = false;
   // Memoized title bar (owns the search box + its TextField machinery):
   // the shell rebuilds on every navigation, which would otherwise
   // reconstruct the whole title bar each time. All inputs except the
@@ -220,17 +193,14 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _titleCanBack = false;
   bool _titleCanForward = false;
   // Memoized dock (glyphs + cover art): same instance across
-  // navigations so the element skips it. The toggle closures capture
-  // route state (lyrics toggle branches on isLyrics), so the cache
-  // key covers everything behaviorally relevant.
+  // navigations so the element skips it. The cache key covers everything
+  // behaviorally relevant.
   Widget? _dockCache;
   bool _dockLyricsActive = false;
   bool _dockQueueActive = false;
   bool _dockEqualizerActive = false;
-  bool _dockIsLyrics = false;
 
   void _closeQueue() => setState(() => _queueOpen = false);
-  void _closeLyrics() => setState(() => _lyricsOpen = false);
   void _closeEqualizer() => setState(() => _equalizerOpen = false);
 
   /// Cached dock: same instance across navigations (glyphs + cover art
@@ -240,17 +210,14 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     required bool lyricsActive,
     required bool queueActive,
     required bool equalizerActive,
-    required bool isLyrics,
   }) {
     if (_dockCache == null ||
         _dockLyricsActive != lyricsActive ||
         _dockQueueActive != queueActive ||
-        _dockEqualizerActive != equalizerActive ||
-        _dockIsLyrics != isLyrics) {
+        _dockEqualizerActive != equalizerActive) {
       _dockLyricsActive = lyricsActive;
       _dockQueueActive = queueActive;
       _dockEqualizerActive = equalizerActive;
-      _dockIsLyrics = isLyrics;
       // The dock is structural: reserves 80px on every view, including
       // Now Playing — its in-page transport was removed so this dock is
       // the single control surface.
@@ -260,32 +227,15 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         queueActive: queueActive,
         equalizerActive: equalizerActive,
         onToggleMini: _toggleMiniPlayer,
-        onToggleLyrics: () {
-          if (isLyrics) {
-            _go('/now');
-          } else {
-            setState(() {
-              _lyricsOpen = !_lyricsOpen;
-              if (_lyricsOpen) {
-                _queueOpen = false;
-                _equalizerOpen = false;
-              }
-            });
-          }
-        },
+        // Lyrics live on Now Playing (focus mode is its top-bar toggle).
+        onToggleLyrics: _openNowPlaying,
         onToggleQueue: () => setState(() {
           _queueOpen = !_queueOpen;
-          if (_queueOpen) {
-            _lyricsOpen = false;
-            _equalizerOpen = false;
-          }
+          if (_queueOpen) _equalizerOpen = false;
         }),
         onToggleEqualizer: () => setState(() {
           _equalizerOpen = !_equalizerOpen;
-          if (_equalizerOpen) {
-            _queueOpen = false;
-            _lyricsOpen = false;
-          }
+          if (_equalizerOpen) _queueOpen = false;
         }),
       );
     }
@@ -316,19 +266,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     return _titleBarCache!;
   }
 
-  /// Cached lyrics panel: recreated only when visibility flips so the
-  /// LayoutBuilder ticks during rail animation reuse the same instance
-  /// (no karaoke rebuilds). Reopen refollows to the current line.
-  Widget _lyricsPanelFor(bool visible) {
-    if (_lyricsPanelCache == null || _lyricsCacheVisible != visible) {
-      _lyricsCacheVisible = visible;
-      _lyricsPanelCache = WaveLyricsSidePanel(
-        visible: visible,
-        onClose: _closeLyrics,
-      );
-    }
-    return _lyricsPanelCache!;
-  }
 
   @override
   void initState() {
@@ -379,11 +316,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         },
         focusSearch: () => _searchFocus.requestFocus(),
         toggleLyrics: () {
-          if (!mounted) return;
-          setState(() {
-            _lyricsOpen = !_lyricsOpen;
-            if (_lyricsOpen) _queueOpen = false;
-          });
+          if (mounted) _openNowPlaying();
         },
         goBack: () {
           if (mounted) _goBack();
@@ -408,9 +341,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       return true;
     } else if (_equalizerOpen) {
       setState(() => _equalizerOpen = false);
-      return true;
-    } else if (_lyricsOpen) {
-      setState(() => _lyricsOpen = false);
       return true;
     } else if (_queueOpen) {
       setState(() => _queueOpen = false);
@@ -577,7 +507,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   void _applyRoute(String path) {
     setState(() {
       _queueOpen = false;
-      _lyricsOpen = false;
       _equalizerOpen = false;
     });
     if (path == widget.location) {
@@ -617,7 +546,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     setState(() {
       _miniOpen = false;
       _queueOpen = false;
-      _lyricsOpen = false;
     });
     waveOpen(context, '/now');
   }
@@ -665,7 +593,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     ref.read(searchRepositoryProvider).pushHistory(q);
     setState(() {
       _queueOpen = false;
-      _lyricsOpen = false;
       _equalizerOpen = false;
     });
     context.go('/search?q=${Uri.encodeComponent(q)}');
@@ -733,14 +660,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     final width = MediaQuery.sizeOf(context).width;
     ref.watch(podcastProgressCoordinatorProvider);
     final active = waveActivePath(widget.location);
-    final hasTrack = ref.watch(
-      playbackServiceProvider.select((s) => s.current != null),
-    );
     // Responsive: rail collapses at canonical compact breakpoint (900),
     // never a permanent right panel.
     final collapsed = width < 900 ? true : !_railExpanded;
     final routePath = waveRoutePath(widget.location);
-    final isLyrics = routePath.startsWith('/lyrics');
     final isNowPlaying = routePath.startsWith('/now');
 
     // Snapshot for the focus-independent Esc chain (the global
@@ -837,21 +760,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                           final qw = (constraints.maxWidth * 0.9)
                               .clamp(280.0, 360.0)
                               .toDouble();
-                          final lw = (constraints.maxWidth * 0.46)
-                              .clamp(460.0, 720.0)
-                              .toDouble();
                           final ew = (constraints.maxWidth * 0.52)
                               .clamp(440.0, 560.0)
                               .toDouble();
-                          final showOverlay =
-                              _queueOpen ||
-                              _equalizerOpen ||
-                              (_lyricsOpen && hasTrack);
-                          final lyricsOnly =
-                              _lyricsOpen &&
-                              hasTrack &&
-                              !_queueOpen &&
-                              !_equalizerOpen;
+                          final showOverlay = _queueOpen || _equalizerOpen;
 
                           return Stack(
                             children: [
@@ -903,8 +815,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     ),
                                   ),
                                 ),
-                              // Dim only the page beside the drawer so
-                              // the lyrics panel can frost the artwork.
+                              // Dim only the page beside the drawer.
                               // Starts past the rail (which is never
                               // dimmed) — the rail floats above.
                               Positioned(
@@ -912,9 +823,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 top: 0,
                                 bottom: 0,
                                 right: showOverlay
-                                    ? (_queueOpen
-                                          ? qw
-                                          : (_equalizerOpen ? ew : lw))
+                                    ? (_queueOpen ? qw : ew)
                                     : 0,
                                 child: IgnorePointer(
                                   ignoring: !showOverlay,
@@ -928,12 +837,11 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     child: GestureDetector(
                                       onTap: () => setState(() {
                                         _queueOpen = false;
-                                        _lyricsOpen = false;
                                         _equalizerOpen = false;
                                       }),
                                       child: Container(
                                         color: Colors.black.withValues(
-                                          alpha: lyricsOnly ? 0.10 : 0.45,
+                                          alpha: 0.45,
                                         ),
                                       ),
                                     ),
@@ -995,41 +903,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                   ),
                                 ),
                               ),
-                              // Contextual Apple Music Karaoke Lyrics drawer — slides smoothly from right.
-                              AnimatedPositioned(
-                                duration: waveMotion(
-                                  context,
-                                  WaveMotion.normal,
-                                ),
-                                curve: Curves.easeOutCubic,
-                                top: 0,
-                                bottom: 0,
-                                right: (_lyricsOpen && hasTrack)
-                                    ? 0
-                                    : -(lw + 12),
-                                width: lw,
-                                child: ExcludeFocus(
-                                  excluding: !(_lyricsOpen && hasTrack),
-                                  child: IgnorePointer(
-                                    ignoring: !(_lyricsOpen && hasTrack),
-                                    child: _DrawerTicker(
-                                      // See queue panel above: skips
-                                      // rasterizing the hidden karaoke
-                                      // view on every navigation.
-                                      // Mutes the karaoke ticker while
-                                      // shut or unfocused: it would
-                                      // otherwise fire 30Hz into an
-                                      // off-screen or invisible layer.
-                                      // Resumes transparently
-                                      // (position resyncs).
-                                      open: _lyricsOpen && hasTrack,
-                                      child: _lyricsPanelFor(
-                                        _lyricsOpen && hasTrack,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
                             ],
                           );
                         },
@@ -1037,10 +910,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                     ),
                   ),
                   _dockFor(
-                    lyricsActive: _lyricsOpen || isLyrics,
+                    lyricsActive: isNowPlaying,
                     queueActive: _queueOpen,
                     equalizerActive: _equalizerOpen,
-                    isLyrics: isLyrics,
                   ),
                 ],
               ),

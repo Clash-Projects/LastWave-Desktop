@@ -43,6 +43,8 @@ class WaveNowPlayingPage extends ConsumerStatefulWidget {
 
 class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   bool _lyricsVisible = true;
+  // Focus mode: lyrics only, artwork column collapsed, lyrics centered.
+  bool _focusMode = false;
   bool _queueVisible = false;
   bool _controlsIdle = false;
   Timer? _idleTimer;
@@ -245,11 +247,22 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                             ignoring: _controlsIdle,
                             child: _TopActionsBar(
                               lyricsVisible: _lyricsVisible,
+                              focusMode: _focusMode,
                               queueVisible: _queueVisible,
                               visualizerEnabled: visualizerEnabled,
                               onToggleLyrics: () {
                                 _resetIdleTimer();
-                                setState(() => _lyricsVisible = !_lyricsVisible);
+                                setState(() {
+                                  _lyricsVisible = !_lyricsVisible;
+                                  if (!_lyricsVisible) _focusMode = false;
+                                });
+                              },
+                              onToggleFocus: () {
+                                _resetIdleTimer();
+                                setState(() {
+                                  _focusMode = !_focusMode;
+                                  if (_focusMode) _lyricsVisible = true;
+                                });
                               },
                               onToggleQueue: () {
                                 _resetIdleTimer();
@@ -277,6 +290,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                             ? _DesktopDualPane(
                                 track: current,
                                 lyricsVisible: _lyricsVisible,
+                                focusMode: _focusMode,
                               )
                             : _NarrowCenteredPane(
                                 track: current,
@@ -339,18 +353,22 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
 
 class _TopActionsBar extends StatelessWidget {
   final bool lyricsVisible;
+  final bool focusMode;
   final bool queueVisible;
   final bool visualizerEnabled;
   final VoidCallback onToggleLyrics;
+  final VoidCallback onToggleFocus;
   final VoidCallback onToggleQueue;
   final VoidCallback onToggleVisualizer;
   final VoidCallback onClose;
 
   const _TopActionsBar({
     required this.lyricsVisible,
+    required this.focusMode,
     required this.queueVisible,
     required this.visualizerEnabled,
     required this.onToggleLyrics,
+    required this.onToggleFocus,
     required this.onToggleQueue,
     required this.onToggleVisualizer,
     required this.onClose,
@@ -389,6 +407,16 @@ class _TopActionsBar extends StatelessWidget {
                     icon: WaveIcons.lyrics,
                     active: lyricsVisible,
                     onTap: onToggleLyrics,
+                  ),
+                ),
+                LWTooltip(
+                  message: focusMode ? 'Exit focus mode' : 'Focus on lyrics',
+                  child: _FsIconButton(
+                    icon: focusMode
+                        ? FluentIcons.mini_contract
+                        : WaveIcons.expand,
+                    active: focusMode,
+                    onTap: onToggleFocus,
                   ),
                 ),
                 LWTooltip(
@@ -551,10 +579,12 @@ class _VisibleTickerState extends ConsumerState<_VisibleTicker> {
 class _DesktopDualPane extends StatelessWidget {
   final PlayableTrack track;
   final bool lyricsVisible;
+  final bool focusMode;
 
   const _DesktopDualPane({
     required this.track,
     required this.lyricsVisible,
+    this.focusMode = false,
   });
 
   @override
@@ -571,14 +601,18 @@ class _DesktopDualPane extends StatelessWidget {
             ? math.min(maxWidth * 0.36, maxHeight * 0.48).clamp(340.0, 420.0)
             : math.min(maxWidth * 0.55, maxHeight * 0.52).clamp(360.0, 480.0);
 
-        final gap = lyricsVisible ? (maxWidth * 0.04).clamp(40.0, 64.0) : 0.0;
+        final gap = lyricsVisible && !focusMode
+            ? (maxWidth * 0.04).clamp(40.0, 64.0)
+            : 0.0;
 
         // Harmonized lyrics column width, balancing the visual weight of the left column
         final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
         final maxAllowedLyricsWidth = math.max(320.0, maxWidth - colWidth - gap - 48.0);
-        final lyricsWidth = lyricsVisible
-            ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
-            : 0.0;
+        final lyricsWidth = focusMode
+            ? math.min(760.0, math.max(320.0, maxWidth - 48.0))
+            : lyricsVisible
+                ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
+                : 0.0;
 
         return Center(
           child: Padding(
@@ -596,9 +630,18 @@ class _DesktopDualPane extends StatelessWidget {
                     duration:
                         waveMotion(context, const Duration(milliseconds: 500)),
                     curve: Curves.easeInOutCubic,
-                    width: colWidth,
+                    width: focusMode ? 0.0 : colWidth,
                     height: maxHeight,
-                    child: RepaintBoundary(
+                    // Children keep their full width while the column
+                    // collapses (focus mode), so nothing overflows mid-anim.
+                    child: ClipRect(
+                      child: OverflowBox(
+                        alignment: Alignment.centerLeft,
+                        minWidth: colWidth,
+                        maxWidth: colWidth,
+                        child: ExcludeFocus(
+                          excluding: focusMode,
+                          child: RepaintBoundary(
                       child: Column(
                         mainAxisSize: MainAxisSize.max,
                         crossAxisAlignment: lyricsVisible
@@ -638,6 +681,9 @@ class _DesktopDualPane extends StatelessWidget {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                        ),
                       ),
                     ),
                   ),
