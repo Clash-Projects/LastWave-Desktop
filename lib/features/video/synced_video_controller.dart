@@ -271,6 +271,11 @@ class SyncedVideoController extends ChangeNotifier {
           songUrl: source.url,
           songHeaders: source.requestHeaders,
           videoId: bundle.videoId,
+          title: track.title,
+          artist: track.artist,
+          durationMs: track.duration.inMilliseconds > 0
+              ? track.duration.inMilliseconds
+              : null,
           songVideoId: songVideoId,
         );
       } finally {

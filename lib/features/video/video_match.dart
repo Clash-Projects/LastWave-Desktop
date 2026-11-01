@@ -391,3 +391,84 @@ MusicVideoStream? pickVideoStreamForQuality(
   final ranked = rankVideoStreams(streams, preferredHeight);
   return ranked.isEmpty ? null : ranked.first;
 }
+
+/// A YouTube Music song row, reduced to what matching needs.
+typedef SongAudioCandidate = ({
+  String id,
+  String title,
+  String artist,
+  int seconds,
+});
+
+const Set<String> _otherRenditionWords = {
+  'live',
+  'remix',
+  'cover',
+  'karaoke',
+  'slowed',
+  'sped',
+  'reverb',
+  'instrumental',
+  'acoustic',
+  'mashup',
+  'lofi',
+  'nightcore',
+  '8d',
+  'edit',
+};
+
+/// Which search result is this song's own studio audio on YouTube, or null.
+///
+/// That audio is a stand-in for the recording the user is playing when the
+/// timing of a video has to be measured against it: the playing source can
+/// be a local proxy or a file that cannot be read a second time. It must be
+/// the same recording, so the title must match whole, the artist (or the
+/// length) must agree, a known length must be within 8 s, and live / remix /
+/// slowed renditions are skipped unless the song itself is one.
+String? pickSongAudioCandidate(
+  List<SongAudioCandidate> results, {
+  required String title,
+  required String artist,
+  required int? durationMs,
+  String? excludeId,
+}) {
+  final wanted = VideoTextMatch.normalize(title);
+  final wantedWords = wanted.split(' ').toSet();
+  String? exact;
+  String? first;
+  for (final c in results) {
+    if (c.id.isEmpty || c.id == excludeId) continue;
+    final seconds = c.seconds > 0 ? c.seconds : null;
+    // A song row always names its artist, so the artist must agree: a
+    // same-titled song of the same length by someone else (a cover) is not
+    // the recording. Only with no artist known does length stand in.
+    final artistKnown = artist.trim().isNotEmpty;
+    if (!isSameSongVideo(
+      candidateTitle: c.title,
+      candidateChannel: c.artist,
+      candidateSeconds: artistKnown ? null : seconds,
+      songTitle: title,
+      songArtist: artist,
+      songDurationMs: artistKnown ? null : durationMs,
+    )) {
+      continue;
+    }
+    final words = VideoTextMatch.normalize(c.title).split(' ').toSet();
+    if (_otherRenditionWords.any(
+      (w) => words.contains(w) && !wantedWords.contains(w),
+    )) {
+      continue;
+    }
+    if (durationMs != null &&
+        durationMs > 0 &&
+        seconds != null &&
+        (seconds - durationMs ~/ 1000).abs() > 8) {
+      continue;
+    }
+    first ??= c.id;
+    if (VideoTextMatch.normalize(c.title) == wanted) {
+      exact ??= c.id;
+    }
+  }
+  return exact ?? first;
+}

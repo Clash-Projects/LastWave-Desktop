@@ -325,6 +325,9 @@ class SyncedVideoRepository {
     required String songUrl,
     required Map<String, String> songHeaders,
     required String videoId,
+    required String title,
+    required String artist,
+    int? durationMs,
     String? songVideoId,
   }) {
     return _measuring[key] ??= _measure(
@@ -332,6 +335,9 @@ class SyncedVideoRepository {
       songUrl: songUrl,
       songHeaders: songHeaders,
       videoId: videoId,
+      title: title,
+      artist: artist,
+      durationMs: durationMs,
       songVideoId: songVideoId,
     ).whenComplete(() => _measuring.remove(key));
   }
@@ -341,6 +347,9 @@ class SyncedVideoRepository {
     required String songUrl,
     required Map<String, String> songHeaders,
     required String videoId,
+    required String title,
+    required String artist,
+    required int? durationMs,
     String? songVideoId,
   }) async {
     if (hasSavedOffset(key)) return savedOffset(key);
@@ -361,6 +370,9 @@ class SyncedVideoRepository {
           songHeaders: songHeaders,
           songVideoId: songVideoId,
           videoId: videoId,
+          title: title,
+          artist: artist,
+          durationMs: durationMs,
         ),
         capturePcm16Mono(
           url: videoAudio.url,
@@ -404,49 +416,108 @@ class SyncedVideoRepository {
     }
   }
 
-  /// The song side of the comparison. The same recording's YouTube audio is
-  /// preferred over whatever is playing: it is plain https that this player
-  /// can always read, and it leaves a lossless proxy or local file the user
-  /// is listening to alone (a second connection to it could disturb
-  /// playback). The playing source is used only when it is itself plain
-  /// remote audio and no YouTube id is known.
+  /// The song's own studio audio on YouTube, for when the track row carries
+  /// no YouTube id (anything found through the lossless catalog). Null when
+  /// no result is clearly the same recording.
+  Future<String?> findSongAudioId({
+    required String title,
+    required String artist,
+    required int? durationMs,
+    String? excludeId,
+  }) async {
+    final cleanTitle = cleanTrackTitleForVideo(title);
+    final cleanArtist = artist.toLowerCase() == 'unknown artist'
+        ? ''
+        : artist.trim();
+    try {
+      final rows = await _tube.searchSongs(
+        '$cleanTitle $cleanArtist'.trim(),
+        limit: 8,
+      );
+      return pickSongAudioCandidate(
+        [
+          for (final r in rows)
+            (
+              id: r.videoId,
+              title: r.title,
+              artist: r.artist,
+              seconds: r.durationSeconds,
+            ),
+        ],
+        title: cleanTitle,
+        artist: cleanArtist,
+        durationMs: durationMs,
+        excludeId: excludeId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Uint8List?> _captureYoutubeAudio(String id) async {
+    try {
+      final alt = await _tube
+          .resolveAudioStream(id)
+          .timeout(const Duration(seconds: 20));
+      if (alt == null) return null;
+      return await capturePcm16Mono(
+        url: alt.url,
+        headers: alt.requestHeaders,
+        seconds: _songAlignmentSeconds,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The song side of the comparison, from the first source that reads:
+  ///  1. the YouTube audio of the track's own id (same recording, plain
+  ///     https this player always reads);
+  ///  2. the song's studio audio found by search — most lossless-catalog
+  ///     tracks have no YouTube id at all;
+  ///  3. the playing source itself, which for lossless is the app's own
+  ///     loopback server and is the exact audio being heard.
   Future<Uint8List?> _captureSong({
     required String songUrl,
     required Map<String, String> songHeaders,
     required String? songVideoId,
     required String videoId,
+    required String title,
+    required String artist,
+    required int? durationMs,
   }) async {
     if (songVideoId != null &&
         songVideoId.isNotEmpty &&
         songVideoId != videoId) {
-      try {
-        final alt = await _tube
-            .resolveAudioStream(songVideoId)
-            .timeout(const Duration(seconds: 20));
-        if (alt != null) {
-          final pcm = await capturePcm16Mono(
-            url: alt.url,
-            headers: alt.requestHeaders,
-            seconds: _songAlignmentSeconds,
-          );
-          if (pcm != null) return pcm;
-        }
-      } catch (_) {}
+      final pcm = await _captureYoutubeAudio(songVideoId);
+      if (pcm != null) {
+        PlayDiag.log('video: align — song side from track id $songVideoId');
+        return pcm;
+      }
     }
-    final uri = Uri.tryParse(songUrl);
-    final remote =
-        uri != null &&
-        (uri.scheme == 'https' || uri.scheme == 'http') &&
-        uri.host != '127.0.0.1' &&
-        uri.host != 'localhost' &&
-        uri.host != '::1' &&
-        uri.host.isNotEmpty;
-    if (!remote) return null;
-    return capturePcm16Mono(
+    final found = await findSongAudioId(
+      title: title,
+      artist: artist,
+      durationMs: durationMs,
+      excludeId: videoId,
+    );
+    if (found != null) {
+      final pcm = await _captureYoutubeAudio(found);
+      if (pcm != null) {
+        PlayDiag.log('video: align — song side from searched audio $found');
+        return pcm;
+      }
+    }
+    final pcm = await capturePcm16Mono(
       url: songUrl,
       headers: songHeaders,
       seconds: _songAlignmentSeconds,
     );
+    PlayDiag.log(
+      'video: align — song side from the playing source: '
+      '${pcm == null ? 'unreadable' : 'ok'}',
+    );
+    return pcm;
   }
 }
 

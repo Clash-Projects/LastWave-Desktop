@@ -381,4 +381,76 @@ void main() {
       expect(pickVideoStreamForQuality(const [], 0), isNull);
     });
   });
+
+  group('pickSongAudioCandidate', () {
+    SongAudioCandidate row(String id, String title, String artist, int sec) =>
+        (id: id, title: title, artist: artist, seconds: sec);
+
+    test('finds the studio audio for a track with no YouTube id', () {
+      expect(
+        pickSongAudioCandidate(
+          [
+            row('live1', 'Machayenge 4 (Live)', 'KR\$NA', 230),
+            row('studio', 'Machayenge 4', 'KR\$NA', 228),
+          ],
+          title: 'Machayenge 4',
+          artist: 'KR\$NA',
+          durationMs: null,
+        ),
+        'studio',
+      );
+    });
+
+    test('rejects other songs, other artists and other lengths', () {
+      final rows = [
+        row('a', 'Machayenge 3', 'KR\$NA', 228),
+        row('b', 'Machayenge 4', 'Somebody Else', 228),
+        row('c', 'Machayenge 4', 'KR\$NA', 300),
+      ];
+      expect(
+        pickSongAudioCandidate(
+          rows,
+          title: 'Machayenge 4',
+          artist: 'KR\$NA',
+          durationMs: 228000,
+        ),
+        isNull,
+      );
+    });
+
+    test('never returns the video itself', () {
+      expect(
+        pickSongAudioCandidate(
+          [row('vid', 'Boom Shaka', 'KR\$NA', 212)],
+          title: 'Boom Shaka',
+          artist: 'KR\$NA',
+          durationMs: null,
+          excludeId: 'vid',
+        ),
+        isNull,
+      );
+    });
+
+    test('a remix only matches when the song is one', () {
+      final rows = [row('r', 'Song (Remix)', 'Asha Singer', 200)];
+      expect(
+        pickSongAudioCandidate(
+          rows,
+          title: 'Song',
+          artist: 'Asha Singer',
+          durationMs: null,
+        ),
+        isNull,
+      );
+      expect(
+        pickSongAudioCandidate(
+          rows,
+          title: 'Song (Remix)',
+          artist: 'Asha Singer',
+          durationMs: null,
+        ),
+        'r',
+      );
+    });
+  });
 }

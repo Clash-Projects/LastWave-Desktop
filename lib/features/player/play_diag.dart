@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../../core/diagnostics/diagnostics_log.dart';
+
 /// Playback diagnostic ring buffer: WHY a tapped song didn't play.
 ///
 /// Resolve/match/open/skip events append one short line each —
@@ -22,6 +24,13 @@ class PlayDiag {
         _lines.removeAt(0);
       }
     } catch (_) {}
+    // Video decisions also go to the session log, which is what "Export
+    // diagnostic logs" bundles; the in-memory buffer above is lost on exit.
+    if (line.startsWith('video:')) {
+      try {
+        DiagnosticsLog.info(line);
+      } catch (_) {}
+    }
     try {
       debugPrint('LastWavePlay: $line');
     } catch (_) {}
