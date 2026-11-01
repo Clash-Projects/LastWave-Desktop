@@ -6,6 +6,7 @@ import '../../app/router.dart';
 import '../../app/window.dart';
 import '../../app/window_lifecycle.dart';
 import '../../app/auth_gate.dart';
+import '../../core/artwork/official_artwork_service.dart';
 import '../../core/storage/prefs.dart';
 import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/lastfm/auth_repository.dart';
@@ -56,6 +57,52 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     // WEB_REMIX fallback never stalls transport on a cold window spawn.
     // Direct-only mode (lw_disable_potoken) skips it — zero WebViews.
     Future.microtask(() {
+      // Artist tiles whose Deezer lookup fails (rate limit, no press
+      // photo) fall back to the YouTube Music portrait, same as the
+      // artist detail page.
+      OfficialArtworkService.instance.artistPhotoFallback = (name) async {
+        final artists =
+            await ref.read(innerTubeProvider).searchArtists(name, limit: 3);
+        return artists.isEmpty ? '' : artists.first.artworkUrl;
+      };
+      OfficialArtworkService.instance.trackCoverFallback =
+          (title, artist) async {
+        final hit = await ref
+            .read(innerTubeProvider)
+            .findBestMatchOrNull(title, artist);
+        return hit?.artworkUrl ?? '';
+      };
+      OfficialArtworkService.instance.albumCoverFallback =
+          (album, artist) async {
+        final tube = ref.read(innerTubeProvider);
+        String norm(String s) =>
+            OfficialArtworkService.normalizeForSearch(s);
+        // Last.fm bills "Aarzu (with Asim Azhar)", "X (From "Film")",
+        // "Y (feat. Z)"; the catalog files plain "Aarzu" / "X" / "Y".
+        final plain = album.replaceFirst(RegExp(r'\s*[\(\[].*$'), '').trim();
+        final titles = {album, if (plain.isNotEmpty) plain};
+        for (final t in titles) {
+          final want = norm(t);
+          if (want.isEmpty) continue;
+          final albums = await tube.searchAlbums('$t $artist', limit: 5);
+          for (final a in albums) {
+            final got = norm(a.name);
+            if (a.artworkUrl.isNotEmpty &&
+                got.isNotEmpty &&
+                (got == want || got.contains(want) || want.contains(got))) {
+              return a.artworkUrl;
+            }
+          }
+        }
+        // A single is billed as an album on Last.fm but filed as a song.
+        for (final t in titles) {
+          final song = await tube.findBestMatchOrNull(t, artist);
+          if (song != null && song.artworkUrl.isNotEmpty) {
+            return song.artworkUrl;
+          }
+        }
+        return '';
+      };
       try {
         ref.read(playbackServiceProvider.notifier).ensurePlayer();
       } catch (_) {}
