@@ -985,11 +985,12 @@ class _MusicVideo extends ConsumerWidget {
                 onChanged: (v) => ref
                     .read(nowPlayingAutoHideProvider.notifier)
                     .set(v ? 3 : 0),
-                title: 'Hide controls when idle',
+                title: 'Hide controls while a video plays',
                 subtitle:
-                    'Fades the title, Up Next, lyrics bar, top buttons and '
-                    'side bar, leaving only the lyrics. Click anywhere to '
-                    'bring them back.',
+                    'Over a music video, fades the title, Up Next, lyrics '
+                    'bar and top buttons after a few seconds of no activity, '
+                    'leaving the lyrics. The side bar stays. Click anywhere '
+                    'to bring the controls back.',
               ),
               if (hideOn)
                 Padding(

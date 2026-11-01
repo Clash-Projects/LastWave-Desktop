@@ -72,6 +72,11 @@ class SyncedVideoController extends ChangeNotifier {
   String get currentQualityLabel => _stream?.label ?? '';
 
   bool _measuring = false;
+  bool _measureFailed = false;
+
+  /// How long the sync measurement may take before the picture stops
+  /// waiting for it. Captures take a second or two when they work.
+  static const Duration _measureBudget = Duration(seconds: 30);
 
   /// Why the picture is not on screen yet, once a video has been found:
   /// `loading` (opening the stream), `syncing` (measuring its timing) or
@@ -175,6 +180,7 @@ class SyncedVideoController extends ChangeNotifier {
     _offsetMs = 0;
     _confident = false;
     _measuring = false;
+    _measureFailed = false;
     _stopSyncTimer();
     _closeMedia();
     _evaluate();
@@ -284,6 +290,8 @@ class SyncedVideoController extends ChangeNotifier {
     _confident = false;
     _refreshAllowed();
     if (repo.wasUnmatched(key)) {
+      _measureFailed = true;
+      _refreshAllowed();
       _notify();
       return;
     }
@@ -294,29 +302,46 @@ class SyncedVideoController extends ChangeNotifier {
         ? audioKey.substring(3)
         : track.videoId;
     _measuring = true;
+    _measureFailed = false;
     _notify();
     unawaited(() async {
       int? measured;
       try {
-        measured = await repo.measureOffsetMs(
-          key: key,
-          songUrl: source.url,
-          songHeaders: source.requestHeaders,
-          videoId: bundle.videoId,
-          title: track.title,
-          artist: track.artist,
-          durationMs: track.duration.inMilliseconds > 0
-              ? track.duration.inMilliseconds
-              : null,
-          songVideoId: songVideoId,
+        measured = await repo
+            .measureOffsetMs(
+              key: key,
+              songUrl: source.url,
+              songHeaders: source.requestHeaders,
+              videoId: bundle.videoId,
+              title: track.title,
+              artist: track.artist,
+              durationMs: track.duration.inMilliseconds > 0
+                  ? track.duration.inMilliseconds
+                  : null,
+              songVideoId: songVideoId,
+            )
+            .timeout(_measureBudget);
+      } on TimeoutException {
+        PlayDiag.log(
+          'video: align gave up after ${_measureBudget.inSeconds}s for $key',
         );
+      } catch (e) {
+        PlayDiag.log('video: align error: $e');
       } finally {
         if (gen == _gen && !_disposed) {
           _measuring = false;
           _notify();
         }
       }
-      if (gen != _gen || _disposed || measured == null) return;
+      if (gen != _gen || _disposed) return;
+      if (measured == null) {
+        // No measurement to go on. Stop waiting for one: the picture may
+        // now show on a looser length check (see [_refreshAllowed]).
+        _measureFailed = true;
+        _refreshAllowed();
+        _notify();
+        return;
+      }
       _offsetMs = measured;
       _confident = true;
       _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
@@ -333,14 +358,21 @@ class SyncedVideoController extends ChangeNotifier {
       if (_confident || bundle.introOffsetMs > 0) {
         allowed = true;
       } else {
-        // Same-length edits share the song's timeline.
+        // Edits of the same length share the song's timeline. When timing
+        // could not be measured at all, a looser length is accepted rather
+        // than leaving the cover up forever: an official video that runs
+        // within a few seconds of the song is almost always the song from
+        // its first frame.
         final videoMs = _player?.state.duration.inMilliseconds ?? 0;
         final audioMs = _ref
             .read(playbackServiceProvider)
             .duration
             .inMilliseconds;
+        final tolerance = _measureFailed ? 12000 : 4000;
         allowed =
-            videoMs > 0 && audioMs > 0 && (videoMs - audioMs).abs() <= 4000;
+            videoMs > 0 &&
+            audioMs > 0 &&
+            (videoMs - audioMs).abs() <= tolerance;
       }
     }
     if (allowed != _allowed) {

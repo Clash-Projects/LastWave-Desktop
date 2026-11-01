@@ -20,10 +20,6 @@ class NowPlayingAutoHideNotifier extends StateNotifier<int> {
   }
 }
 
-/// True while Now Playing has hidden its controls. The page owns it; the
-/// app shell reads it to fade the side rail with the rest of the chrome.
-final nowPlayingChromeHiddenProvider = StateProvider<bool>((ref) => false);
-
 /// True while the Now Playing page is on screen. The dock reads it to say
 /// what its expand button does here.
 final nowPlayingOpenProvider = StateProvider<bool>((ref) => false);

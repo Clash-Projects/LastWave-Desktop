@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -195,4 +196,22 @@ double _correlationAtLag(Float32List song, Float32List video, int lag) {
   }
   final denominator = math.sqrt(varianceSong * varianceVideo);
   return denominator > 0 ? covariance / denominator : 0;
+}
+
+/// Runs [alignPcm16] off the UI thread. A top-level function on purpose: a
+/// closure built inside an object would drag that object (HTTP clients and
+/// all) into the isolate message and fail to send. Falls back to running in
+/// place if an isolate cannot be started.
+Future<({int offsetMs, bool relaxed})?> alignPcm16Async(
+  Uint8List song,
+  Uint8List video,
+  int sampleRate,
+) async {
+  try {
+    return await Isolate.run(
+      () => alignPcm16((song: song, video: video, sampleRate: sampleRate)),
+    );
+  } catch (_) {
+    return alignPcm16((song: song, video: video, sampleRate: sampleRate));
+  }
 }

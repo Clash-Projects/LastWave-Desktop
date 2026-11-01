@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -356,6 +355,8 @@ class SyncedVideoRepository {
     if (_unmatched.contains(key)) return null;
     // Let the track's own start win the network first.
     await Future<void>.delayed(const Duration(seconds: 1));
+    final clock = Stopwatch()..start();
+    PlayDiag.log('video: align start $key');
     try {
       final videoAudio = await _tube
           .resolveAudioStream(videoId)
@@ -392,20 +393,15 @@ class SyncedVideoRepository {
         );
         return null;
       }
-      final result = await Isolate.run(
-        () => alignPcm16((
-          song: song,
-          video: video,
-          sampleRate: alignmentSampleRate,
-        )),
-      );
+      final result = await alignPcm16Async(song, video, alignmentSampleRate);
       if (result == null) {
         PlayDiag.log('video: align $key → no confident match');
         _unmatched.add(key);
         return null;
       }
       PlayDiag.log(
-        'video: align $key → ${result.offsetMs} ms'
+        'video: align $key → ${result.offsetMs} ms in '
+        '${clock.elapsedMilliseconds}ms'
         '${result.relaxed ? ' (loose match)' : ''}',
       );
       await _prefs.saveMusicVideoOffset(_stored(key), result.offsetMs);

@@ -6,6 +6,9 @@ import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../player/play_diag.dart';
+import 'chunked_range_proxy.dart';
+
 /// Sample rate used for alignment captures. Onsets only need ~20 hops a
 /// second, so 8 kHz mono keeps captures tiny and decoding cheap.
 const int alignmentSampleRate = 8000;
@@ -20,12 +23,37 @@ Future<Uint8List?> capturePcm16Mono({
   required String url,
   Map<String, String> headers = const {},
   required int seconds,
-  Duration timeout = const Duration(seconds: 40),
+  Duration timeout = const Duration(seconds: 15),
+  Directory? tempDir,
+}) {
+  // Nothing in a capture may wait forever: it gates whether a video shows.
+  return _capture(
+    url: url,
+    headers: headers,
+    seconds: seconds,
+    timeout: timeout,
+    tempDir: tempDir,
+  ).timeout(
+    timeout + const Duration(seconds: 20),
+    onTimeout: () {
+      PlayDiag.log('video: audio capture timed out');
+      return null;
+    },
+  );
+}
+
+Future<Uint8List?> _capture({
+  required String url,
+  required Map<String, String> headers,
+  required int seconds,
+  required Duration timeout,
+  Directory? tempDir,
 }) async {
   Player? player;
   File? out;
+  Uri? proxied;
   try {
-    final dir = await getTemporaryDirectory();
+    final dir = tempDir ?? await getTemporaryDirectory();
     out = File(
       p.join(dir.path, 'lw_align_${DateTime.now().microsecondsSinceEpoch}.pcm'),
     );
@@ -37,7 +65,10 @@ Future<Uint8List?> capturePcm16Mono({
       ),
     );
     final native = player.platform;
-    if (native is! NativePlayer) return null;
+    if (native is! NativePlayer) {
+      PlayDiag.log('video: audio capture needs a native player');
+      return null;
+    }
     final props = <String, String>{
       'ao': 'pcm',
       'ao-pcm-file': out.path,
@@ -61,13 +92,22 @@ Future<Uint8List?> capturePcm16Mono({
     try {
       ao = await native.getProperty('ao');
     } catch (_) {}
-    if (!ao.startsWith('pcm')) return null;
+    if (!ao.startsWith('pcm')) {
+      PlayDiag.log('video: audio capture — libmpv has no pcm output ("$ao")');
+      return null;
+    }
 
     final targetBytes = seconds * alignmentSampleRate * 2;
-    await player.open(
-      Media(url, httpHeaders: headers.isEmpty ? null : headers),
-      play: true,
-    );
+    // googlevideo refuses or throttles the open-ended range libmpv asks for;
+    // read it through the bounded-range proxy like the picture itself.
+    var source = url;
+    Map<String, String>? sourceHeaders = headers.isEmpty ? null : headers;
+    if (Uri.tryParse(url)?.host.contains('googlevideo') == true) {
+      proxied = await ChunkedRangeProxy.shared.register(url, headers: headers);
+      source = proxied.toString();
+      sourceHeaders = null;
+    }
+    await player.open(Media(source, httpHeaders: sourceHeaders), play: true);
 
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
@@ -77,27 +117,43 @@ Future<Uint8List?> capturePcm16Mono({
         current = await native.getProperty('current-ao');
       } catch (_) {}
       // Second guard: the driver actually opened must be the writer.
-      if (current.isNotEmpty && current != 'pcm') return null;
+      if (current.isNotEmpty && current != 'pcm') {
+        PlayDiag.log('video: audio capture — unexpected output "$current"');
+        return null;
+      }
       final size = await out.exists() ? await out.length() : 0;
       if (size >= targetBytes || player.state.completed) break;
     }
     try {
       await player.stop();
     } catch (_) {}
-    if (!await out.exists()) return null;
+    if (!await out.exists()) {
+      PlayDiag.log('video: audio capture — no output file written');
+      return null;
+    }
     final bytes = await out.readAsBytes();
     // Too little audio cannot be aligned reliably (20s minimum overlap).
-    if (bytes.lengthInBytes < 22 * alignmentSampleRate * 2) return null;
+    if (bytes.lengthInBytes < 22 * alignmentSampleRate * 2) {
+      PlayDiag.log(
+        'video: audio capture — only ${bytes.lengthInBytes ~/ (alignmentSampleRate * 2)}s decoded',
+      );
+      return null;
+    }
     return bytes.lengthInBytes > targetBytes
         ? Uint8List.sublistView(bytes, 0, targetBytes)
         : bytes;
   } catch (e) {
-    if (kDebugMode) debugPrint('[video-sync] pcm capture failed: $e');
+    PlayDiag.log('video: audio capture failed: $e');
     return null;
   } finally {
-    try {
-      await player?.dispose();
-    } catch (_) {}
+    // Not awaited: a slow teardown must not hold the result back.
+    final p = player;
+    if (p != null) {
+      unawaited(
+        p.dispose().timeout(const Duration(seconds: 10)).catchError((_) {}),
+      );
+    }
+    if (proxied != null) ChunkedRangeProxy.shared.release(proxied);
     try {
       if (out != null && await out.exists()) await out.delete();
     } catch (_) {}

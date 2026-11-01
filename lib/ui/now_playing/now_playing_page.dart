@@ -76,7 +76,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     super.initState();
     _resetIdleTimer();
     _autoHideSeconds = ref.read(nowPlayingAutoHideProvider);
-    _chromeHidden = ref.read(nowPlayingChromeHiddenProvider.notifier);
     final open = ref.read(nowPlayingOpenProvider.notifier);
     _openFlag = open;
     // Provider state cannot change while the tree is building.
@@ -93,15 +92,12 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     _video?.detach();
     // Leaving the page brings the app's side rail back. Deferred: provider
     // state cannot change while the tree is being torn down.
-    final chrome = _chromeHidden;
-    if (chrome != null) Future.microtask(() => chrome.state = false);
     final open = _openFlag;
     if (open != null) Future.microtask(() => open.state = false);
     super.dispose();
   }
 
   int _autoHideSeconds = 3;
-  StateController<bool>? _chromeHidden;
   StateController<bool>? _openFlag;
 
   /// Hides (or brings back) every control on the page and the app's side
@@ -109,7 +105,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   void _setHidden(bool hidden) {
     if (_controlsIdle == hidden || !mounted) return;
     setState(() => _controlsIdle = hidden);
-    _chromeHidden?.state = hidden;
   }
 
   /// Pointer activity while the controls are showing keeps them up. While
@@ -155,8 +150,10 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
       _idleTimer = Timer(limit - elapsed, _onIdleTimeout);
       return;
     }
-    // Never hide the controls out from under an open queue drawer.
-    if (_queueVisible) {
+    // Controls only hide over a playing music video, never over the plain
+    // page, and never out from under an open queue drawer. Keep checking so
+    // they hide as soon as a video starts.
+    if (_queueVisible || !ref.read(syncedVideoControllerProvider).visible) {
       _armIdleTimer();
       return;
     }
@@ -192,7 +189,16 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     final videoOn = ref.watch(
       syncedVideoControllerProvider.select((c) => c.visible),
     );
-    if (!videoOn) _videoCovers = false;
+    if (!videoOn) {
+      _videoCovers = false;
+      // The video went away (track change, switched off): bring the
+      // controls back rather than leaving a bare page.
+      if (_controlsIdle) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _setHidden(false);
+        });
+      }
+    }
 
     if (current == null) {
       // Same stage as the playing page, for the same reason: this route must
@@ -572,10 +578,8 @@ class _TopActionsBar extends StatelessWidget {
                     onTap: onToggleVisualizer,
                   ),
                 ),
-                LWTooltip(
-                  message: 'Close (Esc)',
-                  child: _FsIconButton(icon: WaveIcons.close, onTap: onClose),
-                ),
+                // No close cross here: the Back chevron leaves the page and
+                // Esc still works. The cross belongs to full screen only.
               ],
             ),
           ),

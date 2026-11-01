@@ -770,9 +770,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         await windowManager.setFullScreen(on);
       } catch (_) {}
     });
-    final railHidden =
-        fullscreen ||
-        (isNowPlaying && ref.watch(nowPlayingChromeHiddenProvider));
+    // The side rail stays through the idle auto-hide; only full screen
+    // (which drops all app chrome) takes it away.
+    final railHidden = fullscreen;
 
     // Snapshot for the focus-independent Esc chain (the global
     // HardwareKeyboard handler reads these fields).
