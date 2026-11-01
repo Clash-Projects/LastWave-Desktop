@@ -11,6 +11,7 @@ import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
+import '../../features/canvas/canvas_clip.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
 import '../components/ambient.dart';
@@ -832,6 +833,13 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     final dark = waveIsDark(context);
     // Visualizer toggle owns ALL page motion: aura + motion-art clip.
     final visualizerOn = ref.watch(visualizerEnabledProvider);
+    final canvas = ref.watch(canvasClipProvider(CanvasLookup(
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      durationMs: track.duration.inMilliseconds,
+    )));
+    final canvasUrl = canvas.asData?.value ?? '';
     final motion = ref.watch(animatedArtworkProvider(
       AnimatedArtworkQuery(
         artist: track.artist,
@@ -839,8 +847,9 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
         title: track.title,
       ),
     ));
-    final motionUrl =
+    final appleUrl =
         motion.valueOrNull?.hasUrl == true ? motion.valueOrNull!.url : '';
+    final motionUrl = canvasUrl.isNotEmpty ? canvasUrl : appleUrl;
     final motionFallbackUrl = motion.valueOrNull?.fallbackUrl ?? '';
     if (!motion.isLoading) {
       _lastMotionUrl = motionUrl;

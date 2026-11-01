@@ -379,6 +379,20 @@ Map<String, String> headersForAnimatedArtworkUrl(String url) {
   if (lower.contains('apple.com')) {
     return appleArtworkHeaders;
   }
+  if (lower.contains('tidal.com')) {
+    return const {
+      'User-Agent': canvasUserAgent,
+      'Accept': '*/*',
+    };
+  }
+  if (lower.contains('spotify') || lower.contains('scdn.co')) {
+    return const {
+      'User-Agent': canvasUserAgent,
+      'Referer': 'https://open.spotify.com/',
+      'Origin': 'https://open.spotify.com',
+      'Accept': '*/*',
+    };
+  }
   return const {
     'User-Agent': canvasUserAgent,
     'Accept': '*/*',

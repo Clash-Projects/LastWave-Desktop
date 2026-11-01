@@ -45,6 +45,7 @@ import '../updates/update_dialog.dart';
 import 'backup_settings.dart';
 import 'diagnostics_actions.dart';
 import 'download_layout_settings.dart';
+import 'integrations_accounts.dart';
 import 'settings_search.dart';
 
 const _waveSettingsSections = [
@@ -303,7 +304,13 @@ class _SectionBody extends ConsumerWidget {
       case 'lastfm':
         return _LastFm(onUpdate: onUpdate);
       case 'integrations':
-        return _Ytm(onUpdate: onUpdate);
+        return Column(
+          children: [
+            _Ytm(onUpdate: onUpdate),
+            const SizedBox(height: 16),
+            IntegrationsAccounts(onUpdate: onUpdate),
+          ],
+        );
       case 'sources':
         return _Sources(onUpdate: onUpdate);
       case 'experimental':

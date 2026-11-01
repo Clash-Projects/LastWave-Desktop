@@ -149,6 +149,20 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'discord rich presence status activity',
   ),
   SettingsSearchEntry(
+    id: 'integrations.spotify',
+    section: 'integrations',
+    title: 'Spotify',
+    subtitle: 'Canvas, playlist import, and Liked Songs',
+    keywords: 'spotify sp_dc cookie canvas import playlists liked songs',
+  ),
+  SettingsSearchEntry(
+    id: 'integrations.spotify.canvas',
+    section: 'integrations',
+    title: 'Spotify canvas',
+    subtitle: 'Play a canvas clip on Now Playing',
+    keywords: 'spotify canvas motion art video cover',
+  ),
+  SettingsSearchEntry(
     id: 'sources.addons',
     section: 'sources',
     title: 'Addon sources',

@@ -201,9 +201,11 @@ Future<PlaylistImportPreview> previewPlaylistFileWith(
 /// Bounded fan-out (5 at a time); misses and errors are dropped.
 Future<List<StoredTrack>> _matchRows(
   PlaylistTrackSource source,
-  List<PlaylistFileRow> rows,
-) async {
+  List<PlaylistFileRow> rows, {
+  void Function(int done, int total)? onProgress,
+}) async {
   final matched = <StoredTrack>[];
+  onProgress?.call(0, rows.length);
   for (var i = 0; i < rows.length; i += 5) {
     final chunk = rows.skip(i).take(5).toList();
     final results = await Future.wait(chunk.map((row) async {
@@ -236,8 +238,31 @@ Future<List<StoredTrack>> _matchRows(
         durationSeconds: match.durationSeconds,
       ));
     }
+    final done = i + chunk.length;
+    onProgress?.call(done > rows.length ? rows.length : done, rows.length);
   }
   return matched;
+}
+
+/// Match title/artist rows to YouTube the same way a pasted Spotify or
+/// Apple link does. Misses are dropped.
+Future<List<StoredTrack>> matchExternalRows({
+  required InnerTubeMusicApi api,
+  required List<({String title, String artist, String album})> rows,
+  void Function(int done, int total)? onProgress,
+}) {
+  return _matchRows(
+    _InnertubeTrackSource(api),
+    [
+      for (final row in rows)
+        PlaylistFileRow(
+          title: row.title,
+          artist: row.artist,
+          album: row.album,
+        ),
+    ],
+    onProgress: onProgress,
+  );
 }
 
 /// Testable create core: one playlist, exactly the matched tracks.
