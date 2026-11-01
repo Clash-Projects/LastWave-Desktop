@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -660,6 +661,23 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     ref.watch(podcastProgressCoordinatorProvider);
+    // Screen-reader announcements for state changes with no focus change:
+    // a new track starting, and play/pause (e.g. from the media keys).
+    ref.listen(playbackServiceProvider, (prev, next) {
+      String? say;
+      if (next.current != null &&
+          next.current?.queueKey != prev?.current?.queueKey) {
+        say = 'Now playing ${next.current!.title} by ${next.current!.artist}';
+      } else if (next.current != null &&
+          prev != null &&
+          next.isPlaying != prev.isPlaying) {
+        say = next.isPlaying ? 'Playing' : 'Paused';
+      }
+      if (say != null) {
+        SemanticsService.sendAnnouncement(
+            View.of(context), say, TextDirection.ltr);
+      }
+    });
     final active = waveActivePath(widget.location);
     // Responsive: rail collapses at canonical compact breakpoint (900),
     // never a permanent right panel.

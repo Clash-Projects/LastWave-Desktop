@@ -345,10 +345,18 @@ class _RailItemState extends State<_RailItem> {
         ),
       ),
     );
-    if (widget.expanded) return content;
+    final labelled = Semantics(
+      button: true,
+      selected: widget.selected,
+      label: widget.destination.label,
+      onTap: widget.onTap,
+      excludeSemantics: true,
+      child: content,
+    );
+    if (widget.expanded) return labelled;
     return LWTooltip(
       message: widget.destination.label,
-      child: content,
+      child: labelled,
     );
   }
 }

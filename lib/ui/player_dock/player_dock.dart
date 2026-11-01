@@ -16,7 +16,7 @@ import '../../features/settings/theme_controller.dart';
 import '../components/ambient.dart';
 import '../components/artist_line.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip, LWVolumeSlider, WaveLink;
+import '../components/buttons.dart' show LWTooltip, LWVolumeSlider, WaveA11yButton, WaveLink;
 import '../components/menus.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -131,7 +131,10 @@ class WavePlayerDock extends ConsumerWidget {
                               key: ValueKey(current.queueKey),
                               child: Row(
                                 children: [
-                                  MouseRegion(
+                                  WaveA11yButton(
+                                    label: 'Open Now Playing',
+                                    onTap: onExpand,
+                                    child: MouseRegion(
                                     cursor: SystemMouseCursors.click,
                                     child: GestureDetector(
                                     onTap: onExpand,
@@ -147,10 +150,13 @@ class WavePlayerDock extends ConsumerWidget {
                                         artist: current.artist,
                                       ),
                                     ),
-                                  )),
+                                  ))),
                                   const SizedBox(width: 10),
                                   Expanded(
-                                    child: MouseRegion(
+                                    child: Semantics(
+                                      button: true,
+                                      onTap: onExpand,
+                                      child: MouseRegion(
                                       cursor: SystemMouseCursors.click,
                                       child: GestureDetector(
                                       onTap: onExpand,
@@ -184,7 +190,7 @@ class WavePlayerDock extends ConsumerWidget {
                                           ),
                                         ],
                                       ),
-                                    )),
+                                    )))
                                   ),
                                   _LikeGlyph(track: current),
                                   if (!narrow)
@@ -694,31 +700,42 @@ class _GlyphState extends State<_Glyph> {
       glyph = WaveMenuButton(
         entries: widget.menuItems!,
         placement: FlyoutPlacementMode.topRight,
-        buttonBuilder: (context, onOpen) => MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hover = true),
-          onExit: (_) => setState(() {
-            _hover = false;
-            _pressed = false;
-          }),
-          child: GestureDetector(
-            onTapDown: (_) => setState(() => _pressed = true),
-            onTapUp: (_) => setState(() => _pressed = false),
-            onTapCancel: () => setState(() => _pressed = false),
-            onTap: onOpen,
-            child: AnimatedScale(
-              scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
-              duration: waveMotion(context, WaveMotion.fast),
-              curve: Curves.easeOutCubic,
-              child: Container(
-                width: 34,
-                height: 34,
-                color: Colors.transparent,
-                child: Icon(widget.icon, size: 15, color: color),
+        buttonBuilder: (context, onOpen) => WaveA11yButton(
+          label: widget.tooltip,
+          onTap: onOpen,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hover = true),
+            onExit: (_) => setState(() {
+              _hover = false;
+              _pressed = false;
+            }),
+            child: GestureDetector(
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapUp: (_) => setState(() => _pressed = false),
+              onTapCancel: () => setState(() => _pressed = false),
+              onTap: onOpen,
+              child: AnimatedScale(
+                scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
+                duration: waveMotion(context, WaveMotion.fast),
+                curve: Curves.easeOutCubic,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  color: Colors.transparent,
+                  child: Icon(widget.icon, size: 15, color: color),
+                ),
               ),
             ),
           ),
         ),
+      );
+    } else {
+      glyph = WaveA11yButton(
+        label: widget.tooltip,
+        selected: widget.active,
+        onTap: widget.onTap,
+        child: glyph,
       );
     }
     return LWTooltip(message: widget.tooltip, child: glyph);
@@ -775,7 +792,13 @@ class _PlayGlyphState extends State<_PlayGlyph> {
         : onAccent.withValues(alpha: 0.5);
     return LWTooltip(
       message: widget.playing ? 'Pause (Space)' : 'Play (Space)',
-      child: Focus(
+      child: Semantics(
+        button: true,
+        enabled: widget.enabled,
+        label: widget.playing ? 'Pause' : 'Play',
+        onTap: widget.enabled ? widget.onTap : null,
+        excludeSemantics: true,
+        child: Focus(
         focusNode: _focus,
         onFocusChange: (_) => setState(() {}),
         onKeyEvent: (node, event) {
@@ -871,6 +894,7 @@ class _PlayGlyphState extends State<_PlayGlyph> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

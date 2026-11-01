@@ -10,7 +10,7 @@ import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import 'artist_line.dart';
 import 'artwork.dart';
-import 'buttons.dart' show LWTooltip;
+import 'buttons.dart' show LWTooltip, WaveA11yButton;
 import 'desktop_table.dart' show WaveEqDots;
 import 'menus.dart';
 
@@ -331,7 +331,14 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
         removeLabel: widget.removeLabel,
         onRemove: widget.onRemove,
       ),
-      child: row,
+      child: Semantics(
+        button: true,
+        selected: widget.isCurrent,
+        // Name comes from the title / artist / duration Text children,
+        // which merge into this node; labelling it too would read twice.
+        onTap: _activate,
+        child: row,
+      ),
     );
   }
 }
@@ -372,21 +379,25 @@ class _RowGlyphState extends State<_RowGlyph> {
         message: widget.tooltip,
         child: WaveMenuButton(
           entries: widget.menuItems!,
-          buttonBuilder: (context, onOpen) => MouseRegion(
-            cursor: SystemMouseCursors.click,
-            onEnter: (_) => setState(() => _hover = true),
-            onExit: (_) => setState(() => _hover = false),
-            child: GestureDetector(
-              onTap: onOpen,
-              child: AnimatedScale(
-                scale: _hover ? 1.15 : 1.0,
-                duration: waveMotion(context, WaveMotion.fast),
-                curve: Curves.easeOutCubic,
-                child: Container(
-                  width: 30,
-                  height: 36,
-                  color: Colors.transparent,
-                  child: Icon(widget.icon, size: 14, color: color),
+          buttonBuilder: (context, onOpen) => WaveA11yButton(
+            label: widget.tooltip,
+            onTap: onOpen,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              onEnter: (_) => setState(() => _hover = true),
+              onExit: (_) => setState(() => _hover = false),
+              child: GestureDetector(
+                onTap: onOpen,
+                child: AnimatedScale(
+                  scale: _hover ? 1.15 : 1.0,
+                  duration: waveMotion(context, WaveMotion.fast),
+                  curve: Curves.easeOutCubic,
+                  child: Container(
+                    width: 30,
+                    height: 36,
+                    color: Colors.transparent,
+                    child: Icon(widget.icon, size: 14, color: color),
+                  ),
                 ),
               ),
             ),
@@ -396,21 +407,26 @@ class _RowGlyphState extends State<_RowGlyph> {
     }
     return LWTooltip(
       message: widget.tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedScale(
-            scale: _hover ? 1.15 : 1.0,
-            duration: waveMotion(context, WaveMotion.fast),
-            curve: Curves.easeOutCubic,
-            child: Container(
-              width: 30,
-              height: 36,
-              color: Colors.transparent,
-              child: Icon(widget.icon, size: 14, color: color),
+      child: WaveA11yButton(
+        label: widget.tooltip,
+        selected: widget.active,
+        onTap: widget.onTap,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hover = true),
+          onExit: (_) => setState(() => _hover = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: AnimatedScale(
+              scale: _hover ? 1.15 : 1.0,
+              duration: waveMotion(context, WaveMotion.fast),
+              curve: Curves.easeOutCubic,
+              child: Container(
+                width: 30,
+                height: 36,
+                color: Colors.transparent,
+                child: Icon(widget.icon, size: 14, color: color),
+              ),
             ),
           ),
         ),
