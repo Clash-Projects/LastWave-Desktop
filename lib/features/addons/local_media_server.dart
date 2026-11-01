@@ -420,13 +420,26 @@ class _Session {
         ? Uint8List.fromList(base64Decode(plan.constantIv))
         : Uint8List(0);
 
-    final rawInit = await DashAssembler.fetchInitRange(
-      _dio,
-      plan.cdnUrl,
-      start: plan.initRange.start,
-      end: plan.initRange.end,
-    );
+    final fetchResults = await Future.wait([
+      DashAssembler.fetchInitRange(
+        _dio,
+        plan.cdnUrl,
+        start: plan.initRange.start,
+        end: plan.initRange.end,
+      ),
+      DashAssembler.fetchRangeBytes(
+        _dio,
+        plan.cdnUrl,
+        start: plan.ranges[0].start,
+        end: plan.ranges[0].end,
+      ),
+    ]);
+
+    final rawInit = fetchResults[0];
+    final rawSeg0 = fetchResults[1];
     if (rawInit == null) throw StateError('hybrid init fetch failed');
+    if (rawSeg0 == null) throw StateError('hybrid seg0 fetch failed');
+
     final init = Uint8List.fromList(rawInit);
     var ivSize = plan.ivSize;
     var constantIv = constantIvBytes;
@@ -442,13 +455,6 @@ class _Session {
     }
     _slog('hybrid init $name ${init.length}b');
 
-    final rawSeg0 = await DashAssembler.fetchRangeBytes(
-      _dio,
-      plan.cdnUrl,
-      start: plan.ranges[0].start,
-      end: plan.ranges[0].end,
-    );
-    if (rawSeg0 == null) throw StateError('hybrid seg0 fetch failed');
     final seg0 = Uint8List.fromList(rawSeg0);
     if (plan.encrypted && keyBytes.isNotEmpty) {
       decryptSegment(seg0, keyBytes, ivSize, constantIv, plan.ranges[0].start);
