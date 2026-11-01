@@ -44,7 +44,10 @@ import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
+import 'backup_settings.dart';
 import 'diagnostics_actions.dart';
+import 'download_layout_settings.dart';
+import 'settings_search.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
@@ -78,6 +81,8 @@ class WaveSettingsPage extends ConsumerStatefulWidget {
 
 class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
   late String _section;
+  String? _highlightId;
+  Timer? _highlightTimer;
   late final ScrollController _contentScrollController;
   late final ScrollController _narrowScrollController;
   late final ScrollController _railScrollController;
@@ -97,10 +102,40 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
 
   @override
   void dispose() {
+    _highlightTimer?.cancel();
     _contentScrollController.dispose();
     _narrowScrollController.dispose();
     _railScrollController.dispose();
     super.dispose();
+  }
+
+  /// Opens the card's section, scrolls to it and outlines it for a moment.
+  void _jump(SettingsSearchEntry entry) {
+    final switching = _section != entry.section;
+    setState(() {
+      _section = entry.section;
+      _highlightId = entry.id;
+    });
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted) setState(() => _highlightId = null);
+    });
+    // A section change cross-fades and resizes first; wait for it so the
+    // scroll lands on the card's final position.
+    Future<void>.delayed(
+      Duration(milliseconds: switching ? 320 : 30),
+      () {
+        if (!mounted) return;
+        final target = SettingsTarget.keys[entry.id]?.currentContext;
+        if (target == null || !target.mounted) return;
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.08,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      },
+    );
   }
 
   Future<void> _update(Future<void> Function(Prefs) fn) async {
@@ -111,6 +146,28 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    return SettingsSpotlight(
+      activeId: _highlightId,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: SettingsSearchBox(onPick: _jump),
+              ),
+            ),
+          ),
+          Expanded(child: _layout()),
+        ],
+      ),
+    );
+  }
+
+  Widget _layout() {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Content-aware (rail-aware): LayoutBuilder sees real content
@@ -353,10 +410,13 @@ class _AccentPreview extends StatelessWidget {
 }
 
 class _Group extends StatelessWidget {
+  /// Search target id (see `settings_search.dart`). Null = not searchable.
+  final String? id;
   final String title;
   final String subtitle;
   final Widget child;
   const _Group({
+    this.id,
     required this.title,
     required this.subtitle,
     required this.child,
@@ -364,6 +424,12 @@ class _Group extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final card = _card(context);
+    final id = this.id;
+    return id == null ? card : SettingsTarget(id: id, child: card);
+  }
+
+  Widget _card(BuildContext context) {
     final theme = FluentTheme.of(context);
     final stroke = theme.resources.cardStrokeColorDefault;
     return Column(
@@ -424,6 +490,7 @@ class _Account extends ConsumerWidget {
     final signedIn = auth.username.isNotEmpty;
     final guest = auth.status == AuthStatus.guest || prefs.isGuest;
     return _Group(
+      id: 'lastfm.connection',
       title: 'Last.fm connection',
       subtitle: 'Scrobbling and discovery need a session',
       child: Column(
@@ -612,6 +679,7 @@ class _Audio extends ConsumerWidget {
       children: [
         const SizedBox(height: 8),
         _Group(
+          id: 'audio.output',
           title: 'Audio output',
           subtitle: Platform.isWindows
               ? 'WASAPI Exclusive bypasses the Windows mixer'
@@ -620,6 +688,7 @@ class _Audio extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          id: 'audio.quality',
           title: 'Streaming and Download quality',
           subtitle: 'Lossless-first with YouTube fallback',
           child: Column(
@@ -647,6 +716,7 @@ class _Audio extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          id: 'audio.equalizer',
           title: 'Equalizer & Sound FX',
           subtitle: '10-band ISO curves with acoustic & stage compensation',
           child: const SizedBox(
@@ -742,6 +812,7 @@ class _Appearance extends ConsumerWidget {
     return Column(
       children: [
         _Group(
+          id: 'appearance.theme',
           title: 'Theme',
           subtitle: 'Midnight charcoal or pearl light',
           child: Column(
@@ -855,6 +926,7 @@ class _Appearance extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          id: 'appearance.haze',
           title: 'Haze material',
           subtitle:
               'Automatic uses Haze L1–L3 as designed · Solid disables blur',
@@ -894,6 +966,7 @@ class _Appearance extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          id: 'appearance.surfaces',
           title: 'Surfaces',
           subtitle: 'Contrast and artwork tinting',
           child: Column(
@@ -927,6 +1000,7 @@ class _Lyrics extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     return _Group(
+      id: 'lyrics.timing',
       title: 'Timing',
       subtitle: 'Synced lyrics providers',
       child: Column(
@@ -1112,6 +1186,7 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
         .clamp(25, 90)
         .toDouble();
     return _Group(
+      id: 'lastfm.scrobbling',
       title: 'Last.fm scrobbling',
       subtitle: 'Thresholds mirror Last.fm rules',
       child: Column(
@@ -1178,6 +1253,7 @@ class _Ytm extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _Group(
+          id: 'integrations.ytm',
           title: 'YouTube Music',
           subtitle: 'Personal library, history and uploads',
           child: connection.connected
@@ -1220,6 +1296,7 @@ class _Ytm extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
+          id: 'integrations.discord',
           title: 'Discord',
           subtitle: 'Show what you are listening to on your Discord profile',
           child: _SwitchRow(
@@ -2408,6 +2485,7 @@ class _Sources extends ConsumerWidget {
         ? src.quotaByBase
         : const <String, AddonQuota>{};
     return _Group(
+      id: 'sources.addons',
       title: 'Addon sources',
       subtitle: urls.isEmpty
           ? 'No addon configured — using the built-in lossless backend'
@@ -2702,6 +2780,7 @@ class _AboutState extends ConsumerState<_About> {
   @override
   Widget build(BuildContext context) {
     return _Group(
+      id: 'about.main',
       title: 'About LastWave',
       subtitle: 'Build and project links',
       child: Column(
@@ -2800,6 +2879,7 @@ class _General extends ConsumerWidget {
     return Column(
       children: [
         _Group(
+          id: 'general.behaviour',
           title: 'Behaviour',
           subtitle: 'Startup and window defaults',
           child: Column(
@@ -2815,10 +2895,18 @@ class _General extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 16),
+        const _Group(
+          id: 'general.backup',
+          title: 'Backup',
+          subtitle: 'Move your playlists and settings to another device',
+          child: BackupSettings(),
+        ),
+        const SizedBox(height: 16),
         // Diagnostics live on the General page on purpose: a user with a
         // problem finds them without knowing what "Advanced" means, and
         // the export is the only thing we ever ask them to send.
         _Group(
+          id: 'general.diagnostics',
           title: 'Diagnostics',
           subtitle: 'Local logs for troubleshooting — nothing is uploaded',
           child: Column(
@@ -2883,6 +2971,7 @@ class _PlaybackState extends ConsumerState<_Playback> {
     final currentSeconds = _dragSeconds ?? prefs.crossfadeSeconds.toDouble();
 
     return _Group(
+      id: 'playback.main',
       title: 'Playback',
       subtitle: 'Gapless, crossfade and output behaviour',
       child: Column(
@@ -2993,6 +3082,7 @@ class _Downloads extends ConsumerWidget {
     final prefs = ref.watch(prefsProvider);
     final custom = prefs.downloadDir;
     return _Group(
+      id: 'downloads.offline',
       title: 'Offline',
       subtitle: 'Download behaviour and lyrics sidecars',
       child: Column(
@@ -3035,6 +3125,8 @@ class _Downloads extends ConsumerWidget {
               ],
             ],
           ),
+          const SizedBox(height: 12),
+          DownloadLayoutSettings(onUpdate: onUpdate),
         ],
       ),
     );
@@ -3132,6 +3224,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
     _secret ??= TextEditingController(text: prefs.lastFmApiSecret);
     final configured = prefs.isLastFmConfigured;
     return _Group(
+      id: 'lastfm.keys',
       title: 'API keys',
       subtitle: 'Your own keys from last.fm/api/account/create',
       child: Column(
@@ -3219,6 +3312,7 @@ class _Experimental extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     return _Group(
+      id: 'experimental.main',
       title: 'Experimental',
       subtitle: 'Opt-in desktop prototypes',
       child: Column(

@@ -8,11 +8,15 @@ class LocalAudioTags {
   final String title;
   final String artist;
   final String album;
+  final String year;
+  final Uint8List? coverBytes;
 
   const LocalAudioTags({
     this.title = '',
     this.artist = '',
     this.album = '',
+    this.year = '',
+    this.coverBytes,
   });
 
   static LocalAudioTags read(String path, {String filename = ''}) {
@@ -25,7 +29,10 @@ class LocalAudioTags {
       try {
         final headLen = length < 262144 ? length : 262144;
         final head = raf.readSync(headLen);
-        tags = _id3v2(head) ?? _flac(head) ?? const LocalAudioTags();
+        tags = _id3v2(head) ??
+            _flac(head) ??
+            _mp4(head) ??
+            const LocalAudioTags();
         if (tags.title.isEmpty && length > 128) {
           raf.setPositionSync(length - 128);
           final tail = raf.readSync(128);
@@ -35,6 +42,8 @@ class LocalAudioTags {
               title: tags.title.isNotEmpty ? tags.title : v1.title,
               artist: tags.artist.isNotEmpty ? tags.artist : v1.artist,
               album: tags.album.isNotEmpty ? tags.album : v1.album,
+              year: tags.year,
+              coverBytes: tags.coverBytes,
             );
           }
         }
@@ -48,6 +57,8 @@ class LocalAudioTags {
         title: named.title,
         artist: tags.artist.isNotEmpty ? tags.artist : named.artist,
         album: tags.album,
+        year: tags.year,
+        coverBytes: tags.coverBytes,
       );
     }
     if (tags.artist.isEmpty) {
@@ -56,6 +67,8 @@ class LocalAudioTags {
         title: tags.title,
         artist: named.artist,
         album: tags.album,
+        year: tags.year,
+        coverBytes: tags.coverBytes,
       );
     }
     return tags;
@@ -88,6 +101,8 @@ class LocalAudioTags {
     String title = '';
     String artist = '';
     String album = '';
+    String year = '';
+    Uint8List? cover;
     while (offset + 10 <= limit) {
       final id = ascii(bytes, offset, 4);
       if (id.isEmpty || id.codeUnitAt(0) == 0) break;
@@ -98,15 +113,34 @@ class LocalAudioTags {
       if (size <= 0 || offset + size > bytes.length) break;
       final frame = Uint8List.sublistView(bytes, offset, offset + size);
       offset += size;
-      if (id == 'TIT2' || id == 'TPE1' || id == 'TALB') {
+      if (id == 'TIT2' ||
+          id == 'TPE1' ||
+          id == 'TALB' ||
+          id == 'TYER' ||
+          id == 'TDRC' ||
+          id == 'TDRL') {
         final text = _id3Text(frame);
         if (id == 'TIT2' && title.isEmpty) title = text;
         if (id == 'TPE1' && artist.isEmpty) artist = text;
         if (id == 'TALB' && album.isEmpty) album = text;
+        if (year.isEmpty &&
+            (id == 'TYER' || id == 'TDRC' || id == 'TDRL')) {
+          year = _yearOf(text);
+        }
+      } else if (id == 'APIC' && cover == null) {
+        cover = _apicBytes(frame);
       }
     }
-    if (title.isEmpty && artist.isEmpty && album.isEmpty) return null;
-    return LocalAudioTags(title: title, artist: artist, album: album);
+    if (title.isEmpty && artist.isEmpty && album.isEmpty && cover == null) {
+      return null;
+    }
+    return LocalAudioTags(
+      title: title,
+      artist: artist,
+      album: album,
+      year: year,
+      coverBytes: cover,
+    );
   }
 
   static LocalAudioTags? _id3v1(Uint8List bytes) {
@@ -153,6 +187,7 @@ class LocalAudioTags {
     String title = '';
     String artist = '';
     String album = '';
+    String year = '';
     for (var i = 0; i < count; i++) {
       if (offset + 4 > block.length) break;
       final len = _u32le(block, offset);
@@ -171,9 +206,109 @@ class LocalAudioTags {
       if (key == 'TITLE' && title.isEmpty) title = value;
       if (key == 'ARTIST' && artist.isEmpty) artist = value;
       if (key == 'ALBUM' && album.isEmpty) album = value;
+      if (year.isEmpty && (key == 'DATE' || key == 'YEAR')) {
+        year = _yearOf(value);
+      }
     }
     if (title.isEmpty && artist.isEmpty) return null;
-    return LocalAudioTags(title: title, artist: artist, album: album);
+    return LocalAudioTags(
+      title: title,
+      artist: artist,
+      album: album,
+      year: year,
+    );
+  }
+
+  /// Tags from the start of an audio payload, used before a download is
+  /// written so a year folder can be chosen.
+  static LocalAudioTags fromHead(Uint8List bytes) =>
+      _id3v2(bytes) ?? _flac(bytes) ?? _mp4(bytes) ?? const LocalAudioTags();
+
+  static String yearIn(String value) => _yearOf(value);
+
+  static String _yearOf(String value) {
+    final match = RegExp(r'(?:19|20)\d{2}').firstMatch(value);
+    return match?.group(0) ?? '';
+  }
+
+  static Uint8List? _apicBytes(Uint8List frame) {
+    if (frame.length < 6) return null;
+    var i = 1;
+    while (i < frame.length && frame[i] != 0) {
+      i++;
+    }
+    i += 2;
+    if (i >= frame.length) return null;
+    final encoding = frame[0];
+    if (encoding == 1 || encoding == 2) {
+      while (i + 1 < frame.length && !(frame[i] == 0 && frame[i + 1] == 0)) {
+        i += 2;
+      }
+      i += 2;
+    } else {
+      while (i < frame.length && frame[i] != 0) {
+        i++;
+      }
+      i++;
+    }
+    if (i >= frame.length - 8) return null;
+    return Uint8List.sublistView(frame, i);
+  }
+
+  static LocalAudioTags? _mp4(Uint8List bytes) {
+    String title = '';
+    String artist = '';
+    String album = '';
+    String year = '';
+    Uint8List? cover;
+    void walk(int start, int end, {bool ilst = false}) {
+      var offset = start;
+      while (offset + 8 <= end) {
+        final size = _u32(bytes, offset);
+        if (size < 8 || offset + size > end) break;
+        final type = ascii(bytes, offset + 4, 4);
+        final next = offset + size;
+        var child = offset + 8;
+        if (ilst && type != 'data') {
+          if (child + 8 <= next && ascii(bytes, child + 4, 4) == 'data') {
+            final payload = child + 16;
+            if (payload < next) {
+              final raw = Uint8List.sublistView(bytes, payload, next);
+              final text = _trim(utf8.decode(raw, allowMalformed: true));
+              if (type == '©nam' && title.isEmpty) title = text;
+              if ((type == '©ART' || type == 'aART') && artist.isEmpty) {
+                artist = text;
+              }
+              if (type == '©alb' && album.isEmpty) album = text;
+              if (type == '©day' && year.isEmpty) year = _yearOf(text);
+              if (type == 'covr' && cover == null && raw.length > 32) {
+                cover = raw;
+              }
+            }
+          }
+        } else if (type == 'moov' ||
+            type == 'udta' ||
+            type == 'ilst' ||
+            type == 'trak') {
+          walk(child, next, ilst: type == 'ilst' || ilst);
+        } else if (type == 'meta' && child + 4 <= next) {
+          walk(child + 4, next, ilst: ilst);
+        }
+        offset = next;
+      }
+    }
+
+    walk(0, bytes.length);
+    if (title.isEmpty && artist.isEmpty && album.isEmpty && cover == null) {
+      return null;
+    }
+    return LocalAudioTags(
+      title: title,
+      artist: artist,
+      album: album,
+      year: year,
+      coverBytes: cover,
+    );
   }
 
   static String _id3Text(Uint8List frame) {

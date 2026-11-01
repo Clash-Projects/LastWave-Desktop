@@ -19,6 +19,11 @@ class PlayerSnapshot {
   final ResolvedStream? stream;
   final String? error;
   final Duration? sleepRemaining;
+
+  /// Length the user picked, in minutes. Null while the timer is off.
+  /// Stays put as [sleepRemaining] counts down so the menu can keep
+  /// the chosen row checked.
+  final int? sleepMinutes;
   final int bitrateKbps;
   final double volume;
   final PcmFormat? outputFormat;
@@ -40,6 +45,7 @@ class PlayerSnapshot {
     this.stream,
     this.error,
     this.sleepRemaining,
+    this.sleepMinutes,
     this.bitrateKbps = 0,
     this.volume = 1.0,
     this.outputFormat,
@@ -65,6 +71,7 @@ class PlayerSnapshot {
     String? error,
     bool clearError = false,
     Duration? sleepRemaining,
+    int? sleepMinutes,
     bool clearSleep = false,
     int? bitrateKbps,
     double? volume,
@@ -89,6 +96,7 @@ class PlayerSnapshot {
         error: clearError ? null : (error ?? this.error),
         sleepRemaining:
             clearSleep ? null : (sleepRemaining ?? this.sleepRemaining),
+        sleepMinutes: clearSleep ? null : (sleepMinutes ?? this.sleepMinutes),
         bitrateKbps: bitrateKbps ?? this.bitrateKbps,
         volume: volume ?? this.volume,
         outputFormat:

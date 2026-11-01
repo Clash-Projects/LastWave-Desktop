@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/deep_link.dart';
 import '../../app/router.dart';
 import '../../app/window.dart';
 import '../../app/window_lifecycle.dart';
@@ -14,6 +17,7 @@ import '../../ui/theme/fluent_theme.dart';
 import '../../ui/theme/haze.dart';
 import '../player/playback_service.dart';
 import '../audio_output/output_controller.dart';
+import '../jam/jam_sync.dart';
 import '../innertube/innertube_api.dart';
 import '../mpris/mpris_service.dart';
 import '../smtc/smtc_service.dart';
@@ -37,6 +41,13 @@ class LastWaveApp extends ConsumerStatefulWidget {
 }
 
 class _LastWaveAppState extends ConsumerState<LastWaveApp> {
+  StreamSubscription<String>? _linkSub;
+
+  void _openLink(String link) {
+    final route = routeForLink(link);
+    if (route != null) _router.go(route);
+  }
+
   late final GoRouter _router;
   late final AuthGate _gate;
 
@@ -50,6 +61,13 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           ref.read(prefsProvider).isGuest,
     );
     _router = buildRouter(gate: _gate);
+    // lastwave:// links: the launch link once the first frame is up, and
+    // links forwarded by a second launch while running.
+    _linkSub = DeepLinks.stream.listen(_openLink);
+    final launchLink = DeepLinks.takeInitial();
+    if (launchLink != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openLink(launchLink));
+    }
     // Warm start (non-blocking, best-effort): create the single
     // persistent media_kit/libmpv player. BotGuard pre-warms once on a
     // delay (single hidden window, reused for app lifetime): this moves
@@ -135,6 +153,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
 
   @override
   void dispose() {
+    _linkSub?.cancel();
     _gate.dispose();
     super.dispose();
   }
@@ -153,6 +172,8 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
             a.status == AuthStatus.signedIn ||
             a.status == AuthStatus.guest),
         (_, inside) => _gate.update(inside));
+    // Bridges Jam room events to the player; idle until a room is joined.
+    ref.watch(jamSyncProvider);
     final theme = ref.watch(themeControllerProvider);
     // Accent source (custom / LastWave neutral / system / artwork) is
     // resolved in one place; anything that can't answer falls back to the

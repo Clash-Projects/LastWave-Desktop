@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'app/deep_link.dart';
 import 'app/window.dart';
 import 'core/artwork/artwork_resolver.dart';
 import 'core/artwork/official_artwork_service.dart';
@@ -26,6 +27,7 @@ Future<void> main(List<String> args) async {
   // change, measured). See lib/core/platform/allocator_tuning.dart.
   applyAllocatorTuning();
   WidgetsFlutterBinding.ensureInitialized();
+  DeepLinks.start(args);
   // Fatal breadcrumbs: log-and-continue-handling (return false) so the
   // next fail-fast names its line in mpv-ops.log. Sync writes only.
   FlutterError.onError = (details) {

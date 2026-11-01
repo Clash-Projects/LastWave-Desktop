@@ -286,7 +286,7 @@ class WavePlayerDock extends ConsumerWidget {
                   Builder(builder: (context) {
                     // Thresholds are dock-relative (content width), aligned
                     // to canonical 900 breakpoint family.
-                    final showLyrics = dockW >= 560;
+                    final showJam = dockW >= 560;
                     final showQuality =
                         dockW >= 900 && player.stream != null;
                     final showOutput = dockW >= 800;
@@ -313,12 +313,13 @@ class WavePlayerDock extends ConsumerWidget {
                                 stream: player.stream!,
                               ),
                             ),
-                          if (showLyrics)
+                          if (showJam)
                             _Glyph(
-                              tooltip: 'Lyrics (Ctrl+L)',
-                              icon: WaveIcons.lyrics,
-                              active: lyricsActive,
-                              onTap: onToggleLyrics,
+                              tooltip: 'Jam',
+                              icon: FluentIcons.people,
+                              active: GoRouterState.of(context).uri.path ==
+                                  '/jam',
+                              onTap: () => context.go('/jam'),
                             ),
                           _Glyph(
                             tooltip: 'Queue',
@@ -351,14 +352,13 @@ class WavePlayerDock extends ConsumerWidget {
                               onTap: onToggleMini,
                             ),
                           _DockOverflow(
-                            showLyricsItem: !showLyrics,
+                            showJamItem: !showJam,
                             showQualityItem: !showQuality &&
                                 player.stream != null,
                             showOutputItem: !showOutput,
                             showExpandItem: !showExpand,
                             expandLabel: expandLabel,
                             showMiniItem: !showMini,
-                            onToggleLyrics: onToggleLyrics,
                             onExpand: onExpand,
                             onToggleMini: onToggleMini,
                             onToggleEqualizer: onToggleEqualizer,
@@ -1484,24 +1484,22 @@ class _VolumeFlyoutGlyphState extends ConsumerState<_VolumeFlyoutGlyph> {
 }
 
 class _DockOverflow extends ConsumerWidget {
-  final bool showLyricsItem;
+  final bool showJamItem;
   final bool showQualityItem;
   final bool showOutputItem;
   final bool showExpandItem;
   final String expandLabel;
   final bool showMiniItem;
-  final VoidCallback onToggleLyrics;
   final VoidCallback onExpand;
   final VoidCallback onToggleMini;
   final VoidCallback? onToggleEqualizer;
   const _DockOverflow({
-    this.showLyricsItem = false,
+    this.showJamItem = false,
     this.showQualityItem = false,
     this.showOutputItem = false,
     this.showExpandItem = false,
     this.expandLabel = 'Open Now Playing',
     this.showMiniItem = false,
-    required this.onToggleLyrics,
     required this.onExpand,
     required this.onToggleMini,
     this.onToggleEqualizer,
@@ -1511,6 +1509,9 @@ class _DockOverflow extends ConsumerWidget {
     final notifier = ref.read(playbackServiceProvider.notifier);
     final sleep = ref.watch(
       playbackServiceProvider.select((s) => s.sleepRemaining),
+    );
+    final sleepMinutes = ref.watch(
+      playbackServiceProvider.select((s) => s.sleepMinutes),
     );
     final stream = ref.watch(
       playbackServiceProvider.select((s) => s.stream),
@@ -1523,7 +1524,7 @@ class _DockOverflow extends ConsumerWidget {
     final outputName = output.selected?.displayName ?? 'System default';
     final outputEntries = _outputEntries(context, ref, output);
     final hasCollapsed =
-        showLyricsItem ||
+        showJamItem ||
         showQualityItem ||
         showOutputItem ||
         showExpandItem ||
@@ -1534,11 +1535,11 @@ class _DockOverflow extends ConsumerWidget {
       menuItems: [
         // Collapsed priority controls reappear here — nothing is lost
         // at narrow widths, nothing overflows the window.
-        if (showLyricsItem)
+        if (showJamItem)
           WaveMenuAction(
-            leading: const Icon(WaveIcons.lyrics, size: 15),
-            label: 'Lyrics  (Ctrl+L)',
-            onPressed: onToggleLyrics,
+            leading: const Icon(FluentIcons.people, size: 15),
+            label: 'Jam',
+            onPressed: () => context.go('/jam'),
           ),
         if (showQualityItem && stream != null)
           WaveMenuAction(
@@ -1578,18 +1579,29 @@ class _DockOverflow extends ConsumerWidget {
           label: 'Speed $speedLabel×',
           onPressed: notifier.cycleSpeed,
         ),
-        WaveMenuAction(
+        WaveMenuSubmenu(
           leading: const Icon(WaveIcons.clock, size: 15),
-          label: sleep == null
-              ? 'Sleep timer · 30 min'
-              : 'Sleep ${sleep.inMinutes}m (tap to clear)',
-          onPressed: () {
-            if (sleep != null) {
-              notifier.setSleepTimer(null);
-            } else {
-              notifier.setSleepTimer(const Duration(minutes: 30));
-            }
-          },
+          label: _sleepLabel(sleep),
+          items: () => [
+            WaveMenuAction(
+              leading: _sleepMark(sleepMinutes == null),
+              label: 'Off',
+              onPressed: () => notifier.setSleepTimer(null),
+            ),
+            for (final minutes in _sleepPresets)
+              WaveMenuAction(
+                leading: _sleepMark(sleepMinutes == minutes),
+                label: '$minutes minutes',
+                onPressed: () =>
+                    notifier.setSleepTimer(Duration(minutes: minutes)),
+              ),
+            WaveMenuAction(
+              leading: _sleepMark(sleepMinutes != null &&
+                  !_sleepPresets.contains(sleepMinutes)),
+              label: 'Custom…',
+              onPressed: () => _showCustomSleepDialog(context, notifier),
+            ),
+          ],
         ),
         WaveMenuAction(
           leading: const Icon(WaveIcons.downloadAction, size: 15),
@@ -1605,6 +1617,93 @@ class _DockOverflow extends ConsumerWidget {
                   artworkUrl: current.artworkUrl,
                 );
           },
+        ),
+      ],
+    );
+  }
+}
+
+const _sleepPresets = [15, 30, 60];
+
+Widget _sleepMark(bool on) => on
+    ? const Icon(FluentIcons.check_mark, size: 13)
+    : const SizedBox(width: 13);
+
+/// "Sleep timer" while off, otherwise the time left as "Sleep · m:ss".
+String _sleepLabel(Duration? remaining) {
+  if (remaining == null) return 'Sleep timer';
+  final total = remaining.inSeconds.clamp(0, 24 * 60 * 60);
+  final minutes = total ~/ 60;
+  final seconds = (total % 60).toString().padLeft(2, '0');
+  return 'Sleep · $minutes:$seconds';
+}
+
+Future<void> _showCustomSleepDialog(
+  BuildContext context,
+  PlaybackService notifier,
+) async {
+  final minutes = await showDialog<int>(
+    context: context,
+    builder: (context) => const _CustomSleepDialog(),
+  );
+  if (minutes == null) return;
+  notifier.setSleepTimer(Duration(minutes: minutes));
+}
+
+/// Owns its text controller so it is disposed with the dialog, not while
+/// the close animation is still drawing it.
+class _CustomSleepDialog extends StatefulWidget {
+  const _CustomSleepDialog();
+
+  @override
+  State<_CustomSleepDialog> createState() => _CustomSleepDialogState();
+}
+
+class _CustomSleepDialogState extends State<_CustomSleepDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _start() {
+    final n = int.tryParse(_controller.text.trim());
+    if (n == null || n < 1 || n > 1440) return;
+    Navigator.of(context).pop(n);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ContentDialog(
+      title: const Text('Sleep timer'),
+      constraints: const BoxConstraints(maxWidth: 420),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Minutes', style: WaveType.trackTitle),
+          const SizedBox(height: 6),
+          TextBox(
+            controller: _controller,
+            placeholder: '45',
+            autofocus: true,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onSubmitted: (_) => _start(),
+          ),
+          const SizedBox(height: 6),
+          Text('1–1440. Replaces the current timer.', style: WaveType.meta),
+        ],
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _start,
+          child: const Text('Start'),
         ),
       ],
     );

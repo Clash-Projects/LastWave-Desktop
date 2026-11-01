@@ -888,6 +888,8 @@ class AddonApi implements LosslessSource {
   /// Tier 28 (Dolby Atmos) requests atmos first and steps down:
   /// atmos -> hi_res -> lossless -> high (matches Android).
   /// Stereo tiers (27, 7, 6, 5) never request atmos.
+  /// Tier 4 (data saver) is empty: the addon knobs are atmos, hi_res,
+  /// lossless, and high. There is no 96 kbps code.
   static List<String> serverQualitiesForTier(int tier) {
     switch (tier) {
       case 28:
@@ -899,6 +901,8 @@ class AddonApi implements LosslessSource {
         return const ['lossless', 'hi_res', 'high'];
       case 5:
         return const ['high', 'lossless'];
+      case 4:
+        return const [];
       default:
         return const ['hi_res', 'lossless', 'high'];
     }
@@ -1385,6 +1389,13 @@ class AddonApi implements LosslessSource {
   }) async {
     if (!isConfigured) return null;
     if (preferredQuality == -1) return null;
+    // Tier 4 has no addon quality code (atmos / hi_res / lossless / high).
+    // Callers play the smallest YouTube audio instead.
+    if (preferredQuality == AudioQualityTiers.dataSaver) {
+      TraceCrumb.write('resolve key=${_clean(title)}|${_clean(artist)} '
+          'q=$preferredQuality skip=no-96k-addon');
+      return null;
+    }
     if (title.trim().isEmpty || artist.trim().isEmpty) return null;
     final cacheKey =
         _streamCacheKey(title, artist, preferredQuality, album);

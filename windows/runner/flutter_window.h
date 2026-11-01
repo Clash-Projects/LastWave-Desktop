@@ -3,6 +3,8 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/encodable_value.h>
+#include <flutter/method_channel.h>
 
 #include <memory>
 
@@ -35,6 +37,9 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
   std::unique_ptr<lastwave::WasapiChannel> wasapi_channel_;
   std::unique_ptr<lastwave::SmtcChannel> smtc_channel_;
+  // lastwave:// links forwarded by a second launch (WM_COPYDATA).
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      deeplink_channel_;
   // Set at the start of OnDestroy: DestroyWindow() re-enters the WndProc
   // via a user-callback while teardown is in flight (release crash
   // flutter_windows+1e220). Once set, messages go to DefWindowProc
