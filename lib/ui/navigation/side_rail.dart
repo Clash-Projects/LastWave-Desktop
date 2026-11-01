@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../l10n/app_language.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../theme/haze.dart';
 import '../theme/motion.dart';
@@ -13,7 +15,7 @@ import 'destinations.dart';
 /// - small 36px rows, no giant rounded rectangles
 /// - selected = subtle wash + 3px accent bar, nothing loud
 /// - bottom: Friends / Settings pinned, history hidden
-class WaveSideRail extends StatefulWidget {
+class WaveSideRail extends ConsumerStatefulWidget {
   final bool expanded;
   final String active;
   final void Function(String) onGo;
@@ -24,10 +26,10 @@ class WaveSideRail extends StatefulWidget {
     required this.onGo,
   });
   @override
-  State<WaveSideRail> createState() => _WaveSideRailState();
+  ConsumerState<WaveSideRail> createState() => _WaveSideRailState();
 }
 
-class _WaveSideRailState extends State<WaveSideRail> {
+class _WaveSideRailState extends ConsumerState<WaveSideRail> {
   bool get expanded => widget.expanded;
   String get active => widget.active;
   void Function(String) get onGo => widget.onGo;
@@ -38,6 +40,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
   /// instead of reconstructed. Cleared on expand/collapse (every row
   /// changes shape); bounded at 4 instances per destination max.
   final Map<String, Widget> _rowCache = {};
+  String _seenLang = '';
 
   @override
   void didUpdateWidget(covariant WaveSideRail oldWidget) {
@@ -45,15 +48,21 @@ class _WaveSideRailState extends State<WaveSideRail> {
     if (oldWidget.expanded != widget.expanded) _rowCache.clear();
   }
 
-  Widget _row(WaveDestination destination, int index, {double rise = 6}) {
+  Widget _row(
+    WaveDestination destination,
+    int index, {
+    double rise = 6,
+    required String label,
+  }) {
     final selected = active == destination.path;
     return _rowCache.putIfAbsent(
-      '${destination.path}|$expanded|$selected',
+      '${destination.path}|$expanded|$selected|$label',
       () => WaveEntrance(
         index: index,
         rise: rise,
         child: _RailItem(
           destination: destination,
+          label: label,
           expanded: expanded,
           selected: selected,
           onTap: () => onGo(destination.path),
@@ -64,6 +73,11 @@ class _WaveSideRailState extends State<WaveSideRail> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = ref.watch(shellStringsProvider);
+    if (strings.code != _seenLang) {
+      _seenLang = strings.code;
+      _rowCache.clear();
+    }
     final dark = waveIsDark(context);
     final width =
         expanded ? WaveDensity.railExpanded : WaveDensity.railCollapsed;
@@ -104,7 +118,11 @@ class _WaveSideRailState extends State<WaveSideRail> {
                 // One-shot startup cascade — standalone entrances run once
                 // on mount; in-place rebuilds (selection/hover) never replay.
                 for (var i = 0; i < waveListenDestinations.length; i++)
-                  _row(waveListenDestinations[i], i),
+                  _row(
+                    waveListenDestinations[i],
+                    i,
+                    label: strings.rail(waveListenDestinations[i].path),
+                  ),
                 WaveEntrance(
                   index: waveListenDestinations.length,
                   rise: 4,
@@ -114,6 +132,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
                   _row(
                     waveCollectionDestinations[i],
                     waveListenDestinations.length + i,
+                    label: strings.rail(waveCollectionDestinations[i].path),
                   ),
                 WaveEntrance(
                   index: waveListenDestinations.length +
@@ -127,6 +146,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
                     waveListenDestinations.length +
                         waveCollectionDestinations.length +
                         i,
+                    label: strings.rail(waveOfflineDestinations[i].path),
                   ),
               ],
             ),
@@ -145,6 +165,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
                     waveCollectionDestinations.length +
                     waveOfflineDestinations.length +
                     i,
+                label: strings.rail(waveSystemDestinations[i].path),
               ),
             ),
           const SizedBox(height: 8),
@@ -179,11 +200,13 @@ class _RailSeparator extends StatelessWidget {
 
 class _RailItem extends StatefulWidget {
   final WaveDestination destination;
+  final String label;
   final bool expanded;
   final bool selected;
   final VoidCallback onTap;
   const _RailItem({
     required this.destination,
+    required this.label,
     required this.expanded,
     required this.selected,
     required this.onTap,
@@ -307,7 +330,7 @@ class _RailItemState extends State<_RailItem> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    widget.destination.label,
+                                    widget.label,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: WaveType.label.copyWith(
@@ -347,7 +370,7 @@ class _RailItemState extends State<_RailItem> {
     );
     if (widget.expanded) return content;
     return LWTooltip(
-      message: widget.destination.label,
+      message: widget.label,
       child: content,
     );
   }

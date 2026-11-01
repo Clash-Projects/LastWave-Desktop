@@ -34,6 +34,13 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'close button minimize tray background window startup',
   ),
   SettingsSearchEntry(
+    id: 'general.language',
+    section: 'general',
+    title: 'Language',
+    subtitle: 'Sidebar and new settings labels',
+    keywords: 'language translation locale i18n',
+  ),
+  SettingsSearchEntry(
     id: 'general.backup',
     section: 'general',
     title: 'Backup',
@@ -147,6 +154,13 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     title: 'Discord',
     subtitle: 'Show what you are listening to',
     keywords: 'discord rich presence status activity',
+  ),
+  SettingsSearchEntry(
+    id: 'sources.modules',
+    section: 'sources',
+    title: 'Provider modules',
+    subtitle: 'Install a local .lwp module',
+    keywords: 'lwp module plugin provider install',
   ),
   SettingsSearchEntry(
     id: 'sources.addons',
