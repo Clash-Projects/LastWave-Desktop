@@ -123,8 +123,8 @@ class _StageScrim extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final b = boost.clamp(0.0, 1.0);
-    final topAlpha = (isDark ? 0.18 : 0.30) + b * 0.28;
-    final bottomAlpha = (isDark ? 0.40 : 0.54) + b * 0.30;
+    final topAlpha = (isDark ? 0.14 : 0.22) + b * 0.28;
+    final bottomAlpha = (isDark ? 0.26 : 0.36) + b * 0.30;
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -1262,9 +1262,9 @@ class _AuraPainter extends CustomPainter {
       canvas,
       textures.base,
       center: Offset(w * 0.50, h * 0.50),
-      diameter: maxDim * 1.78,
+      diameter: maxDim * 2.2,
       angle: phase * 0.35,
-      alpha: 0.80,
+      alpha: 0.96,
     );
 
     // Layer 1: Left / hero counter-rotating feathered cover sprite.
@@ -1272,12 +1272,12 @@ class _AuraPainter extends CustomPainter {
       canvas,
       textures.sprite,
       center: Offset(
-        w * (0.28 + 0.10 * math.cos(phase * 0.70)),
-        h * (0.38 + 0.10 * math.sin(phase * 0.60)),
+        w * (0.30 + 0.06 * math.cos(phase * 0.70)),
+        h * (0.42 + 0.06 * math.sin(phase * 0.60)),
       ),
-      diameter: maxDim * 1.34,
+      diameter: maxDim * 1.7,
       angle: -phase * 0.95,
-      alpha: 0.74,
+      alpha: 0.55,
     );
 
     // Layer 2: Right / lyrics upper rotating feathered cover sprite.
@@ -1287,12 +1287,12 @@ class _AuraPainter extends CustomPainter {
       canvas,
       textures.sprite,
       center: Offset(
-        w * (0.74 + 0.10 * math.sin(phase * 0.65 + 1.2)),
-        h * (0.34 + 0.10 * math.cos(phase * 0.80 + 0.7)),
+        w * (0.72 + 0.06 * math.sin(phase * 0.65 + 1.2)),
+        h * (0.40 + 0.06 * math.cos(phase * 0.80 + 0.7)),
       ),
-      diameter: maxDim * 1.30,
+      diameter: maxDim * 1.7,
       angle: phase * 1.15 + 1.8,
-      alpha: 0.70,
+      alpha: 0.55,
     );
 
     // Layer 3: Bottom-center counter-rotating feathered cover sprite.
@@ -1300,12 +1300,12 @@ class _AuraPainter extends CustomPainter {
       canvas,
       textures.sprite,
       center: Offset(
-        w * (0.48 + 0.12 * math.cos(phase * 0.55 + 2.5)),
-        h * (0.76 + 0.09 * math.sin(phase * 0.75 + 2.1)),
+        w * (0.50 + 0.07 * math.cos(phase * 0.55 + 2.5)),
+        h * (0.72 + 0.06 * math.sin(phase * 0.75 + 2.1)),
       ),
-      diameter: maxDim * 1.38,
+      diameter: maxDim * 1.7,
       angle: -phase * 0.80 + 3.7,
-      alpha: 0.66,
+      alpha: 0.50,
     );
 
     // Layer 4: Regional cover palette color blooms so small vibrant accents on
@@ -1317,10 +1317,9 @@ class _AuraPainter extends CustomPainter {
         w * (0.26 + 0.08 * math.sin(phase * 0.50)),
         h * (0.30 + 0.08 * math.cos(phase * 0.45)),
       ),
-      radius: maxDim * 0.72,
+      radius: maxDim * 0.85,
       color: palette.vibrant,
-      alpha: 0.28,
-      blendMode: BlendMode.plus,
+      alpha: 0.46,
     );
     _drawPaletteBloom(
       canvas,
@@ -1329,9 +1328,9 @@ class _AuraPainter extends CustomPainter {
         w * (0.76 + 0.08 * math.cos(phase * 0.60 + 1.4)),
         h * (0.44 + 0.08 * math.sin(phase * 0.55 + 0.9)),
       ),
-      radius: maxDim * 0.68,
+      radius: maxDim * 0.80,
       color: palette.primary,
-      alpha: 0.24,
+      alpha: 0.42,
     );
     _drawPaletteBloom(
       canvas,
@@ -1340,10 +1339,38 @@ class _AuraPainter extends CustomPainter {
         w * (0.46 + 0.09 * math.sin(phase * 0.40 + 2.8)),
         h * (0.78 + 0.07 * math.cos(phase * 0.50 + 2.0)),
       ),
-      radius: maxDim * 0.64,
+      radius: maxDim * 0.75,
       color: palette.lightVibrant,
-      alpha: 0.20,
-      blendMode: BlendMode.plus,
+      alpha: 0.34,
+    );
+    _drawPaletteBloom(
+      canvas,
+      rect,
+      center: Offset(
+        w * (0.88 + 0.05 * math.sin(phase * 0.35 + 0.6)),
+        h * (0.92 + 0.05 * math.cos(phase * 0.42 + 1.1)),
+      ),
+      radius: maxDim * 0.70,
+      color: palette.darkMuted,
+      alpha: 0.40,
+    );
+
+    // Apple Music finish: no milky veil (it greys the colours out). Just a
+    // gentle vignette that deepens the corners so the colours glow from the
+    // middle, like the real thing.
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment.center,
+          radius: 1.05,
+          colors: [
+            const Color(0x00000000),
+            const Color(0x00000000),
+            const Color(0x40000000),
+          ],
+          stops: const [0.0, 0.6, 1.0],
+        ).createShader(rect),
     );
   }
 
