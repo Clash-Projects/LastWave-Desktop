@@ -236,7 +236,7 @@ class WaveDensity {
   static const double railCollapsed = 60;
   static const double railExpanded = 200;
   static const double titleBar = 44;
-  static const double dock = 80;
+  static const double dock = 68;
   static const double trackRow = 54;
   static const double trackArt = 40;
   static const double contextPanel = 360;

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -644,8 +645,22 @@ class _BrowseCategories extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final charts =
-        ref.watch(feedProvider).valueOrNull?.charts ?? const <GeneratedTrack>[];
+    final feed = ref.watch(feedProvider).valueOrNull;
+    // Distinct cover pool across every shelf; each tile slowly cycles
+    // through it, so the grid keeps changing over time.
+    final pool = <String>{
+      if (feed != null)
+        for (final list in [
+          feed.charts,
+          feed.quickPicks,
+          feed.heavyRotation,
+          feed.freshFinds,
+          feed.jumpBackIn,
+          feed.becauseYouListened,
+        ])
+          for (final t in list)
+            if (t.artworkUrl.isNotEmpty) t.artworkUrl,
+    }.toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -673,9 +688,8 @@ class _BrowseCategories extends ConsumerWidget {
                   child: _BrowseTile(
                     name: _browseCategories[i].name,
                     tint: _browseCategories[i].tint,
-                    artworkUrl: charts.isEmpty
-                        ? ''
-                        : charts[i % charts.length].artworkUrl,
+                    pool: pool,
+                    startIndex: i * 3,
                     onTap: () => onOpen(_browseCategories[i].query),
                   ),
                 ),
@@ -690,12 +704,14 @@ class _BrowseCategories extends ConsumerWidget {
 class _BrowseTile extends StatefulWidget {
   final String name;
   final Color tint;
-  final String artworkUrl;
+  final List<String> pool;
+  final int startIndex;
   final VoidCallback onTap;
   const _BrowseTile({
     required this.name,
     required this.tint,
-    required this.artworkUrl,
+    required this.pool,
+    required this.startIndex,
     required this.onTap,
   });
   @override
@@ -704,6 +720,34 @@ class _BrowseTile extends StatefulWidget {
 
 class _BrowseTileState extends State<_BrowseTile> {
   bool _hover = false;
+  int _step = 0;
+  Timer? _timer;
+  Timer? _start;
+
+  @override
+  void initState() {
+    super.initState();
+    // Staggered start so tiles change one after another, not together.
+    _start = Timer(Duration(milliseconds: 1200 + (widget.startIndex % 15) * 700),
+        () {
+      if (!mounted) return;
+      _timer = Timer.periodic(const Duration(seconds: 10), (_) {
+        if (mounted && widget.pool.length > 1) setState(() => _step++);
+      });
+      if (widget.pool.length > 1) setState(() => _step++);
+    });
+  }
+
+  @override
+  void dispose() {
+    _start?.cancel();
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String get _url => widget.pool.isEmpty
+      ? ''
+      : widget.pool[(widget.startIndex + _step * 5) % widget.pool.length];
 
   @override
   Widget build(BuildContext context) {
@@ -723,42 +767,43 @@ class _BrowseTileState extends State<_BrowseTile> {
               fit: StackFit.expand,
               children: [
                 ColoredBox(color: widget.tint),
+                // Cover as a translucent background, crossfading to the
+                // next one every few seconds.
+                if (_url.isNotEmpty)
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 1400),
+                    child: Opacity(
+                      key: ValueKey(_url),
+                      opacity: 0.5,
+                      child: SizedBox.expand(
+                        child: CachedNetworkImage(
+                          imageUrl: _url,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 400,
+                          fadeInDuration: Duration.zero,
+                          errorWidget: (_, _, _) => const SizedBox.shrink(),
+                        ),
+                      ),
+                    ),
+                  ),
+                // Tint merges the image into the tile; deepens toward
+                // the label so the name stays readable.
                 DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        widget.tint,
-                        Color.lerp(widget.tint, Colors.black, 0.35)!,
+                        widget.tint.withValues(alpha: 0.45),
+                        Color.lerp(widget.tint, Colors.black, 0.55)!
+                            .withValues(alpha: 0.80),
                       ],
                     ),
                   ),
                 ),
-                if (widget.artworkUrl.isNotEmpty)
-                  Positioned(
-                    right: -18,
-                    bottom: -22,
-                    child: Transform.rotate(
-                      angle: 0.22,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(WaveRadius.artwork),
-                          boxShadow: WaveElevation.lift(waveIsDark(context)),
-                        ),
-                        child: WaveArtwork(
-                          url: widget.artworkUrl,
-                          size: 92,
-                          radius: WaveRadius.artwork,
-                          title: widget.name,
-                        ),
-                      ),
-                    ),
-                  ),
                 Positioned(
                   left: 12,
-                  right: 56,
+                  right: 12,
                   bottom: 12,
                   child: Text(
                     widget.name,

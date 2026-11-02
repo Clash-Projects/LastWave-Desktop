@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,12 +10,14 @@ import '../../app/track_actions.dart'
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/feed/feed_repository.dart';
+import '../../features/feed/home_blend.dart';
 import '../../features/feed/home_shelf_layout.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/podcasts/podcast_models.dart';
+import '../../features/search/shared_providers.dart';
 import '../../features/podcasts/podcast_repository.dart';
 import '../../features/player/playback_service.dart';
 import '../components/ambient.dart';
@@ -110,6 +113,26 @@ class WaveHomePage extends ConsumerWidget {
             ),
           ),
           data: (data) {
+            final connected = ref.watch(ytConnectionProvider).connected;
+            final ytShelves = ref.watch(ytHomeShelvesProvider);
+            if (connected && ytShelves.isLoading && !ytShelves.hasValue) {
+              return SliverPadding(
+                padding: EdgeInsets.fromLTRB(side, 18, side, 32),
+                sliver: const SliverToBoxAdapter(child: _HomeSkeleton()),
+              );
+            }
+            final blend = connected
+                ? blendHomeFeed(
+                    shelves: ytShelves.valueOrNull ?? const [],
+                    feed: data,
+                    excluded:
+                        ref.watch(databaseProvider).loadExclusionKeys(),
+                  )
+                : null;
+            if (blend != null && blend.hasYouTube) {
+              return _blendedSlivers(
+                  context, ref, data, blend, side, quickCols);
+            }
             if (data.isEmpty) {
               // Honest empty state: the repository recorded which legs
               // failed; offline always wins, otherwise the recorded
@@ -183,6 +206,196 @@ class WaveHomePage extends ConsumerWidget {
     );
   }
 
+  /// Home while YouTube Music is connected: YouTube's layout and shelves,
+  /// ordered by Last.fm taste. See [blendHomeFeed].
+  Widget _blendedSlivers(BuildContext context, WidgetRef ref, FeedData data,
+      HomeBlend blend, double side, int quickCols) {
+    final layout = ref.watch(homeShelfLayoutProvider);
+    final sections = <String, List<Widget>>{};
+    var slot = 0;
+
+    List<Widget> header({
+      required String title,
+      String? overline,
+      int? count,
+      String? actionLabel,
+      VoidCallback? onAction,
+    }) =>
+        [
+          const SliverToBoxAdapter(child: SizedBox(height: 28)),
+          SliverPadding(
+            padding: EdgeInsets.symmetric(horizontal: side),
+            sliver: SliverToBoxAdapter(
+              child: WaveEntrance(
+                index: slot++,
+                rise: 8,
+                child: LWSectionHeader(
+                  overline: overline,
+                  title: title,
+                  count: count,
+                  actionLabel: actionLabel,
+                  onAction: onAction,
+                ),
+              ),
+            ),
+          ),
+        ];
+
+    Widget songGrid(List<GeneratedTrack> tracks) => SliverPadding(
+          padding: EdgeInsets.only(left: side, right: side, top: 10),
+          sliver: SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: quickCols,
+              mainAxisSpacing: 4,
+              crossAxisSpacing: 8,
+              mainAxisExtent: 56,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, i) => WaveEntrance(
+                index: i,
+                rise: 10,
+                child: _QuickTile(track: tracks[i]),
+              ),
+              childCount: tracks.length,
+            ),
+          ),
+        );
+
+    Widget rail(Widget child) => SliverPadding(
+          padding: EdgeInsets.only(left: side, right: side, top: 10),
+          sliver: SliverToBoxAdapter(child: child),
+        );
+
+    GeneratedTrack fromYt(YouTubeMusicTrack t) => GeneratedTrack(
+          name: t.title,
+          artist: t.artist,
+          album: t.album,
+          artworkUrl: t.artworkUrl,
+          videoId: t.videoId,
+          durationSeconds: t.durationSeconds,
+        );
+
+    List<Widget> shelfSlivers(YtHomeShelf shelf) {
+      void seeAll() =>
+          context.go('/ytshelf/${Uri.encodeComponent(shelf.title)}');
+      final head = header(
+        title: shelf.title,
+        actionLabel: 'See all',
+        onAction: seeAll,
+      );
+      if (shelf.isTrackShelf) {
+        return [
+          ...head,
+          songGrid(shelf.tracks.take(quickCols * 3).map(fromYt).toList()),
+        ];
+      }
+      if (shelf.isTrackCardShelf) {
+        return [
+          ...head,
+          rail(_YtSongCardRow(
+            tracks: shelf.trackCards.take(12).map(fromYt).toList(),
+            sourceLabel: shelf.title,
+          )),
+        ];
+      }
+      return [
+        ...head,
+        rail(_YtShelfRow(entities: shelf.entities.take(12).toList())),
+      ];
+    }
+
+    if (blend.quickPicks.isNotEmpty) {
+      // A whole number of rows, so the grid never ends on a gap.
+      final count = (blend.quickPicks.length ~/ quickCols) * quickCols;
+      sections[HomeShelfId.quickPicks] = [
+        ...header(title: 'Quick picks'),
+        songGrid(blend.quickPicks
+            .take(count == 0 ? blend.quickPicks.length : count)
+            .toList()),
+      ];
+    }
+    if (blend.listenAgain.isNotEmpty) {
+      sections[HomeShelfId.continueListening] = [
+        ...header(
+          title: 'Listen again',
+          actionLabel: 'See all',
+          onAction: () => context.go('/history'),
+        ),
+        rail(_YtSongCardRow(
+          tracks: blend.listenAgain,
+          sourceLabel: 'Listen again',
+        )),
+      ];
+    }
+    sections[HomeShelfId.youtube] = [
+      for (final shelf in blend.personal) ...shelfSlivers(shelf),
+    ];
+    // Named after a real seed or not shown: an unexplained row is just noise.
+    if (data.becauseSeed.isNotEmpty && data.becauseYouListened.length >= 3) {
+      sections[HomeShelfId.because] = [
+        ...header(
+          overline: 'From your Last.fm',
+          title: 'Because you listened to ${data.becauseSeed}',
+        ),
+        rail(_YtSongCardRow(
+          tracks: data.becauseYouListened.take(12).toList(),
+          sourceLabel: 'Because you listened to ${data.becauseSeed}',
+        )),
+      ];
+    }
+    if (blend.artists.length >= 3) {
+      sections[HomeShelfId.artists] = [
+        ...header(
+          title: 'Artists you love',
+          actionLabel: 'See all',
+          onAction: () => context.go('/artists'),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.only(top: 10),
+          sliver: SliverToBoxAdapter(
+            child: _ArtistShelf(tracks: blend.artists, side: side),
+          ),
+        ),
+      ];
+    }
+    sections[HomeShelfId.youtubeMore] = [
+      for (final shelf in blend.general) ...shelfSlivers(shelf),
+    ];
+    final activities =
+        ref.watch(friendsActivityProvider).valueOrNull ?? const [];
+    if (activities.isNotEmpty) {
+      sections[HomeShelfId.friends] = [
+        ...header(
+          title: 'Friends listening',
+          actionLabel: 'See all',
+          onAction: () => context.go('/friends'),
+        ),
+        rail(_FriendsStrip(activities: activities)),
+      ];
+    }
+    if (ref.watch(podcastHomeProvider).valueOrNull?.any(
+              (s) => s.shows.isNotEmpty || s.episodes.isNotEmpty,
+            ) ==
+        true) {
+      sections[HomeShelfId.podcasts] = [
+        const SliverToBoxAdapter(child: SizedBox(height: 28)),
+        SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: side),
+          sliver: const SliverToBoxAdapter(child: PodcastHomeShelf()),
+        ),
+      ];
+    }
+
+    // Untouched layout: the connected order. Edited: the user's order wins.
+    final edited = !listEquals(layout.order, HomeShelfCatalog.defaults);
+    final order = edited ? layout.order : HomeShelfCatalog.connected;
+    return SliverMainAxisGroup(slivers: [
+      for (final id in order)
+        if (!layout.hidden.contains(id)) ...?sections[id],
+      const SliverToBoxAdapter(child: SizedBox(height: 28)),
+    ]);
+  }
+
   Widget _feedSlivers(BuildContext context, WidgetRef ref, FeedData data,
       double side, int quickCols) {
     final layout = ref.watch(homeShelfLayoutProvider);
@@ -250,107 +463,6 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ),
       ));
-    }
-
-    // YouTube Music's own home shelves, straight from the account. The
-    // feed above is taste-scored (Last.fm when configured, otherwise
-    // YT + on-device signals) - these are the editorial shelves
-    // music.youtube.com itself would show, which the scored feed does
-    // not carry. Empty (section omitted) when signed out or on failure.
-    final ytShelves = ref.watch(ytHomeShelvesProvider).valueOrNull ?? const [];
-    use(HomeShelfId.youtube);
-    for (final shelf in ytShelves) {
-      if (!shelf.isRenderable || shelf.title.isEmpty) continue;
-      // A shelf is a taste, not a library: cap what one section pulls onto the
-      // page at six, like every other Home shelf. The header counts the whole
-      // shelf and See all opens the rest, so the rail stays a summary without
-      // the number going stale.
-      const cap = 6;
-      // The shelf's playable tracks, if it has any — a shelf of albums or
-      // artists has nothing to queue, so it keeps the bare count.
-      final shelfTracks = <GeneratedTrack>[
-        if (shelf.isTrackShelf)
-          for (final t in shelf.tracks)
-            GeneratedTrack(
-              name: t.title,
-              artist: t.artist,
-              album: t.album,
-              artworkUrl: t.artworkUrl,
-              videoId: t.videoId,
-              durationSeconds: t.durationSeconds,
-            )
-        else if (shelf.isTrackCardShelf)
-          for (final t in shelf.trackCards)
-            GeneratedTrack(
-              name: t.title,
-              artist: t.artist,
-              album: t.album,
-              artworkUrl: t.artworkUrl,
-              videoId: t.videoId,
-              durationSeconds: t.durationSeconds,
-            ),
-      ].take(cap).toList();
-      final shelfEntities = shelf.entities.take(cap).toList();
-      gap(26);
-      sink.add(SliverPadding(
-        padding: EdgeInsets.only(left: side, right: side),
-        sliver: SliverToBoxAdapter(
-          child: WaveEntrance(
-            index: slot(),
-            rise: 8,
-            child: LWSectionHeader(
-              overline: 'YouTube Music',
-              title: shelf.title,
-              // The rail is capped; the header counts the whole shelf, and
-              // See all is where the rest of it lives.
-              count: shelf.isTrackShelf
-                  ? shelf.tracks.length
-                  : shelf.isTrackCardShelf
-                      ? shelf.trackCards.length
-                      : shelf.entities.length,
-              actionLabel: 'See all',
-              onAction: () => context.go('/ytshelf/${Uri.encodeComponent(shelf.title)}'),
-            ),
-          ),
-        ),
-      ));
-      if (shelf.isTrackShelf) {
-        sink.add(SliverPadding(
-          padding: EdgeInsets.only(left: side, right: side, top: 6),
-          sliver: SuperSliverList.builder(
-            itemCount: shelfTracks.length,
-            itemBuilder: (context, i) => WaveEntrance(
-              index: i,
-              rise: 10,
-              child: _FreshRow(
-                track: shelfTracks[i],
-                sourceLabel: shelf.title,
-              ),
-            ),
-          ),
-        ));
-      } else if (shelf.trackCards.isNotEmpty) {
-        // Song cards (Listen again style): these are playable tracks,
-        // not containers - tapping plays, like every other song
-        // surface. The card menu (Play, Go to album, …) comes from
-        // WaveMediaCard itself once artist + videoId are set.
-        sink.add(SliverPadding(
-          padding: EdgeInsets.only(left: side, right: side, top: 10),
-          sliver: SliverToBoxAdapter(
-            child: _YtSongCardRow(
-              tracks: shelfTracks,
-              sourceLabel: shelf.title,
-            ),
-          ),
-        ));
-      } else {
-        sink.add(SliverPadding(
-          padding: EdgeInsets.only(left: side, right: side, top: 10),
-          sliver: SliverToBoxAdapter(
-            child: _YtShelfRow(entities: shelfEntities),
-          ),
-        ));
-      }
     }
 
     use(HomeShelfId.quickPicks);
@@ -2040,11 +2152,7 @@ class _ChartRow extends ConsumerWidget {
 /// Fresh Finds: 40px compact rows.
 class _FreshRow extends ConsumerStatefulWidget {
   final GeneratedTrack track;
-  final String sourceLabel;
-  const _FreshRow({
-    required this.track,
-    this.sourceLabel = 'Fresh finds',
-  });
+  const _FreshRow({required this.track});
 
   @override
   ConsumerState<_FreshRow> createState() => _FreshRowState();
@@ -2056,7 +2164,7 @@ class _FreshRowState extends ConsumerState<_FreshRow> {
   @override
   Widget build(BuildContext context) {
     final track = widget.track;
-    final sourceLabel = widget.sourceLabel;
+    final sourceLabel = 'Fresh finds';
     final playing = ref.watch(
           playbackServiceProvider.select((s) => s.current?.queueKey),
         ) ==

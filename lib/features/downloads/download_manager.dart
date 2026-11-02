@@ -45,6 +45,9 @@ class DownloadEntry {
   final String? filePath;
   final String? error;
 
+  /// Cover art URL stored with the download ('' when unknown).
+  final String artworkUrl;
+
   const DownloadEntry({
     required this.key,
     required this.title,
@@ -55,6 +58,7 @@ class DownloadEntry {
     this.tagNote = '',
     this.filePath,
     this.error,
+    this.artworkUrl = '',
   });
 
   DownloadEntry copyWith({
@@ -69,6 +73,7 @@ class DownloadEntry {
         key: key,
         title: title,
         artist: artist,
+        artworkUrl: artworkUrl,
         status: status ?? this.status,
         progress: progress ?? this.progress,
         badge: badge ?? this.badge,
@@ -125,7 +130,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     late final List rows;
     try {
       rows = _db.raw.select(
-        'SELECT track_key, title, artist, file_path, format_badge, tag_status FROM downloaded_tracks '
+        'SELECT track_key, title, artist, file_path, format_badge, tag_status, artwork_url FROM downloaded_tracks '
         'ORDER BY downloaded_at_millis DESC;',
       );
     } catch (_) {
@@ -145,10 +150,20 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
               badge: r['format_badge'] as String? ?? '',
               tagNote: r['tag_status'] as String? ?? '',
               filePath: r['file_path'] as String?,
+              artworkUrl: _artOf(r),
             ))
         .toList();
     // Restored rows are history, not news — never announce them.
     _muted.addAll(state.map((e) => e.key));
+  }
+
+  /// `artwork_url` is absent on the pre-v7 fallback query.
+  static String _artOf(dynamic row) {
+    try {
+      return row['artwork_url'] as String? ?? '';
+    } catch (_) {
+      return '';
+    }
   }
 
   void _dropInProgress(String key) {
@@ -737,6 +752,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         badge: badge,
         tagNote: tagStatus,
         filePath: file.path,
+        artworkUrl: artworkUrl,
       ));
       committed = true;
     } catch (e) {
