@@ -517,21 +517,24 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
                   message: 'Drag to reorder',
                   child: ReorderableDragStartListener(
                     index: widget.dragIndex,
-                    child: Container(
-                      width: 28,
-                      height: 36,
-                      color: Colors.transparent,
-                      child: Icon(
-                        FluentIcons.gripper_bar_vertical,
-                        size: 15,
-                        color: _hover
-                            ? (dark
-                                ? WaveColors.textSecondary
-                                : WaveColors.lightTextSecondary)
-                            : (dark
-                                    ? WaveColors.textTertiary
-                                    : WaveColors.lightTextTertiary)
-                                .withValues(alpha: 0.45),
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.move,
+                      child: Container(
+                        width: 28,
+                        height: 36,
+                        color: Colors.transparent,
+                        child: Icon(
+                          FluentIcons.gripper_bar_vertical,
+                          size: 15,
+                          color: _hover
+                              ? (dark
+                                  ? WaveColors.textSecondary
+                                  : WaveColors.lightTextSecondary)
+                              : (dark
+                                      ? WaveColors.textTertiary
+                                      : WaveColors.lightTextTertiary)
+                                  .withValues(alpha: 0.45),
+                        ),
                       ),
                     ),
                   ),
