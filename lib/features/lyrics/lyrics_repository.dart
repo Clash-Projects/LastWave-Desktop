@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
@@ -340,6 +341,16 @@ class LyricsRepository {
   final Duration preferredHeadStart;
   final Duration raceTotal;
 
+  /// Gap between provider waves; later waves are skipped once a hit lands.
+  @visibleForTesting
+  Duration waveGap = const Duration(milliseconds: 1500);
+
+  static const _raceWaves = <List<String>>[
+    ['lastwave', 'apple_music', 'lrclib', 'simp_music'],
+    ['lrc_red', 'better_lyrics', 'lyrics_plus', 'unison'],
+    ['better_lyrics_portato', 'bini_lyrics', 'kugou'],
+  ];
+
   LyricsRepository([
     Dio? dio,
     this.preferredHeadStart = const Duration(seconds: 4),
@@ -375,7 +386,64 @@ class LyricsRepository {
   String _key(String title, String artist, [String album = '']) =>
       '${title.toLowerCase()}|${artist.toLowerCase()}|${album.toLowerCase()}';
 
+  /// Concurrent identical lookups (panel + downloader, rebuilds) share one
+  /// race instead of each hitting every provider; late joiners still get
+  /// the streamed partials.
+  final Map<String, Future<LyricsResult>> _inflight = {};
+  final Map<String, List<void Function(LyricsResult)>> _inflightPartials = {};
+
   Future<LyricsResult> getLyrics({
+    required String title,
+    required String artist,
+    String album = '',
+    int? durationSeconds,
+    bool forceRefresh = false,
+    bool wordByWord = true,
+    String? videoId,
+    String preferredProviderId = 'auto',
+    Set<String> excludeProviderIds = const {},
+    void Function(LyricsResult partial)? onPartialResult,
+  }) {
+    final sortedExcludes = excludeProviderIds.toList()..sort();
+    final key =
+        '${_key(title, artist, album)}|${durationSeconds ?? 0}|$wordByWord|$preferredProviderId|${sortedExcludes.join(',')}';
+    if (!forceRefresh) {
+      final running = _inflight[key];
+      if (running != null) {
+        _inflightPartials[key]?.add(onPartialResult ?? (_) {});
+        return running;
+      }
+    }
+    final listeners = <void Function(LyricsResult)>[
+      ?onPartialResult,
+    ];
+    _inflightPartials[key] = listeners;
+    final future = _getLyrics(
+      title: title,
+      artist: artist,
+      album: album,
+      durationSeconds: durationSeconds,
+      forceRefresh: forceRefresh,
+      wordByWord: wordByWord,
+      videoId: videoId,
+      preferredProviderId: preferredProviderId,
+      excludeProviderIds: excludeProviderIds,
+      onPartialResult: (p) {
+        for (final l in List.of(listeners)) {
+          l(p);
+        }
+      },
+    );
+    _inflight[key] = future;
+    return future.whenComplete(() {
+      if (identical(_inflight[key], future)) {
+        _inflight.remove(key);
+        _inflightPartials.remove(key);
+      }
+    });
+  }
+
+  Future<LyricsResult> _getLyrics({
     required String title,
     required String artist,
     String album = '',
@@ -513,6 +581,20 @@ class LyricsRepository {
       }
     }
 
+    // Providers launch in waves, most dependable first: a hit (or the race
+    // deadline) flips [raceOver] and the later waves never send a request.
+    var raceOver = false;
+    List<Future<LyricsResult?>> launchWaves() => [
+          for (var w = 0; w < _raceWaves.length; w++)
+            for (final id in _raceWaves[w])
+              if (id != 'simp_music' || (videoId?.isNotEmpty ?? false))
+                if (id != 'lrclib' || !lrclibAttempted)
+                  w == 0
+                      ? attempt(id)
+                      : Future<void>.delayed(waveGap * w).then<LyricsResult?>(
+                          (_) => raceOver ? null : attempt(id)),
+        ];
+
     Future<void> drainRace(List<Future<LyricsResult?>> pending) async {
       await for (final result in Stream.fromFutures(pending)) {
         if (result == null || result.isEmpty) continue;
@@ -525,6 +607,8 @@ class LyricsRepository {
           lineFallback = result;
           onPartialResult?.call(display(result));
         }
+        // Line mode wants any synced lines; nothing later can beat that.
+        if (result.isSynced) return;
       }
     }
 
@@ -532,24 +616,7 @@ class LyricsRepository {
       // Word race: fastest plausible word-sync wins; the first
       // plausible line result streams as a partial under the deadline.
       LyricsResult? raceWord;
-      final pending = <Future<LyricsResult?>>[
-        for (final id in const [
-          'lastwave',
-          'lrc_red',
-          'apple_music',
-          'better_lyrics',
-          'better_lyrics_portato',
-          'bini_lyrics',
-          'lyrics_plus',
-          'unison',
-          'kugou',
-          'simp_music',
-          'lrclib',
-        ])
-          if (id != 'simp_music' || (videoId?.isNotEmpty ?? false))
-            if (id != 'lrclib' || !lrclibAttempted)
-              attempt(id),
-      ];
+      final pending = launchWaves();
       if (!lrclibAttempted) lrclibAttempted = true;
       Future<void> runRace() async {
         await for (final result in Stream.fromFutures(pending)) {
@@ -579,6 +646,7 @@ class LyricsRepository {
       } on TimeoutException {
         // Collected partials still count below.
       }
+      raceOver = true;
       final won = raceWord;
       if (won != null) {
         _store(key, won, queryTitle: title);
@@ -586,30 +654,14 @@ class LyricsRepository {
       }
     } else {
       // Line mode: race all candidate providers for line sources under the deadline.
-      final pending = <Future<LyricsResult?>>[
-        for (final id in const [
-          'lastwave',
-          'lrc_red',
-          'apple_music',
-          'better_lyrics',
-          'better_lyrics_portato',
-          'bini_lyrics',
-          'lyrics_plus',
-          'unison',
-          'kugou',
-          'simp_music',
-          'lrclib',
-        ])
-          if (id != 'simp_music' || (videoId?.isNotEmpty ?? false))
-            if (id != 'lrclib' || !lrclibAttempted)
-              attempt(id),
-      ];
+      final pending = launchWaves();
       if (!lrclibAttempted) lrclibAttempted = true;
       try {
         await drainRace(pending).timeout(raceTotal);
       } on TimeoutException {
         // Collected partials still count below.
       }
+      raceOver = true;
     }
 
     // Explicit choice outranks any other line-sync source.

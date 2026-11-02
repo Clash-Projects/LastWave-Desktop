@@ -54,7 +54,9 @@ class _StubRepo extends LyricsRepository {
           Dio(),
           const Duration(milliseconds: 200),
           const Duration(seconds: 2),
-        );
+        ) {
+    waveGap = Duration.zero;
+  }
 
   @override
   Future<LyricsResult?> fetchFromProvider(
@@ -100,6 +102,25 @@ void main() {
     final word = await auto.getLyrics(title: 'T', artist: 'A');
     expect(word.isWordSynced, isTrue);
     expect(word.source, contains('Kugou'));
+  });
+
+  test('concurrent identical lookups share one race', () async {
+    final repo = _StubRepo({
+      'kugou': _word('Kugou KRC (Word-Sync)'),
+    }, delays: {
+      'kugou': const Duration(milliseconds: 100),
+    });
+    final partials = <String>[];
+    final results = await Future.wait([
+      repo.getLyrics(title: 'T', artist: 'A'),
+      repo.getLyrics(
+          title: 'T',
+          artist: 'A',
+          onPartialResult: (p) => partials.add(p.source)),
+    ]);
+    expect(results[0].source, contains('Kugou'));
+    expect(results[1].source, contains('Kugou'));
+    expect(repo.calls['kugou'], 1);
   });
 
   test('excluded provider is never attempted; best of rest wins', () async {
