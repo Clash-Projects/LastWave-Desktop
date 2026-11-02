@@ -790,36 +790,36 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                           final ew = (constraints.maxWidth * 0.52)
                               .clamp(440.0, 560.0)
                               .toDouble();
-                          final showOverlay = _queueOpen || _equalizerOpen;
 
                           return Stack(
                             children: [
                               // Page reserves the collapsed rail
                               // strip; the rail floats above it.
-                              Positioned.fill(
-                                left: WaveDensity.railCollapsed,
+                              // Side panels (queue / equalizer) dock
+                              // beside the page instead of covering it,
+                              // so the page re-lays out to the space
+                              // left and stays fully usable.
+                              AnimatedPositioned(
+                                duration: waveMotion(
+                                  context,
+                                  WaveMotion.normal,
+                                ),
+                                curve: Curves.easeOutCubic,
+                                // The expanded rail is the collapsed
+                                // rail grown wider: the page makes room
+                                // for it and it stays until toggled off.
+                                left: collapsed
+                                    ? WaveDensity.railCollapsed
+                                    : WaveDensity.railExpanded,
+                                top: 0,
+                                bottom: 0,
+                                right: _queueOpen
+                                    ? qw
+                                    : (_equalizerOpen ? ew : 0),
                                 child: widget.child,
                               ),
-                              // Light-dismiss: tapping outside the
-                              // expanded rail collapses it (tap is
-                              // absorbed, content doesn't activate).
-                              // Below the rail + panels, so those
-                              // keep working while it is open.
-                              if (!collapsed)
-                                Positioned.fill(
-                                  child: ExcludeSemantics(
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.translucent,
-                                      onTap: () =>
-                                          setState(() => _railExpanded = false),
-                                      child: const SizedBox.expand(),
-                                    ),
-                                  ),
-                                ),
-                              // Overlay rail: width animates
-                              // internally; content constraints
-                              // stay constant, so nothing reflows
-                              // or rebuilds during the animation.
+                              // Rail: one solid strip, 60px collapsed /
+                              // 200px expanded.
                               Positioned(
                                 left: 0,
                                 top: 0,
@@ -842,39 +842,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     ),
                                   ),
                                 ),
-                              // Dim only the page beside the drawer.
-                              // Starts past the rail (which is never
-                              // dimmed) — the rail floats above.
-                              Positioned(
-                                left: WaveDensity.railCollapsed,
-                                top: 0,
-                                bottom: 0,
-                                right: showOverlay
-                                    ? (_queueOpen ? qw : ew)
-                                    : 0,
-                                child: IgnorePointer(
-                                  ignoring: !showOverlay,
-                                  child: AnimatedOpacity(
-                                    duration: waveMotion(
-                                      context,
-                                      WaveMotion.normal,
-                                    ),
-                                    curve: Curves.easeOutCubic,
-                                    opacity: showOverlay ? 1.0 : 0.0,
-                                    child: GestureDetector(
-                                      onTap: () => setState(() {
-                                        _queueOpen = false;
-                                        _equalizerOpen = false;
-                                      }),
-                                      child: Container(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.45,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
                               // Contextual queue — slides smoothly from right.
                               AnimatedPositioned(
                                 duration: waveMotion(

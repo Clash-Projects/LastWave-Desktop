@@ -289,12 +289,12 @@ class _Shell extends StatelessWidget {
     // page beneath repaints (scroll, entrance motion, artwork fades).
     // Matches the TitleBar / SideRail / PlayerDock decision — static
     // tonal acrylic, same look, no per-frame GPU readback.
-    return WaveHaze(
-      level: LwHazeLevel.l2,
-      enableBlur: false,
-      base: waveBackground(context),
-      border: Border(left: BorderSide(color: waveDivider(context))),
-      shadow: WaveElevation.panel(waveIsDark(context)),
+    // Fully opaque: nothing from the page may show through the panel.
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: waveBackground(context),
+        border: Border(left: BorderSide(color: waveDivider(context))),
+      ),
       child: SizedBox(
         width: WaveDensity.contextPanel,
         child: body,

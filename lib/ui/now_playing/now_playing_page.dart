@@ -230,7 +230,15 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
             ),
 
             // Main Layout Content
-            Positioned.fill(
+            AnimatedPositioned(
+              duration: waveMotion(context, WaveMotion.normal),
+              curve: Curves.easeOutCubic,
+              left: 0,
+              top: 0,
+              bottom: 0,
+              // The queue docks beside the cover + lyrics, which re-fit
+              // to the remaining width, instead of covering them.
+              right: _queueVisible ? 360 : 0,
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth > 860;
@@ -300,24 +308,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                     ],
                   );
                 },
-              ),
-            ),
-
-            // Scrim backdrop when queue drawer is active
-            Positioned.fill(
-              child: IgnorePointer(
-                ignoring: !_queueVisible,
-                child: AnimatedOpacity(
-                  duration: waveMotion(context, WaveMotion.normal),
-                  curve: Curves.easeOutCubic,
-                  opacity: _queueVisible ? 1.0 : 0.0,
-                  child: GestureDetector(
-                    onTap: () => setState(() => _queueVisible = false),
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.45),
-                    ),
-                  ),
-                ),
               ),
             ),
 
@@ -634,7 +624,11 @@ class _DesktopDualPane extends StatelessWidget {
                     height: maxHeight,
                     // Children keep their full width while the column
                     // collapses (focus mode), so nothing overflows mid-anim.
+                    // Clip is outset (except in focus mode, where the column
+                    // collapses) so the cover's drop shadow isn't cut off at
+                    // the column edges.
                     child: ClipRect(
+                      clipper: _OutsetClipper(focusMode ? 0 : 56),
                       child: OverflowBox(
                         alignment: Alignment.centerLeft,
                         minWidth: colWidth,
@@ -914,7 +908,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
           url: track.artworkUrl,
           videoId: track.videoId,
           size: size,
-          radius: WaveRadius.hero,
+          radius: 12,
           label: track.title,
           title: track.title,
           artist: track.artist,
@@ -924,17 +918,17 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        borderRadius: WaveRadius.heroRadius,
+        borderRadius: BorderRadius.circular(12),
         // Kept shallow on purpose: large blurs over a full-window ambient
         // stage retain big GPU surfaces on Windows ANGLE.
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? 0.58 : 0.30),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
+            color: Colors.black.withValues(alpha: dark ? 0.62 : 0.34),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
           ),
           BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? 0.35 : 0.15),
+            color: Colors.black.withValues(alpha: dark ? 0.38 : 0.18),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -946,7 +940,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       // switch every video frame cost milliseconds on weak raster.
       child: RepaintBoundary(
         child: ClipRRect(
-          borderRadius: WaveRadius.heroRadius,
+          borderRadius: BorderRadius.circular(12),
           clipBehavior: Clip.antiAlias,
           child: Stack(
             fit: StackFit.expand,
@@ -1334,6 +1328,17 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
       ),
     );
   }
+}
+
+class _OutsetClipper extends CustomClipper<Rect> {
+  final double outset;
+  const _OutsetClipper(this.outset);
+
+  @override
+  Rect getClip(Size size) => (Offset.zero & size).inflate(outset);
+
+  @override
+  bool shouldReclip(covariant _OutsetClipper old) => old.outset != outset;
 }
 
 class _NowAmbient extends StatelessWidget {

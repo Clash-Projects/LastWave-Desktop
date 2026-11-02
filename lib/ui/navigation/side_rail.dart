@@ -77,13 +77,16 @@ class _WaveSideRailState extends State<WaveSideRail> {
     // under a 40% tint (60% in light themes, matching that panel's fill)
     // instead of L1's 88% fill. At 88% the drawer read as an opaque slab
     // parked next to a translucent panel that covers the same page.
+    // Fully opaque in both states: the expanded rail is just the collapsed
+    // strip grown wider, and the page sits beside it, never under it.
     return WaveHaze(
-      level: expanded ? LwHazeLevel.l2 : LwHazeLevel.l1,
-      enableBlur: expanded,
-      fillAlpha: expanded ? (dark ? 0.40 : 0.60) : null,
-      base: dark
-          ? waveRailTranslucent(context)
-          : WaveColors.lightNavBackground.withValues(alpha: 0.92),
+      level: LwHazeLevel.l1,
+      enableBlur: false,
+      fillAlpha: 1.0,
+      base: (dark
+              ? waveRailTranslucent(context)
+              : WaveColors.lightNavBackground)
+          .withValues(alpha: 1.0),
       border: Border(
         right: BorderSide(color: waveDivider(context)),
       ),
