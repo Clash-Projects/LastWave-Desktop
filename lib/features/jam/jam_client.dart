@@ -8,17 +8,62 @@ import '../../core/storage/prefs.dart';
 
 const jamDefaultServer = 'wss://jam.clashprojects.qd.je/ws';
 
+/// "3:42:10 PM" for a wall-clock millisecond timestamp.
+String jamClock(int ms) {
+  final t = DateTime.fromMillisecondsSinceEpoch(ms);
+  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '$h:${two(t.minute)}:${two(t.second)} ${t.hour < 12 ? 'AM' : 'PM'}';
+}
+
 const jamModeCollaborative = 'collaborative';
 const jamModeHostOnly = 'host_only';
+
+/// Always-active stations. The server provisions these and never closes them.
+const jamStations = <JamStation>[
+  JamStation(code: 'INDIA', title: 'India', blurb: 'Always-on room for India'),
+  JamStation(
+    code: 'WORLD',
+    title: 'International',
+    blurb: 'Always-on room for everyone else',
+  ),
+];
+
+class JamStation {
+  final String code;
+  final String title;
+  final String blurb;
+  const JamStation({
+    required this.code,
+    required this.title,
+    required this.blurb,
+  });
+}
 
 class JamPerson {
   final String userId;
   final String name;
+
+  /// True for the main host and the co-host.
   final bool isHost;
+  final bool isCoHost;
   const JamPerson({
     required this.userId,
     required this.name,
     this.isHost = false,
+    this.isCoHost = false,
+  });
+}
+
+/// Snapshot of the message a chat line replies to.
+class JamReply {
+  final String id;
+  final String userName;
+  final String text;
+  const JamReply({
+    required this.id,
+    required this.userName,
+    required this.text,
   });
 }
 
@@ -29,6 +74,7 @@ class JamChatLine {
   final bool isHost;
   final String text;
   final int timestamp;
+  final JamReply? replyTo;
   const JamChatLine({
     required this.id,
     required this.userId,
@@ -36,6 +82,7 @@ class JamChatLine {
     required this.text,
     this.isHost = false,
     this.timestamp = 0,
+    this.replyTo,
   });
 }
 
@@ -134,11 +181,32 @@ class JamSnapshot {
   final String userId;
   final String displayName;
   final bool isHost;
+  final String hostId;
+  final String coHostId;
+  final bool permanent;
   final String roomMode;
   final List<JamPerson> people;
   final List<JamChatLine> chat;
   final JamTrack? track;
   final bool isPlaying;
+
+  /// The admin's upcoming queue, shared read-only with the room.
+  final List<JamTrack> queue;
+
+  /// Friendly title of an always-on room ("India"); empty otherwise.
+  final String roomName;
+
+  /// Wall-clock ms until which pause/skip are locked for you; 0 when free.
+  final int cooldownUntilMs;
+
+  /// Transient message from the server (rate limit, host rules).
+  final String notice;
+
+  /// Wall-clock ms when the playback cooldown ends; 0 when none.
+  final int retryAtMs;
+
+  /// True only for the main host, who may give and remove co-hosts.
+  bool get isMainHost => userId.isNotEmpty && userId == hostId;
 
   const JamSnapshot({
     this.phase = JamPhase.disconnected,
@@ -147,11 +215,19 @@ class JamSnapshot {
     this.userId = '',
     this.displayName = '',
     this.isHost = false,
+    this.hostId = '',
+    this.coHostId = '',
+    this.permanent = false,
     this.roomMode = jamModeCollaborative,
     this.people = const [],
     this.chat = const [],
     this.track,
     this.isPlaying = false,
+    this.queue = const [],
+    this.roomName = '',
+    this.cooldownUntilMs = 0,
+    this.notice = '',
+    this.retryAtMs = 0,
   });
 
   JamSnapshot copyWith({
@@ -161,12 +237,20 @@ class JamSnapshot {
     String? userId,
     String? displayName,
     bool? isHost,
+    String? hostId,
+    String? coHostId,
+    bool? permanent,
     String? roomMode,
     List<JamPerson>? people,
     List<JamChatLine>? chat,
     JamTrack? track,
     bool clearTrack = false,
     bool? isPlaying,
+    List<JamTrack>? queue,
+    String? roomName,
+    int? cooldownUntilMs,
+    String? notice,
+    int? retryAtMs,
   }) =>
       JamSnapshot(
         phase: phase ?? this.phase,
@@ -175,17 +259,34 @@ class JamSnapshot {
         userId: userId ?? this.userId,
         displayName: displayName ?? this.displayName,
         isHost: isHost ?? this.isHost,
+        hostId: hostId ?? this.hostId,
+        coHostId: coHostId ?? this.coHostId,
+        permanent: permanent ?? this.permanent,
         roomMode: roomMode ?? this.roomMode,
         people: people ?? this.people,
         chat: chat ?? this.chat,
         track: clearTrack ? null : (track ?? this.track),
         isPlaying: isPlaying ?? this.isPlaying,
+        queue: queue ?? this.queue,
+        roomName: roomName ?? this.roomName,
+        cooldownUntilMs: cooldownUntilMs ?? this.cooldownUntilMs,
+        notice: notice ?? this.notice,
+        retryAtMs: retryAtMs ?? this.retryAtMs,
       );
 }
 
 /// WebSocket client for the Clash Projects Jam server.
 ///
 /// A failed connection sets [JamPhase.error] and does not touch playback.
+bool _isDefaultName(String name) => const {
+      '',
+      'listener',
+      'host',
+      'guest',
+      'user',
+      'anonymous',
+    }.contains(name.trim().toLowerCase());
+
 class JamController extends StateNotifier<JamSnapshot> {
   JamController(this._ref) : super(const JamSnapshot());
 
@@ -202,6 +303,27 @@ class JamController extends StateNotifier<JamSnapshot> {
     return raw.isEmpty ? jamDefaultServer : raw;
   }
 
+  /// Shareable https link; opens the web invite page, which launches
+  /// whichever LastWave (desktop or Android) is installed and previews with
+  /// the room code in chat apps.
+  String inviteLink(String code) {
+    final u = Uri.parse(serverUrl);
+    final base = Uri(
+      scheme: u.scheme == 'wss' ? 'https' : 'http',
+      host: u.host,
+      port: u.hasPort ? u.port : null,
+    );
+    return '$base/?code=$code';
+  }
+
+  /// Accepts a bare code or a pasted invite link (`...?code=ABC123`).
+  static String parseCode(String raw) {
+    final text = raw.trim();
+    final at = text.toLowerCase().indexOf('code=');
+    final tail = at >= 0 ? text.substring(at + 5) : text;
+    return tail.split(RegExp(r'[&#\s]')).first.trim().toUpperCase();
+  }
+
   void createRoom(String displayName, {required bool collaborative}) {
     final name = displayName.trim().isEmpty ? 'Listener' : displayName.trim();
     _connect(() {
@@ -213,12 +335,19 @@ class JamController extends StateNotifier<JamSnapshot> {
   }
 
   void joinRoom(String roomCode, String displayName) {
-    final code = roomCode.trim().toUpperCase();
+    final code = parseCode(roomCode);
     final name = displayName.trim().isEmpty ? 'Listener' : displayName.trim();
     if (code.isEmpty) {
       state = state.copyWith(
         phase: JamPhase.error,
         error: 'Room code is required',
+      );
+      return;
+    }
+    if (jamStations.any((s) => s.code == code) && _isDefaultName(displayName)) {
+      state = state.copyWith(
+        phase: JamPhase.error,
+        error: 'Pick your own display name to join this public room',
       );
       return;
     }
@@ -232,10 +361,90 @@ class JamController extends StateNotifier<JamSnapshot> {
     _close(clear: true);
   }
 
-  void sendChat(String text) {
+  void sendChat(String text, {String? replyToId}) {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
-    _send('send_chat', {'text': trimmed});
+    _send('send_chat', {
+      'text': trimmed,
+      if (replyToId != null && replyToId.isNotEmpty) 'reply_to_id': replyToId,
+    });
+  }
+
+  /// Main host only: make [userId] a co-host (a room has at most two hosts).
+  void grantHost(String userId) => _send('grant_host', {'user_id': userId});
+
+  /// Main host only: remove [userId]'s co-host role.
+  void revokeHost(String userId) => _send('revoke_host', {'user_id': userId});
+
+  /// Main host only: publish the upcoming queue so listeners can see it.
+  void broadcastQueue(List<JamTrack> queue) {
+    if (state.phase != JamPhase.active) return;
+    _send('queue_update', {
+      'queue': [for (final t in queue.take(5)) t.toJson()],
+    });
+  }
+
+  List<JamTrack> _tracks(Object? raw) {
+    if (raw is! List) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map)
+          JamTrack.fromJson(item.map((k, v) => MapEntry(k.toString(), v))),
+    ];
+  }
+
+  Timer? _cooldownTimer;
+
+  /// Locks pause/skip until [untilMs] and unlocks them automatically.
+  void _startCooldown(int untilMs) {
+    final wait = untilMs - DateTime.now().millisecondsSinceEpoch;
+    if (wait <= 0) return;
+    state = state.copyWith(cooldownUntilMs: untilMs);
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer(Duration(milliseconds: wait + 100), () {
+      if (state.cooldownUntilMs == untilMs) {
+        state = state.copyWith(cooldownUntilMs: 0);
+      }
+    });
+  }
+
+  /// Live listener counts for the always-on rooms ({code: count}).
+  /// Empty on any failure; the join screen then just omits the counts.
+  Future<Map<String, int>> fetchRoomCounts() async {
+    try {
+      final uri = Uri.parse(serverUrl);
+      final http = Uri(
+        scheme: uri.scheme == 'wss' ? 'https' : 'http',
+        host: uri.host,
+        port: uri.hasPort ? uri.port : null,
+        path: '/rooms',
+      );
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final request = await client.getUrl(http);
+        final response =
+            await request.close().timeout(const Duration(seconds: 5));
+        if (response.statusCode != 200) return const {};
+        final body = await response.transform(utf8.decoder).join();
+        final decoded = jsonDecode(body);
+        final rooms = decoded is Map ? decoded['rooms'] : null;
+        if (rooms is! List) return const {};
+        return {
+          for (final r in rooms)
+            if (r is Map) r['code'].toString(): _int(r['participants']),
+        };
+      } finally {
+        client.close(force: true);
+      }
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  void clearNotice() {
+    if (state.notice.isEmpty && state.retryAtMs == 0) return;
+    state = state.copyWith(notice: '', retryAtMs: 0);
   }
 
   void broadcastPlay(int positionMs) => _action({
@@ -344,6 +553,7 @@ class JamController extends StateNotifier<JamSnapshot> {
             userId: userId,
             displayName: name,
             isHost: true,
+            hostId: userId,
             roomMode: map['room_mode']?.toString() ?? jamModeCollaborative,
             people: [JamPerson(userId: userId, name: name, isHost: true)],
           );
@@ -366,11 +576,16 @@ class JamController extends StateNotifier<JamSnapshot> {
             userId: map['user_id']?.toString() ?? '',
             displayName: map['name']?.toString() ?? '',
             isHost: map['is_host'] == true,
+            hostId: map['host_id']?.toString() ?? '',
+            coHostId: map['cohost_id']?.toString() ?? '',
+            permanent: map['permanent'] == true,
+            roomName: map['room_name']?.toString() ?? '',
             roomMode: map['room_mode']?.toString() ?? jamModeCollaborative,
             people: people,
             chat: chat,
             track: track,
             isPlaying: playback['is_playing'] == true,
+            queue: _tracks(playback['queue']),
           );
           _remote.add(JamRemoteFull(
             track: track,
@@ -398,42 +613,52 @@ class JamController extends StateNotifier<JamSnapshot> {
           );
         case 'host_changed':
           if (state.phase != JamPhase.active) return;
-          final hostId = (map['new_host_id']?.toString() ?? '').isNotEmpty
-              ? map['new_host_id'].toString()
-              : (map['user_id']?.toString() ?? '');
-          state = state.copyWith(
-            isHost: hostId == state.userId,
-            people: [
-              for (final person in state.people)
-                JamPerson(
-                  userId: person.userId,
-                  name: person.name,
-                  isHost: person.userId == hostId,
-                ),
-            ],
+          final hostId = (map['host_id']?.toString() ?? '').isNotEmpty
+              ? map['host_id'].toString()
+              : (map['new_host_id']?.toString() ?? '').isNotEmpty
+                  ? map['new_host_id'].toString()
+                  : (map['user_id']?.toString() ?? '');
+          _applyRoles(hostId, map['cohost_id']?.toString() ?? '');
+        case 'cooldown':
+          _startCooldown(_int(map['retry_at_ms']));
+        case 'queue_updated':
+          if (state.phase != JamPhase.active) return;
+          state = state.copyWith(queue: _tracks(map['queue']));
+        case 'cohost_changed':
+          if (state.phase != JamPhase.active) return;
+          _applyRoles(
+            map['host_id']?.toString() ?? state.hostId,
+            map['cohost_id']?.toString() ?? '',
           );
         case 'room_mode_changed':
           state = state.copyWith(
             roomMode: map['room_mode']?.toString() ?? state.roomMode,
           );
         case 'chat_message':
-          final line = JamChatLine(
-            id: map['id']?.toString() ?? '',
-            userId: map['user_id']?.toString() ?? '',
-            userName: map['user_name']?.toString() ?? '',
-            isHost: map['is_host'] == true,
-            text: map['text']?.toString() ?? '',
-            timestamp: _int(map['timestamp']),
-          );
-          final next = [...state.chat, line];
+          final next = [...state.chat, _chatLine(map)];
           state = state.copyWith(
             chat: next.length > 50 ? next.sublist(next.length - 50) : next,
           );
         case 'sync_playback':
           _applyPlayback(map);
         case 'error':
-          // A rejected request inside a room must not eject you from it.
-          if (state.phase == JamPhase.active) return;
+          // A rejected request inside a room must not eject you from it;
+          // show it as a notice instead.
+          if (state.phase == JamPhase.active) {
+            final message = map['message']?.toString() ?? '';
+            if (map['code'] == 'rate_limited') {
+              final retryAt = _int(map['retry_at_ms']);
+              final after = _int(map['retry_after_ms']);
+              final until = retryAt > 0
+                  ? retryAt
+                  : DateTime.now().millisecondsSinceEpoch + after;
+              state = state.copyWith(notice: message, retryAtMs: until);
+              _startCooldown(until);
+            } else if (message.isNotEmpty) {
+              state = state.copyWith(notice: message, retryAtMs: 0);
+            }
+            return;
+          }
           state = state.copyWith(
             phase: JamPhase.error,
             error: (map['message']?.toString() ?? '').isEmpty
@@ -444,6 +669,42 @@ class JamController extends StateNotifier<JamSnapshot> {
           break;
       }
     } catch (_) {}
+  }
+
+  void _applyRoles(String hostId, String coHostId) {
+    state = state.copyWith(
+      hostId: hostId,
+      coHostId: coHostId,
+      isHost: state.userId == hostId || state.userId == coHostId,
+      people: [
+        for (final person in state.people)
+          JamPerson(
+            userId: person.userId,
+            name: person.name,
+            isHost: person.userId == hostId || person.userId == coHostId,
+            isCoHost: coHostId.isNotEmpty && person.userId == coHostId,
+          ),
+      ],
+    );
+  }
+
+  JamChatLine _chatLine(Map item) {
+    final reply = item['reply_to'];
+    return JamChatLine(
+      id: item['id']?.toString() ?? '',
+      userId: item['user_id']?.toString() ?? '',
+      userName: item['user_name']?.toString() ?? '',
+      isHost: item['is_host'] == true,
+      text: item['text']?.toString() ?? '',
+      timestamp: _int(item['timestamp']),
+      replyTo: reply is Map
+          ? JamReply(
+              id: reply['id']?.toString() ?? '',
+              userName: reply['user_name']?.toString() ?? '',
+              text: reply['text']?.toString() ?? '',
+            )
+          : null,
+    );
   }
 
   void _applyPlayback(Map<String, dynamic> action) {
@@ -485,6 +746,7 @@ class JamController extends StateNotifier<JamSnapshot> {
             userId: item['user_id']?.toString() ?? '',
             name: item['name']?.toString() ?? '',
             isHost: item['is_host'] == true,
+            isCoHost: item['is_cohost'] == true,
           ),
     ];
   }
@@ -493,15 +755,7 @@ class JamController extends StateNotifier<JamSnapshot> {
     if (raw is! List) return const [];
     return [
       for (final item in raw)
-        if (item is Map)
-          JamChatLine(
-            id: item['id']?.toString() ?? '',
-            userId: item['user_id']?.toString() ?? '',
-            userName: item['user_name']?.toString() ?? '',
-            isHost: item['is_host'] == true,
-            text: item['text']?.toString() ?? '',
-            timestamp: _int(item['timestamp']),
-          ),
+        if (item is Map) _chatLine(item),
     ];
   }
 
@@ -534,6 +788,7 @@ class JamController extends StateNotifier<JamSnapshot> {
 
   @override
   void dispose() {
+    _cooldownTimer?.cancel();
     _generation++;
     _ping?.cancel();
     _socket?.close();

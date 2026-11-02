@@ -19,7 +19,18 @@ final jamSyncProvider = Provider<void>((ref) {
   ref.onDispose(sub.cancel);
   ref.listen<PlayerSnapshot>(playbackServiceProvider, (previous, next) {
     _broadcast(ref, bridge, previous, next);
+    _publishQueue(ref, bridge);
   });
+  // Becoming admin (or joining as admin) republishes the queue.
+  ref.listen<JamSnapshot>(jamControllerProvider, (previous, next) {
+    final was = previous != null && previous.phase == JamPhase.active && previous.isMainHost;
+    final now = next.phase == JamPhase.active && next.isMainHost;
+    if (now && !was) {
+      bridge.lastQueueKey = null;
+      _publishQueue(ref, bridge, immediate: true);
+    }
+  });
+  ref.onDispose(() => bridge.queueTimer?.cancel());
 });
 
 class _JamBridge {
@@ -28,6 +39,8 @@ class _JamBridge {
   bool? lastPlaying;
   int lastPosition = 0;
   int lastWall = 0;
+  String? lastQueueKey;
+  Timer? queueTimer;
 }
 
 bool _canControl(JamSnapshot session) =>
@@ -202,6 +215,41 @@ void _broadcast(
   }
   bridge.lastPosition = position;
   bridge.lastWall = now;
+}
+
+/// Publishes the admin's upcoming queue (debounced, only when it changed).
+void _publishQueue(Ref ref, _JamBridge bridge, {bool immediate = false}) {
+  final session = ref.read(jamControllerProvider);
+  if (session.phase != JamPhase.active || !session.isMainHost) return;
+  final player = ref.read(playbackServiceProvider);
+  final start = player.currentIndex + 1;
+  final upcoming = start >= 0 && start < player.queue.length
+      ? player.queue.sublist(start)
+      : <PlayableTrack>[];
+  final tracks = [
+    for (final t in upcoming.take(5))
+      JamTrack(
+        id: _trackKey(t),
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        artworkUrl: t.artworkUrl,
+        durationMs: t.duration.inMilliseconds,
+      ),
+  ];
+  final key = tracks.map((t) => t.id).join('|');
+  if (key == bridge.lastQueueKey) return;
+  void send() {
+    bridge.lastQueueKey = key;
+    ref.read(jamControllerProvider.notifier).broadcastQueue(tracks);
+  }
+
+  bridge.queueTimer?.cancel();
+  if (immediate) {
+    send();
+  } else {
+    bridge.queueTimer = Timer(const Duration(milliseconds: 600), send);
+  }
 }
 
 int _latency(int serverTimeMs) {

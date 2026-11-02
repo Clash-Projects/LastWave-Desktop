@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
+import '../../features/jam/jam_client.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/audio_output/output_controller.dart';
@@ -71,6 +72,12 @@ class WavePlayerDock extends ConsumerWidget {
         )));
     final notifier = ref.read(playbackServiceProvider.notifier);
     final current = player.current;
+    // Always-on Jam rooms lock pause/skip for a minute after you use one.
+    final jamUntil = ref.watch(jamControllerProvider.select(
+      (j) => j.phase == JamPhase.active ? j.cooldownUntilMs : 0,
+    ));
+    final jamLocked = jamUntil > 0;
+    final jamUnlockAt = jamLocked ? jamClock(jamUntil) : '';
     final artworkUrl = player.current?.artworkUrl ?? '';
     final dockTint = ref.watch(artworkSeedProvider(artworkUrl)).valueOrNull;
 
@@ -237,24 +244,31 @@ class WavePlayerDock extends ConsumerWidget {
                                   onTap: notifier.toggleShuffle,
                                 ),
                                 _Glyph(
-                                  tooltip: 'Previous',
+                                  tooltip: jamLocked
+                                      ? 'Locked in Jam until $jamUnlockAt'
+                                      : 'Previous',
                                   icon: WaveIcons.previous,
                                   large: true,
-                                  onTap: current == null
+                                  onTap: current == null || jamLocked
                                       ? null
                                       : notifier.previous,
                                 ),
                                 _PlayGlyph(
                                   playing: player.isPlaying,
                                   buffering: player.isBuffering,
-                                  enabled: current != null,
+                                  // Resuming is always allowed; only pausing
+                                  // is locked during the Jam cooldown.
+                                  enabled: current != null &&
+                                      !(jamLocked && player.isPlaying),
                                   onTap: notifier.toggle,
                                 ),
                                 _Glyph(
-                                  tooltip: 'Next',
+                                  tooltip: jamLocked
+                                      ? 'Locked in Jam until $jamUnlockAt'
+                                      : 'Next',
                                   icon: WaveIcons.next,
                                   large: true,
-                                  onTap: current == null
+                                  onTap: current == null || jamLocked
                                       ? null
                                       : notifier.next,
                                 ),
