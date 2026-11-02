@@ -11,7 +11,6 @@ import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, WaveButton, WaveFilledButton, WaveLink;
 import '../components/menus.dart';
 import '../navigation/wave_nav.dart';
-import '../theme/haze.dart';
 import '../theme/tokens.dart';
 
 /// Session-only. Closing the app clears it; it is not written to SQLite.

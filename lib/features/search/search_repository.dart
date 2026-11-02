@@ -158,7 +158,7 @@ class SearchRepository {
     if (q.isEmpty) return const [];
     switch (tab) {
       case SearchTab.tracks:
-        final tracks = await _tube.searchSongs(q, limit: 30);
+        final tracks = await _tube.searchSongs(q, limit: 60);
         return tracks
             .map((t) => SearchResultItem(
                   name: t.title,

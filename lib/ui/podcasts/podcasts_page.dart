@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,7 +11,6 @@ import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/podcasts/podcast_models.dart';
 import '../../features/podcasts/podcast_repository.dart';
-import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/hero.dart';
 import '../components/shelf.dart';
@@ -113,14 +113,133 @@ Future<void> playPodcastEpisodes(
   );
 }
 
-/// Horizontal rail of shows — the same card rail "Popular shows" uses.
-Widget _showRail(BuildContext context, List<PodcastShow> shows) {
+/// 16:9 podcast card: native video-style cover, never squared.
+class _WidePodcastCard extends StatefulWidget {
+  final String title;
+  final String subtitle;
+  final String artworkUrl;
+  final VoidCallback onTap;
+  const _WidePodcastCard({
+    required this.title,
+    required this.subtitle,
+    required this.artworkUrl,
+    required this.onTap,
+  });
+
+  @override
+  State<_WidePodcastCard> createState() => _WidePodcastCardState();
+}
+
+class _WidePodcastCardState extends State<_WidePodcastCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AnimatedScale(
+              scale: _hover ? 1.02 : 1.0,
+              duration: const Duration(milliseconds: 140),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(WaveRadius.artwork),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ColoredBox(
+                        color: dark
+                            ? WaveColors.surface
+                            : WaveColors.lightSurface,
+                      ),
+                      if (widget.artworkUrl.isNotEmpty)
+                        CachedNetworkImage(
+                          imageUrl: widget.artworkUrl,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, _, _) => const SizedBox.shrink(),
+                        ),
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 140),
+                        opacity: _hover ? 1 : 0,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.35),
+                          ),
+                          child: Center(
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: waveAccent(context),
+                              ),
+                              child: const Icon(
+                                FluentIcons.play,
+                                size: 16,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: WaveType.trackTitle,
+            ),
+            Text(
+              widget.subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Horizontal rail of shows. [wide] = 16:9 cards (podcast page); the home
+/// shelf keeps the square cards.
+Widget _showRail(
+  BuildContext context,
+  List<PodcastShow> shows, {
+  bool wide = false,
+}) {
   return WaveRail(
-    height: 228,
+    height: wide ? 196 : 228,
     itemCount: shows.length,
     separatorBuilder: (_, _) => const SizedBox(width: 12),
     itemBuilder: (context, i) {
       final show = shows[i];
+      if (wide) {
+        return SizedBox(
+          width: 256,
+          child: _WidePodcastCard(
+            title: show.title,
+            subtitle: show.publisher.isEmpty ? 'Podcast' : show.publisher,
+            artworkUrl: show.artworkUrl,
+            onTap: () => _openShow(context, show),
+          ),
+        );
+      }
       return SizedBox(
         width: 160,
         child: WaveMediaCard(
@@ -138,14 +257,33 @@ Widget _showRail(BuildContext context, List<PodcastShow> shows) {
 Widget _episodeRail(
   BuildContext context,
   WidgetRef ref,
-  List<PodcastEpisode> episodes,
-) {
+  List<PodcastEpisode> episodes, {
+  bool wide = false,
+}) {
   return WaveRail(
-    height: 228,
+    height: wide ? 196 : 228,
     itemCount: episodes.length,
     separatorBuilder: (_, _) => const SizedBox(width: 12),
     itemBuilder: (context, i) {
       final episode = episodes[i];
+      if (wide) {
+        return SizedBox(
+          width: 256,
+          child: _WidePodcastCard(
+            title: episode.title,
+            subtitle: episode.showTitle.isNotEmpty
+                ? episode.showTitle
+                : episode.publishedLabel,
+            artworkUrl: episode.artworkUrl,
+            onTap: () => playPodcastEpisodes(
+              ref,
+              context,
+              episode,
+              queue: episodes,
+            ),
+          ),
+        );
+      }
       return SizedBox(
         width: 160,
         child: WaveMediaCard(
@@ -229,12 +367,12 @@ class _WavePodcastsPageState extends ConsumerState<WavePodcastsPage> {
             if (shows.isNotEmpty) ...[
               LWSectionHeader(title: 'Shows'),
               const SizedBox(height: 10),
-              _showRail(context, shows),
+              _showRail(context, shows, wide: true),
               const SizedBox(height: 22),
             ],
             LWSectionHeader(title: 'Episodes'),
             const SizedBox(height: 10),
-            _episodeRail(context, ref, episodes),
+            _episodeRail(context, ref, episodes, wide: true),
           ],
         );
       },
@@ -334,9 +472,9 @@ class _WavePodcastsPageState extends ConsumerState<WavePodcastsPage> {
                 LWSectionHeader(title: shelf.title),
                 const SizedBox(height: 10),
                 if (shelf.shows.isNotEmpty)
-                  _showRail(context, shelf.shows)
+                  _showRail(context, shelf.shows, wide: true)
                 else
-                  _episodeRail(context, ref, shelf.episodes),
+                  _episodeRail(context, ref, shelf.episodes, wide: true),
                 const SizedBox(height: 22),
               ],
           ],
@@ -560,14 +698,24 @@ class PodcastEpisodeRow extends StatelessWidget {
                   ),
                 ),
               ),
-              WaveArtwork(
-                url: episode.artworkUrl,
-                videoId: episode.videoId,
-                size: 44,
-                label: episode.title,
-                title: episode.title,
-                artist: episode.showTitle,
-                upgrade: false,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(WaveRadius.artwork),
+                child: SizedBox(
+                  width: 78,
+                  height: 44,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ColoredBox(color: waveHoverWash(context)),
+                      if (episode.artworkUrl.isNotEmpty)
+                        CachedNetworkImage(
+                          imageUrl: episode.artworkUrl,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, _, _) => const SizedBox.shrink(),
+                        ),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(

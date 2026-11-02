@@ -53,6 +53,7 @@ abstract final class HomeShelfCatalog {
   /// edited: what you play most first, broad browsing last. Podcasts and the
   /// taste-only shelves are left out unless a saved layout asks for them.
   static const connected = <String>[
+    HomeShelfId.mixes,
     HomeShelfId.quickPicks,
     HomeShelfId.continueListening,
     HomeShelfId.youtube,

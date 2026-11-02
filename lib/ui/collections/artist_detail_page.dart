@@ -16,13 +16,14 @@ import '../../../features/search/shared_providers.dart'
     show databaseProvider, prefsApiKeyProvider;
 import '../components/ambient.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip, WaveChip, WaveGhostButton, WaveLink, WavePrimaryButton;
+import '../components/buttons.dart' show LWTooltip, WaveGhostButton, WaveLink, WavePrimaryButton;
 import '../components/desktop_table.dart';
 import '../components/shelf.dart';
 import '../components/skeletons.dart';
 import '../components/states.dart';
 import '../navigation/flight.dart';
 import '../navigation/wave_nav.dart';
+import 'yt_shelf_page.dart' show openYtEntity;
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -36,6 +37,12 @@ class _ArtistDetail {
   final List<YouTubeMusicEntity> singles;
   final List<String> related;
 
+  /// Every carousel on the artist's YouTube Music page, in YouTube's order
+  /// (Albums, Singles & EPs, Videos, Featured on, Playlists, Fans might also
+  /// like, …). Empty when the page could not be read; the page then falls
+  /// back to [albums] / [singles] / [related].
+  final List<YtHomeShelf> shelves;
+
   /// Sections still loading: `art`, `bio`, `popular`, `albums`. Empty once
   /// everything has landed (and for a stored snapshot).
   final Set<String> pending;
@@ -47,11 +54,32 @@ class _ArtistDetail {
       required this.albums,
       required this.singles,
       this.related = const [],
+      this.shelves = const [],
       this.pending = const {}});
 }
 
 /// kv_store key prefix for the on-disk artist page snapshot.
-const _artistCachePrefix = 'artist_detail_v1|';
+const _artistCachePrefix = 'artist_detail_v2|';
+
+Map<String, dynamic> _ytTrackToJson(YouTubeMusicTrack t) => {
+      'v': t.videoId,
+      'n': t.title,
+      'a': t.artist,
+      'al': t.album,
+      'art': t.artworkUrl,
+      'd': t.durationSeconds,
+      'ab': t.albumBrowseId,
+    };
+
+YouTubeMusicTrack _ytTrackFromJson(Map<String, dynamic> j) => YouTubeMusicTrack(
+      videoId: j['v']?.toString() ?? '',
+      title: j['n']?.toString() ?? '',
+      artist: j['a']?.toString() ?? '',
+      album: j['al']?.toString() ?? '',
+      artworkUrl: j['art']?.toString() ?? '',
+      durationSeconds: (j['d'] as num?)?.toInt() ?? 0,
+      albumBrowseId: j['ab']?.toString() ?? '',
+    );
 
 /// A snapshot younger than this is served as-is; an older one is still
 /// shown instantly but refreshed in the background (stale-while-revalidate).
@@ -110,6 +138,14 @@ String _encodeArtist(_ArtistDetail d) => jsonEncode({
       'albums': [for (final e in d.albums) _entityToJson(e)],
       'singles': [for (final e in d.singles) _entityToJson(e)],
       'related': d.related,
+      'shelves': [
+        for (final s in d.shelves)
+          {
+            't': s.title,
+            'e': [for (final e in s.entities) _entityToJson(e)],
+            'c': [for (final t in s.trackCards) _ytTrackToJson(t)],
+          },
+      ],
     });
 
 /// Decodes a stored snapshot, or null when it is missing, too old or
@@ -135,6 +171,20 @@ _ArtistDetail? _decodeArtist(String name, String? raw,
       related: ((j['related'] as List?) ?? const [])
           .map((e) => e.toString())
           .toList(),
+      shelves: [
+        for (final s in list('shelves'))
+          YtHomeShelf(
+            title: s['t']?.toString() ?? '',
+            entities: ((s['e'] as List?) ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .map(_entityFromJson)
+                .toList(),
+            trackCards: ((s['c'] as List?) ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .map(_ytTrackFromJson)
+                .toList(),
+          ),
+      ],
     );
   } catch (_) {
     return null;
@@ -174,6 +224,11 @@ final _artistDetailProvider = StreamProvider.autoDispose
     var related = <String>[];
     var popular = <GeneratedTrack>[];
     var albums = <YouTubeMusicEntity>[];
+    var shelves = <YtHomeShelf>[];
+    var artistId = '';
+    // Set once the full YouTube Music song list replaces the Last.fm top
+    // tracks, so the slower enrichment loop below stops overwriting it.
+    var fullSongs = false;
     final pending = <String>{'art', 'bio', 'popular', 'albums'};
 
     _ArtistDetail snap() => _ArtistDetail(
@@ -181,9 +236,10 @@ final _artistDetailProvider = StreamProvider.autoDispose
         artwork: art,
         bio: bio,
         popular: popular,
-        albums: albums.where((a) => !_isSingle(a.subtitle)).take(8).toList(),
-        singles: albums.where((a) => _isSingle(a.subtitle)).take(8).toList(),
+        albums: albums.where((a) => !_isSingle(a.subtitle)).toList(),
+        singles: albums.where((a) => _isSingle(a.subtitle)).toList(),
         related: related,
+        shelves: shelves,
         pending: Set.of(pending));
 
     void done(String section) {
@@ -197,6 +253,7 @@ final _artistDetailProvider = StreamProvider.autoDispose
     final artF = guarded(() async {
       final artists = await tube.searchArtists(q, limit: 3);
       art = artists.isNotEmpty ? artists.first.artworkUrl : '';
+      artistId = artists.isNotEmpty ? artists.first.browseId : '';
     }, null).whenComplete(() => done('art'));
     final infoF = guarded(() async {
       final json = await api.get({
@@ -224,8 +281,35 @@ final _artistDetailProvider = StreamProvider.autoDispose
           .toList();
     }, null).whenComplete(() => done('bio'));
     final albumsF = guarded(() async {
-      albums = await tube.searchAlbums(q, limit: 12);
+      albums = await tube.searchAlbums(q, limit: 40);
     }, null).whenComplete(() => done('albums'));
+
+    // The artist's own YouTube Music page: every song and every carousel
+    // (albums, singles & EPs, videos, featured on, playlists, fans also
+    // like) with nothing cut off. Needs the channel id from the artist
+    // search above.
+    final pageF = artF.then((_) => guarded(() async {
+          if (artistId.isEmpty) return;
+          final page = await tube.fetchArtistPage(artistId);
+          if (page == null) return;
+          shelves = page.shelves;
+          if (page.songs.isNotEmpty) {
+            fullSongs = true;
+            popular = [
+              for (final t in page.songs)
+                GeneratedTrack(
+                  name: t.title,
+                  artist: t.artist.isNotEmpty ? t.artist : q,
+                  album: t.album,
+                  artworkUrl: t.artworkUrl,
+                  videoId: t.videoId,
+                  durationSeconds: t.durationSeconds,
+                ),
+            ];
+            pending.remove('popular');
+          }
+          onUpdate?.call(snap());
+        }, null));
 
     final topF = guarded(() async {
       final json = await api.get({
@@ -263,19 +347,23 @@ final _artistDetailProvider = StreamProvider.autoDispose
               durationSeconds: t.durationSeconds,
             );
         try {
-          popular = (await repo.resolveVideos(bare, limit: 20))
+          final resolved = (await repo.resolveVideos(bare, limit: 20))
               .map(plain)
               .toList();
+          // The full YouTube Music list may have landed while this resolved.
+          if (fullSongs) return;
+          popular = resolved;
           // Rows are playable now; show them, then enrich in place.
           pending.remove('popular');
           onUpdate?.call(snap());
           // Missing album/duration lookups run in small parallel batches
           // rather than one serial search per track.
           const batch = 5;
-          for (var i = 0; i < popular.length; i += batch) {
+          for (var i = 0; i < popular.length && !fullSongs; i += batch) {
             final end = i + batch < popular.length ? i + batch : popular.length;
             final filled = await Future.wait(
                 popular.sublist(i, end).map(repo.fillMissingMetadata));
+            if (fullSongs) break;
             popular = [
               ...popular.sublist(0, i),
               ...filled.map(plain),
@@ -302,7 +390,7 @@ final _artistDetailProvider = StreamProvider.autoDispose
       }
     }().whenComplete(() => done('popular'));
 
-    await Future.wait([artF, infoF, albumsF, popularF]);
+    await Future.wait([artF, infoF, albumsF, popularF, pageF]);
     final detail = snap();
     // Never persist an all-empty result (offline / rate-limited): it would
     // pin an empty page until the snapshot ages out.
@@ -477,6 +565,104 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
             .invalidate(_artistDetailProvider(widget.name)),
       ),
       data: _body,
+    );
+  }
+
+  Widget _circleRail(List<Widget> circles) => WaveRail(
+        height: 168,
+        itemCount: circles.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) => circles[i],
+      );
+
+  /// One carousel from the artist's YouTube Music page. Rails are
+  /// virtualized, so a long discography costs nothing until scrolled.
+  Widget _shelfSection(
+    BuildContext context,
+    _ArtistDetail d,
+    YtHomeShelf shelf,
+    int index,
+  ) {
+    final count = shelf.entities.length + shelf.trackCards.length;
+    final Widget rail;
+    if (_isArtistShelf(shelf)) {
+      rail = _circleRail([
+        for (final e in shelf.entities)
+          _ArtistCircle(
+            name: e.name,
+            artworkUrl: e.artworkUrl,
+            onTap: () => openYtEntity(context, e),
+          ),
+      ]);
+    } else if (shelf.entities.isNotEmpty) {
+      rail = WaveRail(
+        height: 196,
+        itemCount: shelf.entities.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final e = shelf.entities[i];
+          return _ArtistAlbumCard(
+            artworkUrl: e.artworkUrl,
+            title: e.name,
+            subtitle: e.subtitle,
+            width: 136,
+            artSize: 136,
+            artist: d.name,
+            onTap: () => openYtEntity(context, e),
+          );
+        },
+      );
+    } else {
+      GeneratedTrack asTrack(YouTubeMusicTrack t) => GeneratedTrack(
+            name: t.title,
+            artist: t.artist.isNotEmpty ? t.artist : d.name,
+            album: t.album,
+            artworkUrl: t.artworkUrl,
+            videoId: t.videoId,
+            durationSeconds: t.durationSeconds,
+          );
+      rail = WaveRail(
+        height: 196,
+        itemCount: shelf.trackCards.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final t = shelf.trackCards[i];
+          return _ArtistAlbumCard(
+            artworkUrl: t.artworkUrl,
+            title: t.title,
+            subtitle: t.artist,
+            width: 136,
+            artSize: 136,
+            artist: d.name,
+            onTap: () => playGenerated(
+              ref,
+              context,
+              asTrack(t),
+              sourceLabel: d.name,
+            ),
+          );
+        },
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(shelf.title.isEmpty ? 'More' : shelf.title,
+                  style: WaveType.sectionTitle),
+              const SizedBox(width: 8),
+              Text('$count',
+                  style: WaveType.meta
+                      .copyWith(color: waveTextTertiary(context))),
+            ],
+          ),
+          const SizedBox(height: 10),
+          rail,
+        ],
+      ),
     );
   }
 
@@ -713,7 +899,12 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                     ),
                     ),
                   ],
-                  if (d.albums.isNotEmpty) ...[
+                  // Everything on the artist's YouTube Music page, in its
+                  // own order: albums, singles & EPs, videos, featured on,
+                  // playlists, fans might also like — each unlimited.
+                  for (var si = 0; si < d.shelves.length; si++)
+                    _shelfSection(context, d, d.shelves[si], si),
+                  if (d.shelves.isEmpty && d.albums.isNotEmpty) ...[
                     const SizedBox(height: 26),
                     WaveEntrance(
                       index: 3,
@@ -752,7 +943,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                       },
                     ),
                   ],
-                  if (d.singles.isNotEmpty) ...[
+                  if (d.shelves.isEmpty && d.singles.isNotEmpty) ...[
                     const SizedBox(height: 22),
                     WaveEntrance(
                       index: 4,
@@ -792,7 +983,8 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                       },
                     ),
                   ],
-                  if (d.related.isNotEmpty) ...[
+                  if (d.related.isNotEmpty &&
+                      !d.shelves.any(_isArtistShelf)) ...[
                     const SizedBox(height: 22),
                     WaveEntrance(
                       index: 5,
@@ -801,44 +993,15 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                           style: WaveType.sectionTitle),
                     ),
                     const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final r in d.related)
-                          LWTooltip(
-                            message: 'Open $r',
-                            child: Focus(
-                              canRequestFocus: true,
-                              onKeyEvent: (node, event) {
-                                if (event is KeyDownEvent &&
-                                    (event.logicalKey ==
-                                            LogicalKeyboardKey
-                                                .enter ||
-                                        event.logicalKey ==
-                                            LogicalKeyboardKey
-                                                .space)) {
-                                  waveOpen(
-                                      context,
-                                      '/artist/${Uri.encodeComponent(r)}');
-                                  return KeyEventResult.handled;
-                                }
-                                return KeyEventResult.ignored;
-                              },
-                              child: MouseRegion(
-                                cursor:
-                                    SystemMouseCursors.click,
-                                child: GestureDetector(
-                                  onTap: () => waveOpen(
-                                      context,
-                                      '/artist/${Uri.encodeComponent(r)}'),
-                                  child: WaveChip(label: r),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+                    _circleRail([
+                      for (final r in d.related)
+                        _ArtistCircle(
+                          name: r,
+                          artworkUrl: '',
+                          onTap: () => waveOpen(
+                              context, '/artist/${Uri.encodeComponent(r)}'),
+                        ),
+                    ]),
                   ],
                 ],
               ),
@@ -846,6 +1009,71 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
           ],
           ),
         );
+  }
+}
+
+bool _isArtistShelf(YtHomeShelf s) =>
+    s.entities.isNotEmpty &&
+    s.entities.every((e) => e.kind == YouTubeEntityKind.artist);
+
+/// Related artist: round portrait + name, like YouTube Music.
+class _ArtistCircle extends StatefulWidget {
+  final String name;
+  final String artworkUrl;
+  final VoidCallback onTap;
+  const _ArtistCircle({
+    required this.name,
+    required this.artworkUrl,
+    required this.onTap,
+  });
+
+  @override
+  State<_ArtistCircle> createState() => _ArtistCircleState();
+}
+
+class _ArtistCircleState extends State<_ArtistCircle> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LWTooltip(
+      message: widget.name,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: SizedBox(
+            width: 124,
+            child: AnimatedScale(
+              scale: _hover ? 1.04 : 1.0,
+              duration: const Duration(milliseconds: 140),
+              child: Column(
+                children: [
+                  WaveArtwork.circle(
+                    url: widget.artworkUrl,
+                    size: 112,
+                    label: widget.name,
+                    title: widget.name,
+                    artist: widget.name,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.name,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.trackTitle.copyWith(fontSize: 12.5),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -108,6 +108,22 @@ class _WavePlaylistsPageState
               p.title.toLowerCase().contains(_q.toLowerCase()),
         )
         .toList();
+    // Header cover: the most recent playlist (list order) that has art.
+    var heroCover = '';
+    for (final p in all) {
+      if (p.customCoverUri.isNotEmpty && !p.customCoverUri.startsWith('/') &&
+          p.customCoverUri.startsWith('http')) {
+        heroCover = p.customCoverUri;
+        break;
+      }
+      for (final t in p.tracks) {
+        if (t.artworkUrl.isNotEmpty) {
+          heroCover = t.artworkUrl;
+          break;
+        }
+      }
+      if (heroCover.isNotEmpty) break;
+    }
     // Full-width, left-aligned like the Liked/table pages — the grid
     // below fills the viewport instead of bunching in a centered cap.
     return WaveEntranceGroup(
@@ -127,6 +143,7 @@ class _WavePlaylistsPageState
                 overline: 'Collect',
                 title: 'Playlists',
                 meta: '${all.length} playlists',
+                artworkUrl: heroCover,
                 fallbackIcon: FluentIcons.list_mirrored,
                 primaryActions: [
                   WavePrimaryButton(

@@ -1161,6 +1161,8 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
           else
             _SongsTable(
               songs: _songs,
+              // "All" shows the best five; picking Songs shows everything.
+              limit: widget.filter == null ? 5 : null,
               onPlay: (i) => _playSongs(ref, context, i),
             ),
           const SizedBox(height: 24),
@@ -1181,7 +1183,9 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               height: 178,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: rankedAlbums.take(8).length,
+                itemCount: rankedAlbums
+                    .take(widget.filter == null ? 8 : 1000)
+                    .length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(width: 12),
                 itemBuilder: (context, i) {
@@ -1234,7 +1238,9 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               height: 158,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: _artists.take(8).length,
+                itemCount: _artists
+                    .take(widget.filter == null ? 8 : 1000)
+                    .length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(width: 16),
                 itemBuilder: (context, i) {
@@ -1292,7 +1298,9 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               height: 178,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: rankedPlaylists.take(8).length,
+                itemCount: rankedPlaylists
+                    .take(widget.filter == null ? 8 : 1000)
+                    .length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(width: 12),
                 itemBuilder: (context, i) {
@@ -1588,8 +1596,13 @@ class _TopResult extends StatelessWidget {
 
 class _SongsTable extends ConsumerWidget {
   final List<SearchResultItem> songs;
+  final int? limit;
   final void Function(int index) onPlay;
-  const _SongsTable({required this.songs, required this.onPlay});
+  const _SongsTable({
+    required this.songs,
+    required this.onPlay,
+    this.limit,
+  });
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final playingKey = ref.watch(
@@ -1598,7 +1611,7 @@ class _SongsTable extends ConsumerWidget {
     final isPlaying = ref.watch(
       playbackServiceProvider.select((s) => s.isPlaying),
     );
-    final shown = songs.take(5).toList();
+    final shown = limit == null ? songs : songs.take(limit!).toList();
     String keyOf(SearchResultItem e) =>
         '${e.name.toLowerCase()}|${e.artist.toLowerCase()}';
     return WaveDesktopTable<SearchResultItem>(

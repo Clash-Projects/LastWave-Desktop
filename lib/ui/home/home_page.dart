@@ -304,6 +304,55 @@ class WaveHomePage extends ConsumerWidget {
       ];
     }
 
+    // Featured hero with Play / Radio at the very top (as in the plain
+    // feed): the YouTube Music mix when there is one, else the best pick.
+    {
+      GeneratedTrack? hero;
+      List<GeneratedTrack> companions = const [];
+      List<GeneratedTrack> heroQueue = const [];
+      var heroKicker = 'FOR YOU · FEATURED MIX';
+      final mix = ref.watch(personalMixProvider).valueOrNull;
+      if (mix != null && mix.tracks.isNotEmpty) {
+        hero = mix.seed;
+        heroQueue = [mix.seed, ...mix.tracks];
+        companions = mix.tracks.take(3).toList();
+        heroKicker = 'FOR YOU · YOUTUBE MUSIC MIX';
+      } else {
+        final pool = <GeneratedTrack>[
+          ...blend.quickPicks,
+          ...data.heavyRotation,
+          ...data.quickPicks,
+          ...data.charts,
+        ];
+        if (pool.isNotEmpty) {
+          hero = pool.first;
+          companions = pool.skip(1).take(3).toList();
+        }
+      }
+      if (hero != null) {
+        final heroTrack = hero;
+        final heroUpNext = companions;
+        final heroAll = heroQueue;
+        final kicker = heroKicker;
+        sections[HomeShelfId.mixes] = [
+          const SliverToBoxAdapter(child: SizedBox(height: 18)),
+          SliverPadding(
+            padding: EdgeInsets.symmetric(horizontal: side),
+            sliver: SliverToBoxAdapter(
+              child: WaveEntrance(
+                index: slot++,
+                child: _FeaturedHero(
+                  track: heroTrack,
+                  upNext: heroUpNext,
+                  kicker: kicker,
+                  queueAll: heroAll,
+                ),
+              ),
+            ),
+          ),
+        ];
+      }
+    }
     if (blend.quickPicks.isNotEmpty) {
       // A whole number of rows, so the grid never ends on a gap.
       final count = (blend.quickPicks.length ~/ quickCols) * quickCols;

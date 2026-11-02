@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide RepeatMode;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,7 @@ import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/podcasts/podcast_repository.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artist_line.dart';
@@ -864,12 +866,67 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
   String _lastMotionUrl = '';
   String _lastMotionFallbackUrl = '';
 
+  String _podcastVid = '\u0000';
+  bool _isPodcast = false;
+
+  /// Podcast episodes are the only tracks with a saved progress row.
+  bool _podcast(PlayableTrack t) {
+    if (_podcastVid != t.videoId) {
+      _podcastVid = t.videoId;
+      try {
+        _isPodcast = t.videoId.isNotEmpty &&
+            ref
+                .read(podcastRepositoryProvider)
+                .progressFor([t.videoId]).containsKey(t.videoId);
+      } catch (_) {
+        _isPodcast = false;
+      }
+    }
+    return _isPodcast;
+  }
+
   @override
   Widget build(BuildContext context) {
     final ref = this.ref;
     final track = widget.track;
     final size = widget.size;
     final dark = waveIsDark(context);
+    // Podcasts keep their native 16:9 cover — never squared to 1:1.
+    if (track.artworkUrl.isNotEmpty && _podcast(track)) {
+      final w = size;
+      final h = size * 9 / 16;
+      return Center(
+        child: Container(
+          width: w,
+          height: h,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: dark ? 0.62 : 0.34),
+                blurRadius: 28,
+                offset: const Offset(0, 14),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: dark ? 0.38 : 0.18),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: CachedNetworkImage(
+              imageUrl: track.artworkUrl,
+              fit: BoxFit.cover,
+              width: w,
+              height: h,
+              errorWidget: (_, _, _) => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      );
+    }
     // Visualizer toggle owns ALL page motion: aura + motion-art clip.
     final visualizerOn = ref.watch(visualizerEnabledProvider);
     final motion = ref.watch(animatedArtworkProvider(

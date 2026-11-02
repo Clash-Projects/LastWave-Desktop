@@ -169,6 +169,15 @@ class YtHomeShelf {
   bool get isRenderable => isTrackShelf || isTrackCardShelf || isCardShelf;
 }
 
+/// A YouTube Music artist page: the full song list plus every carousel
+/// (Albums, Singles & EPs, Videos, Featured on, Playlists, Fans might also
+/// like, …) in YouTube's own order, each with its complete contents.
+class YtArtistPage {
+  final List<YouTubeMusicTrack> songs;
+  final List<YtHomeShelf> shelves;
+  const YtArtistPage({this.songs = const [], this.shelves = const []});
+}
+
 class YtOwnedPlaylistItem {
   final String videoId;
   final String setVideoId;
@@ -2492,6 +2501,151 @@ class InnerTubeMusicApi {
     } catch (_) {
       return const [];
     }
+  }
+
+  /// First `browseEndpoint` anywhere under [node] (id + optional params).
+  Map<String, dynamic>? _firstBrowseEndpoint(Object? node) {
+    if (node is Map) {
+      final be = node['browseEndpoint'];
+      if (be is Map && (be['browseId']?.toString() ?? '').isNotEmpty) {
+        return Map<String, dynamic>.from(be);
+      }
+      for (final v in node.values) {
+        final found = _firstBrowseEndpoint(v);
+        if (found != null) return found;
+      }
+    } else if (node is List) {
+      for (final v in node) {
+        final found = _firstBrowseEndpoint(v);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>> _browseWithParams(
+    String browseId,
+    String? params,
+  ) async {
+    await _ensureConfig();
+    return _post(
+      '$musicApi/browse?key=$_apiKey&prettyPrint=false',
+      body: {
+        'context': _webContext(_clientVersion, _visitorData),
+        'browseId': browseId,
+        if (params != null && params.isNotEmpty) 'params': params,
+      },
+      clientName: 'WEB_REMIX',
+      clientVersion: _clientVersion,
+      userAgent: webUserAgent,
+      authenticated: true,
+    );
+  }
+
+  /// The whole artist page, like music.youtube.com: every song (the "Songs"
+  /// list expanded past the five shown on the page) and every carousel with
+  /// its "more" grid followed, so nothing is capped at what the first
+  /// response carried. Null when the page cannot be read at all.
+  Future<YtArtistPage?> fetchArtistPage(String browseId) async {
+    if (browseId.trim().isEmpty) return null;
+    try {
+      final root = await _browseWithParams(browseId, null);
+      final sectionLists = <Map<String, dynamic>>[];
+      _collectObjects(root, 'sectionListRenderer', sectionLists);
+      var songs = <YouTubeMusicTrack>[];
+      final shelves = <YtHomeShelf>[];
+      final work = <Future<void>>[];
+
+      for (final list in sectionLists) {
+        final contents = list['contents'];
+        if (contents is! List) continue;
+        for (final section in contents) {
+          if (section is! Map<String, dynamic>) continue;
+
+          final songShelf = section['musicShelfRenderer'];
+          if (songShelf is Map<String, dynamic>) {
+            final onPage = _parseSongRenderers(songShelf);
+            if (songs.isEmpty) songs = onPage;
+            final more = _firstBrowseEndpoint(songShelf['title']) ??
+                _firstBrowseEndpoint(songShelf['bottomEndpoint']);
+            if (more != null) {
+              work.add(() async {
+                try {
+                  final full = await browseSongs(
+                    more['browseId'].toString(),
+                    params: more['params']?.toString(),
+                    limit: 500,
+                  );
+                  if (full.length > songs.length) songs = full;
+                } catch (_) {}
+              }());
+            }
+            continue;
+          }
+
+          final shelf = _parseHomeSection(section, maxItemsPerShelf: 500);
+          if (shelf == null || !shelf.isRenderable) continue;
+          final slot = shelves.length;
+          shelves.add(shelf);
+          final carousel = section['musicCarouselShelfRenderer'];
+          if (shelf.isCardShelf && carousel is Map<String, dynamic>) {
+            final ep = _moreEndpointOfCarousel(carousel);
+            if (ep != null) {
+              work.add(() async {
+                try {
+                  final grid = await _browseWithParams(
+                    ep['browseId'].toString(),
+                    ep['params']?.toString(),
+                  );
+                  final cards = <Map<String, dynamic>>[];
+                  _collectObjects(grid, 'musicTwoRowItemRenderer', cards);
+                  final more = <YouTubeMusicEntity>[];
+                  for (final card in cards) {
+                    final id = (((card['navigationEndpoint'] as Map?)
+                                    ?['browseEndpoint'] as Map?)?['browseId'])
+                            ?.toString() ??
+                        '';
+                    if (id.isEmpty) continue;
+                    final e = _parseTwoRowEntity(
+                      card,
+                      kind: kindForBrowseId(id),
+                    );
+                    if (e != null && !isLikedMusicId(e.browseId)) more.add(e);
+                  }
+                  if (more.length > shelf.entities.length) {
+                    shelves[slot] = YtHomeShelf(
+                      title: shelf.title,
+                      subtitle: shelf.subtitle,
+                      entities: more,
+                    );
+                  }
+                } catch (_) {}
+              }());
+            }
+          }
+        }
+      }
+      await Future.wait(work);
+      if (songs.isEmpty && shelves.isEmpty) return null;
+      return YtArtistPage(songs: songs, shelves: shelves);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// `moreContentButton` ("Show all") of a carousel header, as a browse
+  /// endpoint (id + params), or null.
+  Map<String, dynamic>? _moreEndpointOfCarousel(
+    Map<String, dynamic> carousel,
+  ) {
+    final header = carousel['header'];
+    if (header is! Map) return null;
+    for (final h in header.values) {
+      if (h is Map && h['moreContentButton'] != null) {
+        return _firstBrowseEndpoint(h['moreContentButton']);
+      }
+    }
+    return null;
   }
 
   String? _homeContinuationToken(Map<String, dynamic> page) {
