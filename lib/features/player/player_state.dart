@@ -16,10 +16,12 @@ class PlayerSnapshot {
   final bool shuffleEnabled;
   final RepeatMode repeatMode;
   final double speed;
+  /// Independent of [speed]. 1.0 is concert pitch. Range used by the
+  /// dock is 0.5–1.5.
+  final double pitch;
   final ResolvedStream? stream;
   final String? error;
   final Duration? sleepRemaining;
-
   /// Length the user picked, in minutes. Null while the timer is off.
   /// Stays put as [sleepRemaining] counts down so the menu can keep
   /// the chosen row checked.
@@ -42,6 +44,7 @@ class PlayerSnapshot {
     this.shuffleEnabled = false,
     this.repeatMode = RepeatMode.off,
     this.speed = 1.0,
+    this.pitch = 1.0,
     this.stream,
     this.error,
     this.sleepRemaining,
@@ -66,6 +69,7 @@ class PlayerSnapshot {
     bool? shuffleEnabled,
     RepeatMode? repeatMode,
     double? speed,
+    double? pitch,
     ResolvedStream? stream,
     bool clearStream = false,
     String? error,
@@ -92,6 +96,7 @@ class PlayerSnapshot {
         shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
         repeatMode: repeatMode ?? this.repeatMode,
         speed: speed ?? this.speed,
+        pitch: pitch ?? this.pitch,
         stream: clearStream ? null : (stream ?? this.stream),
         error: clearError ? null : (error ?? this.error),
         sleepRemaining:

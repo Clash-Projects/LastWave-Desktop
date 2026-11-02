@@ -67,7 +67,28 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     title: 'Streaming and Download quality',
     subtitle: 'Lossless-first with YouTube fallback',
     keywords: 'lossless hi-res flac opus prefer lossless streaming '
-        'download quality bitrate',
+        'download quality bitrate data saver',
+  ),
+  SettingsSearchEntry(
+    id: 'audio.loudness',
+    section: 'audio',
+    title: 'Loudness',
+    subtitle: 'Track or album normalization',
+    keywords: 'loudness replaygain normalization volume',
+  ),
+  SettingsSearchEntry(
+    id: 'audio.headphones',
+    section: 'audio',
+    title: 'Headphone correction',
+    subtitle: 'Built-in curves for common headphones',
+    keywords: 'headphone eq correction',
+  ),
+  SettingsSearchEntry(
+    id: 'audio.automix',
+    section: 'audio',
+    title: 'AutoMix',
+    subtitle: 'Timed overlap between tracks',
+    keywords: 'automix crossfade mix transition overlap',
   ),
   SettingsSearchEntry(
     id: 'audio.equalizer',
