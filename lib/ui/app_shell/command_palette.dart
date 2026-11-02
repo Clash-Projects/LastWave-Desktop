@@ -1,5 +1,6 @@
 import '../components/buttons.dart';
 import '../components/inputs.dart';
+import '../components/menus.dart';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -64,6 +65,9 @@ class _PaletteEntry {
   final String art;
   final bool circleArt;
   final VoidCallback action;
+
+  /// Right-click menu (songs only); null = no context menu.
+  final List<WaveMenuEntry> Function()? menu;
   const _PaletteEntry({
     required this.label,
     required this.sub,
@@ -72,6 +76,7 @@ class _PaletteEntry {
     required this.action,
     this.art = '',
     this.circleArt = false,
+    this.menu,
   });
 }
 
@@ -184,6 +189,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
           art: top.artworkUrl,
           circleArt: top.tab == SearchTab.artists,
           action: () => _openResult(top),
+          menu: top.tab == SearchTab.tracks ? () => _songMenu(top) : null,
         ));
       }
       for (final s in songs.take(3)) {
@@ -194,6 +200,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
           icon: FluentIcons.music_note,
           art: s.artworkUrl,
           action: () => _playSong(s),
+          menu: () => _songMenu(s),
         ));
       }
       for (final a in albums.take(2)) {
@@ -253,6 +260,17 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
     }
     return out;
   }
+
+  List<WaveMenuEntry> _songMenu(SearchResultItem s) => waveTrackMenuItems(
+        context: context,
+        ref: ref,
+        title: s.name,
+        artist: s.artist,
+        artworkUrl: s.artworkUrl,
+        videoId: s.videoId,
+        album: s.subtitle,
+        durationSeconds: s.durationSeconds,
+      );
 
   void _playSong(SearchResultItem s) {
     // Single track through the shared helper: autoplay-similar pref
@@ -480,7 +498,7 @@ class _PaletteRow extends StatelessWidget {
                 label: r.label,
               ))
         : Icon(r.icon, size: 15);
-    return ListTile.selectable(
+    final tile = ListTile.selectable(
       shape: RoundedRectangleBorder(
         borderRadius: WaveRadius.controlsRadius,
       ),
@@ -499,6 +517,8 @@ class _PaletteRow extends StatelessWidget {
       ),
       onPressed: onTap,
     );
+    final menu = r.menu;
+    return menu == null ? tile : WaveContextMenu(items: menu, child: tile);
   }
 }
 
