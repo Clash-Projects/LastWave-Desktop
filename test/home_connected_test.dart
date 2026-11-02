@@ -127,12 +127,15 @@ void main() {
     final because =
         tester.getTopLeft(find.text('Because you listened to Fav')).dy;
     final releases = tester.getTopLeft(find.text('New releases')).dy;
+    final videos = tester.getTopLeft(find.text('Music videos for you')).dy;
     expect(quick, lessThan(again));
-    expect(again, lessThan(mix));
-    expect(mix, lessThan(because));
-    expect(because, lessThan(releases));
+    // YouTube's own shelves keep YouTube's order...
+    expect(again, lessThan(videos));
+    expect(videos, lessThan(mix));
+    expect(mix, lessThan(releases));
+    // ...and the small Last.fm rows follow the feed.
+    expect(releases, lessThan(because));
 
-    expect(find.text('Music videos for you'), findsNothing);
     expect(find.text('CHART SPOTLIGHT'), findsNothing);
     expect(find.text('Trending Now'), findsNothing);
     expect(tester.takeException(), isNull);

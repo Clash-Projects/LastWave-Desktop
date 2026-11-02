@@ -1325,7 +1325,7 @@ class InnerTubeMusicApi {
       if (kDebugMode) debugPrint('YtHistory: skip (signed out)');
       return false;
     }
-    if (videoId.isEmpty || watchedSeconds < 30) {
+    if (videoId.isEmpty || watchedSeconds < 15) {
       if (kDebugMode) {
         debugPrint(
           'YtHistory: skip (id empty or watched<30s) et=$watchedSeconds',

@@ -123,8 +123,8 @@ class _StageScrim extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final b = boost.clamp(0.0, 1.0);
-    final topAlpha = (isDark ? 0.14 : 0.22) + b * 0.28;
-    final bottomAlpha = (isDark ? 0.26 : 0.36) + b * 0.30;
+    final topAlpha = (isDark ? 0.06 : 0.16) + b * 0.28;
+    final bottomAlpha = (isDark ? 0.34 : 0.40) + b * 0.30;
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -1182,11 +1182,16 @@ class _AuraPainter extends CustomPainter {
     required this.phase,
   });
 
-  static ColorFilter _alphaFilter(double alpha) {
+  /// Alpha plus saturation in one matrix (1 = as baked, <1 = more muted).
+  static ColorFilter _alphaFilter(double alpha, [double saturation = 1.0]) {
+    final s = saturation;
+    final a = (1 - s) * 0.213;
+    final b = (1 - s) * 0.715;
+    final c = (1 - s) * 0.072;
     return ColorFilter.matrix(<double>[
-      1, 0, 0, 0, 0, //
-      0, 1, 0, 0, 0, //
-      0, 0, 1, 0, 0, //
+      a + s, b, c, 0, 0, //
+      a, b + s, c, 0, 0, //
+      a, b, c + s, 0, 0, //
       0, 0, 0, alpha, 0, //
     ]);
   }
@@ -1198,6 +1203,7 @@ class _AuraPainter extends CustomPainter {
     required double diameter,
     required double angle,
     required double alpha,
+    double saturation = 1.0,
   }) {
     final src = Rect.fromLTWH(
       0,
@@ -1213,7 +1219,7 @@ class _AuraPainter extends CustomPainter {
     final paint = Paint()
       ..isAntiAlias = true
       ..filterQuality = FilterQuality.low
-      ..colorFilter = _alphaFilter(alpha);
+      ..colorFilter = _alphaFilter(alpha, saturation);
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.rotate(angle);
@@ -1251,129 +1257,83 @@ class _AuraPainter extends CustomPainter {
     final rect = Offset.zero & size;
     final maxDim = math.max(w, h);
 
-    // Deep ambient foundation tinted by the cover's shadow color.
-    final baseColor =
-        Color.lerp(const Color(0xFF08090D), palette.shadow, 0.65) ??
-            const Color(0xFF08090D);
-    canvas.drawRect(rect, Paint()..color = baseColor);
+    // Calm, tonal stage (Apple Music / Spotify style): one dominant hue of
+    // the cover, deep and low-contrast. No hot spots, no competing blobs —
+    // just a soft light source on a dark ground that fades out downward.
+    final tint = Color.lerp(palette.darkMuted, palette.primary, 0.55) ??
+        palette.primary;
+    final ground =
+        Color.lerp(const Color(0xFF05070B), tint, 0.50) ?? tint;
+    canvas.drawRect(rect, Paint()..color = ground);
 
-    // Layer 0: Full-bleed rotating base wash of the entire album cover.
+    // Heavily blurred cover wash, muted and slow: carries the cover's real
+    // colour distribution without any visible shape.
     _drawRotatedTexture(
       canvas,
       textures.base,
-      center: Offset(w * 0.50, h * 0.50),
-      diameter: maxDim * 2.2,
-      angle: phase * 0.35,
-      alpha: 0.96,
+      center: Offset(w * 0.50, h * 0.42),
+      diameter: maxDim * 2.3,
+      angle: phase * 0.10,
+      alpha: 0.62,
+      saturation: 0.72,
     );
-
-    // Layer 1: Left / hero counter-rotating feathered cover sprite.
+    // One feathered sprite drifting very slowly gives the stage life.
     _drawRotatedTexture(
       canvas,
       textures.sprite,
       center: Offset(
-        w * (0.30 + 0.06 * math.cos(phase * 0.70)),
-        h * (0.42 + 0.06 * math.sin(phase * 0.60)),
+        w * (0.32 + 0.04 * math.cos(phase * 0.45)),
+        h * (0.36 + 0.04 * math.sin(phase * 0.40)),
       ),
-      diameter: maxDim * 1.7,
-      angle: -phase * 0.95,
-      alpha: 0.55,
+      diameter: maxDim * 1.9,
+      angle: -phase * 0.20,
+      alpha: 0.38,
+      saturation: 0.80,
     );
 
-    // Layer 2: Right / lyrics upper rotating feathered cover sprite.
-    // Offset initial angle (1.8 rad) rotates top-left cover accents into the
-    // right-hand lyrics stage as well.
-    _drawRotatedTexture(
-      canvas,
-      textures.sprite,
-      center: Offset(
-        w * (0.72 + 0.06 * math.sin(phase * 0.65 + 1.2)),
-        h * (0.40 + 0.06 * math.cos(phase * 0.80 + 0.7)),
-      ),
-      diameter: maxDim * 1.7,
-      angle: phase * 1.15 + 1.8,
-      alpha: 0.55,
-    );
-
-    // Layer 3: Bottom-center counter-rotating feathered cover sprite.
-    _drawRotatedTexture(
-      canvas,
-      textures.sprite,
-      center: Offset(
-        w * (0.50 + 0.07 * math.cos(phase * 0.55 + 2.5)),
-        h * (0.72 + 0.06 * math.sin(phase * 0.75 + 2.1)),
-      ),
-      diameter: maxDim * 1.7,
-      angle: -phase * 0.80 + 3.7,
-      alpha: 0.50,
-    );
-
-    // Layer 4: Regional cover palette color blooms so small vibrant accents on
-    // mostly-monochrome covers still bloom across the background visualizer.
+    // Soft light source, upper left of centre (where the cover sits).
     _drawPaletteBloom(
       canvas,
       rect,
-      center: Offset(
-        w * (0.26 + 0.08 * math.sin(phase * 0.50)),
-        h * (0.30 + 0.08 * math.cos(phase * 0.45)),
-      ),
+      center: Offset(w * 0.30, h * 0.30),
       radius: maxDim * 0.85,
-      color: palette.vibrant,
-      alpha: 0.46,
-    );
-    _drawPaletteBloom(
-      canvas,
-      rect,
-      center: Offset(
-        w * (0.76 + 0.08 * math.cos(phase * 0.60 + 1.4)),
-        h * (0.44 + 0.08 * math.sin(phase * 0.55 + 0.9)),
-      ),
-      radius: maxDim * 0.80,
       color: palette.primary,
-      alpha: 0.42,
-    );
-    _drawPaletteBloom(
-      canvas,
-      rect,
-      center: Offset(
-        w * (0.46 + 0.09 * math.sin(phase * 0.40 + 2.8)),
-        h * (0.78 + 0.07 * math.cos(phase * 0.50 + 2.0)),
-      ),
-      radius: maxDim * 0.75,
-      color: palette.lightVibrant,
-      alpha: 0.34,
-    );
-    _drawPaletteBloom(
-      canvas,
-      rect,
-      center: Offset(
-        w * (0.88 + 0.05 * math.sin(phase * 0.35 + 0.6)),
-        h * (0.92 + 0.05 * math.cos(phase * 0.42 + 1.1)),
-      ),
-      radius: maxDim * 0.70,
-      color: palette.darkMuted,
-      alpha: 0.40,
+      alpha: 0.22,
     );
 
-    // Apple Music finish: no milky veil (it greys the colours out). Just a
-    // gentle vignette that deepens the corners so the colours glow from the
-    // middle, like the real thing.
+    // Depth: light at the top, falling away to near-black at the bottom.
     canvas.drawRect(
       rect,
       Paint()
-        ..shader = RadialGradient(
-          center: Alignment.center,
-          radius: 1.05,
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
           colors: [
-            const Color(0x00000000),
-            const Color(0x00000000),
-            const Color(0x40000000),
+            Color(0x00000000),
+            Color(0x00000000),
+            Color(0x66000000),
+            Color(0xB3000000),
           ],
-          stops: const [0.0, 0.6, 1.0],
+          stops: [0.0, 0.38, 0.72, 1.0],
+        ).createShader(rect),
+    );
+
+    // Gentle vignette so the edges settle into the page.
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const RadialGradient(
+          center: Alignment.center,
+          radius: 1.1,
+          colors: [
+            Color(0x00000000),
+            Color(0x00000000),
+            Color(0x4D000000),
+          ],
+          stops: [0.0, 0.62, 1.0],
         ).createShader(rect),
     );
   }
-
   @override
   bool shouldRepaint(covariant _AuraPainter old) {
     return old.textures != textures ||

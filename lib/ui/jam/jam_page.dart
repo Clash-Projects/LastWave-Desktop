@@ -307,14 +307,29 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _Label('Room code'),
-              const SizedBox(height: 6),
-              SelectableText(
-                jam.roomCode,
-                contextMenuBuilder: TextBox.defaultContextMenuBuilder,
-                style: const TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 6,
+              const SizedBox(height: 8),
+              // The code sits in its own tinted tile so it reads at a glance.
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: waveAccent(context).withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(WaveRadius.menu),
+                  border: Border.all(
+                    color: waveAccent(context).withValues(alpha: 0.28),
+                    width: 0.8,
+                  ),
+                ),
+                child: SelectableText(
+                  jam.roomCode,
+                  contextMenuBuilder: TextBox.defaultContextMenuBuilder,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 8,
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
@@ -368,9 +383,9 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
                       url: track.artworkUrl ?? '',
                       title: track.title,
                       artist: track.artist,
-                      size: 56,
+                      size: 64,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -502,15 +517,30 @@ class _Card extends StatelessWidget {
   const _Card({required this.child, this.padding = const EdgeInsets.all(16)});
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: waveSurface(context),
-          borderRadius: BorderRadius.circular(WaveRadius.artwork),
-          border: Border.all(color: waveDivider(context)),
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final base = waveSurface(context);
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.alphaBlend(
+              (dark ? Colors.white : Colors.black)
+                  .withValues(alpha: dark ? 0.025 : 0.015),
+              base,
+            ),
+            base,
+          ],
         ),
-        child: child,
-      );
+        borderRadius: BorderRadius.circular(WaveRadius.floating),
+        border: Border.all(color: waveDivider(context), width: 0.8),
+      ),
+      child: child,
+    );
+  }
 }
 
 class _Label extends StatelessWidget {
@@ -631,7 +661,15 @@ class _Bubble extends StatelessWidget {
                 color: mine
                     ? accent.withValues(alpha: 0.18)
                     : waveSurfaceRaised(context),
-                borderRadius: BorderRadius.circular(WaveRadius.menu),
+                // Chat-bubble shape: the corner facing the speaker is tight.
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(WaveRadius.menu + 4),
+                  topRight: const Radius.circular(WaveRadius.menu + 4),
+                  bottomLeft: Radius.circular(
+                      mine ? WaveRadius.menu + 4 : 4),
+                  bottomRight: Radius.circular(
+                      mine ? 4 : WaveRadius.menu + 4),
+                ),
               ),
               child: SelectableText(
                 line.text,

@@ -76,20 +76,26 @@ class HomeBlend {
   final bool hasYouTube;
 }
 
-/// Pure blend of YouTube shelves and the taste-scored feed.
+/// Shelves that do not belong on the music Home (they have their own tabs).
+bool _offTopic(String title) {
+  final t = title.toLowerCase();
+  return const ['podcast', 'episode', 'short', 'audiobook']
+      .any(t.contains);
+}
+
+/// The connected Home: YouTube Music's own feed, as YouTube lays it out.
 ///
-/// - Quick Picks interleaves two YouTube picks with one Last.fm taste pick.
-/// - Shelves run personal, then general. An unrecognised shelf stays only if
-///   it features an artist the user listens to; junk never does.
-/// - A shelf needs at least [minItems] items, most with real artwork, so a
-///   thin or half-blank row never makes the page.
+/// YouTube's shelves keep YouTube's order and contents — no re-ranking by
+/// Last.fm taste, no shelf dropped for "not matching taste", no cap. Last.fm
+/// only fills in where YouTube has nothing (an empty Quick picks / Listen
+/// again) and supplies the small "because you listened" and artist rows
+/// that follow the feed.
 HomeBlend blendHomeFeed({
   required List<YtHomeShelf> shelves,
   required FeedData feed,
   Set<String> excluded = const {},
-  int maxPersonal = 6,
-  int maxGeneral = 3,
-  int minItems = 3,
+  int maxShelves = 40,
+  int minItems = 2,
   int quickPickCount = 12,
   int listenAgainCount = 12,
 }) {
@@ -111,84 +117,35 @@ HomeBlend blendHomeFeed({
   bool allowed(YouTubeMusicTrack t) => !excluded
       .contains(AppDatabase.exclusionKey(t.title, t.artist));
 
-  // YouTube's order stays the base. Taste can lift a strong artist up to
-  // eight places, which sharpens a shelf without shuffling it.
-  List<T> rerank<T>(List<T> items, String Function(T) artistOf) {
-    final scored = [
-      for (var i = 0; i < items.length; i++)
-        (item: items[i], score: taste(artistOf(items[i])) * 8 - i),
-    ]..sort((a, b) => b.score.compareTo(a.score));
-    return [for (final s in scored) s.item];
-  }
-
-  String entityArtist(YouTubeMusicEntity e) =>
-      e.artist.isNotEmpty ? e.artist : e.subtitle;
-
-  YtHomeShelf tuned(YtHomeShelf s) => YtHomeShelf(
+  // Hidden tracks are the only thing removed from a shelf.
+  YtHomeShelf visible(YtHomeShelf s) => YtHomeShelf(
         title: s.title,
         subtitle: s.subtitle,
-        tracks: rerank(s.tracks.where(allowed).toList(), (t) => t.artist),
-        trackCards:
-            rerank(s.trackCards.where(allowed).toList(), (t) => t.artist),
-        entities: rerank(s.entities, entityArtist),
+        tracks: s.tracks.where(allowed).toList(),
+        trackCards: s.trackCards.where(allowed).toList(),
+        entities: s.entities,
       );
 
-  bool looksGood(YtHomeShelf s) {
-    final art = [
-      ...s.tracks.map((t) => t.artworkUrl),
-      ...s.trackCards.map((t) => t.artworkUrl),
-      ...s.entities.map((e) => e.artworkUrl),
-    ];
-    if (art.length < minItems) return false;
-    return art.where((a) => a.isNotEmpty).length * 4 >= art.length * 3;
-  }
-
-  bool featuresTaste(YtHomeShelf s) =>
-      s.tracks.any((t) => taste(t.artist) > 0) ||
-      s.trackCards.any((t) => taste(t.artist) > 0) ||
-      s.entities.any((e) => taste(entityArtist(e)) > 0);
-
-  double shelfTaste(YtHomeShelf s) {
-    final scores = [
-      ...s.tracks.map((t) => taste(t.artist)),
-      ...s.trackCards.map((t) => taste(t.artist)),
-      ...s.entities.map((e) => taste(entityArtist(e))),
-    ];
-    if (scores.isEmpty) return 0;
-    return scores.reduce((a, b) => a + b) / scores.length;
-  }
+  bool renderable(YtHomeShelf s) =>
+      s.tracks.length + s.trackCards.length + s.entities.length >= minItems;
 
   final ytQuick = <YouTubeMusicTrack>[];
   final ytAgain = <YouTubeMusicTrack>[];
-  final personal = <YtHomeShelf>[];
-  final general = <YtHomeShelf>[];
+  final feedShelves = <YtHomeShelf>[];
   final titles = <String>{};
   for (final raw in shelves) {
     if (raw.title.isEmpty || !titles.add(raw.title.toLowerCase())) continue;
-    final tier = classifyYtShelf(raw.title);
-    if (tier == YtShelfTier.junk) continue;
-    final shelf = tuned(raw);
-    switch (tier) {
+    if (_offTopic(raw.title)) continue;
+    final shelf = visible(raw);
+    switch (classifyYtShelf(raw.title)) {
       case YtShelfTier.quickPicks:
         ytQuick.addAll([...shelf.tracks, ...shelf.trackCards]);
       case YtShelfTier.listenAgain:
         ytAgain.addAll([...shelf.trackCards, ...shelf.tracks]);
-      case YtShelfTier.personal:
-        if (looksGood(shelf)) personal.add(shelf);
-      case YtShelfTier.general:
-        if (looksGood(shelf)) general.add(shelf);
-      case YtShelfTier.unknown:
-        if (looksGood(shelf) && featuresTaste(shelf)) personal.add(shelf);
-      case YtShelfTier.junk:
-        break;
+      default:
+        if (renderable(shelf)) feedShelves.add(shelf);
     }
   }
-  // Stable: Dart's sort isn't, so the original index breaks ties.
-  final order = {for (var i = 0; i < personal.length; i++) personal[i]: i};
-  personal.sort((a, b) {
-    final byTaste = shelfTaste(b).compareTo(shelfTaste(a));
-    return byTaste != 0 ? byTaste : order[a]!.compareTo(order[b]!);
-  });
 
   GeneratedTrack fromYt(YouTubeMusicTrack t) => GeneratedTrack(
         name: t.title,
@@ -204,17 +161,21 @@ HomeBlend blendHomeFeed({
       .where((t) => t.artworkUrl.isNotEmpty && taste(t.artist) > 0)
       .toList();
 
+  // YouTube's picks as YouTube ranks them; Last.fm only when YouTube sent
+  // none.
   final quick = _interleave(
     ytQuick.map(fromYt).toList(),
-    tastePicks,
+    ytQuick.isEmpty ? tastePicks : const [],
     limit: quickPickCount,
-    maxPerArtist: 2,
+    maxPerArtist: 3,
   );
   final again = _interleave(
     ytAgain.map(fromYt).toList(),
-    feed.jumpBackIn.where((t) => t.artworkUrl.isNotEmpty).toList(),
+    ytAgain.isEmpty
+        ? feed.jumpBackIn.where((t) => t.artworkUrl.isNotEmpty).toList()
+        : const [],
     limit: listenAgainCount,
-    maxPerArtist: 3,
+    maxPerArtist: 4,
   );
 
   final artists = <GeneratedTrack>[];
@@ -232,16 +193,15 @@ HomeBlend blendHomeFeed({
   return HomeBlend(
     quickPicks: quick,
     listenAgain: again,
-    personal: personal.take(maxPersonal).toList(),
-    general: general.take(maxGeneral).toList(),
+    // Every YouTube shelf, in YouTube's order.
+    personal: feedShelves.take(maxShelves).toList(),
+    general: const [],
     artists: artists,
     hasYouTube: ytQuick.isNotEmpty ||
         ytAgain.isNotEmpty ||
-        personal.isNotEmpty ||
-        general.isNotEmpty,
+        feedShelves.isNotEmpty,
   );
 }
-
 /// Two from [primary], one from [secondary], deduped by id and name|artist.
 List<GeneratedTrack> _interleave(
   List<GeneratedTrack> primary,

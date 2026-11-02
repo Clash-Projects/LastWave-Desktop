@@ -2754,6 +2754,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _nowPlayingSent = false;
     _lastTick = DateTime.now();
     _sendNowPlaying(track);
+    _prewarmHistoryId(track);
   }
 
   void _sendNowPlaying(PlayableTrack track) {
@@ -2791,15 +2792,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       // Resolve on demand (disk-cached after the first match, so one
       // search per track ever) and adopt it — future plays then take
       // the instant path everywhere, not just history.
-      try {
-        final match = await _tube
-            .findBestMatchOrNull(track.title, track.artist)
-            .timeout(const Duration(seconds: 10));
-        videoId = match?.videoId ?? '';
-        if (videoId.isNotEmpty) _adoptVideoId(track, videoId, match!);
-      } catch (_) {
-        videoId = '';
-      }
+      videoId = await _matchYoutubeIdForHistory(track);
     }
     if (videoId.isEmpty) {
       _ytHistoryPushedThisWindow = false;
@@ -2836,6 +2829,33 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (!ok) _ytHistoryPushedThisWindow = false;
   }
 
+  /// YouTube video for a track that was NOT played from YouTube (lossless
+  /// addon, local file…): strict match first, then the looser "best
+  /// effort" match, so history still gets the right song. Adopted into the
+  /// queue so later plays take the instant path.
+  Future<String> _matchYoutubeIdForHistory(PlayableTrack track) async {
+    try {
+      var match = await _tube
+          .findBestMatchOrNull(track.title, track.artist)
+          .timeout(const Duration(seconds: 12));
+      match ??= await _tube
+          .findBestEffortMatchOrNull(track.title, track.artist)
+          .timeout(const Duration(seconds: 12));
+      final id = match?.videoId ?? '';
+      if (id.isNotEmpty) _adoptVideoId(track, id, match!);
+      return id;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Resolve the history video early for non-YouTube plays, so it is ready
+  /// by the time the 20s mark files the ping.
+  void _prewarmHistoryId(PlayableTrack track) {
+    if (!_prefs.syncYtHistory || _windowVideoId(track).isNotEmpty) return;
+    unawaited(_matchYoutubeIdForHistory(track));
+  }
+
   /// One client playback nonce per scrobble window.
   String _historyCpn() {
     if (_ytHistoryCpn.isEmpty) {
@@ -2867,6 +2887,24 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           now.difference(last).inMilliseconds / 1000.0;
     }
     _lastTick = now;
+
+    // YouTube Music history is filed as soon as the song has really been
+    // played (20s), not at the Last.fm scrobble threshold — that is up to
+    // half the song, so short listens and quick skips never reached the
+    // account's history at all.
+    if (_scrobbleStartEpoch != 0 &&
+        !_ytHistoryPushedThisWindow &&
+        _scrobbleTrack != null &&
+        state.isPlaying &&
+        _accumulatedSeconds >= 20) {
+      _maybePushYtHistory(
+        _scrobbleTrack!,
+        _accumulatedSeconds.round(),
+        durationSeconds: _scrobbleDurationSec > 0
+            ? _scrobbleDurationSec
+            : state.duration.inSeconds,
+      );
+    }
 
     // Eager scrobble at threshold so manual pause still appears in
     // history (Last.fm otherwise expires “Scrobbling now” on pause).

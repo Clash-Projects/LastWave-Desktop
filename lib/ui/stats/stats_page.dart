@@ -722,10 +722,21 @@ class _MetricTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
 
+    final accent = waveAccent(context);
+    final base = dark ? WaveColors.surface : WaveColors.lightSurface;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
-        color: dark ? WaveColors.surface : WaveColors.lightSurface,
+        // A faint accent wash from the corner: lifts the tile off the page
+        // without adding a colour block.
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.alphaBlend(accent.withValues(alpha: dark ? 0.07 : 0.05), base),
+            base,
+          ],
+        ),
         borderRadius: WaveRadius.floatingRadius,
         border: Border.all(color: waveDivider(context), width: 0.8),
       ),
@@ -734,8 +745,17 @@ class _MetricTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 14, color: waveAccent(context)),
-              const SizedBox(width: 8),
+              Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 13, color: accent),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   title.toUpperCase(),
@@ -747,17 +767,18 @@ class _MetricTile extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: WaveType.numeral.copyWith(
-              fontSize: 28,
+              fontSize: 30,
+              letterSpacing: -0.4,
               color: waveTextPrimary(context),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 5),
           Text(
             subtext,
             maxLines: 1,
@@ -1034,10 +1055,23 @@ class _StatsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
 
+    final base = dark ? WaveColors.surface : WaveColors.lightSurface;
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       decoration: BoxDecoration(
-        color: dark ? WaveColors.surface : WaveColors.lightSurface,
+        // Barely-there top-down sheen so the cards read as surfaces.
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.alphaBlend(
+              (dark ? Colors.white : Colors.black)
+                  .withValues(alpha: dark ? 0.025 : 0.015),
+              base,
+            ),
+            base,
+          ],
+        ),
         borderRadius: WaveRadius.floatingRadius,
         border: Border.all(color: waveDivider(context), width: 0.8),
       ),

@@ -293,14 +293,14 @@ class WaveHomePage extends ConsumerWidget {
         return [
           ...head,
           rail(_YtSongCardRow(
-            tracks: shelf.trackCards.take(12).map(fromYt).toList(),
+            tracks: shelf.trackCards.take(20).map(fromYt).toList(),
             sourceLabel: shelf.title,
           )),
         ];
       }
       return [
         ...head,
-        rail(_YtShelfRow(entities: shelf.entities.take(12).toList())),
+        rail(_YtShelfRow(entities: shelf.entities.take(20).toList())),
       ];
     }
 
