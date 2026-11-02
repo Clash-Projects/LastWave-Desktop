@@ -106,6 +106,14 @@ const settingsSearchEntries = <SettingsSearchEntry>[
         'year reorganize directory',
   ),
   SettingsSearchEntry(
+    id: 'library.sync',
+    section: 'library',
+    title: 'Library',
+    subtitle: 'YouTube Music sync, podcasts and hidden tracks',
+    keywords: 'sync youtube music playlists liked songs two-way podcasts '
+        'hidden exclusions restore sync now',
+  ),
+  SettingsSearchEntry(
     id: 'lyrics.timing',
     section: 'lyrics',
     title: 'Timing',

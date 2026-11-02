@@ -32,13 +32,6 @@ class _LibrarySettingsState extends ConsumerState<LibrarySettings> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Library', style: WaveType.pageTitle),
-        const SizedBox(height: 4),
-        Text(
-          'Podcasts, YouTube Music sync, and hidden tracks.',
-          style: WaveType.body.copyWith(color: waveTextSecondary(context)),
-        ),
-        const SizedBox(height: 16),
         Text('Podcasts', style: WaveType.sectionTitle),
         const SizedBox(height: 6),
         Row(

@@ -48,6 +48,7 @@ import '../updates/update_dialog.dart';
 import 'backup_settings.dart';
 import 'diagnostics_actions.dart';
 import 'download_layout_settings.dart';
+import 'library_settings.dart';
 import 'settings_search.dart';
 
 const _waveSettingsSections = [
@@ -55,6 +56,7 @@ const _waveSettingsSections = [
   ('playback', 'Playback', FluentIcons.play),
   ('audio', 'Audio', FluentIcons.speakers),
   ('downloads', 'Downloads', FluentIcons.download),
+  ('library', 'Library', FluentIcons.library),
   ('lyrics', 'Lyrics', FluentIcons.microphone),
   ('appearance', 'Appearance', FluentIcons.brush),
   ('lastfm', 'Last.fm', FluentIcons.heart),
@@ -299,6 +301,13 @@ class _SectionBody extends ConsumerWidget {
         return _Audio(onUpdate: onUpdate);
       case 'downloads':
         return _Downloads(onUpdate: onUpdate);
+      case 'library':
+        return _Group(
+          id: 'library.sync',
+          title: 'Library',
+          subtitle: 'Podcasts, YouTube Music sync, and hidden tracks',
+          child: LibrarySettings(onUpdate: onUpdate),
+        );
       case 'appearance':
         return _Appearance(onUpdate: onUpdate);
       case 'lyrics':
