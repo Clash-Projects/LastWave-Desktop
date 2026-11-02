@@ -173,14 +173,28 @@ class YtOwnedPlaylistItem {
   final String videoId;
   final String setVideoId;
 
-  const YtOwnedPlaylistItem({required this.videoId, this.setVideoId = ''});
+  /// Parsed row metadata. Null when the row could not be parsed as a song.
+  final YouTubeMusicTrack? track;
+
+  const YtOwnedPlaylistItem({
+    required this.videoId,
+    this.setVideoId = '',
+    this.track,
+  });
 }
 
 class YtOwnedPlaylist {
   final List<YtOwnedPlaylistItem> items;
   final bool complete;
 
-  const YtOwnedPlaylist({required this.items, this.complete = true});
+  /// The signed-in channel may edit this playlist (it owns it).
+  final bool editable;
+
+  const YtOwnedPlaylist({
+    required this.items,
+    this.complete = true,
+    this.editable = false,
+  });
 }
 
 class YouTubePlaylistResult {
@@ -1512,8 +1526,14 @@ class InnerTubeMusicApi {
 
   /// Account playlists shelf (liked + created), authenticated.
   /// Non-playlist lookalikes (channels/albums) are filtered by id.
-  Future<List<YouTubePlaylistSummary>> fetchAccountPlaylists() async {
-    if (!_connection.connected) return const [];
+  Future<List<YouTubePlaylistSummary>> fetchAccountPlaylists() async =>
+      await fetchAccountPlaylistsOrNull() ?? const [];
+
+  /// Like [fetchAccountPlaylists], but null on failure so the sync engine
+  /// can tell "could not load" apart from "the account has none". Follows
+  /// the library grid's continuation pages.
+  Future<List<YouTubePlaylistSummary>?> fetchAccountPlaylistsOrNull() async {
+    if (!_connection.connected) return null;
     try {
       await _ensureConfig();
       final root = await _browseRoot(
@@ -1521,7 +1541,20 @@ class InnerTubeMusicApi {
         authenticated: true,
       );
       _observeAuthenticatedBrowse(root);
-      final lists = _parsePlaylistRenderers(root)
+      final parsed = _parsePlaylistRenderers(root).toList();
+      final seenIds = parsed.map((p) => p.id).toSet();
+      final seenTokens = <String>{};
+      var token = _libraryGridToken(root);
+      for (var page = 0;
+          token != null && page < 20 && seenTokens.add(token);
+          page++) {
+        final next = await _browseContinuation(token, authenticated: true);
+        for (final p in _parsePlaylistRenderers(next)) {
+          if (seenIds.add(p.id)) parsed.add(p);
+        }
+        token = _libraryGridToken(next);
+      }
+      final lists = parsed
           .where(
             (p) =>
                 !p.id.startsWith('UC') &&
@@ -1539,8 +1572,27 @@ class InnerTubeMusicApi {
       if (kDebugMode) {
         debugPrint('YtFetch: playlists FAILED $e ${_authDebug()}');
       }
-      return const [];
+      return null;
     }
+  }
+
+  /// Next-page token of the library playlists grid, in either the legacy
+  /// `continuations` form or a trailing `continuationItemRenderer`.
+  String? _libraryGridToken(Map<String, dynamic> page) {
+    final grids = <Map<String, dynamic>>[];
+    _collectObjects(page, 'gridRenderer', grids);
+    _collectObjects(page, 'gridContinuation', grids);
+    for (final grid in grids) {
+      final legacy = _findString(grid['continuations'], 'continuation');
+      if (legacy != null && legacy.isNotEmpty) return legacy;
+    }
+    final items = <Map<String, dynamic>>[];
+    _collectObjects(page, 'continuationItemRenderer', items);
+    for (final item in items) {
+      final token = _findString(item, 'token');
+      if (token != null && token.isNotEmpty) return token;
+    }
+    return null;
   }
 
   final Map<String, _AccountCacheEntry> _accountCaches = {};
@@ -2388,8 +2440,9 @@ class InnerTubeMusicApi {
   /// out, `_post` drops the cookies and YouTube serves its anonymous
   /// shelves, which is a useful fallback rather than an error.
   Future<List<YtHomeShelf>> fetchHomeShelves({
-    int maxShelves = 8,
-    int maxItemsPerShelf = 12,
+    int maxShelves = 20,
+    int maxItemsPerShelf = 20,
+    int maxPages = 4,
     bool authenticated = true,
   }) async {
     try {
@@ -2405,14 +2458,51 @@ class InnerTubeMusicApi {
         userAgent: webUserAgent,
         authenticated: authenticated,
       );
-      return parseHomeShelves(
+      final shelves = parseHomeShelves(
         root,
         maxShelves: maxShelves,
         maxItemsPerShelf: maxItemsPerShelf,
       );
+      // Home loads in pages, like scrolling music.youtube.com. A failed page
+      // keeps what is already in hand.
+      var page = root;
+      final seenTokens = <String>{};
+      for (var i = 1;
+          i < maxPages && shelves.length < maxShelves;
+          i++) {
+        final token = _homeContinuationToken(page);
+        if (token == null || !seenTokens.add(token)) break;
+        try {
+          page = await _browseContinuation(
+            token,
+            authenticated: authenticated,
+          );
+        } catch (_) {
+          break;
+        }
+        shelves.addAll(
+          parseHomeShelves(
+            page,
+            maxShelves: maxShelves - shelves.length,
+            maxItemsPerShelf: maxItemsPerShelf,
+          ),
+        );
+      }
+      return shelves;
     } catch (_) {
       return const [];
     }
+  }
+
+  String? _homeContinuationToken(Map<String, dynamic> page) {
+    final lists = <Map<String, dynamic>>[];
+    _collectObjects(page, 'sectionListRenderer', lists);
+    _collectObjects(page, 'sectionListContinuation', lists);
+    for (final list in lists) {
+      final token = _findString(list['continuations'], 'continuation');
+      if (token != null && token.isNotEmpty) return token;
+    }
+    return null;
   }
 
   /// Browse-id prefix → entity kind.
@@ -2459,6 +2549,7 @@ class InnerTubeMusicApi {
     final shelves = <YtHomeShelf>[];
     final sectionLists = <Map<String, dynamic>>[];
     _collectObjects(root, 'sectionListRenderer', sectionLists);
+    _collectObjects(root, 'sectionListContinuation', sectionLists);
     for (final list in sectionLists) {
       final contents = list['contents'];
       if (contents is! List) continue;
@@ -2514,6 +2605,21 @@ class InnerTubeMusicApi {
                 '';
           }
         }
+      }
+      // Quick picks is a carousel of list rows, not two-row cards.
+      final rowItems = <Map<String, dynamic>>[];
+      _collectObjects(
+        carousel['contents'],
+        'musicResponsiveListItemRenderer',
+        rowItems,
+      );
+      if (rowItems.isNotEmpty) {
+        final rows = _parseSongRenderers(carousel['contents'])
+            .take(maxItemsPerShelf)
+            .toList();
+        return rows.isEmpty
+            ? null
+            : YtHomeShelf(title: title ?? '', subtitle: subtitle, tracks: rows);
       }
       final contents = carousel['contents'];
       final entities = <YouTubeMusicEntity>[];
@@ -6317,7 +6423,16 @@ class InnerTubeMusicApi {
   /// Owned playlist rows, including `setVideoId` so a later sync can remove
   /// tracks. [complete] is false when a continuation page failed; callers
   /// must not treat a short list as "these tracks were deleted".
-  Future<YtOwnedPlaylist> fetchOwnedPlaylistItems(String playlistId) async {
+  ///
+  /// [firstPageOnly] is the cheap change probe; its result is never
+  /// [YtOwnedPlaylist.complete] while more pages exist. An anonymous
+  /// fallback response, or one with no editable header (no rows at all for
+  /// Liked Music, which has no such header), is also incomplete: a dropped
+  /// session must never read as "everything was deleted".
+  Future<YtOwnedPlaylist> fetchOwnedPlaylistItems(
+    String playlistId, {
+    bool firstPageOnly = false,
+  }) async {
     if (!_connection.connected) {
       return const YtOwnedPlaylist(items: [], complete: false);
     }
@@ -6330,9 +6445,19 @@ class InnerTubeMusicApi {
     if (rootResult == null) {
       return const YtOwnedPlaylist(items: [], complete: false);
     }
+    final editableHeaders = <Map<String, dynamic>>[];
+    _collectObjects(
+      rootResult.root,
+      'musicEditablePlaylistDetailHeaderRenderer',
+      editableHeaders,
+    );
+    final editable = rootResult.authenticated && editableHeaders.isNotEmpty;
     final items = <YtOwnedPlaylistItem>[];
     final seen = <String>{};
     void absorb(Object? element) {
+      final parsed = <String, YouTubeMusicTrack>{
+        for (final song in _parseSongRenderers(element)) song.videoId: song,
+      };
       final renderers = <Map<String, dynamic>>[];
       _collectObjects(element, 'musicResponsiveListItemRenderer', renderers);
       _collectObjects(element, 'playlistVideoRenderer', renderers);
@@ -6348,7 +6473,11 @@ class InnerTubeMusicApi {
         final key = setVideoId.isNotEmpty ? setVideoId : videoId;
         if (!seen.add(key)) continue;
         items.add(
-          YtOwnedPlaylistItem(videoId: videoId, setVideoId: setVideoId),
+          YtOwnedPlaylistItem(
+            videoId: videoId,
+            setVideoId: setVideoId,
+            track: parsed[videoId],
+          ),
         );
       }
     }
@@ -6364,6 +6493,10 @@ class InnerTubeMusicApi {
     final seenTokens = <String>{};
     var page = 0;
     var complete = true;
+    if (firstPageOnly && token != null && token.isNotEmpty) {
+      complete = false;
+      token = null;
+    }
     while (token != null && token.isNotEmpty && page < _maxContinuationPages) {
       if (!seenTokens.add(token)) break;
       Map<String, dynamic>? next;
@@ -6391,7 +6524,14 @@ class InnerTubeMusicApi {
     if (token != null && token.isNotEmpty && page >= _maxContinuationPages) {
       complete = false;
     }
-    return YtOwnedPlaylist(items: items, complete: complete);
+    final trustworthy =
+        rootResult.authenticated &&
+        (isLikedMusicId(rawId) ? items.isNotEmpty : editable);
+    return YtOwnedPlaylist(
+      items: items,
+      complete: complete && trustworthy,
+      editable: editable,
+    );
   }
 }
 

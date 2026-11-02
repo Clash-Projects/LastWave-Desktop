@@ -19,6 +19,7 @@ import '../player/playback_service.dart';
 import '../audio_output/output_controller.dart';
 import '../jam/jam_sync.dart';
 import '../innertube/innertube_api.dart';
+import '../library/yt_library_sync.dart';
 import '../mpris/mpris_service.dart';
 import '../smtc/smtc_service.dart';
 import '../presence/discord_presence_service.dart';
@@ -42,6 +43,7 @@ class LastWaveApp extends ConsumerStatefulWidget {
 
 class _LastWaveAppState extends ConsumerState<LastWaveApp> {
   StreamSubscription<String>? _linkSub;
+  AppLifecycleListener? _lifecycle;
 
   void _openLink(String link) {
     final route = routeForLink(link);
@@ -125,6 +127,11 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         ref.read(playbackServiceProvider.notifier).ensurePlayer();
       } catch (_) {}
       try {
+        // Two-way YouTube Music sync; idle until an account is connected.
+        final sync = ref.read(ytLibrarySyncProvider)..start();
+        _lifecycle = AppLifecycleListener(onResume: sync.kick);
+      } catch (_) {}
+      try {
         ref.read(audioOutputProvider.notifier).attach();
       } catch (_) {}
       try {
@@ -154,6 +161,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
   @override
   void dispose() {
     _linkSub?.cancel();
+    _lifecycle?.dispose();
     _gate.dispose();
     super.dispose();
   }

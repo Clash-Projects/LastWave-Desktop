@@ -145,7 +145,7 @@ Future<void> showWaveDeletePlaylist(
     builder: (context) => ContentDialog(
       title: const Text('Delete playlist?'),
       content: Text(
-        '"${playlist.title}" will be removed from your library.',
+        '"${playlist.title}" will be removed from your library, including any copy on YouTube Music.',
       ),
       actions: [
         WaveButton(
