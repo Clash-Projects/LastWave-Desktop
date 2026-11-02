@@ -399,12 +399,7 @@ class WaveHomePage extends ConsumerWidget {
           actionLabel: 'See all',
           onAction: () => context.go('/artists'),
         ),
-        SliverPadding(
-          padding: const EdgeInsets.only(top: 10),
-          sliver: SliverToBoxAdapter(
-            child: _ArtistShelf(tracks: blend.artists, side: side),
-          ),
-        ),
+        rail(_ArtistShelf(tracks: blend.artists)),
       ];
     }
     sections[HomeShelfId.youtubeMore] = [
@@ -686,9 +681,9 @@ class WaveHomePage extends ConsumerWidget {
           ),
         ));
         sink.add(SliverPadding(
-          padding: EdgeInsets.only(top: 10),
+          padding: EdgeInsets.only(left: side, right: side, top: 10),
           sliver: SliverToBoxAdapter(
-            child: _ArtistShelf(tracks: artists, side: side),
+            child: _ArtistShelf(tracks: artists),
           ),
         ));
       }
@@ -2310,13 +2305,11 @@ class _FreshRowState extends ConsumerState<_FreshRow> {
 /// Artists For You: 120px circular artist tiles with hover ring.
 class _ArtistShelf extends StatelessWidget {
   final List<GeneratedTrack> tracks;
-  final double side;
-  const _ArtistShelf({required this.tracks, required this.side});
+  const _ArtistShelf({required this.tracks});
   @override
   Widget build(BuildContext context) {
     return WaveRail(
       height: 168,
-      padding: EdgeInsets.symmetric(horizontal: side),
       itemCount: tracks.length,
       separatorBuilder: (_, _) => const SizedBox(width: 16),
       itemBuilder: (context, i) {
