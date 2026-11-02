@@ -3211,6 +3211,104 @@ class InnerTubeMusicApi {
     String playlistIdOrUrl, {
     int? maxTracks,
   }) async {
+    // Mixes open straight from the watch queue: the browse route for them
+    // fails slowly (several hosts, retries) and is what left the page
+    // spinning before it said "private or deleted".
+    final mixId = extractPlaylistId(playlistIdOrUrl);
+    final bareMix = mixId.startsWith('VL') ? mixId.substring(2) : mixId;
+    if (bareMix.startsWith('RD')) {
+      final quick = await _fetchPlaylistViaNext(mixId, maxTracks: maxTracks);
+      if (quick != null) return quick;
+    }
+    YouTubePlaylistResult? viaBrowse;
+    try {
+      viaBrowse = await _fetchPlaylistViaBrowse(
+        playlistIdOrUrl,
+        maxTracks: maxTracks,
+      );
+    } catch (_) {}
+    if (viaBrowse != null && viaBrowse.tracks.isNotEmpty) return viaBrowse;
+    // Mixes / radios (RD…) are generated, not stored playlists: the browse
+    // page is empty or refused ("private or deleted") for most of them.
+    // They load through the watch queue (`next`) instead, exactly how
+    // music.youtube.com opens a mix.
+    final rawId = extractPlaylistId(playlistIdOrUrl);
+    if (rawId.isEmpty) return viaBrowse;
+    final viaNext = await _fetchPlaylistViaNext(rawId, maxTracks: maxTracks);
+    return viaNext ?? viaBrowse;
+  }
+
+  Future<YouTubePlaylistResult?> _fetchPlaylistViaNext(
+    String rawId, {
+    int? maxTracks,
+  }) async {
+    try {
+      await _ensureConfig();
+      final id = rawId.startsWith('VL') ? rawId.substring(2) : rawId;
+      Map<String, dynamic> root;
+      try {
+        root = await _post(
+          '$musicApi/next?key=$_apiKey&prettyPrint=false',
+          body: {
+            'context': _webContext(_clientVersion, _visitorData),
+            'playlistId': id,
+            'isAudioOnly': true,
+            'enablePersistentPlaylistPanel': true,
+            'tunerSettingValue': 'AUTOMIX_SETTING_NORMAL',
+          },
+          clientName: 'WEB_REMIX',
+          clientVersion: _clientVersion,
+          userAgent: webUserAgent,
+          authenticated: _connection.connected,
+          callTimeout: const Duration(seconds: 12),
+        );
+      } catch (_) {
+        // Signed-in call refused: personal mixes can still resolve
+        // anonymously for generic seeds.
+        root = await _post(
+          '$musicApi/next?key=$_apiKey&prettyPrint=false',
+          body: {
+            'context': _webContext(_clientVersion, _visitorData),
+            'playlistId': id,
+            'isAudioOnly': true,
+          },
+          clientName: 'WEB_REMIX',
+          clientVersion: _clientVersion,
+          userAgent: webUserAgent,
+          callTimeout: const Duration(seconds: 12),
+        );
+      }
+      var songs = _parseSongRenderers(root);
+      if (maxTracks != null && maxTracks >= 1) {
+        songs = songs.take(maxTracks).toList();
+      }
+      if (songs.isEmpty) return null;
+      final panels = <Map<String, dynamic>>[];
+      _collectObjects(root, 'playlistPanelRenderer', panels);
+      String title = '';
+      if (panels.isNotEmpty) {
+        final t = panels.first['title'];
+        title = (t is Map ? _runsText(t['runs']) : null) ??
+            _runsText(t) ??
+            '';
+      }
+      return YouTubePlaylistResult(
+        id: rawId,
+        title: title,
+        author: 'YouTube Music',
+        artworkUrl: songs.first.artworkUrl,
+        trackCount: songs.length,
+        tracks: songs,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<YouTubePlaylistResult?> _fetchPlaylistViaBrowse(
+    String playlistIdOrUrl, {
+    int? maxTracks,
+  }) async {
     final rawId = extractPlaylistId(playlistIdOrUrl);
     if (rawId.isEmpty) return null;
     final browseId = _playlistBrowseId(rawId);
