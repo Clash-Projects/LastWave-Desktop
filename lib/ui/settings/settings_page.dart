@@ -3443,11 +3443,8 @@ class _QualityRow extends StatelessWidget {
             WaveSelectOption(value: 7, label: 'Hi-Res · 24/96'),
             WaveSelectOption(value: 6, label: 'Lossless · 16/44.1'),
             WaveSelectOption(value: 5, label: '320k MP3'),
-            WaveSelectOption(
-              value: 4,
-              label: 'Data saver · smallest YouTube audio',
-            ),
             WaveSelectOption(value: -1, label: 'Opus · YouTube'),
+            WaveSelectOption(value: 4, label: 'Data saver'),
           ],
           onChanged: onChanged,
         ),

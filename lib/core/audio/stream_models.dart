@@ -19,7 +19,7 @@ class AudioQualityTiers {
       case youtubeOnly:
         return 'Opus · YouTube';
       case dataSaver:
-        return 'Data saver · smallest YouTube audio';
+        return 'Data saver';
       case mp3_320:
         return '320k MP3';
       case cdLossless:
