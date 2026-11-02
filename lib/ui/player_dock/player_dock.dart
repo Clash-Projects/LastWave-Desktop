@@ -143,7 +143,7 @@ class WavePlayerDock extends ConsumerWidget {
                                       child: WaveArtwork(
                                         url: current.artworkUrl,
                                         videoId: current.videoId,
-                                        size: 56,
+                                        size: 48,
                                         radius: WaveRadius.artwork,
                                         label: current.title,
                                         title: current.title,
