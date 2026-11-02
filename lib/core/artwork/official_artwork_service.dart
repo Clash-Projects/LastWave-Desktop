@@ -67,7 +67,7 @@ class OfficialArtworkService {
   }
 
   String _trackCacheKey(String artist, String title) =>
-      't4|${normalizeForSearch(artist)}|${normalizeForSearch(title)}';
+      't5|${normalizeForSearch(artist)}|${normalizeForSearch(title)}';
 
   String _albumCacheKey(String artist, String album) =>
       'album2|${normalizeForSearch(artist)}|${normalizeForSearch(album)}';
@@ -1121,6 +1121,15 @@ class OfficialArtworkService {
       if (looksLikeCompilation) score -= 60;
 
       if (collection.endsWith(' single')) score -= 15;
+
+      // The target title is normalized (feat. stripped), so a "Sirens
+      // (feat. …)" row from another film ties with the plain "Sirens"
+      // and used to win on the earliest-release tie-break. A bare title
+      // beats a featured one when nothing else separates them.
+      if (RegExp(r'[(\[]\s*(?:feat|ft\.?|featuring)\b', caseSensitive: false)
+          .hasMatch(trackName)) {
+        score -= 5;
+      }
 
       if (score >= 170) {
         DateTime? released;

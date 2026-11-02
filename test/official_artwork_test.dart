@@ -165,7 +165,7 @@ void main() {
         final db = AppDatabase.inMemory();
         final service = OfficialArtworkService(null, db);
         db.saveArtworkEntry(
-          cacheKey: 't4|madvillain|all caps',
+          cacheKey: 't5|madvillain|all caps',
           url: 'https://i.ytimg.com/vi/video12345/hqdefault.jpg',
           provider: 'innertube',
         );
@@ -353,14 +353,14 @@ void main() {
       final db = AppDatabase.inMemory();
       final service = OfficialArtworkService(null, db);
 
-      // Save an entry (track cache keys are versioned: t4|artist|title)
+      // Save an entry (track cache keys are versioned: t5|artist|title)
       db.saveArtworkEntry(
-        cacheKey: 't4|madvillain|all caps',
+        cacheKey: 't5|madvillain|all caps',
         url: 'https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/madvillainy.jpg/1400x1400bb.jpg',
         provider: 'itunes',
       );
 
-      final loaded = db.loadArtworkEntry('t4|madvillain|all caps');
+      final loaded = db.loadArtworkEntry('t5|madvillain|all caps');
       expect(loaded, isNotNull);
       expect(loaded!['url'], contains('madvillainy.jpg'));
       expect(loaded['provider'], 'itunes');

@@ -2206,7 +2206,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       prefetchSw.stop();
       _crumb('prefetch done key=${track.queueKey} '
           'ms=${prefetchSw.elapsedMilliseconds} hit=${stream != null}');
-      if (stream != null && stream.artworkUrl.isNotEmpty) {
+      if (stream != null &&
+          stream.artworkUrl.isNotEmpty &&
+          !(track.album.trim().isNotEmpty &&
+              stream.albumTitle.trim().isNotEmpty &&
+              !_sameAlbum(track.album, stream.albumTitle))) {
         OfficialArtworkService.instance.rememberTrack(
           title: track.title,
           artist: track.artist,
@@ -2248,6 +2252,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _prefetchNeighbors(lookahead: true);
   }
 
+  /// Loose album equality: "The Odyssey (Original Motion Picture
+  /// Soundtrack)" and "The Odyssey" are the same release.
+  static bool _sameAlbum(String a, String b) {
+    final na = OfficialArtworkService.normalizeForSearch(
+        a.replaceAll(RegExp(r'\s*[(\[][^)\]]*[)\]]'), ''));
+    final nb = OfficialArtworkService.normalizeForSearch(
+        b.replaceAll(RegExp(r'\s*[(\[][^)\]]*[)\]]'), ''));
+    if (na.isEmpty || nb.isEmpty) return true;
+    return na == nb || na.contains(nb) || nb.contains(na);
+  }
+
   Future<void> _open(PlayableTrack track, ResolvedStream stream,
       int generation, String wantedQueueKey) async {
     // Stale resolver callbacks must never replace the active track.
@@ -2264,7 +2279,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
     // Upgrade track artwork if lossless stream supplied official studio artwork
     var effectiveTrack = track;
-    if (stream.artworkUrl.isNotEmpty && stream.artworkUrl != track.artworkUrl) {
+    // A stream's cover belongs to the catalog row the addon matched; when
+    // the queue already knows a different album, that row is another
+    // release of the same title (same-named cues on two soundtracks).
+    final albumDisagrees = track.album.trim().isNotEmpty &&
+        stream.albumTitle.trim().isNotEmpty &&
+        !_sameAlbum(track.album, stream.albumTitle);
+    if (!albumDisagrees &&
+        stream.artworkUrl.isNotEmpty &&
+        stream.artworkUrl != track.artworkUrl) {
       effectiveTrack = effectiveTrack.copyWith(
         artworkUrl: stream.artworkUrl,
         album: stream.albumTitle.isNotEmpty && effectiveTrack.album.isEmpty
