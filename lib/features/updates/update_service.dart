@@ -324,6 +324,7 @@ class UpdateService {
     AppReleaseAsset? targetAsset,
     required void Function(int received, int total) onProgress,
     CancelToken? cancelToken,
+    Future<void> Function()? beforeExit,
   }) async {
     final asset = targetAsset ?? update.findBestAsset();
     if (asset == null || asset.downloadUrl.isEmpty) {
@@ -365,6 +366,7 @@ class UpdateService {
         );
         // Give the OS process launcher a moment to spin up the installer before exiting
         await Future<void>.delayed(const Duration(milliseconds: 400));
+        await _runBeforeExit(beforeExit);
         exit(0);
       } else {
         // Portable zip: reveal in File Explorer
@@ -373,6 +375,7 @@ class UpdateService {
     } else if (Platform.isLinux) {
       if (savePath.toLowerCase().endsWith('.appimage')) {
         Process.runSync('chmod', ['+x', savePath]);
+        await _runBeforeExit(beforeExit);
         await Process.start(savePath, [], mode: ProcessStartMode.detached);
         await Future<void>.delayed(const Duration(milliseconds: 400));
         exit(0);
@@ -392,6 +395,13 @@ class UpdateService {
       }
     }
   }
+}
+
+Future<void> _runBeforeExit(Future<void> Function()? hook) async {
+  if (hook == null) return;
+  try {
+    await hook();
+  } catch (_) {}
 }
 
 final updateServiceProvider = Provider<UpdateService>((ref) {

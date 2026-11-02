@@ -412,8 +412,9 @@ class YtWebLogin {
   static Future<String> _userDataFolder(String slot) =>
       webviewUserDataFolder(slot);
 
-  static Future<Webview?> _ensureWindow() async {
+  static Future<Webview?> _ensureWindow({bool show = true}) async {
     final cached = _cachedWindow;
+    if (cached != null && !show) return cached;
     if (cached != null) {
       // Linux: native guard (the plugin visibility call is a no-op
       // there). Elsewhere: the plugin call.
@@ -462,7 +463,17 @@ class YtWebLogin {
       unawaited(w.onClose.then((_) {
         if (identical(_cachedWindow, w)) _cachedWindow = null;
       }));
-      if (Platform.isLinux) {
+      if (!show) {
+        // Background use (silent session refresh): hide straight away.
+        _expectVisible = false;
+        if (Platform.isLinux) {
+          await YtWebviewGuard.hide();
+        } else {
+          try {
+            await w.setWebviewWindowVisibility(false);
+          } catch (_) {}
+        }
+      } else if (Platform.isLinux) {
         // Ensure it is visible (create shows it; harmless if so).
         await YtWebviewGuard.show();
       } else {
@@ -532,24 +543,34 @@ class YtWebLogin {
 
   /// Silently refresh the session in the cached (hidden) window.
   ///
-  /// Only works when this process already created the sign-in window —
-  /// i.e. within the same app run as a webview sign-in. That is
-  /// deliberate: spawning a hidden WebView at startup would cost a
-  /// WebView2 environment (and on Linux a GTK window) for every launch
-  /// even when the session is healthy. With a cached window, reloading
+  /// By default only works when this process already created the
+  /// sign-in window — spawning a hidden WebView at every startup would
+  /// cost a WebView2 environment (and on Linux a GTK window) even when
+  /// the session is healthy. With a cached window, reloading
   /// `music.youtube.com` lets Google re-mint the rotating
   /// `__Secure-*PSIDTS` cookies against the persisted jar, and the
   /// caller can replace the stored session without showing any UI.
   ///
-  /// Returns a Cookie header, or null when there is no cached window,
-  /// a login flow is already running, or nothing usable was captured.
+  /// [allowCreate] lifts the same-run restriction: the WebView2
+  /// user-data folder lives under application support, so it survives
+  /// app restarts and updates (setup or portable) and still holds the
+  /// Google login after the stored jar went stale. Callers pass it only
+  /// once the session is already known to be rejected, so a healthy
+  /// launch never pays for a WebView.
+  ///
+  /// Returns a Cookie header, or null when there is no window (and
+  /// none may be created), a login flow is already running, or nothing
+  /// usable was captured.
   static Future<String?> refreshSilently({
     Duration timeout = const Duration(seconds: 75),
+    bool allowCreate = false,
   }) async {
-    final w = _cachedWindow;
-    if (w == null || _inflight) return null;
+    if (_inflight) return null;
     _inflight = true;
     try {
+      final w = _cachedWindow ??
+          (allowCreate ? await _ensureWindow(show: false) : null);
+      if (w == null) return null;
       _expectVisible = false;
       if (Platform.isLinux) {
         await YtWebviewGuard.hide();
@@ -558,6 +579,9 @@ class YtWebLogin {
           await w.setWebviewWindowVisibility(false);
         } catch (_) {}
       }
+      // Same settle delay as [_run]: a just-created WebView2 host may
+      // not have attached its controller yet.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
       try {
         w.launch(_loginUrl, triggerOnUrlRequestEvent: false);
       } catch (_) {

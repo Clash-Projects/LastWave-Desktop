@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_info.dart';
 import '../../core/storage/prefs.dart';
+import '../../features/innertube/innertube_api.dart';
 import '../../features/updates/update_service.dart';
 import '../components/buttons.dart';
 import '../components/select.dart';
@@ -101,6 +102,12 @@ class _UpdateDialogState extends ConsumerState<UpdateDialog> {
         update: widget.update,
         targetAsset: _selectedAsset,
         cancelToken: _cancelToken,
+        // The installer path hard-exits the app: let queued YouTube
+        // session writes land first so the account survives the update.
+        beforeExit: () => ref
+            .read(innerTubeProvider)
+            .flushPendingWrites()
+            .timeout(const Duration(seconds: 3), onTimeout: () {}),
         onProgress: (received, total) {
           if (!mounted) return;
           setState(() {
