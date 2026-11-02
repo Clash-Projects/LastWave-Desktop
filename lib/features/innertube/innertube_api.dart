@@ -1080,12 +1080,39 @@ class InnerTubeMusicApi {
     }
     try {
       await verifyConnection();
+      _authRetries = 0;
       return true;
     } on FormatException {
+      _authRetries = 0;
       return false;
+    } on InnerTubeHttpException catch (e) {
+      // 401 is YouTube saying "these credentials are not valid" — as
+      // definitive as an anonymous page.
+      if (e.responseCode == 401) {
+        _authRetries = 0;
+        _setAuthStale(true);
+        return false;
+      }
+      _scheduleAuthRetry();
+      return !_authStale;
     } catch (_) {
+      _scheduleAuthRetry();
       return !_authStale;
     }
+  }
+
+  /// Inconclusive checks (startup races the network, transient 5xx)
+  /// used to leave a dead session looking "connected" for the whole
+  /// run. Re-check a few times with backoff instead.
+  int _authRetries = 0;
+  Timer? _authRetryTimer;
+
+  void _scheduleAuthRetry() {
+    if (_authRetries >= 4 || (_authRetryTimer?.isActive ?? false)) return;
+    _authRetries++;
+    _authRetryTimer = Timer(Duration(seconds: 20 * _authRetries), () {
+      if (_connection.connected) unawaited(checkAuth());
+    });
   }
 
   Future<void> loadPersistedConnection() async {
@@ -1315,10 +1342,7 @@ class InnerTubeMusicApi {
       libraryPlaylistsBrowseId,
       authenticated: true,
     );
-    final contents = root['contents'];
-    final text = jsonEncode(root);
-    if (contents == null ||
-        (text.contains('SIGN_IN') && !text.contains('music_liked_playlists'))) {
+    if (looksSignedOut(root)) {
       if (kDebugMode) {
         debugPrint('YtVerify: REJECTED ${_authDebug()}');
       }
@@ -1345,11 +1369,48 @@ class InnerTubeMusicApi {
   }
 
   void _observeAuthenticatedBrowse(_Map root) {
+    _setAuthStale(looksSignedOut(root));
+  }
+
+  /// YouTube's own verdict on whether a response was served to a
+  /// signed-in user: `responseContext.serviceTrackingParams[].params[]`
+  /// carries `logged_in` = "1" / "0" on every browse. Null when absent.
+  @visibleForTesting
+  static bool? loggedInFlag(Map<String, dynamic> root) {
+    try {
+      final ctx = root['responseContext'];
+      if (ctx is! Map) return null;
+      final services = ctx['serviceTrackingParams'];
+      if (services is! List) return null;
+      for (final service in services) {
+        if (service is! Map) continue;
+        final params = service['params'];
+        if (params is! List) continue;
+        for (final param in params) {
+          if (param is Map && param['key'] == 'logged_in') {
+            final v = param['value']?.toString();
+            if (v == '1') return true;
+            if (v == '0') return false;
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// True when an AUTHENTICATED browse was answered as anonymous.
+  ///
+  /// The explicit `logged_in` flag wins: a stale jar is served a
+  /// perfectly normal-looking (guest) page, which the old heuristics
+  /// alone missed — the app kept showing "connected" while history and
+  /// library sync silently came back empty.
+  @visibleForTesting
+  static bool looksSignedOut(Map<String, dynamic> root) {
+    final flag = loggedInFlag(root);
+    if (flag != null) return !flag;
+    if (root['contents'] == null) return true;
     final text = jsonEncode(root);
-    final rejected =
-        root['contents'] == null ||
-        (text.contains('SIGN_IN') && !text.contains('music_liked_playlists'));
-    _setAuthStale(rejected);
+    return text.contains('SIGN_IN') && !text.contains('music_liked_playlists');
   }
 
   /// Account liked songs (VLLM), authenticated. Empty when signed out

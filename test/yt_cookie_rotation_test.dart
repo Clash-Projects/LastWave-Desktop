@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
 
 void main() {
+  group('signed-out detection', signedOutDetection);
+
   const jar = 'SAPISID=s; __Secure-1PSIDTS=old1; __Secure-3PSIDTS=old3; '
       'SIDCC=c0';
 
@@ -53,5 +55,37 @@ void main() {
       host: 'music.youtube.com',
     );
     expect(out, isNull);
+  });
+}
+
+Map<String, dynamic> _withLoggedIn(String value, {bool contents = true}) => {
+      'responseContext': {
+        'serviceTrackingParams': [
+          {
+            'service': 'GFEEDBACK',
+            'params': [
+              {'key': 'logged_in', 'value': value},
+            ],
+          },
+        ],
+      },
+      if (contents) 'contents': {'singleColumnBrowseResultsRenderer': {}},
+    };
+
+void signedOutDetection() {
+  test('a normal-looking guest page is recognised as signed out', () {
+    expect(InnerTubeMusicApi.looksSignedOut(_withLoggedIn('0')), isTrue);
+  });
+
+  test('logged_in=1 is trusted as signed in', () {
+    expect(InnerTubeMusicApi.looksSignedOut(_withLoggedIn('1')), isFalse);
+  });
+
+  test('without the flag the old heuristics still apply', () {
+    expect(InnerTubeMusicApi.looksSignedOut(const {}), isTrue);
+    expect(
+      InnerTubeMusicApi.looksSignedOut(const {'contents': {}}),
+      isFalse,
+    );
   });
 }
