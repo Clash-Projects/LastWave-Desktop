@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -69,17 +71,11 @@ class PodcastHomeShelf extends ConsumerWidget {
             },
           )
         else
-          for (var i = 0; i < episodes.take(4).length; i++)
-            PodcastEpisodeRow(
-              episode: episodes[i],
-              index: i,
-              onPlay: () => playPodcastEpisodes(
-                ref,
-                context,
-                episodes[i],
-                queue: episodes,
-              ),
-            ),
+          _episodeRail(
+            context,
+            ref,
+            episodes.length > 12 ? episodes.sublist(0, 12) : episodes,
+          ),
       ],
     );
   }
@@ -117,11 +113,136 @@ Future<void> playPodcastEpisodes(
   );
 }
 
-class WavePodcastsPage extends ConsumerWidget {
+/// Horizontal rail of shows — the same card rail "Popular shows" uses.
+Widget _showRail(BuildContext context, List<PodcastShow> shows) {
+  return WaveRail(
+    height: 228,
+    itemCount: shows.length,
+    separatorBuilder: (_, _) => const SizedBox(width: 12),
+    itemBuilder: (context, i) {
+      final show = shows[i];
+      return SizedBox(
+        width: 160,
+        child: WaveMediaCard(
+          title: show.title,
+          subtitle: show.publisher.isEmpty ? 'Podcast' : show.publisher,
+          artworkUrl: show.artworkUrl,
+          onTap: () => _openShow(context, show),
+        ),
+      );
+    },
+  );
+}
+
+/// Horizontal rail of episodes (cards, not a vertical list).
+Widget _episodeRail(
+  BuildContext context,
+  WidgetRef ref,
+  List<PodcastEpisode> episodes,
+) {
+  return WaveRail(
+    height: 228,
+    itemCount: episodes.length,
+    separatorBuilder: (_, _) => const SizedBox(width: 12),
+    itemBuilder: (context, i) {
+      final episode = episodes[i];
+      return SizedBox(
+        width: 160,
+        child: WaveMediaCard(
+          title: episode.title,
+          subtitle: episode.showTitle.isNotEmpty
+              ? episode.showTitle
+              : episode.publishedLabel,
+          artworkUrl: episode.artworkUrl,
+          onTap: () => playPodcastEpisodes(
+            ref,
+            context,
+            episode,
+            queue: episodes,
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class WavePodcastsPage extends ConsumerStatefulWidget {
   const WavePodcastsPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WavePodcastsPage> createState() => _WavePodcastsPageState();
+}
+
+class _WavePodcastsPageState extends ConsumerState<WavePodcastsPage> {
+  final _controller = TextEditingController();
+  Timer? _debounce;
+  String _query = '';
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (mounted) setState(() => _query = value.trim());
+    });
+  }
+
+  Widget _searchResults(BuildContext context) {
+    final async = ref.watch(podcastSearchProvider(_query));
+    return async.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: ProgressRing()),
+      ),
+      error: (e, _) => WaveError(
+        title: 'Search failed',
+        message: '$e',
+        onRetry: () => ref.invalidate(podcastSearchProvider(_query)),
+      ),
+      data: (episodes) {
+        if (episodes.isEmpty) {
+          return WaveEmpty(
+            icon: WaveIcons.podcasts,
+            title: 'No results',
+            subtitle: 'Nothing found for "$_query".',
+          );
+        }
+        // Distinct shows found among the matching episodes.
+        final seen = <String>{};
+        final shows = <PodcastShow>[
+          for (final e in episodes)
+            if (e.showId.isNotEmpty && seen.add(e.showId))
+              PodcastShow(
+                showId: e.showId,
+                title: e.showTitle.isEmpty ? e.title : e.showTitle,
+                artworkUrl: e.artworkUrl,
+              ),
+        ];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (shows.isNotEmpty) ...[
+              LWSectionHeader(title: 'Shows'),
+              const SizedBox(height: 10),
+              _showRail(context, shows),
+              const SizedBox(height: 22),
+            ],
+            LWSectionHeader(title: 'Episodes'),
+            const SizedBox(height: 10),
+            _episodeRail(context, ref, episodes),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     if (!ref.watch(prefsProvider).podcastsEnabled) {
       return WaveEmpty(
         icon: WaveIcons.podcasts,
@@ -143,17 +264,66 @@ class WavePodcastsPage extends ConsumerWidget {
         final visible = shelves
             .where((s) => s.shows.isNotEmpty || s.episodes.isNotEmpty)
             .toList();
+        // Hero cover: first real artwork on the page (shows first), so
+        // the header isn't an initials placeholder.
+        var heroArt = '';
+        for (final s in visible) {
+          for (final show in s.shows) {
+            if (show.artworkUrl.isNotEmpty) {
+              heroArt = show.artworkUrl;
+              break;
+            }
+          }
+          if (heroArt.isNotEmpty) break;
+        }
+        if (heroArt.isEmpty) {
+          for (final s in visible) {
+            for (final e in s.episodes) {
+              if (e.artworkUrl.isNotEmpty) {
+                heroArt = e.artworkUrl;
+                break;
+              }
+            }
+            if (heroArt.isNotEmpty) break;
+          }
+        }
         return ListView(
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
           children: [
-            const WaveCollectionHero(
+            WaveCollectionHero(
               overline: 'Listen',
               title: 'Podcasts',
               meta: 'YouTube Music shows and episodes',
+              artworkUrl: heroArt,
               fallbackIcon: WaveIcons.podcasts,
             ),
             const SizedBox(height: 16),
-            if (visible.isEmpty)
+            TextBox(
+              controller: _controller,
+              placeholder: 'Search podcasts and episodes',
+              prefix: const Padding(
+                padding: EdgeInsets.only(left: 10),
+                child: Icon(FluentIcons.search, size: 14),
+              ),
+              suffix: _controller.text.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(FluentIcons.clear, size: 12),
+                      onPressed: () {
+                        _controller.clear();
+                        _debounce?.cancel();
+                        setState(() => _query = '');
+                      },
+                    ),
+              onChanged: (v) {
+                setState(() {});
+                _onChanged(v);
+              },
+            ),
+            const SizedBox(height: 18),
+            if (_query.isNotEmpty)
+              _searchResults(context)
+            else if (visible.isEmpty)
               const WaveEmpty(
                 icon: WaveIcons.podcasts,
                 title: 'No podcasts yet',
@@ -164,37 +334,9 @@ class WavePodcastsPage extends ConsumerWidget {
                 LWSectionHeader(title: shelf.title),
                 const SizedBox(height: 10),
                 if (shelf.shows.isNotEmpty)
-                  WaveRail(
-                    height: 228,
-                    itemCount: shelf.shows.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 12),
-                    itemBuilder: (context, i) {
-                      final show = shelf.shows[i];
-                      return SizedBox(
-                        width: 160,
-                        child: WaveMediaCard(
-                          title: show.title,
-                          subtitle: show.publisher.isEmpty
-                              ? 'Podcast'
-                              : show.publisher,
-                          artworkUrl: show.artworkUrl,
-                          onTap: () => _openShow(context, show),
-                        ),
-                      );
-                    },
-                  )
+                  _showRail(context, shelf.shows)
                 else
-                  for (var i = 0; i < shelf.episodes.length; i++)
-                    PodcastEpisodeRow(
-                      episode: shelf.episodes[i],
-                      index: i,
-                      onPlay: () => playPodcastEpisodes(
-                        ref,
-                        context,
-                        shelf.episodes[i],
-                        queue: shelf.episodes,
-                      ),
-                    ),
+                  _episodeRail(context, ref, shelf.episodes),
                 const SizedBox(height: 22),
               ],
           ],

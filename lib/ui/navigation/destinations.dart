@@ -29,8 +29,6 @@ const waveListenDestinations = [
 
 const waveCollectionDestinations = [
   WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
-  WaveDestination('/albums', 'Albums', WaveIcons.albums),
-  WaveDestination('/artists', 'Artists', WaveIcons.artists),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
   WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
 ];
