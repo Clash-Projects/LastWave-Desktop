@@ -22,27 +22,55 @@ import 'yt_web_login.dart';
 /// Deliberately not started at app launch: creating a WebView2
 /// environment (and a GTK window on Linux) for every launch is the
 /// exact cost the player's lazy bootstrap avoids. This runs only when
-/// the session is already known to be broken, and only within the run
-/// that created the window.
+/// the session is already known to be broken.
+///
+/// After an app restart — and every update (setup installer or a new
+/// portable build) is one — the stored jar is often already rotated
+/// out while the persisted WebView2 profile (under application
+/// support, untouched by updates) is still signed in. [autoRecover]
+/// therefore creates the hidden window on demand, once per run, so the
+/// user is not bounced to a fresh login after every update.
 class YtSessionKeeper {
   YtSessionKeeper._();
 
   static bool _running = false;
+  static bool _autoAttempted = false;
 
   static bool get isRunning => _running;
 
+  /// Whether this run already spent its automatic recovery attempt.
+  static bool get autoAttempted => _autoAttempted;
+
+  /// One automatic, zero-UI recovery per app run. Safe to call from
+  /// several places (shell info bar, settings banner): only the first
+  /// call does anything.
+  static Future<bool> autoRecover(WidgetRef ref) async {
+    if (_autoAttempted || _running) return false;
+    _autoAttempted = true;
+    return refresh(ref, allowCreateWindow: true);
+  }
+
   /// Attempts a zero-UI refresh. Returns true when the server accepted
   /// a freshly captured session and the stored jar was replaced.
-  static Future<bool> refresh(WidgetRef ref) async {
+  ///
+  /// [allowCreateWindow] lets the refresh spin up the (hidden) sign-in
+  /// window from the persisted WebView2 profile when this run has not
+  /// created one yet.
+  static Future<bool> refresh(
+    WidgetRef ref, {
+    bool allowCreateWindow = false,
+  }) async {
     if (_running) return false;
     final api = ref.read(innerTubeProvider);
     final conn = api.connection;
     if (!conn.connected) return false;
-    if (YtWebLogin.cachedWindow == null) return false;
+    if (!allowCreateWindow && YtWebLogin.cachedWindow == null) return false;
 
     _running = true;
     try {
-      final header = await YtWebLogin.refreshSilently();
+      final header = await YtWebLogin.refreshSilently(
+        allowCreate: allowCreateWindow,
+      );
       if (header == null || header.isEmpty) return false;
       await api.connectAs(
         cookies: header,
@@ -53,14 +81,13 @@ class YtSessionKeeper {
       // Keep the roster's jar in sync so switching identities later
       // reuses the fresh cookies instead of the rotated ones.
       try {
-        await upsertYtCapture(
-          ref,
-          cookies: header,
-          pageId: conn.activePageId,
-        );
+        await upsertYtCapture(ref, cookies: header, pageId: conn.activePageId);
       } catch (_) {}
       try {
         ref.invalidate(ytAccountProvider);
+        ref.invalidate(ytLikedSongsProvider);
+        ref.invalidate(ytHistoryProvider);
+        ref.invalidate(ytAccountPlaylistsProvider);
       } catch (_) {}
       return true;
     } catch (_) {

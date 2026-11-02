@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide RepeatMode;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,10 +14,12 @@ import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/podcasts/podcast_repository.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artist_line.dart';
 import '../components/artwork.dart';
+import '../components/image_aspect.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
 import '../queue/queue_panel.dart';
@@ -43,6 +46,8 @@ class WaveNowPlayingPage extends ConsumerStatefulWidget {
 
 class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   bool _lyricsVisible = true;
+  // Focus mode: lyrics only, artwork column collapsed, lyrics centered.
+  bool _focusMode = false;
   bool _queueVisible = false;
   bool _controlsIdle = false;
   Timer? _idleTimer;
@@ -228,7 +233,15 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
             ),
 
             // Main Layout Content
-            Positioned.fill(
+            AnimatedPositioned(
+              duration: waveMotion(context, WaveMotion.normal),
+              curve: Curves.easeOutCubic,
+              left: 0,
+              top: 0,
+              bottom: 0,
+              // The queue docks beside the cover + lyrics, which re-fit
+              // to the remaining width, instead of covering them.
+              right: _queueVisible ? 360 : 0,
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth > 860;
@@ -245,11 +258,22 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                             ignoring: _controlsIdle,
                             child: _TopActionsBar(
                               lyricsVisible: _lyricsVisible,
+                              focusMode: _focusMode,
                               queueVisible: _queueVisible,
                               visualizerEnabled: visualizerEnabled,
                               onToggleLyrics: () {
                                 _resetIdleTimer();
-                                setState(() => _lyricsVisible = !_lyricsVisible);
+                                setState(() {
+                                  _lyricsVisible = !_lyricsVisible;
+                                  if (!_lyricsVisible) _focusMode = false;
+                                });
+                              },
+                              onToggleFocus: () {
+                                _resetIdleTimer();
+                                setState(() {
+                                  _focusMode = !_focusMode;
+                                  if (_focusMode) _lyricsVisible = true;
+                                });
                               },
                               onToggleQueue: () {
                                 _resetIdleTimer();
@@ -277,6 +301,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                             ? _DesktopDualPane(
                                 track: current,
                                 lyricsVisible: _lyricsVisible,
+                                focusMode: _focusMode,
                               )
                             : _NarrowCenteredPane(
                                 track: current,
@@ -286,24 +311,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                     ],
                   );
                 },
-              ),
-            ),
-
-            // Scrim backdrop when queue drawer is active
-            Positioned.fill(
-              child: IgnorePointer(
-                ignoring: !_queueVisible,
-                child: AnimatedOpacity(
-                  duration: waveMotion(context, WaveMotion.normal),
-                  curve: Curves.easeOutCubic,
-                  opacity: _queueVisible ? 1.0 : 0.0,
-                  child: GestureDetector(
-                    onTap: () => setState(() => _queueVisible = false),
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.45),
-                    ),
-                  ),
-                ),
               ),
             ),
 
@@ -339,18 +346,22 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
 
 class _TopActionsBar extends StatelessWidget {
   final bool lyricsVisible;
+  final bool focusMode;
   final bool queueVisible;
   final bool visualizerEnabled;
   final VoidCallback onToggleLyrics;
+  final VoidCallback onToggleFocus;
   final VoidCallback onToggleQueue;
   final VoidCallback onToggleVisualizer;
   final VoidCallback onClose;
 
   const _TopActionsBar({
     required this.lyricsVisible,
+    required this.focusMode,
     required this.queueVisible,
     required this.visualizerEnabled,
     required this.onToggleLyrics,
+    required this.onToggleFocus,
     required this.onToggleQueue,
     required this.onToggleVisualizer,
     required this.onClose,
@@ -389,6 +400,16 @@ class _TopActionsBar extends StatelessWidget {
                     icon: WaveIcons.lyrics,
                     active: lyricsVisible,
                     onTap: onToggleLyrics,
+                  ),
+                ),
+                LWTooltip(
+                  message: focusMode ? 'Exit focus mode' : 'Focus on lyrics',
+                  child: _FsIconButton(
+                    icon: focusMode
+                        ? FluentIcons.mini_contract
+                        : WaveIcons.expand,
+                    active: focusMode,
+                    onTap: onToggleFocus,
                   ),
                 ),
                 LWTooltip(
@@ -551,10 +572,12 @@ class _VisibleTickerState extends ConsumerState<_VisibleTicker> {
 class _DesktopDualPane extends StatelessWidget {
   final PlayableTrack track;
   final bool lyricsVisible;
+  final bool focusMode;
 
   const _DesktopDualPane({
     required this.track,
     required this.lyricsVisible,
+    this.focusMode = false,
   });
 
   @override
@@ -571,14 +594,18 @@ class _DesktopDualPane extends StatelessWidget {
             ? math.min(maxWidth * 0.36, maxHeight * 0.48).clamp(340.0, 420.0)
             : math.min(maxWidth * 0.55, maxHeight * 0.52).clamp(360.0, 480.0);
 
-        final gap = lyricsVisible ? (maxWidth * 0.04).clamp(40.0, 64.0) : 0.0;
+        final gap = lyricsVisible && !focusMode
+            ? (maxWidth * 0.04).clamp(40.0, 64.0)
+            : 0.0;
 
         // Harmonized lyrics column width, balancing the visual weight of the left column
         final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
         final maxAllowedLyricsWidth = math.max(320.0, maxWidth - colWidth - gap - 48.0);
-        final lyricsWidth = lyricsVisible
-            ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
-            : 0.0;
+        final lyricsWidth = focusMode
+            ? math.min(760.0, math.max(320.0, maxWidth - 48.0))
+            : lyricsVisible
+                ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
+                : 0.0;
 
         return Center(
           child: Padding(
@@ -596,9 +623,22 @@ class _DesktopDualPane extends StatelessWidget {
                     duration:
                         waveMotion(context, const Duration(milliseconds: 500)),
                     curve: Curves.easeInOutCubic,
-                    width: colWidth,
+                    width: focusMode ? 0.0 : colWidth,
                     height: maxHeight,
-                    child: RepaintBoundary(
+                    // Children keep their full width while the column
+                    // collapses (focus mode), so nothing overflows mid-anim.
+                    // Clip is outset (except in focus mode, where the column
+                    // collapses) so the cover's drop shadow isn't cut off at
+                    // the column edges.
+                    child: ClipRect(
+                      clipper: _OutsetClipper(focusMode ? 0 : 56),
+                      child: OverflowBox(
+                        alignment: Alignment.centerLeft,
+                        minWidth: colWidth,
+                        maxWidth: colWidth,
+                        child: ExcludeFocus(
+                          excluding: focusMode,
+                          child: RepaintBoundary(
                       child: Column(
                         mainAxisSize: MainAxisSize.max,
                         crossAxisAlignment: lyricsVisible
@@ -638,6 +678,9 @@ class _DesktopDualPane extends StatelessWidget {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                        ),
                       ),
                     ),
                   ),
@@ -821,6 +864,29 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
   /// of sitting at opacity 0, where it would still rasterize (and
   /// alpha-blend) a full-res still on every video frame.
   bool _sleeveGone = false;
+  String _lastMotionUrl = '';
+  String _lastMotionFallbackUrl = '';
+
+  String _podcastVid = '\u0000';
+  bool _isPodcast = false;
+  String _aspectUrl = '';
+  double? _aspect;
+
+  /// Podcast episodes are the only tracks with a saved progress row.
+  bool _podcast(PlayableTrack t) {
+    if (_podcastVid != t.videoId) {
+      _podcastVid = t.videoId;
+      try {
+        _isPodcast = t.videoId.isNotEmpty &&
+            ref
+                .read(podcastRepositoryProvider)
+                .progressFor([t.videoId]).containsKey(t.videoId);
+      } catch (_) {
+        _isPodcast = false;
+      }
+    }
+    return _isPodcast;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -828,6 +894,57 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     final track = widget.track;
     final size = widget.size;
     final dark = waveIsDark(context);
+    // Podcasts keep their native shape: 16:9 art stays 16:9, square art
+    // falls through to the normal 1:1 cover below.
+    if (track.artworkUrl.isNotEmpty && _podcast(track)) {
+      if (_aspectUrl != track.artworkUrl) {
+        _aspectUrl = track.artworkUrl;
+        _aspect = ImageAspect.peek(track.artworkUrl);
+        if (_aspect == null) {
+          final url = track.artworkUrl;
+          ImageAspect.resolve(url).then((a) {
+            if (mounted && _aspectUrl == url) setState(() => _aspect = a);
+          });
+        }
+      }
+    }
+    if (track.artworkUrl.isNotEmpty &&
+        _podcast(track) &&
+        (_aspect ?? ImageAspect.wide) > 1.2) {
+      final w = size;
+      final h = size * 9 / 16;
+      return Center(
+        child: Container(
+          width: w,
+          height: h,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: dark ? 0.62 : 0.34),
+                blurRadius: 28,
+                offset: const Offset(0, 14),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: dark ? 0.38 : 0.18),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: CachedNetworkImage(
+              imageUrl: track.artworkUrl,
+              fit: BoxFit.cover,
+              width: w,
+              height: h,
+              errorWidget: (_, _, _) => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      );
+    }
     // Visualizer toggle owns ALL page motion: aura + motion-art clip.
     final visualizerOn = ref.watch(visualizerEnabledProvider);
     final motion = ref.watch(animatedArtworkProvider(
@@ -839,9 +956,24 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     ));
     final motionUrl =
         motion.valueOrNull?.hasUrl == true ? motion.valueOrNull!.url : '';
-    final motionReady = ref.watch(
-      animatedArtworkSessionProvider.select((s) => s.isReadyFor(motionUrl)),
-    );
+    final motionFallbackUrl = motion.valueOrNull?.fallbackUrl ?? '';
+    if (!motion.isLoading) {
+      _lastMotionUrl = motionUrl;
+      _lastMotionFallbackUrl = motionFallbackUrl;
+    } else if (motionUrl.isNotEmpty) {
+      _lastMotionUrl = motionUrl;
+      _lastMotionFallbackUrl = motionFallbackUrl;
+    }
+    final activeVideoUrl =
+        motionUrl.isNotEmpty ? motionUrl : (motion.isLoading ? _lastMotionUrl : '');
+    final activeVideoFallbackUrl = motionUrl.isNotEmpty
+        ? motionFallbackUrl
+        : (motion.isLoading ? _lastMotionFallbackUrl : '');
+    final motionReady = visualizerOn &&
+        motionUrl.isNotEmpty &&
+        ref.watch(
+          animatedArtworkSessionProvider.select((s) => s.isReadyFor(motionUrl)),
+        );
     // Any not-ready state re-arms the sleeve (track change, toggle
     // off, session reset). Assigned, not setState: it only feeds this
     // build's output, so no extra frame is scheduled.
@@ -851,7 +983,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
           url: track.artworkUrl,
           videoId: track.videoId,
           size: size,
-          radius: WaveRadius.hero,
+          radius: 12,
           label: track.title,
           title: track.title,
           artist: track.artist,
@@ -861,17 +993,17 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        borderRadius: WaveRadius.heroRadius,
+        borderRadius: BorderRadius.circular(12),
         // Kept shallow on purpose: large blurs over a full-window ambient
         // stage retain big GPU surfaces on Windows ANGLE.
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? 0.58 : 0.30),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
+            color: Colors.black.withValues(alpha: dark ? 0.62 : 0.34),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
           ),
           BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? 0.35 : 0.15),
+            color: Colors.black.withValues(alpha: dark ? 0.38 : 0.18),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -883,7 +1015,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       // switch every video frame cost milliseconds on weak raster.
       child: RepaintBoundary(
         child: ClipRRect(
-          borderRadius: WaveRadius.heroRadius,
+          borderRadius: BorderRadius.circular(12),
           clipBehavior: Clip.antiAlias,
           child: Stack(
             fit: StackFit.expand,
@@ -891,24 +1023,34 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
               // No bottom still: the fading sleeve below is the only
               // still layer (see class docs). When there is no motion
               // clip it stays opaque and the tile is just the cover.
-              if (visualizerOn && motionUrl.isNotEmpty)
+              if (visualizerOn && activeVideoUrl.isNotEmpty)
                 AnimatedArtworkVideo(
-                  url: motionUrl,
+                  url: activeVideoUrl,
+                  fallbackUrl: activeVideoFallbackUrl,
                   size: size,
                 ),
               if (showSleeve)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: AnimatedOpacity(
-                      duration: waveMotion(context, const Duration(milliseconds: 480)),
+                      // Smooth 480ms crossfade from still cover to animated
+                      // cover once the video is decoded and playing; instant
+                      // 0ms snap back to opaque when switching tracks so a
+                      // mid-fade track change never exposes a black frame.
+                      duration: motionReady
+                          ? waveMotion(
+                              context,
+                              const Duration(milliseconds: 480),
+                            )
+                          : Duration.zero,
                       curve: Curves.easeOutCubic,
                       opacity: motionReady ? 0 : 1,
                       onEnd: () {
                         // Fade done while still ready: unmount so the
                         // invisible still stops rasterizing per video
-                        // frame. The build-time reset above corrects a
-                        // stale flag (track changed mid-fade, …).
-                        if (mounted) {
+                        // frame. Guarded on motionReady so a 0->1 snap
+                        // never unmounts the sleeve while not ready.
+                        if (mounted && motionReady) {
                           setState(() => _sleeveGone = true);
                         }
                       },
@@ -1261,6 +1403,17 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
       ),
     );
   }
+}
+
+class _OutsetClipper extends CustomClipper<Rect> {
+  final double outset;
+  const _OutsetClipper(this.outset);
+
+  @override
+  Rect getClip(Size size) => (Offset.zero & size).inflate(outset);
+
+  @override
+  bool shouldReclip(covariant _OutsetClipper old) => old.outset != outset;
 }
 
 class _NowAmbient extends StatelessWidget {

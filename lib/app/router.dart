@@ -17,9 +17,11 @@ import '../ui/collections/playlist_detail_page.dart';
 import '../ui/collections/playlists_page.dart';
 import '../ui/collections/yt_playlist_detail_page.dart';
 import '../ui/collections/yt_shelf_page.dart';
+import '../ui/podcasts/podcasts_page.dart';
 import '../ui/stats/stats_page.dart';
+import '../ui/home/home_layout_page.dart';
 import '../ui/home/home_page.dart';
-import '../ui/lyrics/lyrics_screen.dart';
+import '../ui/jam/jam_page.dart';
 import '../ui/misc/support_pages.dart';
 import '../ui/navigation/flight.dart';
 import '../ui/navigation/route_origin.dart';
@@ -168,7 +170,6 @@ GoRouter buildRouter({required AuthGate gate}) {
       final atWelcome = state.uri.path == '/welcome';
       if (!gate.signedIn && !atWelcome) return '/welcome';
       if (gate.signedIn && atWelcome) return '/home';
-      if (state.uri.path == '/discover') return '/home';
       return null;
     },
     routes: [
@@ -198,6 +199,11 @@ GoRouter buildRouter({required AuthGate gate}) {
                 path: '/home',
                 pageBuilder: (c, s) =>
                     _page(const WaveHomePage()),
+              ),
+              GoRoute(
+                path: '/home-layout',
+                pageBuilder: (c, s) =>
+                    _page(const WaveHomeLayoutPage()),
               ),
             ],
           ),
@@ -319,6 +325,28 @@ GoRouter buildRouter({required AuthGate gate}) {
           StatefulShellBranch(
             routes: [
               GoRoute(
+                path: '/podcasts',
+                pageBuilder: (c, s) =>
+                    _page(const WavePodcastsPage()),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    pageBuilder: (c, s) => _anchoredPage(
+                      WavePodcastShowPage(
+                        showId: Uri.decodeComponent(
+                            s.pathParameters['id'] ?? ''),
+                        fallbackTitle:
+                            s.uri.queryParameters['title'] ?? '',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
                 path: '/downloads',
                 pageBuilder: (c, s) =>
                     _page(const WaveDownloadsPage()),
@@ -343,9 +371,10 @@ GoRouter buildRouter({required AuthGate gate}) {
                     _stagePage(const WaveNowPlayingPage()),
               ),
               GoRoute(
-                path: '/lyrics',
-                pageBuilder: (c, s) =>
-                    _stagePage(const WaveLyricsScreen()),
+                path: '/jam',
+                pageBuilder: (c, s) => _page(WaveJamPage(
+                  initialCode: s.uri.queryParameters['code'],
+                )),
               ),
               GoRoute(
                 path: '/friends',

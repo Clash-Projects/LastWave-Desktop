@@ -20,10 +20,21 @@ import '../theme/tokens.dart';
 
 /// Downloads: Offline hero + 40px-artwork rows
 /// (art · title/artist · progress or quality chip · play · delete).
-class WaveDownloadsPage extends ConsumerWidget {
+class WaveDownloadsPage extends ConsumerStatefulWidget {
   const WaveDownloadsPage({super.key});
 
+  @override
+  ConsumerState<WaveDownloadsPage> createState() => _WaveDownloadsPageState();
+}
+
+enum _DownloadSort { recent, title, artist }
+
+class _WaveDownloadsPageState extends ConsumerState<WaveDownloadsPage> {
+  String _query = '';
+  _DownloadSort _sort = _DownloadSort.recent;
+
   String _artworkFor(WidgetRef ref, DownloadEntry e) {
+    if (e.artworkUrl.isNotEmpty) return e.artworkUrl;
     final playlists = ref.watch(playlistRepositoryProvider);
     for (final p in playlists) {
       for (final t in p.tracks) {
@@ -39,12 +50,43 @@ class WaveDownloadsPage extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final entries = ref.watch(downloadManagerProvider);
+  Widget build(BuildContext context) {
+    final all = ref.watch(downloadManagerProvider);
+    final entries = <DownloadEntry>[...all];
+    final q = _query.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      entries.removeWhere((e) =>
+          !e.title.toLowerCase().contains(q) &&
+          !e.artist.toLowerCase().contains(q));
+    }
+    switch (_sort) {
+      case _DownloadSort.recent:
+        break; // manager keeps newest first
+      case _DownloadSort.title:
+        entries.sort(
+            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+      case _DownloadSort.artist:
+        entries.sort((a, b) {
+          final c = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+          return c != 0
+              ? c
+              : a.title.toLowerCase().compareTo(b.title.toLowerCase());
+        });
+    }
     final done =
-        entries.where((e) => e.status == DownloadStatus.done);
+        all.where((e) => e.status == DownloadStatus.done);
     final failed =
-        entries.where((e) => e.status == DownloadStatus.error).toList();
+        all.where((e) => e.status == DownloadStatus.error).toList();
+    // Hero cover: the most recently downloaded track that has art.
+    var heroArt = '';
+    for (final e in all) {
+      if (e.status != DownloadStatus.done) continue;
+      final a = _artworkFor(ref, e);
+      if (a.isNotEmpty) {
+        heroArt = a;
+        break;
+      }
+    }
     return WaveEntranceGroup(
       child: CustomScrollView(
         slivers: [
@@ -66,13 +108,50 @@ class WaveDownloadsPage extends ConsumerWidget {
                     overline: 'Offline',
                     title: 'Downloads',
                     meta:
-                        '${done.length} ${done.length == 1 ? 'track' : 'tracks'} available offline · ${entries.length} total',
+                        '${done.length} ${done.length == 1 ? 'track' : 'tracks'} available offline · ${all.length} total',
+                    artworkUrl: heroArt,
                     fallbackIcon: FluentIcons.download,
                     artworkSize: 120,
                   ),
                   ),
                   const SizedBox(height: 12),
                   const _LocationRow(),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextBox(
+                          placeholder: 'Search downloads',
+                          prefix: const Padding(
+                            padding: EdgeInsets.only(left: 10),
+                            child: Icon(FluentIcons.search, size: 14),
+                          ),
+                          onChanged: (v) => setState(() => _query = v),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      ComboBox<_DownloadSort>(
+                        value: _sort,
+                        items: const [
+                          ComboBoxItem(
+                            value: _DownloadSort.recent,
+                            child: Text('Recently downloaded'),
+                          ),
+                          ComboBoxItem(
+                            value: _DownloadSort.title,
+                            child: Text('Title A–Z'),
+                          ),
+                          ComboBoxItem(
+                            value: _DownloadSort.artist,
+                            child: Text('Artist A–Z'),
+                          ),
+                        ],
+                        onChanged: (v) {
+                          if (v != null) setState(() => _sort = v);
+                        },
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 12),
                   // Local InfoBar for failures — never breaks the list.
                   if (failed.isNotEmpty)
@@ -106,13 +185,21 @@ class WaveDownloadsPage extends ConsumerWidget {
             ),
           ),
         ),
-        if (entries.isEmpty)
+        if (all.isEmpty)
           const SliverToBoxAdapter(
             child: WaveEmpty(
               icon: FluentIcons.download,
               title: 'No downloads yet',
               subtitle:
                   'Download any track to keep it offline in full quality.',
+            ),
+          )
+        else if (entries.isEmpty)
+          const SliverToBoxAdapter(
+            child: WaveEmpty(
+              icon: FluentIcons.search,
+              title: 'No matches',
+              subtitle: 'No downloads match your search.',
             ),
           )
         else

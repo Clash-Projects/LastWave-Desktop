@@ -2,6 +2,9 @@
 .worktrees/
 .superpowers/
 
+# Project-local Flutter SDK (never commit)
+/.flutter-sdk/
+
 # Miscellaneous
 *.class
 *.log

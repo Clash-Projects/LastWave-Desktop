@@ -9,6 +9,7 @@ import '../../../core/storage/prefs.dart';
 import '../../../features/addons/addon_api.dart';
 import '../../../features/downloads/download_manager.dart';
 import '../../../features/feed/feed_repository.dart';
+import '../../../features/library/playlists.dart';
 import '../../../features/innertube/innertube_api.dart';
 import '../../../features/player/playback_service.dart';
 import '../components/ambient.dart';
@@ -90,6 +91,66 @@ class WaveAlbumPage extends ConsumerStatefulWidget {
 }
 
 class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
+  bool _saving = false;
+  String? _saveNote;
+  InfoBarSeverity _saveSeverity = InfoBarSeverity.info;
+
+  Future<void> _saveAlbum({
+    required String title,
+    required String artist,
+    required String art,
+    required List<GeneratedTrack> tracks,
+  }) async {
+    if (_saving || tracks.isEmpty) return;
+    final name = title.trim().isEmpty ? 'Album' : title.trim();
+    final existing = ref.read(playlistRepositoryProvider).any(
+          (playlist) => playlist.title.toLowerCase() == name.toLowerCase(),
+        );
+    if (existing) {
+      setState(() {
+        _saveNote = 'A playlist named “$name” already exists.';
+        _saveSeverity = InfoBarSeverity.warning;
+      });
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _saveNote = null;
+    });
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await ref.read(playlistRepositoryProvider.notifier).saveGenerated(
+            name,
+            [
+              for (final track in tracks)
+                StoredTrack(
+                  name: track.name,
+                  artist: track.artist.isNotEmpty ? track.artist : artist,
+                  album: name,
+                  artworkUrl:
+                      track.artworkUrl.isNotEmpty ? track.artworkUrl : art,
+                  videoId: track.videoId,
+                  durationSeconds: track.durationSeconds,
+                  addedAtMillis: now,
+                ),
+            ],
+          );
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _saveNote = 'Saved “$name” to your playlists.';
+        _saveSeverity = InfoBarSeverity.success;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _saveNote = 'Could not save this album.';
+        _saveSeverity = InfoBarSeverity.error;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_albumDetailProvider(widget.browseId));
@@ -271,7 +332,28 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                                           order.first.artworkUrl,
                                       videoId: order.first.videoId,
                                     ),
+                              trailing: [
+                                WaveGhostButton(
+                                  label: _saving ? 'Saving…' : 'Save',
+                                  icon: FluentIcons.save,
+                                  onPressed: order.isEmpty || _saving
+                                      ? null
+                                      : () => _saveAlbum(
+                                            title: albumTitle,
+                                            artist: artist,
+                                            art: art,
+                                            tracks: order,
+                                          ),
+                                ),
+                              ],
                             ),
+                        if (_saveNote != null) ...[
+                          const SizedBox(height: 10),
+                          InfoBar(
+                            title: Text(_saveNote!),
+                            severity: _saveSeverity,
+                          ),
+                        ],
                           ],
                     );
                     if (narrow) {

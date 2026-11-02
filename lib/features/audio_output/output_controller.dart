@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
+import '../equalizer/headphone_profiles.dart';
 import '../player/playback_service.dart';
 import '../player/player_state.dart';
 import 'dac_device.dart';
@@ -168,10 +169,25 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
 
   void refreshPath() => _rebuildPath();
 
+  /// Drops or restores WASAPI exclusive when DSP, loudness, pitch,
+  /// speed, crossfade, or timed AutoMix changes. Exclusive stays off
+  /// while any of those are active.
+  Future<void> syncExclusiveGate() async {
+    final playback = _ref.read(playbackServiceProvider.notifier);
+    final want = state.exclusiveRequested && !playback.processingBlocksExclusive;
+    if (playback.exclusiveApplied == want) {
+      _rebuildPath();
+      return;
+    }
+    await applyToPlayer();
+    _rebuildPath();
+  }
+
   Future<void> applyToPlayer() async {
     final playback = _ref.read(playbackServiceProvider.notifier);
     final device = state.selected;
-    final exclusive = state.exclusiveRequested;
+    final exclusive =
+        state.exclusiveRequested && !playback.processingBlocksExclusive;
     final hw = exclusive && (device?.hardwareVolume ?? false);
     final source = _sourceOf(_ref.read(playbackServiceProvider).stream);
     final decision = source == null
@@ -184,7 +200,10 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
     await playback.configureWasapi(
       exclusive: exclusive,
       mpvDevice: device?.mpvDeviceName ?? 'auto',
-      lockSoftwareVolume: exclusive,
+      // Only pin the software volume when the DAC really has a hardware
+      // volume to take over. Without one the slider must keep working
+      // (software gain), otherwise exclusive mode left volume dead.
+      lockSoftwareVolume: hw,
       outputFormat: exclusive ? decision?.output : null,
     );
     if (hw) {
@@ -200,16 +219,23 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
     if (volume > 0) _preMuteVolume = volume.clamp(0.0, 1.0);
     final playback = _ref.read(playbackServiceProvider.notifier);
     final device = state.selected;
-    final hw = state.exclusiveRequested && (device?.hardwareVolume ?? false);
+    final exclusiveLive =
+        state.exclusiveRequested && !playback.processingBlocksExclusive;
+    final hw = exclusiveLive && (device?.hardwareVolume ?? false);
     if (hw) {
-      await playback.setVolume(volume, software: false);
-      await _engine.setHardwareVolume(device!.id, volume);
-      return;
-    }
-    if (state.exclusiveRequested) {
-      await playback.setVolume(1.0, software: false);
-      _rebuildPath();
-      return;
+      final ok = await _engine.setHardwareVolume(device!.id, volume);
+      if (ok) {
+        await playback.setVolume(volume, software: false);
+        return;
+      }
+      // Endpoint refused the hardware write: don't leave the slider dead.
+      wasapiLog('Hardware volume write failed — using software volume');
+      await playback.unlockSoftwareVolume();
+    } else if (exclusiveLive) {
+      // Exclusive without a hardware volume: software gain keeps the
+      // slider and mute working (the path shows it is no longer
+      // bit-perfect below 100%).
+      await playback.unlockSoftwareVolume();
     }
     await playback.setVolume(volume, software: true);
     _rebuildPath();
@@ -291,6 +317,7 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
         prev.stream == next.stream &&
         prev.volume == next.volume &&
         prev.speed == next.speed &&
+        prev.pitch == next.pitch &&
         prev.outputFormat == next.outputFormat &&
         prev.outputIsFloat == next.outputIsFloat &&
         _pathInputsUnchanged(next)) {
@@ -315,7 +342,10 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
     }
     if (next.volume != (prev?.volume ?? next.volume)) {
       final device = state.selected;
-      if (state.exclusiveRequested && device?.hardwareVolume == true) {
+      final playbackGate = _ref.read(playbackServiceProvider.notifier);
+      if (state.exclusiveRequested &&
+          !playbackGate.processingBlocksExclusive &&
+          device?.hardwareVolume == true) {
         await _engine.setHardwareVolume(device!.id, next.volume);
       }
     }
@@ -369,13 +399,21 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
       );
     }
     final playback = _ref.read(playbackServiceProvider.notifier);
+    final prefs = _ref.read(prefsProvider);
     final hw = exclusive && (device?.hardwareVolume ?? false);
     final softwareVol = !hw && snap.volume < 0.999;
+    final blocked = playback.processingBlocksExclusive;
     final exclusiveActive = exclusive &&
+        !blocked &&
         playback.exclusiveApplied &&
         playback.wasapiError == null &&
         (device?.exclusiveSupported ?? false) &&
         (decision?.output != null);
+    final peq = prefs.equalizerEnabled || prefs.studioClarityEnabled;
+    final headphone =
+        HeadphoneProfiles.byId(prefs.headphoneProfile).id != 'off';
+    final loudnessOn = prefs.loudnessMode != 'off';
+    final autoMix = prefs.autoMixEnabled;
     final reason = _negotiator.evaluate(
       decision: decision ??
           FormatDecision(
@@ -388,11 +426,14 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
       exclusiveRequested: exclusive,
       exclusiveActive: exclusiveActive,
       deviceAvailable: device != null || !_engine.isSupported,
-      dspActive: false,
-      peqActive: false,
+      dspActive: headphone,
+      peqActive: peq,
       softwareVolume: softwareVol,
-      crossfade: _ref.read(prefsProvider).crossfadeEnabled,
+      crossfade: prefs.crossfadeEnabled,
       speed: snap.speed,
+      loudness: loudnessOn,
+      autoMix: autoMix,
+      pitch: snap.pitch,
     );
     // Exclusive DAC format is the negotiated integer PCM — never the
     // decoder's s32/float container that media_kit reports as audio-params.
@@ -410,11 +451,11 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
       source: source,
       output: output,
       resampling: decision?.resampling ?? false,
-      dspActive: false,
-      peqActive: false,
+      dspActive: headphone || loudnessOn || autoMix,
+      peqActive: peq,
       softwareVolume: softwareVol,
       hardwareVolume: hw,
-      crossfade: _ref.read(prefsProvider).crossfadeEnabled,
+      crossfade: prefs.crossfadeEnabled,
       speed: snap.speed,
       reason: reason,
       error: playback.wasapiError,
@@ -454,6 +495,15 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
 final audioOutputProvider =
     StateNotifierProvider<AudioOutputController, AudioOutputState>((ref) {
   final controller = AudioOutputController(ref);
+  final playback = ref.read(playbackServiceProvider.notifier);
+  playback.onProcessingChanged = () {
+    unawaited(controller.syncExclusiveGate());
+  };
+  ref.onDispose(() {
+    if (playback.onProcessingChanged != null) {
+      playback.onProcessingChanged = null;
+    }
+  });
   ref.listen<PlayerSnapshot>(playbackServiceProvider, (prev, next) {
     unawaited(controller.onPlaybackChanged(prev, next));
   });

@@ -137,12 +137,15 @@ class OfficialArtworkService {
   OfficialArtworkResult? peekArtist(String artist) {
     final clean = normalizeForSearch(primaryArtistName(artist));
     if (clean.isEmpty) return null;
-    final key = 'artist3|$clean';
+    final key = 'artist4|$clean';
     final inMem = _cache[key];
     if (inMem != null) return inMem;
     if (_db != null) {
       final row = _db!.loadArtworkEntry(key);
-      if (row != null && row['url'] != null && row['url']!.isNotEmpty) {
+      if (row != null &&
+          row['url'] != null &&
+          row['url']!.isNotEmpty &&
+          !_isDeezerBlank(row['url']!)) {
         final res = OfficialArtworkResult(artworkUrl: row['url']!);
         _cache[key] = res;
         return res;
@@ -345,7 +348,7 @@ class OfficialArtworkService {
         // Old rows could store a YouTube video still as "official"
         // (InnerTube fallback). Those must not win over a real store
         // cover — ignore and re-resolve.
-        if (isOfficialArtwork(url)) {
+        if (isOfficialArtwork(url) && !_isDeezerBlank(url)) {
           final cached = OfficialArtworkResult(artworkUrl: url);
           _cache[cacheKey] = cached;
           return cached;
@@ -390,6 +393,7 @@ class OfficialArtworkService {
     required String title,
     required String artist,
     String album = '',
+    bool allowFallback = false,
   }) async {
     final cleanTitle = normalizeForSearch(title);
     final cleanArtist = normalizeForSearch(artist);
@@ -398,29 +402,71 @@ class OfficialArtworkService {
     // Cache keys are versioned: t1–t3 could store a different song's
     // sleeve (substring hits like Cider→Cinderella or Piranha→Pt. 2).
     // Those rows are abandoned rather than trusted.
-    return _cached(
-      _trackCacheKey(artist, title),
-      'catalog',
-      () => _doResolve(cleanTitle, cleanArtist, title, artist, album),
-    );
+    OfficialArtworkResult? res;
+    try {
+      res = await _cached(
+        _trackCacheKey(artist, title),
+        'catalog',
+        () => _doResolve(cleanTitle, cleanArtist, title, artist, album),
+      );
+    } catch (_) {
+      // A store failure must not skip the fallback below.
+      if (!allowFallback) rethrow;
+    }
+    if (res != null || !allowFallback) return res;
+    final fallback = trackCoverFallback;
+    if (fallback == null) return null;
+    try {
+      final url = await fallback(title, artist);
+      if (url.isEmpty) return null;
+      return OfficialArtworkResult(
+          artworkUrl: url, artist: artist, title: title);
+    } catch (_) {
+      return null;
+    }
   }
+
+  /// Square YouTube Music cover for songs neither iTunes nor Deezer
+  /// carry (indie / label-less releases) — what the player shows. Opt-in
+  /// via `allowFallback`, never cached as "official".
+  Future<String> Function(String title, String artist)? trackCoverFallback;
 
   /// Resolve the official cover for an ALBUM (not a track) via the
   /// iTunes album catalog — exact collection match beats track guessing.
   Future<OfficialArtworkResult?> resolveAlbumArtwork({
     required String album,
     required String artist,
+    bool allowFallback = false,
   }) async {
     final cleanAlbum = normalizeForSearch(album);
     final cleanArtist = normalizeForSearch(artist);
     if (cleanAlbum.isEmpty) return null;
 
-    return _cached(
-      _albumCacheKey(artist, album),
-      'catalog',
-      () => _doResolveAlbum(cleanAlbum, cleanArtist, album, artist),
-    );
+    OfficialArtworkResult? res;
+    try {
+      res = await _cached(
+        _albumCacheKey(artist, album),
+        'catalog',
+        () => _doResolveAlbum(cleanAlbum, cleanArtist, album, artist),
+      );
+    } catch (_) {
+      if (!allowFallback) rethrow;
+    }
+    if (res != null || !allowFallback) return res;
+    final fallback = albumCoverFallback;
+    if (fallback == null) return null;
+    try {
+      final url = await fallback(album, artist);
+      if (url.isEmpty) return null;
+      return OfficialArtworkResult(artworkUrl: url, artist: artist);
+    } catch (_) {
+      return null;
+    }
   }
+
+  /// YouTube Music cover for albums/singles the stores don't carry; same
+  /// opt-in, never-cached contract as [trackCoverFallback].
+  Future<String> Function(String album, String artist)? albumCoverFallback;
 
   /// Resolve an official ARTIST photo via the Deezer catalog — label-
   /// supplied press shots up to 1000×1000, no auth required. (iTunes has
@@ -434,13 +480,33 @@ class OfficialArtworkService {
     // Key versioned: v1 entries could hold impostor acts picked before
     // the nb_fan (most-followed) selection existed; v2 used the raw
     // collab string ("drake future metro…") as the cache key.
-    return _cached(
-      'artist3|$clean',
+    final res = await _cached(
+      'artist4|$clean',
       'deezer',
       () => _doResolveArtist(clean, primary),
       priority: true,
     );
+    if (res != null) return res;
+    final fallback = artistPhotoFallback;
+    if (fallback == null) return null;
+    try {
+      final url = await fallback(primary);
+      if (url.isEmpty) return null;
+      return OfficialArtworkResult(artworkUrl: url, artist: primary);
+    } catch (_) {
+      return null;
+    }
   }
+
+  /// Last-resort artist portrait (YouTube Music), wired by the app root.
+  /// Not cached as "official": a later Deezer hit still wins.
+  Future<String> Function(String name)? artistPhotoFallback;
+
+  /// Deezer serves a grey silhouette for artists without a photo, under
+  /// an empty hash (`/images/artist//1000x1000…`). It loads fine, so it
+  /// would never trigger an image fallback.
+  static bool _isDeezerBlank(String url) =>
+      url.contains('/artist//') || url.contains('d41d8cd98f00b204e9800998ecf8427e');
 
   /// Shared iTunes Search API round; returns the raw result list.
   /// 403/429 do not throw (validateStatus). After a couple of blocks
@@ -493,17 +559,8 @@ class OfficialArtworkService {
   Future<List<Map<String, dynamic>>> _deezerTrackHits(String query) async {
     if (query.trim().isEmpty) return const [];
     try {
-      final res = await _dio.get<dynamic>(
-        'https://api.deezer.com/search',
-        queryParameters: {'q': query.trim(), 'limit': '15'},
-      );
-      if (res.statusCode != 200) return const [];
-      dynamic rawData = res.data;
-      if (rawData is String && rawData.isNotEmpty) {
-        try {
-          rawData = jsonDecode(rawData);
-        } catch (_) {}
-      }
+      final rawData =
+          await _deezerGet('/search', {'q': query.trim(), 'limit': '15'});
       final data = rawData is Map ? rawData : null;
       final items = data != null && data['data'] is List
           ? (data['data'] as List).whereType<Map<String, dynamic>>()
@@ -712,6 +769,51 @@ class OfficialArtworkService {
     return null;
   }
 
+  /// Deezer GET with quota handling: its limit (50 req / 5 s) answers
+  /// HTTP 200 with `{"error":{"code":4}}` (or 429 / a dropped socket), which
+  /// used to read as "no such artist" and left the Last.fm star placeholder
+  /// on screen. Retries with backoff; null when it never succeeds.
+  Future<dynamic> _deezerGet(String path, Map<String, dynamic> query) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final res = await _dio.get<dynamic>(
+          'https://api.deezer.com$path',
+          queryParameters: query,
+        );
+        dynamic raw = res.data;
+        if (raw is String && raw.isNotEmpty) {
+          try {
+            raw = jsonDecode(raw);
+          } catch (_) {}
+        }
+        final limited =
+            res.statusCode == 429 || (raw is Map && raw['error'] != null);
+        if (!limited) return res.statusCode == 200 ? raw : null;
+      } catch (_) {}
+      await Future<void>.delayed(Duration(milliseconds: 900 * (attempt + 1)));
+    }
+    return null;
+  }
+
+  /// Artists without a photo still get a hashed URL that 302s to the stock
+  /// silhouette (`d41d8cd9…`, the MD5 of nothing), so the URL alone looks
+  /// real. Peek at the redirect target without downloading the image.
+  Future<bool> _deezerPhotoIsStock(String url) async {
+    try {
+      final res = await _dio.head<dynamic>(
+        url,
+        options: Options(
+          followRedirects: false,
+          validateStatus: (c) => c != null && c < 400,
+        ),
+      );
+      final loc = res.headers.value('location') ?? '';
+      return _isDeezerBlank(loc);
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<OfficialArtworkResult?> _doResolveArtist(
     String clean,
     String raw,
@@ -720,16 +822,8 @@ class OfficialArtworkService {
     final searchName = rawPrimary.isNotEmpty ? rawPrimary : raw;
     final cleanSearchName = normalizeForSearch(searchName);
     try {
-      final res = await _dio.get<dynamic>(
-        'https://api.deezer.com/search/artist',
-        queryParameters: {'q': searchName, 'limit': '10'},
-      );
-      dynamic rawData = res.data;
-      if (rawData is String && rawData.isNotEmpty) {
-        try {
-          rawData = jsonDecode(rawData);
-        } catch (_) {}
-      }
+      final rawData = await _deezerGet(
+          '/search/artist', {'q': searchName, 'limit': '10'});
       final data = rawData is Map ? rawData : null;
       final items = data != null && data['data'] is List
           ? (data['data'] as List)
@@ -789,7 +883,9 @@ class OfficialArtworkService {
               (e) => e.isNotEmpty,
               orElse: () => '',
             );
-        if (pic.isNotEmpty) {
+        if (pic.isNotEmpty &&
+            !_isDeezerBlank(pic) &&
+            !await _deezerPhotoIsStock(pic)) {
           return OfficialArtworkResult(
             artworkUrl: pic,
             artist: best['name']?.toString() ?? raw,

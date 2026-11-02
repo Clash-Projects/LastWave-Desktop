@@ -1,5 +1,6 @@
 import '../components/buttons.dart';
 import '../components/inputs.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -38,11 +39,16 @@ import '../theme/brand_icons.dart';
 import '../../features/equalizer/equalizer_controller.dart';
 import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
+import '../../features/equalizer/headphone_profiles.dart';
+import '../../features/player/loudness.dart';
+import '../../features/player/playback_service.dart';
 import '../../features/presence/discord_presence_service.dart';
-import '../../features/telemetry/live_telemetry_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
+import 'backup_settings.dart';
 import 'diagnostics_actions.dart';
+import 'download_layout_settings.dart';
+import 'settings_search.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
@@ -75,6 +81,8 @@ class WaveSettingsPage extends ConsumerStatefulWidget {
 
 class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
   late String _section;
+  String? _highlightId;
+  Timer? _highlightTimer;
   late final ScrollController _contentScrollController;
   late final ScrollController _narrowScrollController;
   late final ScrollController _railScrollController;
@@ -87,18 +95,47 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
     _railScrollController = ScrollController();
     final initial = widget.initialSection;
     _section =
-        initial != null &&
-                _waveSettingsSections.any((s) => s.$1 == initial)
-            ? initial
-            : 'general';
+        initial != null && _waveSettingsSections.any((s) => s.$1 == initial)
+        ? initial
+        : 'general';
   }
 
   @override
   void dispose() {
+    _highlightTimer?.cancel();
     _contentScrollController.dispose();
     _narrowScrollController.dispose();
     _railScrollController.dispose();
     super.dispose();
+  }
+
+  /// Opens the card's section, scrolls to it and outlines it for a moment.
+  void _jump(SettingsSearchEntry entry) {
+    final switching = _section != entry.section;
+    setState(() {
+      _section = entry.section;
+      _highlightId = entry.id;
+    });
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted) setState(() => _highlightId = null);
+    });
+    // A section change cross-fades and resizes first; wait for it so the
+    // scroll lands on the card's final position.
+    Future<void>.delayed(
+      Duration(milliseconds: switching ? 320 : 30),
+      () {
+        if (!mounted) return;
+        final target = SettingsTarget.keys[entry.id]?.currentContext;
+        if (target == null || !target.mounted) return;
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.08,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      },
+    );
   }
 
   Future<void> _update(Future<void> Function(Prefs) fn) async {
@@ -109,6 +146,28 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    return SettingsSpotlight(
+      activeId: _highlightId,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: SettingsSearchBox(onPick: _jump),
+              ),
+            ),
+          ),
+          Expanded(child: _layout()),
+        ],
+      ),
+    );
+  }
+
+  Widget _layout() {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Content-aware (rail-aware): LayoutBuilder sees real content
@@ -316,12 +375,14 @@ class _AccentPreview extends StatelessWidget {
     final text = switch (resolution.source) {
       AccentSource.custom => 'Custom colour · $hex',
       AccentSource.lastwave => 'LastWave neutral · $hex',
-      AccentSource.system => resolution.resolved
-          ? 'Desktop accent · $hex'
-          : 'This desktop exposes no accent — using custom colour',
-      AccentSource.artwork => resolution.resolved
-          ? 'Tinted from the current cover · $hex'
-          : 'No cover hue to tint from — using custom colour',
+      AccentSource.system =>
+        resolution.resolved
+            ? 'Desktop accent · $hex'
+            : 'This desktop exposes no accent — using custom colour',
+      AccentSource.artwork =>
+        resolution.resolved
+            ? 'Tinted from the current cover · $hex'
+            : 'No cover hue to tint from — using custom colour',
     };
     return Row(
       children: [
@@ -347,10 +408,13 @@ class _AccentPreview extends StatelessWidget {
 }
 
 class _Group extends StatelessWidget {
+  /// Search target id (see `settings_search.dart`). Null = not searchable.
+  final String? id;
   final String title;
   final String subtitle;
   final Widget child;
   const _Group({
+    this.id,
     required this.title,
     required this.subtitle,
     required this.child,
@@ -358,6 +422,12 @@ class _Group extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final card = _card(context);
+    final id = this.id;
+    return id == null ? card : SettingsTarget(id: id, child: card);
+  }
+
+  Widget _card(BuildContext context) {
     final theme = FluentTheme.of(context);
     final stroke = theme.resources.cardStrokeColorDefault;
     return Column(
@@ -368,7 +438,9 @@ class _Group extends StatelessWidget {
           decoration: BoxDecoration(
             color: theme.resources.cardBackgroundFillColorDefault,
             border: Border.all(color: stroke),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(WaveRadius.floating)),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(WaveRadius.floating),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -416,6 +488,7 @@ class _Account extends ConsumerWidget {
     final signedIn = auth.username.isNotEmpty;
     final guest = auth.status == AuthStatus.guest || prefs.isGuest;
     return _Group(
+      id: 'lastfm.connection',
       title: 'Last.fm connection',
       subtitle: 'Scrobbling and discovery need a session',
       child: Column(
@@ -438,8 +511,8 @@ class _Account extends ConsumerWidget {
                       signedIn
                           ? 'Last.fm connected'
                           : (guest
-                              ? 'Last.fm disabled — save keys below, then connect'
-                              : 'Connect to scrobble and personalize'),
+                                ? 'Last.fm disabled — save keys below, then connect'
+                                : 'Connect to scrobble and personalize'),
                       style: WaveType.meta,
                     ),
                   ],
@@ -496,8 +569,10 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
       } catch (_) {}
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error =
-          'Could not reach Last.fm. Check your connection and retry.');
+      setState(
+        () => _error =
+            'Could not reach Last.fm. Check your connection and retry.',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -517,8 +592,10 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
       ref.invalidate(feedProvider);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error =
-          'Not approved yet — approve LastWave in the browser, then retry.');
+      setState(
+        () => _error =
+            'Not approved yet — approve LastWave in the browser, then retry.',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -531,10 +608,7 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (_error != null) ...[
-          Text(
-            _error!,
-            style: WaveType.meta.copyWith(color: Colors.red),
-          ),
+          Text(_error!, style: WaveType.meta.copyWith(color: Colors.red)),
           const SizedBox(height: 8),
         ],
         WaveFilledButton(
@@ -553,17 +627,17 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
                     Text('Contacting Last.fm…'),
                   ],
                 )
-              : Text(_handshake == null
-                  ? 'Connect with Last.fm'
-                  : 'Restart approval'),
+              : Text(
+                  _handshake == null
+                      ? 'Connect with Last.fm'
+                      : 'Restart approval',
+                ),
         ),
         if (!configured) ...[
           const SizedBox(height: 6),
           Text(
             'Save your API keys below first.',
-            style: WaveType.meta.copyWith(
-              color: waveTextTertiary(context),
-            ),
+            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
           ),
         ],
         if (_handshake != null) ...[
@@ -603,6 +677,7 @@ class _Audio extends ConsumerWidget {
       children: [
         const SizedBox(height: 8),
         _Group(
+          id: 'audio.output',
           title: 'Audio output',
           subtitle: Platform.isWindows
               ? 'WASAPI Exclusive bypasses the Windows mixer'
@@ -611,6 +686,7 @@ class _Audio extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          id: 'audio.quality',
           title: 'Streaming and Download quality',
           subtitle: 'Lossless-first with YouTube fallback',
           child: Column(
@@ -638,6 +714,58 @@ class _Audio extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          id: 'audio.loudness',
+          title: 'Loudness',
+          subtitle: LoudnessMath.settingsSubtitle(prefs.loudnessMode),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Normalization', style: WaveType.trackTitle),
+              const SizedBox(height: 6),
+              WaveSelect<String>(
+                value: prefs.loudnessMode,
+                options: const [
+                  WaveSelectOption(value: 'off', label: 'Off'),
+                  WaveSelectOption(value: 'track', label: 'Track'),
+                  WaveSelectOption(value: 'album', label: 'Album'),
+                ],
+                onChanged: (mode) async {
+                  await onUpdate((p) => p.setLoudnessMode(mode));
+                  await ref
+                      .read(playbackServiceProvider.notifier)
+                      .applyAudioPrefs();
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'audio.headphones',
+          title: 'Headphone correction',
+          subtitle: 'A built-in curve for a few common headphones',
+          child: WaveSelect<String>(
+            expanded: true,
+            value: HeadphoneProfiles.byId(prefs.headphoneProfile).id,
+            options: [
+              for (final profile in HeadphoneProfiles.all)
+                WaveSelectOption(
+                  value: profile.id,
+                  label: profile.name,
+                  hint: profile.isOff ? null : profile.description,
+                ),
+            ],
+            onChanged: (id) async {
+              await onUpdate((p) => p.setHeadphoneProfile(id));
+              await ref.read(playbackServiceProvider.notifier).applyAudioPrefs();
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        _TimedMixSettings(onUpdate: onUpdate),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'audio.equalizer',
           title: 'Equalizer & Sound FX',
           subtitle: '10-band ISO curves with acoustic & stage compensation',
           child: const SizedBox(
@@ -674,7 +802,8 @@ class _EqualizerSettingsSummary extends ConsumerWidget {
           value: eq.studioClarityEnabled,
           onChanged: (v) => notifier.setStudioClarityEnabled(v),
           title: 'Studio Master Clarity',
-          subtitle: 'Acoustic & stage compensation (${eq.clarityPreset.displayName})',
+          subtitle:
+              'Acoustic & stage compensation (${eq.clarityPreset.displayName})',
         ),
         if (eq.studioClarityEnabled) ...[
           const SizedBox(height: 8),
@@ -732,6 +861,7 @@ class _Appearance extends ConsumerWidget {
     return Column(
       children: [
         _Group(
+          id: 'appearance.theme',
           title: 'Theme',
           subtitle: 'Midnight charcoal or pearl light',
           child: Column(
@@ -808,35 +938,36 @@ class _Appearance extends ConsumerWidget {
                     MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
-                      // Picking a swatch implies "custom colour": without
-                      // this the swatches look inert while another accent
-                      // source is active.
-                      onTap: () => onUpdate((p) async {
-                        await p.setAccentColor(c.toARGB32());
-                        await p.setAccentSource(AccentSource.custom.id);
-                      }),
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: c,
-                          border: Border.all(
-                            color: theme.accent.toARGB32() == c.toARGB32()
-                                ? waveAccent(context)
-                                : waveDivider(context),
-                            width: 2,
+                        // Picking a swatch implies "custom colour": without
+                        // this the swatches look inert while another accent
+                        // source is active.
+                        onTap: () => onUpdate((p) async {
+                          await p.setAccentColor(c.toARGB32());
+                          await p.setAccentSource(AccentSource.custom.id);
+                        }),
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: c,
+                            border: Border.all(
+                              color: theme.accent.toARGB32() == c.toARGB32()
+                                  ? waveAccent(context)
+                                  : waveDivider(context),
+                              width: 2,
+                            ),
                           ),
+                          child: theme.accent.toARGB32() == c.toARGB32()
+                              ? Icon(
+                                  FluentIcons.check_mark,
+                                  size: 14,
+                                  color: onAccentFor(c),
+                                )
+                              : null,
                         ),
-                        child: theme.accent.toARGB32() == c.toARGB32()
-                            ? Icon(
-                                FluentIcons.check_mark,
-                                size: 14,
-                                color: onAccentFor(c),
-                              )
-                            : null,
                       ),
-                    )),
+                    ),
                 ],
               ),
             ],
@@ -844,6 +975,7 @@ class _Appearance extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          id: 'appearance.haze',
           title: 'Haze material',
           subtitle:
               'Automatic uses Haze L1–L3 as designed · Solid disables blur',
@@ -883,6 +1015,7 @@ class _Appearance extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _Group(
+          id: 'appearance.surfaces',
           title: 'Surfaces',
           subtitle: 'Contrast and artwork tinting',
           child: Column(
@@ -916,6 +1049,7 @@ class _Lyrics extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     return _Group(
+      id: 'lyrics.timing',
       title: 'Timing',
       subtitle: 'Synced lyrics providers',
       child: Column(
@@ -925,7 +1059,8 @@ class _Lyrics extends ConsumerWidget {
             value: prefs.wordByWord,
             onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
             title: 'Word-by-word lyrics',
-            subtitle: 'Karaoke word highlight. Off uses Apple Music line lyrics.',
+            subtitle:
+                'Karaoke word highlight. Off uses Apple Music line lyrics.',
           ),
           const SizedBox(height: 10),
           const Text('Primary provider', style: WaveType.trackTitle),
@@ -934,10 +1069,7 @@ class _Lyrics extends ConsumerWidget {
             value: LyricsProviderId.fromId(prefs.lyricsProviderId).id,
             options: [
               for (final provider in LyricsProviderId.values)
-                WaveSelectOption(
-                  value: provider.id,
-                  label: provider.title,
-                ),
+                WaveSelectOption(value: provider.id, label: provider.title),
             ],
             onChanged: (v) => onUpdate((p) => p.setLyricsProviderId(v)),
           ),
@@ -970,6 +1102,7 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
         .clamp(25, 90)
         .toDouble();
     return _Group(
+      id: 'lastfm.scrobbling',
       title: 'Last.fm scrobbling',
       subtitle: 'Thresholds mirror Last.fm rules',
       child: Column(
@@ -1036,6 +1169,7 @@ class _Ytm extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _Group(
+          id: 'integrations.ytm',
           title: 'YouTube Music',
           subtitle: 'Personal library, history and uploads',
           child: connection.connected
@@ -1051,11 +1185,9 @@ class _Ytm extends ConsumerWidget {
                     const SizedBox(height: 8),
                     _SwitchRow(
                       value: prefs.syncYtHistory,
-                      onChanged: (v) =>
-                          onUpdate((p) => p.setSyncYtHistory(v)),
+                      onChanged: (v) => onUpdate((p) => p.setSyncYtHistory(v)),
                       title: 'Sync listening history',
-                      subtitle:
-                          'Record plays to your YouTube Music history',
+                      subtitle: 'Songs you play here show up in your YouTube Music history',
                     ),
                   ],
                 )
@@ -1080,68 +1212,7 @@ class _Ytm extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
-          title: 'Global Live Telemetry & Map',
-          subtitle:
-              'Anonymous real-time listening map at telemetry.clashprojects.qd.je',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SwitchRow(
-                value: prefs.liveTelemetryEnabled,
-                onChanged: (v) =>
-                    onUpdate((p) => p.setLiveTelemetryEnabled(v)),
-                title: 'Global Live Map Telemetry',
-                subtitle: prefs.liveTelemetryEnabled
-                    ? 'On • Listening ticks broadcast anonymously to the live world map'
-                    : 'Off • Playback telemetry stays completely local',
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Open Global Live Map',
-                            style: WaveType.trackTitle),
-                        const SizedBox(height: 2),
-                        Text(
-                          'telemetry.clashprojects.qd.je • Real-time vector map of global listeners',
-                          style: WaveType.meta.copyWith(
-                            color: waveTextSecondary(context),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  WaveFilledButton(
-                    onPressed: () async {
-                      final uri =
-                          Uri.parse(LiveTelemetryService.telemetryBaseUrl);
-                      try {
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri,
-                              mode: LaunchMode.externalApplication);
-                        }
-                      } catch (_) {}
-                    },
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(FluentIcons.globe, size: 14),
-                        SizedBox(width: 6),
-                        Text('Open Live Map'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        _Group(
+          id: 'integrations.discord',
           title: 'Discord',
           subtitle: 'Show what you are listening to on your Discord profile',
           child: _SwitchRow(
@@ -1166,23 +1237,53 @@ class _Ytm extends ConsumerWidget {
     YtConnection connection,
     YtAccount? account,
   ) {
+    final profiles = ref.watch(ytProfilesProvider);
+    YtProfile? activeProfile;
+    for (final profile in profiles) {
+      if (profile.email == connection.profileEmail ||
+          (connection.profileEmail.isEmpty &&
+              profile.cookies == connection.cookies)) {
+        activeProfile = profile;
+        break;
+      }
+    }
+    YtChannel? activeChannel;
+    for (final channel in activeProfile?.channels ?? const <YtChannel>[]) {
+      if (channel.pageId == connection.activePageId) {
+        activeChannel = channel;
+        break;
+      }
+    }
     // Provisional connections (identity transiently empty right after
     // login) fall back to the roster email so the card never renders
     // a bare "Connected" for a known account.
     final connEmail =
-        connection.profileEmail != 'unknown' ? connection.profileEmail : '';
+        activeProfile?.email ??
+        (connection.profileEmail != 'unknown' ? connection.profileEmail : '');
     final rawName = account?.name ?? '';
     final name = rawName.isNotEmpty
         ? rawName
-        : (connEmail.isNotEmpty ? connEmail : '');
+        : (activeChannel?.name.isNotEmpty == true
+              ? activeChannel!.name
+              : connection.accountName.isNotEmpty
+              ? connection.accountName
+              : connEmail);
     // Same @-gate as the chooser: fresh parses never emit junk, but
     // this keeps every path honest if a shape ever surprises us.
-    final handle = (account?.handle ?? '').startsWith('@')
+    final channelHandle = account?.handle.isNotEmpty == true
         ? account!.handle
-        : '';
+        : (activeChannel?.handle.isNotEmpty == true
+              ? activeChannel!.handle
+              : connection.channelHandle);
+    final handle = channelHandle.startsWith('@') ? channelHandle : '';
     final email = (account?.email ?? '').isNotEmpty
         ? account!.email
         : connEmail;
+    final photoUrl = account?.photoUrl.isNotEmpty == true
+        ? account!.photoUrl
+        : (activeChannel?.photoUrl.isNotEmpty == true
+              ? activeChannel!.photoUrl
+              : connection.photoUrl);
     final idLine = handle.isNotEmpty ? handle : ytDisplayEmail(email);
     final since = DateTime.fromMillisecondsSinceEpoch(
       connection.connectedAtMillis,
@@ -1199,9 +1300,9 @@ class _Ytm extends ConsumerWidget {
     ].join(' · ');
     return Row(
       children: [
-        if (account?.photoUrl.isNotEmpty == true)
+        if (photoUrl.isNotEmpty)
           WaveArtwork.circle(
-            url: account!.photoUrl,
+            url: photoUrl,
             size: 40,
             label: name,
             // Identity avatar: never let the official-source upgrade
@@ -1237,7 +1338,6 @@ class _Ytm extends ConsumerWidget {
       ],
     );
   }
-
 
   /// In-app Google sign-in: opens music.youtube.com in a system
   /// WebView, waits for login, captures cookies automatically, then
@@ -1353,28 +1453,34 @@ class _YtStaleBanner extends ConsumerStatefulWidget {
 }
 
 class _YtStaleBannerState extends ConsumerState<_YtStaleBanner> {
-  static bool _autoAttempted = false;
   bool _busy = false;
   bool _dismissed = false;
 
   @override
   void initState() {
     super.initState();
-    // One silent attempt per app run, and only when this run actually
-    // created the sign-in window — with no cached window there is
-    // nothing to reload and the user must sign in.
-    if (!_autoAttempted && YtWebLogin.cachedWindow != null) {
-      _autoAttempted = true;
+    // One silent attempt per app run (shared with the shell info bar).
+    // The persisted WebView2 profile survives restarts and updates, so
+    // this works even when this run never opened the sign-in window.
+    if (!YtSessionKeeper.autoAttempted && !YtSessionKeeper.isRunning) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _refresh();
+        if (mounted) _refresh(auto: true);
       });
     }
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool auto = false}) async {
     if (_busy || !mounted) return;
     setState(() => _busy = true);
-    final ok = await YtSessionKeeper.refresh(ref);
+    final ok = auto
+        ? await YtSessionKeeper.autoRecover(ref)
+        : await YtSessionKeeper.refresh(ref, allowCreateWindow: true);
+    if (!mounted) return;
+    if (auto && !ok) {
+      // Silent first attempt: no error dialog, the banner stays.
+      setState(() => _busy = false);
+      return;
+    }
     if (!mounted) return;
     setState(() => _busy = false);
     if (!ok) {
@@ -1404,17 +1510,10 @@ class _YtStaleBannerState extends ConsumerState<_YtStaleBanner> {
           if (_busy)
             const Padding(
               padding: EdgeInsets.only(right: 8),
-              child: SizedBox(
-                width: 14,
-                height: 14,
-                child: ProgressRing(),
-              ),
+              child: SizedBox(width: 14, height: 14, child: ProgressRing()),
             )
           else
-            WaveLink(
-              onPressed: _refresh,
-              child: const Text('Refresh'),
-            ),
+            WaveLink(onPressed: _refresh, child: const Text('Refresh')),
           const SizedBox(width: 12),
           WaveLink(
             onPressed: () => _ytConnectWithCookies(context, ref),
@@ -1538,7 +1637,8 @@ class _CardActions extends ConsumerWidget {
             _YtAddOption(
               icon: FluentIcons.people,
               title: 'Brand channel',
-              subtitle: 'Add a channel on the current login (needs the '
+              subtitle:
+                  'Add a channel on the current login (needs the '
                   'browser window)',
               onPressed: () => Navigator.of(dialogContext).pop('channel'),
             ),
@@ -1546,7 +1646,8 @@ class _CardActions extends ConsumerWidget {
             _YtAddOption(
               icon: FluentIcons.link,
               title: 'Cookies',
-              subtitle: 'Paste a session exported from your own browser — '
+              subtitle:
+                  'Paste a session exported from your own browser — '
                   'works when the built-in window is blocked',
               onPressed: () => Navigator.of(dialogContext).pop('cookie'),
             ),
@@ -1667,8 +1768,7 @@ class _CardActions extends ConsumerWidget {
     }
     if (!context.mounted) return;
     try {
-      w.launch('https://music.youtube.com/',
-          triggerOnUrlRequestEvent: false);
+      w.launch('https://music.youtube.com/', triggerOnUrlRequestEvent: false);
     } catch (_) {}
     var cancelled = false;
     var done = false;
@@ -1765,10 +1865,7 @@ class _CardActions extends ConsumerWidget {
 /// and a broken WebView2 environment can leave Windows stuck on
 /// about:blank. A jar exported from the user's own browser is a normal
 /// Chrome session, so it is the only path that works everywhere.
-Future<void> _ytConnectWithCookies(
-  BuildContext context,
-  WidgetRef ref,
-) async {
+Future<void> _ytConnectWithCookies(BuildContext context, WidgetRef ref) async {
   final controller = TextEditingController();
   String? errorText;
   var missing = const <String>[];
@@ -1796,9 +1893,9 @@ Future<void> _ytConnectWithCookies(
               Text(
                 'Use this when the built-in sign-in window is blocked or '
                 'cannot load. The jar comes from your own browser, so '
-                'Google sees a normal desktop session. A pasted jar '
-                'connects the main channel only — brand channels still '
-                'need the browser window.',
+                'Google sees a normal desktop session. Brand channels on '
+                'the same Google login are detected after connecting — '
+                'pick one in the channel chooser.',
                 style: WaveType.meta.copyWith(
                   color: waveTextSecondary(context),
                 ),
@@ -1870,10 +1967,7 @@ Future<void> _ytConnectWithCookies(
                 const SizedBox(height: 8),
                 Text(
                   errorText!,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.red,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.red),
                 ),
               ],
             ],
@@ -1891,9 +1985,8 @@ Future<void> _ytConnectWithCookies(
                   return;
                 }
                 try {
-                  Navigator.of(dialogContext).pop(
-                    InnerTubeMusicApi.normalizeCookies(text),
-                  );
+                  Navigator.of(dialogContext)
+                      .pop(InnerTubeMusicApi.normalizeCookies(text));
                 } catch (e) {
                   setState(() {
                     errorText = e is FormatException
@@ -1912,12 +2005,7 @@ Future<void> _ytConnectWithCookies(
   controller.dispose();
 
   if (result != null && result.isNotEmpty && context.mounted) {
-    await _ytConnectCaptured(
-      context,
-      ref,
-      header: result,
-      pageId: '',
-    );
+    await _ytConnectCaptured(context, ref, header: result, pageId: '');
   }
 }
 
@@ -1992,10 +2080,8 @@ class _CookieChecklist extends StatelessWidget {
             ok
                 ? 'Session markers detected — this jar looks complete.'
                 : 'Not detected yet: ${missing.join(' · ')}. '
-                    'YouTube needs these to treat the jar as signed in.',
-            style: WaveType.meta.copyWith(
-              color: waveTextSecondary(context),
-            ),
+                      'YouTube needs these to treat the jar as signed in.',
+            style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
           ),
         ),
       ],
@@ -2076,6 +2162,25 @@ Future<void> _ytConnectCaptured(
   required String pageId,
 }) async {
   final profile = await upsertYtCapture(ref, cookies: header, pageId: pageId);
+  // A captured jar is account-level: the active channel rides per
+  // request (`X-Goog-PageId`), never in the cookies. Ask YouTube which
+  // channels this login can act as and seed them into the roster, so
+  // the chooser can offer brand channels even when the capture came
+  // from pasted cookies (no WebView to read DELEGATED_SESSION_ID from).
+  // Best-effort: an empty list keeps today's single-row behavior.
+  if (profile != null) {
+    final discovered = await ref
+        .read(innerTubeProvider)
+        .fetchChannelsFor(header);
+    if (discovered.isNotEmpty) {
+      await upsertYtChannels(
+        ref,
+        cookies: header,
+        email: profile.email,
+        channels: discovered,
+      );
+    }
+  }
   if (!context.mounted) return;
   final roster = ref.read(ytProfilesProvider);
   final conn = ref.read(ytConnectionProvider);
@@ -2216,7 +2321,8 @@ Future<void> _ytSignInFailed(BuildContext context, WidgetRef ref) async {
   switch (failure) {
     case YtSignInFailure.browserBlocked:
       title = 'Google blocked the built-in browser';
-      body = 'Google refuses to serve its sign-in page to embedded '
+      body =
+          'Google refuses to serve its sign-in page to embedded '
           'browsers — this is expected on macOS, and no in-app retry can '
           'get past that page.\n\n'
           'Use "Connect with cookies" instead: sign in to '
@@ -2225,20 +2331,23 @@ Future<void> _ytSignInFailed(BuildContext context, WidgetRef ref) async {
           'session and works on every platform.';
     case YtSignInFailure.unavailable:
       title = 'No system WebView available';
-      body = 'This machine has no usable WebView runtime (WebView2 on '
+      body =
+          'This machine has no usable WebView runtime (WebView2 on '
           'Windows, WebKitGTK on Linux), so the sign-in window cannot '
           'open. Install the runtime, or connect with cookies instead — '
           'that path does not need a WebView.';
     case YtSignInFailure.blankPage:
       title = 'The sign-in window did not load';
-      body = 'The browser window stayed on a blank or error page even '
+      body =
+          'The browser window stayed on a blank or error page even '
           'after reloading. That usually means the WebView profile '
           'folder is not writable or the runtime is damaged.\n\n'
           'Connecting with cookies does not depend on the WebView and '
           'will work.';
     case YtSignInFailure.timeout:
       title = 'Sign-in timed out';
-      body = 'No session was captured in ten minutes. Make sure the '
+      body =
+          'No session was captured in ten minutes. Make sure the '
           'sign-in finishes on music.youtube.com — an intermediate '
           'accounts.google.com page has no YouTube session yet.\n\n'
           'You can try again, or connect with cookies instead.';
@@ -2246,7 +2355,8 @@ Future<void> _ytSignInFailed(BuildContext context, WidgetRef ref) async {
     case YtSignInFailure.none:
     case YtSignInFailure.windowClosed:
       title = 'Sign-in incomplete';
-      body = 'No session was captured. Complete the Google sign-in fully '
+      body =
+          'No session was captured. Complete the Google sign-in fully '
           'on music.youtube.com before closing the window.\n\n'
           'If Google shows a passkey step that stalls after Windows '
           'Hello, press Reload in the wait dialog, or pick "Try another '
@@ -2297,6 +2407,7 @@ class _Sources extends ConsumerWidget {
         ? src.quotaByBase
         : const <String, AddonQuota>{};
     return _Group(
+      id: 'sources.addons',
       title: 'Addon sources',
       subtitle: urls.isEmpty
           ? 'No addon configured — using the built-in lossless backend'
@@ -2548,11 +2659,8 @@ class _AboutState extends ConsumerState<_About> {
 
     if (_updateAvailable != null) {
       return WaveFilledButton(
-        onPressed: () => showUpdateDialog(
-          context,
-          _updateAvailable!,
-          isManualCheck: true,
-        ),
+        onPressed: () =>
+            showUpdateDialog(context, _updateAvailable!, isManualCheck: true),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -2594,6 +2702,7 @@ class _AboutState extends ConsumerState<_About> {
   @override
   Widget build(BuildContext context) {
     return _Group(
+      id: 'about.main',
       title: 'About LastWave',
       subtitle: 'Build and project links',
       child: Column(
@@ -2604,7 +2713,10 @@ class _AboutState extends ConsumerState<_About> {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text('LastWave Desktop · v$appVersion', style: WaveType.trackTitle),
+              Text(
+                'LastWave Desktop · v$appVersion',
+                style: WaveType.trackTitle,
+              ),
               _buildUpdateButton(),
             ],
           ),
@@ -2651,8 +2763,7 @@ class _AboutState extends ConsumerState<_About> {
                 ),
               ),
               WaveButton(
-                onPressed: () =>
-                    _open('https://t.me/clashprojects'),
+                onPressed: () => _open('https://t.me/clashprojects'),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2663,9 +2774,7 @@ class _AboutState extends ConsumerState<_About> {
                 ),
               ),
               WaveButton(
-                onPressed: () => _open(
-                  'https://discord.com/invite/TMCEPSUNk2',
-                ),
+                onPressed: () => _open('https://discord.com/invite/TMCEPSUNk2'),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2692,6 +2801,7 @@ class _General extends ConsumerWidget {
     return Column(
       children: [
         _Group(
+          id: 'general.behaviour',
           title: 'Behaviour',
           subtitle: 'Startup and window defaults',
           child: Column(
@@ -2707,10 +2817,18 @@ class _General extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 16),
+        const _Group(
+          id: 'general.backup',
+          title: 'Backup',
+          subtitle: 'Move your playlists and settings to another device',
+          child: BackupSettings(),
+        ),
+        const SizedBox(height: 16),
         // Diagnostics live on the General page on purpose: a user with a
         // problem finds them without knowing what "Advanced" means, and
         // the export is the only thing we ever ask them to send.
         _Group(
+          id: 'general.diagnostics',
           title: 'Diagnostics',
           subtitle: 'Local logs for troubleshooting — nothing is uploaded',
           child: Column(
@@ -2723,7 +2841,8 @@ class _General extends ConsumerWidget {
                   DiagnosticsLog.verbose = v;
                 },
                 title: 'Verbose logging',
-                subtitle: 'Adds per-request detail (stream clients, audio '
+                subtitle:
+                    'Adds per-request detail (stream clients, audio '
                     'probes). Reproduce the problem with it on.',
               ),
               const SizedBox(height: 10),
@@ -2774,6 +2893,7 @@ class _PlaybackState extends ConsumerState<_Playback> {
     final currentSeconds = _dragSeconds ?? prefs.crossfadeSeconds.toDouble();
 
     return _Group(
+      id: 'playback.main',
       title: 'Playback',
       subtitle: 'Gapless, crossfade and output behaviour',
       child: Column(
@@ -2789,12 +2909,17 @@ class _PlaybackState extends ConsumerState<_Playback> {
             value: prefs.crossfadeEnabled,
             onChanged: (v) async {
               await widget.onUpdate((p) => p.setCrossfade(v));
+              await ref
+                  .read(playbackServiceProvider.notifier)
+                  .applyAudioPrefs();
               ref.read(audioOutputProvider.notifier).refreshPath();
             },
             title: 'Crossfade',
-            subtitle: prefs.crossfadeEnabled
-                ? '${prefs.crossfadeSeconds}s crossfade duration'
-                : 'Gapless direct transition (crossfade disabled)',
+            subtitle: prefs.autoMixEnabled
+                ? 'Off while timed AutoMix is on'
+                : prefs.crossfadeEnabled
+                    ? '${prefs.crossfadeSeconds}s crossfade duration'
+                    : 'Gapless direct transition (crossfade disabled)',
           ),
           if (prefs.crossfadeEnabled) ...[
             const SizedBox(height: 6),
@@ -2835,15 +2960,24 @@ class _PlaybackState extends ConsumerState<_Playback> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('3s (Short)',
-                          style: WaveType.meta
-                              .copyWith(color: waveTextSecondary(context))),
-                      Text('7s (Standard)',
-                          style: WaveType.meta
-                              .copyWith(color: waveTextSecondary(context))),
-                      Text('12s (Long)',
-                          style: WaveType.meta
-                              .copyWith(color: waveTextSecondary(context))),
+                      Text(
+                        '3s (Short)',
+                        style: WaveType.meta.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
+                      Text(
+                        '7s (Standard)',
+                        style: WaveType.meta.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
+                      Text(
+                        '12s (Long)',
+                        style: WaveType.meta.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -2875,6 +3009,7 @@ class _Downloads extends ConsumerWidget {
     final prefs = ref.watch(prefsProvider);
     final custom = prefs.downloadDir;
     return _Group(
+      id: 'downloads.offline',
       title: 'Offline',
       subtitle: 'Download behaviour and lyrics sidecars',
       child: Column(
@@ -2888,19 +3023,15 @@ class _Downloads extends ConsumerWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              const Icon(
-                  FluentIcons.open_folder_horizontal, size: 18),
+              const Icon(FluentIcons.open_folder_horizontal, size: 18),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Save location',
-                        style: WaveType.trackTitle),
+                    Text('Save location', style: WaveType.trackTitle),
                     Text(
-                      custom.isEmpty
-                          ? 'Default location'
-                          : custom,
+                      custom.isEmpty ? 'Default location' : custom,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: WaveType.meta,
@@ -2915,13 +3046,14 @@ class _Downloads extends ConsumerWidget {
               if (custom.isNotEmpty) ...[
                 const SizedBox(width: 8),
                 WaveButton(
-                  onPressed: () =>
-                      onUpdate((p) => p.resetDownloadDir()),
+                  onPressed: () => onUpdate((p) => p.resetDownloadDir()),
                   child: const Text('Reset'),
                 ),
               ],
             ],
           ),
+          const SizedBox(height: 12),
+          DownloadLayoutSettings(onUpdate: onUpdate),
         ],
       ),
     );
@@ -2975,10 +3107,9 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
       _error = null;
     });
     try {
-      await ref.read(authRepositoryProvider.notifier).saveCustomKeys(
-            _key?.text ?? '',
-            _secret?.text ?? '',
-          );
+      await ref
+          .read(authRepositoryProvider.notifier)
+          .saveCustomKeys(_key?.text ?? '', _secret?.text ?? '');
     } catch (e) {
       if (mounted) {
         setState(() => _error = _shortError(e));
@@ -3020,6 +3151,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
     _secret ??= TextEditingController(text: prefs.lastFmApiSecret);
     final configured = prefs.isLastFmConfigured;
     return _Group(
+      id: 'lastfm.keys',
       title: 'API keys',
       subtitle: 'Your own keys from last.fm/api/account/create',
       child: Column(
@@ -3028,9 +3160,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
           Row(
             children: [
               Icon(
-                configured
-                    ? FluentIcons.check_mark
-                    : FluentIcons.warning,
+                configured ? FluentIcons.check_mark : FluentIcons.warning,
                 size: 14,
                 color: configured ? Colors.green : Colors.orange,
               ),
@@ -3069,10 +3199,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
           ),
           if (_error != null) ...[
             const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: WaveType.meta.copyWith(color: Colors.red),
-            ),
+            Text(_error!, style: WaveType.meta.copyWith(color: Colors.red)),
           ],
           const SizedBox(height: 10),
           WaveFilledButton(
@@ -3097,9 +3224,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
           Text(
             'Saving different keys signs you out — sessions belong '
             'to their API key. Reconnect afterwards.',
-            style: WaveType.meta.copyWith(
-              color: waveTextTertiary(context),
-            ),
+            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
           ),
         ],
       ),
@@ -3114,6 +3239,7 @@ class _Experimental extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     return _Group(
+      id: 'experimental.main',
       title: 'Experimental',
       subtitle: 'Opt-in desktop prototypes',
       child: Column(
@@ -3130,6 +3256,101 @@ class _Experimental extends ConsumerWidget {
             title: 'Wavy seekbar',
             subtitle: 'Experimental timeline treatment',
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimedMixSettings extends ConsumerStatefulWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _TimedMixSettings({required this.onUpdate});
+
+  @override
+  ConsumerState<_TimedMixSettings> createState() => _TimedMixSettingsState();
+}
+
+class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
+  double? _dragSeconds;
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = ref.watch(prefsProvider);
+    final seconds = _dragSeconds ?? prefs.autoMixSeconds.toDouble();
+    return _Group(
+      id: 'audio.automix',
+      title: 'AutoMix',
+      subtitle: prefs.autoMixEnabled
+          ? 'Timed dual-deck overlap, not beat-matched. Turns crossfade off.'
+          : 'Off. A timed mix between tracks, not a beat or key match.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SwitchRow(
+            value: prefs.autoMixEnabled,
+            onChanged: (v) async {
+              await widget.onUpdate((p) => p.setAutoMixEnabled(v));
+              await ref
+                  .read(playbackServiceProvider.notifier)
+                  .applyAudioPrefs();
+            },
+            title: 'Timed mix',
+            subtitle: prefs.autoMixEnabled
+                ? '${prefs.autoMixSeconds}s overlap on the standby deck'
+                : 'Gapless until you turn this on',
+          ),
+          if (prefs.autoMixEnabled) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Text('Transition length', style: WaveType.trackTitle),
+                const Spacer(),
+                Text(
+                  '${seconds.round()}s',
+                  style: WaveType.meta.copyWith(
+                    color: waveAccent(context),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            Slider(
+              value: seconds.clamp(12.0, 30.0),
+              min: 12,
+              max: 30,
+              divisions: 18,
+              onChanged: (v) => setState(() => _dragSeconds = v),
+              onChangeEnd: (v) async {
+                setState(() => _dragSeconds = null);
+                await widget.onUpdate(
+                    (p) => p.setAutoMixSeconds(v.round().clamp(12, 30)));
+              },
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('12s',
+                    style: WaveType.meta
+                        .copyWith(color: waveTextSecondary(context))),
+                Text('30s',
+                    style: WaveType.meta
+                        .copyWith(color: waveTextSecondary(context))),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _SwitchRow(
+              value: prefs.autoMixSpectral,
+              onChanged: (v) async {
+                await widget.onUpdate((p) => p.setAutoMixSpectral(v));
+                await ref
+                    .read(playbackServiceProvider.notifier)
+                    .applyAudioPrefs();
+              },
+              title: 'Filter sweep',
+              subtitle:
+                  'Low-pass on the way out and high-pass on the way in. Volume overlap stays if the player rejects the filter.',
+            ),
+          ],
         ],
       ),
     );
@@ -3229,6 +3450,7 @@ class _QualityRow extends StatelessWidget {
             WaveSelectOption(value: 6, label: 'Lossless · 16/44.1'),
             WaveSelectOption(value: 5, label: '320k MP3'),
             WaveSelectOption(value: -1, label: 'Opus · YouTube'),
+            WaveSelectOption(value: 4, label: 'Data saver'),
           ],
           onChanged: onChanged,
         ),
@@ -3276,9 +3498,10 @@ class _SwitchRow extends StatelessWidget {
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: ToggleSwitch(
-            checked: value,
-            onChanged: enabled ? onChanged : null,
-          )),
+              checked: value,
+              onChanged: enabled ? onChanged : null,
+            ),
+          ),
         ],
       ),
     );

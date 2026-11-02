@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
+import '../../features/jam/jam_client.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/audio_output/output_controller.dart';
@@ -16,7 +17,7 @@ import '../../features/settings/theme_controller.dart';
 import '../components/ambient.dart';
 import '../components/artist_line.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip, LWVolumeSlider, WaveLink;
+import '../components/buttons.dart' show LWTooltip, LWVolumeSlider, WaveA11yButton, WaveLink;
 import '../components/menus.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -71,6 +72,12 @@ class WavePlayerDock extends ConsumerWidget {
         )));
     final notifier = ref.read(playbackServiceProvider.notifier);
     final current = player.current;
+    // Always-on Jam rooms lock pause/skip for a minute after you use one.
+    final jamUntil = ref.watch(jamControllerProvider.select(
+      (j) => j.phase == JamPhase.active ? j.cooldownUntilMs : 0,
+    ));
+    final jamLocked = jamUntil > 0;
+    final jamUnlockAt = jamLocked ? jamClock(jamUntil) : '';
     final artworkUrl = player.current?.artworkUrl ?? '';
     final dockTint = ref.watch(artworkSeedProvider(artworkUrl)).valueOrNull;
 
@@ -131,7 +138,10 @@ class WavePlayerDock extends ConsumerWidget {
                               key: ValueKey(current.queueKey),
                               child: Row(
                                 children: [
-                                  MouseRegion(
+                                  WaveA11yButton(
+                                    label: 'Open Now Playing',
+                                    onTap: onExpand,
+                                    child: MouseRegion(
                                     cursor: SystemMouseCursors.click,
                                     child: GestureDetector(
                                     onTap: onExpand,
@@ -140,17 +150,20 @@ class WavePlayerDock extends ConsumerWidget {
                                       child: WaveArtwork(
                                         url: current.artworkUrl,
                                         videoId: current.videoId,
-                                        size: 56,
+                                        size: 48,
                                         radius: WaveRadius.artwork,
                                         label: current.title,
                                         title: current.title,
                                         artist: current.artist,
                                       ),
                                     ),
-                                  )),
+                                  ))),
                                   const SizedBox(width: 10),
                                   Expanded(
-                                    child: MouseRegion(
+                                    child: Semantics(
+                                      button: true,
+                                      onTap: onExpand,
+                                      child: MouseRegion(
                                       cursor: SystemMouseCursors.click,
                                       child: GestureDetector(
                                       onTap: onExpand,
@@ -184,7 +197,7 @@ class WavePlayerDock extends ConsumerWidget {
                                           ),
                                         ],
                                       ),
-                                    )),
+                                    )))
                                   ),
                                   _LikeGlyph(track: current),
                                   if (!narrow)
@@ -231,24 +244,31 @@ class WavePlayerDock extends ConsumerWidget {
                                   onTap: notifier.toggleShuffle,
                                 ),
                                 _Glyph(
-                                  tooltip: 'Previous',
+                                  tooltip: jamLocked
+                                      ? 'Locked in Jam until $jamUnlockAt'
+                                      : 'Previous',
                                   icon: WaveIcons.previous,
                                   large: true,
-                                  onTap: current == null
+                                  onTap: current == null || jamLocked
                                       ? null
                                       : notifier.previous,
                                 ),
                                 _PlayGlyph(
                                   playing: player.isPlaying,
                                   buffering: player.isBuffering,
-                                  enabled: current != null,
+                                  // Resuming is always allowed; only pausing
+                                  // is locked during the Jam cooldown.
+                                  enabled: current != null &&
+                                      !(jamLocked && player.isPlaying),
                                   onTap: notifier.toggle,
                                 ),
                                 _Glyph(
-                                  tooltip: 'Next',
+                                  tooltip: jamLocked
+                                      ? 'Locked in Jam until $jamUnlockAt'
+                                      : 'Next',
                                   icon: WaveIcons.next,
                                   large: true,
-                                  onTap: current == null
+                                  onTap: current == null || jamLocked
                                       ? null
                                       : notifier.next,
                                 ),
@@ -281,7 +301,7 @@ class WavePlayerDock extends ConsumerWidget {
                   Builder(builder: (context) {
                     // Thresholds are dock-relative (content width), aligned
                     // to canonical 900 breakpoint family.
-                    final showLyrics = dockW >= 560;
+                    final showJam = dockW >= 560;
                     final showQuality =
                         dockW >= 900 && player.stream != null;
                     final showOutput = dockW >= 800;
@@ -308,12 +328,13 @@ class WavePlayerDock extends ConsumerWidget {
                                 stream: player.stream!,
                               ),
                             ),
-                          if (showLyrics)
+                          if (showJam)
                             _Glyph(
-                              tooltip: 'Lyrics (Ctrl+L)',
-                              icon: WaveIcons.lyrics,
-                              active: lyricsActive,
-                              onTap: onToggleLyrics,
+                              tooltip: 'Jam',
+                              icon: FluentIcons.people,
+                              active: GoRouterState.of(context).uri.path ==
+                                  '/jam',
+                              onTap: () => context.go('/jam'),
                             ),
                           _Glyph(
                             tooltip: 'Queue',
@@ -346,13 +367,12 @@ class WavePlayerDock extends ConsumerWidget {
                               onTap: onToggleMini,
                             ),
                           _DockOverflow(
-                            showLyricsItem: !showLyrics,
+                            showJamItem: !showJam,
                             showQualityItem: !showQuality &&
                                 player.stream != null,
                             showOutputItem: !showOutput,
                             showExpandItem: !showExpand,
                             showMiniItem: !showMini,
-                            onToggleLyrics: onToggleLyrics,
                             onExpand: onExpand,
                             onToggleMini: onToggleMini,
                             onToggleEqualizer: onToggleEqualizer,
@@ -694,31 +714,42 @@ class _GlyphState extends State<_Glyph> {
       glyph = WaveMenuButton(
         entries: widget.menuItems!,
         placement: FlyoutPlacementMode.topRight,
-        buttonBuilder: (context, onOpen) => MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hover = true),
-          onExit: (_) => setState(() {
-            _hover = false;
-            _pressed = false;
-          }),
-          child: GestureDetector(
-            onTapDown: (_) => setState(() => _pressed = true),
-            onTapUp: (_) => setState(() => _pressed = false),
-            onTapCancel: () => setState(() => _pressed = false),
-            onTap: onOpen,
-            child: AnimatedScale(
-              scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
-              duration: waveMotion(context, WaveMotion.fast),
-              curve: Curves.easeOutCubic,
-              child: Container(
-                width: 34,
-                height: 34,
-                color: Colors.transparent,
-                child: Icon(widget.icon, size: 15, color: color),
+        buttonBuilder: (context, onOpen) => WaveA11yButton(
+          label: widget.tooltip,
+          onTap: onOpen,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hover = true),
+            onExit: (_) => setState(() {
+              _hover = false;
+              _pressed = false;
+            }),
+            child: GestureDetector(
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapUp: (_) => setState(() => _pressed = false),
+              onTapCancel: () => setState(() => _pressed = false),
+              onTap: onOpen,
+              child: AnimatedScale(
+                scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
+                duration: waveMotion(context, WaveMotion.fast),
+                curve: Curves.easeOutCubic,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  color: Colors.transparent,
+                  child: Icon(widget.icon, size: 15, color: color),
+                ),
               ),
             ),
           ),
         ),
+      );
+    } else {
+      glyph = WaveA11yButton(
+        label: widget.tooltip,
+        selected: widget.active,
+        onTap: widget.onTap,
+        child: glyph,
       );
     }
     return LWTooltip(message: widget.tooltip, child: glyph);
@@ -775,7 +806,13 @@ class _PlayGlyphState extends State<_PlayGlyph> {
         : onAccent.withValues(alpha: 0.5);
     return LWTooltip(
       message: widget.playing ? 'Pause (Space)' : 'Play (Space)',
-      child: Focus(
+      child: Semantics(
+        button: true,
+        enabled: widget.enabled,
+        label: widget.playing ? 'Pause' : 'Play',
+        onTap: widget.enabled ? widget.onTap : null,
+        excludeSemantics: true,
+        child: Focus(
         focusNode: _focus,
         onFocusChange: (_) => setState(() {}),
         onKeyEvent: (node, event) {
@@ -871,6 +908,7 @@ class _PlayGlyphState extends State<_PlayGlyph> {
             ),
           ),
         ),
+      ),
       ),
     );
   }
@@ -1478,22 +1516,20 @@ class _VolumeFlyoutGlyphState extends ConsumerState<_VolumeFlyoutGlyph> {
 }
 
 class _DockOverflow extends ConsumerWidget {
-  final bool showLyricsItem;
+  final bool showJamItem;
   final bool showQualityItem;
   final bool showOutputItem;
   final bool showExpandItem;
   final bool showMiniItem;
-  final VoidCallback onToggleLyrics;
   final VoidCallback onExpand;
   final VoidCallback onToggleMini;
   final VoidCallback? onToggleEqualizer;
   const _DockOverflow({
-    this.showLyricsItem = false,
+    this.showJamItem = false,
     this.showQualityItem = false,
     this.showOutputItem = false,
     this.showExpandItem = false,
     this.showMiniItem = false,
-    required this.onToggleLyrics,
     required this.onExpand,
     required this.onToggleMini,
     this.onToggleEqualizer,
@@ -1503,6 +1539,9 @@ class _DockOverflow extends ConsumerWidget {
     final notifier = ref.read(playbackServiceProvider.notifier);
     final sleep = ref.watch(
       playbackServiceProvider.select((s) => s.sleepRemaining),
+    );
+    final sleepMinutes = ref.watch(
+      playbackServiceProvider.select((s) => s.sleepMinutes),
     );
     final stream = ref.watch(
       playbackServiceProvider.select((s) => s.stream),
@@ -1515,7 +1554,7 @@ class _DockOverflow extends ConsumerWidget {
     final outputName = output.selected?.displayName ?? 'System default';
     final outputEntries = _outputEntries(context, ref, output);
     final hasCollapsed =
-        showLyricsItem ||
+        showJamItem ||
         showQualityItem ||
         showOutputItem ||
         showExpandItem ||
@@ -1526,11 +1565,11 @@ class _DockOverflow extends ConsumerWidget {
       menuItems: [
         // Collapsed priority controls reappear here — nothing is lost
         // at narrow widths, nothing overflows the window.
-        if (showLyricsItem)
+        if (showJamItem)
           WaveMenuAction(
-            leading: const Icon(WaveIcons.lyrics, size: 15),
-            label: 'Lyrics  (Ctrl+L)',
-            onPressed: onToggleLyrics,
+            leading: const Icon(FluentIcons.people, size: 15),
+            label: 'Jam',
+            onPressed: () => context.go('/jam'),
           ),
         if (showQualityItem && stream != null)
           WaveMenuAction(
@@ -1570,18 +1609,29 @@ class _DockOverflow extends ConsumerWidget {
           label: 'Speed $speedLabel×',
           onPressed: notifier.cycleSpeed,
         ),
-        WaveMenuAction(
+        WaveMenuSubmenu(
           leading: const Icon(WaveIcons.clock, size: 15),
-          label: sleep == null
-              ? 'Sleep timer · 30 min'
-              : 'Sleep ${sleep.inMinutes}m (tap to clear)',
-          onPressed: () {
-            if (sleep != null) {
-              notifier.setSleepTimer(null);
-            } else {
-              notifier.setSleepTimer(const Duration(minutes: 30));
-            }
-          },
+          label: _sleepLabel(sleep),
+          items: () => [
+            WaveMenuAction(
+              leading: _sleepMark(sleepMinutes == null),
+              label: 'Off',
+              onPressed: () => notifier.setSleepTimer(null),
+            ),
+            for (final minutes in _sleepPresets)
+              WaveMenuAction(
+                leading: _sleepMark(sleepMinutes == minutes),
+                label: '$minutes minutes',
+                onPressed: () =>
+                    notifier.setSleepTimer(Duration(minutes: minutes)),
+              ),
+            WaveMenuAction(
+              leading: _sleepMark(sleepMinutes != null &&
+                  !_sleepPresets.contains(sleepMinutes)),
+              label: 'Custom…',
+              onPressed: () => _showCustomSleepDialog(context, notifier),
+            ),
+          ],
         ),
         WaveMenuAction(
           leading: const Icon(WaveIcons.downloadAction, size: 15),
@@ -1597,6 +1647,93 @@ class _DockOverflow extends ConsumerWidget {
                   artworkUrl: current.artworkUrl,
                 );
           },
+        ),
+      ],
+    );
+  }
+}
+
+const _sleepPresets = [15, 30, 60];
+
+Widget _sleepMark(bool on) => on
+    ? const Icon(FluentIcons.check_mark, size: 13)
+    : const SizedBox(width: 13);
+
+/// "Sleep timer" while off, otherwise the time left as "Sleep · m:ss".
+String _sleepLabel(Duration? remaining) {
+  if (remaining == null) return 'Sleep timer';
+  final total = remaining.inSeconds.clamp(0, 24 * 60 * 60);
+  final minutes = total ~/ 60;
+  final seconds = (total % 60).toString().padLeft(2, '0');
+  return 'Sleep · $minutes:$seconds';
+}
+
+Future<void> _showCustomSleepDialog(
+  BuildContext context,
+  PlaybackService notifier,
+) async {
+  final minutes = await showDialog<int>(
+    context: context,
+    builder: (context) => const _CustomSleepDialog(),
+  );
+  if (minutes == null) return;
+  notifier.setSleepTimer(Duration(minutes: minutes));
+}
+
+/// Owns its text controller so it is disposed with the dialog, not while
+/// the close animation is still drawing it.
+class _CustomSleepDialog extends StatefulWidget {
+  const _CustomSleepDialog();
+
+  @override
+  State<_CustomSleepDialog> createState() => _CustomSleepDialogState();
+}
+
+class _CustomSleepDialogState extends State<_CustomSleepDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _start() {
+    final n = int.tryParse(_controller.text.trim());
+    if (n == null || n < 1 || n > 1440) return;
+    Navigator.of(context).pop(n);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ContentDialog(
+      title: const Text('Sleep timer'),
+      constraints: const BoxConstraints(maxWidth: 420),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Minutes', style: WaveType.trackTitle),
+          const SizedBox(height: 6),
+          TextBox(
+            controller: _controller,
+            placeholder: '45',
+            autofocus: true,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onSubmitted: (_) => _start(),
+          ),
+          const SizedBox(height: 6),
+          Text('1–1440. Replaces the current timer.', style: WaveType.meta),
+        ],
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _start,
+          child: const Text('Start'),
         ),
       ],
     );

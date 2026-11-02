@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -207,6 +209,10 @@ class _CenterScroll extends StatelessWidget {
 /// Native window chrome for the chromeless window: drag region +
 /// minimize / maximize / close. The main title bar lives in the shell,
 /// which is never rendered here.
+///
+/// macOS is the exception: `TitleBarStyle.hidden` hides the title bar
+/// but keeps the native traffic lights, so the custom buttons are
+/// omitted there and the brand label is inset past them.
 class _WelcomeChrome extends StatelessWidget {
   const _WelcomeChrome();
 
@@ -217,7 +223,11 @@ class _WelcomeChrome extends StatelessWidget {
         height: WaveDensity.titleBar,
         child: Row(
           children: [
-            const SizedBox(width: 16),
+            // macOS keeps the native traffic lights above the chromeless
+            // window (`TitleBarStyle.hidden` hides the bar, not the
+            // buttons), so reserve their corner instead of drawing a
+            // second, non-native set of controls.
+            SizedBox(width: Platform.isMacOS ? 84 : 16),
             Text(
               'LASTWAVE',
               style: WaveType.overline.copyWith(
@@ -225,39 +235,41 @@ class _WelcomeChrome extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            _ChromeBtn(
-              tooltip: 'Minimize',
-              icon: WaveIcons.minimize,
-              onTap: () async {
-                try {
-                  await windowManager.minimize();
-                } catch (_) {}
-              },
-            ),
-            _ChromeBtn(
-              tooltip: 'Maximize',
-              icon: WaveIcons.maximize,
-              iconSize: 12,
-              onTap: () async {
-                try {
-                  if (await windowManager.isMaximized()) {
-                    await windowManager.unmaximize();
-                  } else {
-                    await windowManager.maximize();
-                  }
-                } catch (_) {}
-              },
-            ),
-            _ChromeBtn(
-              tooltip: 'Close',
-              icon: WaveIcons.close,
-              danger: true,
-              onTap: () async {
-                try {
-                  await windowManager.close();
-                } catch (_) {}
-              },
-            ),
+            if (!Platform.isMacOS) ...[
+              _ChromeBtn(
+                tooltip: 'Minimize',
+                icon: WaveIcons.minimize,
+                onTap: () async {
+                  try {
+                    await windowManager.minimize();
+                  } catch (_) {}
+                },
+              ),
+              _ChromeBtn(
+                tooltip: 'Maximize',
+                icon: WaveIcons.maximize,
+                iconSize: 12,
+                onTap: () async {
+                  try {
+                    if (await windowManager.isMaximized()) {
+                      await windowManager.unmaximize();
+                    } else {
+                      await windowManager.maximize();
+                    }
+                  } catch (_) {}
+                },
+              ),
+              _ChromeBtn(
+                tooltip: 'Close',
+                icon: WaveIcons.close,
+                danger: true,
+                onTap: () async {
+                  try {
+                    await windowManager.close();
+                  } catch (_) {}
+                },
+              ),
+            ],
           ],
         ),
       ),

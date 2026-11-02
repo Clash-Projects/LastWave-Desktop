@@ -19,7 +19,7 @@ import '../audio/artist_parser.dart';
 /// Migrations are additive and never drop user data (no destructive
 /// fallback, unlike the temporary Android `fallbackToDestructiveMigration`).
 class AppDatabase {
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 8;
 
   final Database _db;
 
@@ -75,6 +75,10 @@ class AppDatabase {
     if (version < 7) {
       _createV7();
       _db.execute('PRAGMA user_version=7;');
+    }
+    if (version < 8) {
+      _createV8();
+      _db.execute('PRAGMA user_version=8;');
     }
   }
 
@@ -242,6 +246,132 @@ class AppDatabase {
         [key]);
   }
 
+  List<({String key, String name, String artist})> listExclusions() {
+    return _db
+        .select(
+          'SELECT track_key, track_name, artist_name '
+          'FROM recommendation_exclusions '
+          'ORDER BY excluded_at_millis DESC;',
+        )
+        .map((r) => (
+              key: (r['track_key'] as String?) ?? '',
+              name: (r['track_name'] as String?) ?? '',
+              artist: (r['artist_name'] as String?) ?? '',
+            ))
+        .where((e) => e.key.isNotEmpty)
+        .toList();
+  }
+
+  void upsertPodcastProgress({
+    required String videoId,
+    String showId = '',
+    String showTitle = '',
+    String title = '',
+    int durationMs = 0,
+  }) {
+    if (videoId.isEmpty) return;
+    final existing = podcastProgress(videoId);
+    _db.execute(
+      'INSERT INTO podcast_progress('
+      'video_id, show_id, show_title, title, position_ms, duration_ms, '
+      'completed, updated_at_millis) VALUES(?, ?, ?, ?, ?, ?, ?, ?) '
+      'ON CONFLICT(video_id) DO UPDATE SET '
+      'show_id = CASE WHEN excluded.show_id = \'\' THEN podcast_progress.show_id ELSE excluded.show_id END, '
+      'show_title = CASE WHEN excluded.show_title = \'\' THEN podcast_progress.show_title ELSE excluded.show_title END, '
+      'title = CASE WHEN excluded.title = \'\' THEN podcast_progress.title ELSE excluded.title END, '
+      'duration_ms = CASE WHEN excluded.duration_ms = 0 THEN podcast_progress.duration_ms ELSE excluded.duration_ms END;',
+      [
+        videoId,
+        showId,
+        showTitle,
+        title,
+        existing?.positionMs ?? 0,
+        durationMs > 0 ? durationMs : (existing?.durationMs ?? 0),
+        existing?.completed == true ? 1 : 0,
+        existing?.updatedAtMillis ?? DateTime.now().millisecondsSinceEpoch,
+      ],
+    );
+  }
+
+  PodcastProgressRow? podcastProgress(String videoId) {
+    final rows = _db.select(
+      'SELECT * FROM podcast_progress WHERE video_id = ?;',
+      [videoId],
+    );
+    if (rows.isEmpty) return null;
+    return PodcastProgressRow.fromRow(rows.first);
+  }
+
+  Map<String, PodcastProgressRow> podcastProgressFor(Iterable<String> ids) {
+    final list = ids.where((id) => id.isNotEmpty).toList();
+    if (list.isEmpty) return const {};
+    final marks = List.filled(list.length, '?').join(',');
+    final rows = _db.select(
+      'SELECT * FROM podcast_progress WHERE video_id IN ($marks);',
+      list,
+    );
+    return {
+      for (final row in rows)
+        (row['video_id'] as String): PodcastProgressRow.fromRow(row),
+    };
+  }
+
+  /// Position to resume from. Completed episodes and ones within 15s of
+  /// the end start over.
+  int podcastResumeMs(String videoId) {
+    final row = podcastProgress(videoId);
+    if (row == null || row.completed) return 0;
+    if (row.durationMs > 0 && row.positionMs > row.durationMs - 15000) {
+      return 0;
+    }
+    return row.positionMs;
+  }
+
+  void savePodcastPosition({
+    required String videoId,
+    required int positionMs,
+    required int durationMs,
+  }) {
+    if (videoId.isEmpty) return;
+    final existing = podcastProgress(videoId);
+    if (existing == null) return;
+    final duration = durationMs > 0 ? durationMs : existing.durationMs;
+    final completed = duration > 0 && positionMs > (duration * 0.95);
+    _db.execute(
+      'UPDATE podcast_progress SET position_ms = ?, duration_ms = ?, '
+      'completed = ?, updated_at_millis = ? WHERE video_id = ?;',
+      [
+        positionMs < 0 ? 0 : positionMs,
+        duration,
+        completed ? 1 : 0,
+        DateTime.now().millisecondsSinceEpoch,
+        videoId,
+      ],
+    );
+  }
+
+  List<String> localFolders() {
+    return _db
+        .select(
+          'SELECT path FROM local_folders ORDER BY added_at_millis ASC;',
+        )
+        .map((r) => (r['path'] as String?) ?? '')
+        .where((path) => path.isNotEmpty)
+        .toList();
+  }
+
+  void addLocalFolder(String path) {
+    _db.execute(
+      'INSERT INTO local_folders(path, added_at_millis) VALUES(?, ?) '
+      'ON CONFLICT(path) DO NOTHING;',
+      [path, DateTime.now().millisecondsSinceEpoch],
+    );
+  }
+
+  void removeLocalFolder(String path) {
+    _db.execute('DELETE FROM local_folders WHERE path = ?;', [path]);
+  }
+
   // -- playback session -------------------------------------------------
 
   Map<String, dynamic> loadPlaybackSession() {
@@ -364,6 +494,28 @@ class AppDatabase {
     } catch (_) {}
   }
 
+  /// v8: podcast resume positions and watched local-music folders.
+  void _createV8() {
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS podcast_progress (
+        video_id TEXT PRIMARY KEY,
+        show_id TEXT NOT NULL DEFAULT '',
+        show_title TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        position_ms INTEGER NOT NULL DEFAULT 0,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        completed INTEGER NOT NULL DEFAULT 0,
+        updated_at_millis INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS local_folders (
+        path TEXT PRIMARY KEY,
+        added_at_millis INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+  }
+
   // -- local play log (keyless-guest taste) --------------------------------
   //
   // Every resolved track opening records one row (see PlaybackService),
@@ -416,7 +568,7 @@ class AppDatabase {
 
       // Unique tracks
       final uniqueRow = _db.select(
-        'SELECT COUNT(DISTINCT lower(title || "|" || artist)) as tracks '
+        "SELECT COUNT(DISTINCT lower(title || '|' || artist)) as tracks "
         'FROM local_plays $whereClause;',
       );
       final uniqueTracks = (uniqueRow.first['tracks'] as int?) ?? 0;
@@ -446,7 +598,7 @@ class AppDatabase {
       // Top Tracks
       final topTracksRows = _db.select(
         'SELECT title, artist, COUNT(*) as cnt FROM local_plays $whereClause '
-        'GROUP BY lower(title || "|" || artist) ORDER BY cnt DESC LIMIT 20;',
+        "GROUP BY lower(title || '|' || artist) ORDER BY cnt DESC LIMIT 20;",
       );
       final topTracks = topTracksRows
           .map((r) => (
@@ -459,7 +611,7 @@ class AppDatabase {
 
       // Hourly Distribution (0..23)
       final hourlyRows = _db.select(
-        'SELECT strftime("%H", played_at_millis / 1000, "unixepoch", "localtime") as hr, '
+        "SELECT strftime('%H', played_at_millis / 1000, 'unixepoch', 'localtime') as hr, "
         'COUNT(*) as cnt FROM local_plays $whereClause GROUP BY hr ORDER BY hr ASC;',
       );
       final hourly = <int, int>{for (var h = 0; h < 24; h++) h: 0};
@@ -473,7 +625,7 @@ class AppDatabase {
 
       // Daily Activity (last 30 days)
       final dailyRows = _db.select(
-        'SELECT strftime("%Y-%m-%d", played_at_millis / 1000, "unixepoch", "localtime") as dt, '
+        "SELECT strftime('%Y-%m-%d', played_at_millis / 1000, 'unixepoch', 'localtime') as dt, "
         'COUNT(*) as cnt FROM local_plays $whereClause GROUP BY dt ORDER BY dt DESC LIMIT 30;',
       );
       final daily = dailyRows
@@ -768,4 +920,39 @@ class AppDatabase {
   }
 
   void close() => _db.close();
+}
+
+class PodcastProgressRow {
+  final String videoId;
+  final String showId;
+  final String showTitle;
+  final String title;
+  final int positionMs;
+  final int durationMs;
+  final bool completed;
+  final int updatedAtMillis;
+
+  const PodcastProgressRow({
+    required this.videoId,
+    this.showId = '',
+    this.showTitle = '',
+    this.title = '',
+    this.positionMs = 0,
+    this.durationMs = 0,
+    this.completed = false,
+    this.updatedAtMillis = 0,
+  });
+
+  factory PodcastProgressRow.fromRow(Map<String, Object?> row) {
+    return PodcastProgressRow(
+      videoId: (row['video_id'] as String?) ?? '',
+      showId: (row['show_id'] as String?) ?? '',
+      showTitle: (row['show_title'] as String?) ?? '',
+      title: (row['title'] as String?) ?? '',
+      positionMs: (row['position_ms'] as int?) ?? 0,
+      durationMs: (row['duration_ms'] as int?) ?? 0,
+      completed: ((row['completed'] as int?) ?? 0) == 1,
+      updatedAtMillis: (row['updated_at_millis'] as int?) ?? 0,
+    );
+  }
 }

@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,14 +12,13 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/window.dart';
-import '../../app/window_lifecycle.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
+import '../../features/podcasts/podcast_repository.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
 import '../mini_player/mini_player.dart';
 import '../components/infobar_host.dart';
-import '../lyrics/lyrics_side_panel.dart';
 import '../navigation/destinations.dart';
 import '../navigation/route_origin.dart';
 import '../navigation/side_rail.dart';
@@ -54,36 +55,11 @@ class WaveShell extends ConsumerStatefulWidget {
   ConsumerState<WaveShell> createState() => _WaveShellState();
 }
 
-/// Drawer lyrics gate: Offstage skips raster while shut; TickerMode mutes
-/// the karaoke ticker while shut OR while the window is minimized.
-/// Side-by-side (unfocused but visible) keeps ticking. Single gate on
-/// purpose (nested TickerModes don't AND — nearest wins — so nothing may
-/// add an inner gate inside the side panel). Scoped ConsumerWidget so
-/// visibility flips rebuild only this leaf, never the shell.
-class _DrawerTicker extends ConsumerWidget {
-  final bool open;
-  final Widget child;
-  const _DrawerTicker({required this.open, required this.child});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final visible = ref.watch(windowVisibleProvider);
-    return Offstage(
-      offstage: !open,
-      child: TickerMode(
-        enabled: open && visible,
-        child: child,
-      ),
-    );
-  }
-}
-
 class _WaveShellState extends ConsumerState<WaveShell> {
   // Boot collapsed: the overlay rail covers content when open, so it
   // starts shut (toggle via hamburger, auto-collapses on outside tap).
   bool _railExpanded = false;
   bool _queueOpen = false;
-  bool _lyricsOpen = false;
   bool _equalizerOpen = false;
   bool _miniOpen = false;
   bool _draggingFiles = false;
@@ -121,8 +97,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   }
 
   Future<void> _enterMiniPlayer() async {
-    final hasTrack =
-        ref.read(playbackServiceProvider.select((s) => s.current != null));
+    final hasTrack = ref.read(
+      playbackServiceProvider.select((s) => s.current != null),
+    );
     if (!hasTrack) return;
 
     try {
@@ -139,7 +116,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     setState(() {
       _miniOpen = true;
       _queueOpen = false;
-      _lyricsOpen = false;
       _equalizerOpen = false;
     });
 
@@ -150,14 +126,15 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       if (_lastMiniPos != null) {
         await windowManager.setPosition(_lastMiniPos!);
       } else if (_savedWindowPos != null && _savedWindowSize != null) {
-        final targetX = _savedWindowPos!.dx +
+        final targetX =
+            _savedWindowPos!.dx +
             (_savedWindowSize!.width - miniSize.width - 24);
-        final targetY = _savedWindowPos!.dy +
+        final targetY =
+            _savedWindowPos!.dy +
             (_savedWindowSize!.height - miniSize.height - 24);
-        await windowManager.setPosition(Offset(
-          targetX.clamp(10.0, 10000.0),
-          targetY.clamp(10.0, 10000.0),
-        ));
+        await windowManager.setPosition(
+          Offset(targetX.clamp(10.0, 10000.0), targetY.clamp(10.0, 10000.0)),
+        );
       }
       await windowManager.setAlwaysOnTop(true);
     } catch (_) {}
@@ -194,6 +171,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       _go('/now');
     }
   }
+
   late final TextEditingController _searchController;
   final FocusNode _searchFocus = FocusNode();
   final List<String> _backStack = [];
@@ -207,9 +185,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   // no changing params (reads providers internally); lyrics is recreated
   // only on visibility flips (reopen refollows to the current line).
   Widget? _queuePanelCache;
-  Widget? _lyricsPanelCache;
   Widget? _equalizerPanelCache;
-  bool _lyricsCacheVisible = false;
   // Memoized title bar (owns the search box + its TextField machinery):
   // the shell rebuilds on every navigation, which would otherwise
   // reconstruct the whole title bar each time. All inputs except the
@@ -219,17 +195,14 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _titleCanBack = false;
   bool _titleCanForward = false;
   // Memoized dock (glyphs + cover art): same instance across
-  // navigations so the element skips it. The toggle closures capture
-  // route state (lyrics toggle branches on isLyrics), so the cache
-  // key covers everything behaviorally relevant.
+  // navigations so the element skips it. The cache key covers everything
+  // behaviorally relevant.
   Widget? _dockCache;
   bool _dockLyricsActive = false;
   bool _dockQueueActive = false;
   bool _dockEqualizerActive = false;
-  bool _dockIsLyrics = false;
 
   void _closeQueue() => setState(() => _queueOpen = false);
-  void _closeLyrics() => setState(() => _lyricsOpen = false);
   void _closeEqualizer() => setState(() => _equalizerOpen = false);
 
   /// Cached dock: same instance across navigations (glyphs + cover art
@@ -239,17 +212,14 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     required bool lyricsActive,
     required bool queueActive,
     required bool equalizerActive,
-    required bool isLyrics,
   }) {
     if (_dockCache == null ||
         _dockLyricsActive != lyricsActive ||
         _dockQueueActive != queueActive ||
-        _dockEqualizerActive != equalizerActive ||
-        _dockIsLyrics != isLyrics) {
+        _dockEqualizerActive != equalizerActive) {
       _dockLyricsActive = lyricsActive;
       _dockQueueActive = queueActive;
       _dockEqualizerActive = equalizerActive;
-      _dockIsLyrics = isLyrics;
       // The dock is structural: reserves 80px on every view, including
       // Now Playing — its in-page transport was removed so this dock is
       // the single control surface.
@@ -259,32 +229,15 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         queueActive: queueActive,
         equalizerActive: equalizerActive,
         onToggleMini: _toggleMiniPlayer,
-        onToggleLyrics: () {
-          if (isLyrics) {
-            _go('/now');
-          } else {
-            setState(() {
-              _lyricsOpen = !_lyricsOpen;
-              if (_lyricsOpen) {
-                _queueOpen = false;
-                _equalizerOpen = false;
-              }
-            });
-          }
-        },
+        // Lyrics live on Now Playing (focus mode is its top-bar toggle).
+        onToggleLyrics: _openNowPlaying,
         onToggleQueue: () => setState(() {
           _queueOpen = !_queueOpen;
-          if (_queueOpen) {
-            _lyricsOpen = false;
-            _equalizerOpen = false;
-          }
+          if (_queueOpen) _equalizerOpen = false;
         }),
         onToggleEqualizer: () => setState(() {
           _equalizerOpen = !_equalizerOpen;
-          if (_equalizerOpen) {
-            _queueOpen = false;
-            _lyricsOpen = false;
-          }
+          if (_equalizerOpen) _queueOpen = false;
         }),
       );
     }
@@ -315,19 +268,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     return _titleBarCache!;
   }
 
-  /// Cached lyrics panel: recreated only when visibility flips so the
-  /// LayoutBuilder ticks during rail animation reuse the same instance
-  /// (no karaoke rebuilds). Reopen refollows to the current line.
-  Widget _lyricsPanelFor(bool visible) {
-    if (_lyricsPanelCache == null || _lyricsCacheVisible != visible) {
-      _lyricsCacheVisible = visible;
-      _lyricsPanelCache = WaveLyricsSidePanel(
-        visible: visible,
-        onClose: _closeLyrics,
-      );
-    }
-    return _lyricsPanelCache!;
-  }
 
   @override
   void initState() {
@@ -363,8 +303,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       event,
       WaveHotkeyActions(
         isTyping: () => waveIsTypingFocused(_searchFocus),
-        hasTrack: () =>
-            ref.read(playbackServiceProvider).current != null,
+        hasTrack: () => ref.read(playbackServiceProvider).current != null,
         togglePlay: () {
           if (mounted) ref.read(playbackServiceProvider.notifier).toggle();
         },
@@ -379,11 +318,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         },
         focusSearch: () => _searchFocus.requestFocus(),
         toggleLyrics: () {
-          if (!mounted) return;
-          setState(() {
-            _lyricsOpen = !_lyricsOpen;
-            if (_lyricsOpen) _queueOpen = false;
-          });
+          if (mounted) _openNowPlaying();
         },
         goBack: () {
           if (mounted) _goBack();
@@ -408,9 +343,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       return true;
     } else if (_equalizerOpen) {
       setState(() => _equalizerOpen = false);
-      return true;
-    } else if (_lyricsOpen) {
-      setState(() => _lyricsOpen = false);
       return true;
     } else if (_queueOpen) {
       setState(() => _queueOpen = false);
@@ -535,7 +467,8 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       return;
     }
     if (_searchFocus.hasFocus) return;
-    final q = Uri.splitQueryString(
+    final q =
+        Uri.splitQueryString(
           location.contains('?')
               ? location.substring(location.indexOf('?') + 1)
               : '',
@@ -548,21 +481,34 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   int? _branchForPath(String path) {
     final clean = path.split('?').first;
-    if (clean == '/home' || clean.startsWith('/home/')) return 0;
-    if (clean == '/stats' || clean.startsWith('/stats/') || clean == '/discover') return 1;
+    if (clean == '/home' ||
+        clean.startsWith('/home/') ||
+        clean == '/home-layout') {
+      return 0;
+    }
+    if (clean == '/stats' || clean.startsWith('/stats/')) return 1;
     if (clean == '/search' || clean.startsWith('/search/')) return 2;
     if (clean == '/liked' || clean.startsWith('/liked/')) return 3;
-    if (clean == '/albums' || clean.startsWith('/albums/') || clean.startsWith('/album/')) return 4;
-    if (clean == '/artists' || clean.startsWith('/artists/') || clean.startsWith('/artist/')) return 5;
-    if (clean == '/playlists' || clean.startsWith('/playlists/') || clean.startsWith('/ytplaylist/')) return 6;
-    if (clean == '/downloads' || clean.startsWith('/downloads/')) return 7;
+    if (clean == '/albums' ||
+        clean.startsWith('/albums/') ||
+        clean.startsWith('/album/'))
+      return 4;
+    if (clean == '/artists' ||
+        clean.startsWith('/artists/') ||
+        clean.startsWith('/artist/'))
+      return 5;
+    if (clean == '/playlists' ||
+        clean.startsWith('/playlists/') ||
+        clean.startsWith('/ytplaylist/'))
+      return 6;
+    if (clean == '/podcasts' || clean.startsWith('/podcasts/')) return 7;
+    if (clean == '/downloads' || clean.startsWith('/downloads/')) return 8;
     return null;
   }
 
   void _applyRoute(String path) {
     setState(() {
       _queueOpen = false;
-      _lyricsOpen = false;
       _equalizerOpen = false;
     });
     if (path == widget.location) {
@@ -572,11 +518,14 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     final branchIndex = _branchForPath(path);
     if (branchIndex != null && widget.child is StatefulNavigationShell) {
       final shell = widget.child as StatefulNavigationShell;
-      shell.goBranch(
-        branchIndex,
-        initialLocation: branchIndex == shell.currentIndex,
-      );
-      return;
+      // Defensive: only goBranch if index is in bounds
+      if (branchIndex >= 0 && branchIndex < shell.route.branches.length) {
+        shell.goBranch(
+          branchIndex,
+          initialLocation: branchIndex == shell.currentIndex,
+        );
+        return;
+      }
     }
     context.go(path);
   }
@@ -599,7 +548,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     setState(() {
       _miniOpen = false;
       _queueOpen = false;
-      _lyricsOpen = false;
     });
     waveOpen(context, '/now');
   }
@@ -647,7 +595,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     ref.read(searchRepositoryProvider).pushHistory(q);
     setState(() {
       _queueOpen = false;
-      _lyricsOpen = false;
       _equalizerOpen = false;
     });
     context.go('/search?q=${Uri.encodeComponent(q)}');
@@ -687,7 +634,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         'ogg',
         'opus',
         'wav',
-        'webm'
+        'webm',
       ].contains(ext)) {
         continue;
       }
@@ -696,11 +643,13 @@ class _WaveShellState extends ConsumerState<WaveShell> {
           .last
           .replaceAll(RegExp(r'\.\w+$'), '');
       final parts = base.split(' - ');
-      tracks.add(PlayableTrack(
-        title: parts.length > 1 ? parts.sublist(1).join(' - ') : base,
-        artist: parts.length > 1 ? parts.first : 'Local file',
-        playbackUrl: path,
-      ));
+      tracks.add(
+        PlayableTrack(
+          title: parts.length > 1 ? parts.sublist(1).join(' - ') : base,
+          artist: parts.length > 1 ? parts.first : 'Local file',
+          playbackUrl: path,
+        ),
+      );
     }
     if (tracks.isEmpty || !mounted) return;
     await ref
@@ -711,15 +660,29 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
+    ref.watch(podcastProgressCoordinatorProvider);
+    // Screen-reader announcements for state changes with no focus change:
+    // a new track starting, and play/pause (e.g. from the media keys).
+    ref.listen(playbackServiceProvider, (prev, next) {
+      String? say;
+      if (next.current != null &&
+          next.current?.queueKey != prev?.current?.queueKey) {
+        say = 'Now playing ${next.current!.title} by ${next.current!.artist}';
+      } else if (next.current != null &&
+          prev != null &&
+          next.isPlaying != prev.isPlaying) {
+        say = next.isPlaying ? 'Playing' : 'Paused';
+      }
+      if (say != null) {
+        SemanticsService.sendAnnouncement(
+            View.of(context), say, TextDirection.ltr);
+      }
+    });
     final active = waveActivePath(widget.location);
-    final hasTrack = ref.watch(
-      playbackServiceProvider.select((s) => s.current != null),
-    );
     // Responsive: rail collapses at canonical compact breakpoint (900),
     // never a permanent right panel.
     final collapsed = width < 900 ? true : !_railExpanded;
     final routePath = waveRoutePath(widget.location);
-    final isLyrics = routePath.startsWith('/lyrics');
     final isNowPlaying = routePath.startsWith('/now');
 
     // Snapshot for the focus-independent Esc chain (the global
@@ -744,257 +707,214 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     // wave_hotkeys.dart), which runs before focus dispatch and works from
     // anywhere. Enter is deliberately left to focused controls.
     return Mica(
-          backgroundColor: waveBackground(context),
-          // Single pointer observer for the whole chrome. Route
-          // transitions anchor at wherever the user last released the
-          // pointer (see WaveRouteOrigin): one Listener here beats a global
-          // key per card, translucent keeps it out of the hit-test verdict,
-          // and pointer-up is dispatched before the gesture arena resolves
-          // the tap, so the anchor is always in place for the navigation it
-          // caused.
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerUp: (event) => WaveRouteOrigin.record(event.position),
-            child: Column(
-            children: [
-              _titleBarFor(
-                _backStack.isNotEmpty,
-                _forwardStack.isNotEmpty,
-              ),
-              const WaveInfoBarHost(),
-              // Overlay rail: the content below keeps full width and the
-              // rail floats above its left edge (60 collapsed, 200
-              // expanded). Toggling used to reflow the whole window, so
-              // every animation frame re-laid-out every page + panel.
-              // Now constraints stay constant during the animation and
-              // only the tiny rail subtree lays out per tick.
-              Expanded(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: DropTarget(
-                              onDragEntered: (_) => setState(
-                                  () => _draggingFiles = true),
-                              onDragExited: (_) => setState(
-                                  () => _draggingFiles = false),
-                              onDragDone: (details) {
-                                setState(
-                                    () => _draggingFiles = false);
-                                _dropFiles(details.files
-                                    .map((f) => f.path)
-                                    .toList());
-                              },
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final qw = (constraints.maxWidth * 0.9)
-                                      .clamp(280.0, 360.0)
-                                      .toDouble();
-                                  final lw = (constraints.maxWidth * 0.46)
-                                      .clamp(460.0, 720.0)
-                                      .toDouble();
-                                  final ew = (constraints.maxWidth * 0.52)
-                                      .clamp(440.0, 560.0)
-                                      .toDouble();
-                                  final showOverlay =
-                                      _queueOpen ||
-                                      _equalizerOpen ||
-                                      (_lyricsOpen && hasTrack);
-                                  final lyricsOnly =
-                                      _lyricsOpen &&
-                                      hasTrack &&
-                                      !_queueOpen &&
-                                      !_equalizerOpen;
+      backgroundColor: waveBackground(context),
+      // Single pointer observer for the whole chrome. Route
+      // transitions anchor at wherever the user last released the
+      // pointer (see WaveRouteOrigin): one Listener here beats a global
+      // key per card, translucent keeps it out of the hit-test verdict,
+      // and pointer-up is dispatched before the gesture arena resolves
+      // the tap, so the anchor is always in place for the navigation it
+      // caused.
+      child: Focus(
+        // Arrow-key guard, NOT a shortcut layer (see NOTE above): the global
+        // handler already seeked / changed volume, but the key still reaches
+        // the focus tree, where WidgetsApp's directional-focus shortcut moves
+        // focus to the next button. Swallow exactly the keys it acts on.
+        canRequestFocus: false,
+        skipTraversal: true,
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+            return KeyEventResult.ignored;
+          }
+          final k = event.logicalKey;
+          final vertical = k == LogicalKeyboardKey.arrowUp ||
+              k == LogicalKeyboardKey.arrowDown;
+          if (k != LogicalKeyboardKey.arrowLeft &&
+              k != LogicalKeyboardKey.arrowRight &&
+              !vertical) {
+            return KeyEventResult.ignored;
+          }
+          // Up/Down are volume only outside nav scopes (menus, tables).
+          if (vertical && waveNavScopeOwnsUpDown()) {
+            return KeyEventResult.ignored;
+          }
+          final hk = HardwareKeyboard.instance;
+          if (hk.isControlPressed || hk.isAltPressed || hk.isMetaPressed) {
+            return KeyEventResult.ignored;
+          }
+          if (waveIsTypingFocused(_searchFocus) ||
+              ref.read(playbackServiceProvider).current == null) {
+            return KeyEventResult.ignored;
+          }
+          return KeyEventResult.handled;
+        },
+        child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerUp: (event) => WaveRouteOrigin.record(event.position),
+        onPointerDown: (event) {
+          if (event.kind != PointerDeviceKind.mouse) return;
+          if (event.buttons & kBackMouseButton != 0) {
+            _goBack();
+          } else if (event.buttons & kForwardMouseButton != 0) {
+            _goForward();
+          }
+        },
+        child: Column(
+          children: [
+            _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
+            const WaveInfoBarHost(),
+            // Overlay rail: the content below keeps full width and the
+            // rail floats above its left edge (60 collapsed, 200
+            // expanded). Toggling used to reflow the whole window, so
+            // every animation frame re-laid-out every page + panel.
+            // Now constraints stay constant during the animation and
+            // only the tiny rail subtree lays out per tick.
+            Expanded(
+              child: Column(
+                children: [
+                  Expanded(
+                    child: DropTarget(
+                      onDragEntered: (_) =>
+                          setState(() => _draggingFiles = true),
+                      onDragExited: (_) =>
+                          setState(() => _draggingFiles = false),
+                      onDragDone: (details) {
+                        setState(() => _draggingFiles = false);
+                        _dropFiles(details.files.map((f) => f.path).toList());
+                      },
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final qw = (constraints.maxWidth * 0.9)
+                              .clamp(280.0, 360.0)
+                              .toDouble();
+                          final ew = (constraints.maxWidth * 0.52)
+                              .clamp(440.0, 560.0)
+                              .toDouble();
 
-                                  return Stack(
-                                    children: [
-                                      // Page reserves the collapsed rail
-                                      // strip; the rail floats above it.
-                                      Positioned.fill(
-                                        left: WaveDensity.railCollapsed,
-                                        child: widget.child,
-                                      ),
-                                      // Light-dismiss: tapping outside the
-                                      // expanded rail collapses it (tap is
-                                      // absorbed, content doesn't activate).
-                                      // Below the rail + panels, so those
-                                      // keep working while it is open.
-                                      if (!collapsed)
-                                        Positioned.fill(
-                                          child: ExcludeSemantics(
-                                            child: GestureDetector(
-                                              behavior: HitTestBehavior
-                                                  .translucent,
-                                              onTap: () => setState(() =>
-                                                  _railExpanded = false),
-                                              child:
-                                                  const SizedBox.expand(),
-                                            ),
-                                          ),
-                                        ),
-                                      // Overlay rail: width animates
-                                      // internally; content constraints
-                                      // stay constant, so nothing reflows
-                                      // or rebuilds during the animation.
-                                      Positioned(
-                                        left: 0,
-                                        top: 0,
-                                        bottom: 0,
-                                        child: WaveSideRail(
-                                          expanded: !collapsed,
-                                          active: active,
-                                          onGo: _go,
-                                        ),
-                                      ),
-                                      if (_draggingFiles)
-                                        Positioned.fill(
-                                          child: Container(
-                                            color: Colors.black
-                                                .withValues(alpha: 0.4),
-                                            child: const Center(
-                                              child: Text(
-                                                'Drop audio files to play',
-                                                style: WaveType.sectionTitle,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      // Dim only the page beside the drawer so
-                                      // the lyrics panel can frost the artwork.
-                                      // Starts past the rail (which is never
-                                      // dimmed) — the rail floats above.
-                                      Positioned(
-                                        left: WaveDensity.railCollapsed,
-                                        top: 0,
-                                        bottom: 0,
-                                        right: showOverlay
-                                            ? (_queueOpen
-                                                ? qw
-                                                : (_equalizerOpen ? ew : lw))
-                                            : 0,
-                                        child: IgnorePointer(
-                                          ignoring: !showOverlay,
-                                          child: AnimatedOpacity(
-                                            duration: waveMotion(context, WaveMotion.normal),
-                                            curve: Curves.easeOutCubic,
-                                            opacity: showOverlay ? 1.0 : 0.0,
-                                            child: GestureDetector(
-                                              onTap: () => setState(() {
-                                                _queueOpen = false;
-                                                _lyricsOpen = false;
-                                                _equalizerOpen = false;
-                                              }),
-                                              child: Container(
-                                                color: Colors.black
-                                                    .withValues(
-                                                        alpha: lyricsOnly
-                                                            ? 0.10
-                                                            : 0.45),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      // Contextual queue — slides smoothly from right.
-                                      AnimatedPositioned(
-                                        duration: waveMotion(context, WaveMotion.normal),
-                                        curve: Curves.easeOutCubic,
-                                        top: 0,
-                                        bottom: 0,
-                                        right: _queueOpen ? 0 : -(qw + 12),
-                                        width: qw,
-                                        child: ExcludeFocus(
-                                          excluding: !_queueOpen,
-                                          child: IgnorePointer(
-                                            ignoring: !_queueOpen,
-                                            // Offstage when slid shut: the 8-row
-                                            // list (images, menus, tooltips)
-                                            // skips paint/raster entirely, so
-                                            // every page navigation no longer
-                                            // rasterizes a hidden panel.
-                                            // Layout still runs (cheap box
-                                            // math); scroll offset is kept.
-                                            child: Offstage(
-                                              offstage: !_queueOpen,
-                                              child: _queuePanelCache ??=
-                                                  WaveQueuePanel(
-                                                onClose: _closeQueue,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      // Contextual Equalizer & Studio Master Clarity drawer — slides smoothly from right.
-                                      AnimatedPositioned(
-                                        duration: waveMotion(
-                                            context, WaveMotion.normal),
-                                        curve: Curves.easeOutCubic,
-                                        top: 0,
-                                        bottom: 0,
-                                        right: _equalizerOpen ? 0 : -(ew + 12),
-                                        width: ew,
-                                        child: ExcludeFocus(
-                                          excluding: !_equalizerOpen,
-                                          child: IgnorePointer(
-                                            ignoring: !_equalizerOpen,
-                                            child: Offstage(
-                                              offstage: !_equalizerOpen,
-                                              child: _equalizerPanelCache ??=
-                                                  WaveEqualizerPanel(
-                                                onClose: _closeEqualizer,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      // Contextual Apple Music Karaoke Lyrics drawer — slides smoothly from right.
-                                      AnimatedPositioned(
-                                        duration: waveMotion(context, WaveMotion.normal),
-                                        curve: Curves.easeOutCubic,
-                                        top: 0,
-                                        bottom: 0,
-                                        right: (_lyricsOpen && hasTrack)
-                                            ? 0
-                                            : -(lw + 12),
-                                        width: lw,
-                                        child: ExcludeFocus(
-                                          excluding: !(_lyricsOpen && hasTrack),
-                                          child: IgnorePointer(
-                                            ignoring: !(_lyricsOpen && hasTrack),
-                                        child: _DrawerTicker(
-                                          // See queue panel above: skips
-                                          // rasterizing the hidden karaoke
-                                          // view on every navigation.
-                                          // Mutes the karaoke ticker while
-                                          // shut or unfocused: it would
-                                          // otherwise fire 30Hz into an
-                                          // off-screen or invisible layer.
-                                          // Resumes transparently
-                                          // (position resyncs).
-                                          open: _lyricsOpen && hasTrack,
-                                          child: _lyricsPanelFor(
-                                              _lyricsOpen && hasTrack),
-                                        ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
+                          return Stack(
+                            children: [
+                              // Page reserves the collapsed rail
+                              // strip; the rail floats above it.
+                              // Side panels (queue / equalizer) dock
+                              // beside the page instead of covering it,
+                              // so the page re-lays out to the space
+                              // left and stays fully usable.
+                              AnimatedPositioned(
+                                duration: waveMotion(
+                                  context,
+                                  WaveMotion.normal,
+                                ),
+                                curve: Curves.easeOutCubic,
+                                // The expanded rail is the collapsed
+                                // rail grown wider: the page makes room
+                                // for it and it stays until toggled off.
+                                left: collapsed
+                                    ? WaveDensity.railCollapsed
+                                    : WaveDensity.railExpanded,
+                                top: 0,
+                                bottom: 0,
+                                right: _queueOpen
+                                    ? qw
+                                    : (_equalizerOpen ? ew : 0),
+                                child: widget.child,
                               ),
-                            ),
-                          ),
-                          _dockFor(
-                            lyricsActive: _lyricsOpen || isLyrics,
-                            queueActive: _queueOpen,
-                            equalizerActive: _equalizerOpen,
-                            isLyrics: isLyrics,
-                          ),
-                        ],
+                              // Rail: one solid strip, 60px collapsed /
+                              // 200px expanded.
+                              Positioned(
+                                left: 0,
+                                top: 0,
+                                bottom: 0,
+                                child: WaveSideRail(
+                                  expanded: !collapsed,
+                                  active: active,
+                                  onGo: _go,
+                                ),
+                              ),
+                              if (_draggingFiles)
+                                Positioned.fill(
+                                  child: Container(
+                                    color: Colors.black.withValues(alpha: 0.4),
+                                    child: const Center(
+                                      child: Text(
+                                        'Drop audio files to play',
+                                        style: WaveType.sectionTitle,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              // Contextual queue — slides smoothly from right.
+                              AnimatedPositioned(
+                                duration: waveMotion(
+                                  context,
+                                  WaveMotion.normal,
+                                ),
+                                curve: Curves.easeOutCubic,
+                                top: 0,
+                                bottom: 0,
+                                right: _queueOpen ? 0 : -(qw + 12),
+                                width: qw,
+                                child: ExcludeFocus(
+                                  excluding: !_queueOpen,
+                                  child: IgnorePointer(
+                                    ignoring: !_queueOpen,
+                                    // Offstage when slid shut: the 8-row
+                                    // list (images, menus, tooltips)
+                                    // skips paint/raster entirely, so
+                                    // every page navigation no longer
+                                    // rasterizes a hidden panel.
+                                    // Layout still runs (cheap box
+                                    // math); scroll offset is kept.
+                                    child: Offstage(
+                                      offstage: !_queueOpen,
+                                      child: _queuePanelCache ??=
+                                          WaveQueuePanel(onClose: _closeQueue),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Contextual Equalizer & Studio Master Clarity drawer — slides smoothly from right.
+                              AnimatedPositioned(
+                                duration: waveMotion(
+                                  context,
+                                  WaveMotion.normal,
+                                ),
+                                curve: Curves.easeOutCubic,
+                                top: 0,
+                                bottom: 0,
+                                right: _equalizerOpen ? 0 : -(ew + 12),
+                                width: ew,
+                                child: ExcludeFocus(
+                                  excluding: !_equalizerOpen,
+                                  child: IgnorePointer(
+                                    ignoring: !_equalizerOpen,
+                                    child: Offstage(
+                                      offstage: !_equalizerOpen,
+                                      child: _equalizerPanelCache ??=
+                                          WaveEqualizerPanel(
+                                            onClose: _closeEqualizer,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
-            ],
-          ),
-          ),
-        );
+                  ),
+                  _dockFor(
+                    lyricsActive: isNowPlaying,
+                    queueActive: _queueOpen,
+                    equalizerActive: _equalizerOpen,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        ),
+      ),
+    );
   }
 }

@@ -722,4 +722,136 @@ void main() {
       );
     });
   });
+
+  group('Lyrics Credit & Artist Header Filtering', () {
+    test('strips slash-separated songwriter/composer lists like Sunflower', () {
+      const sunflower = LyricsResult(
+        isSynced: true,
+        isWordSynced: true,
+        source: 'LyricsPlus (Word-Sync)',
+        lines: [
+          LyricLine(
+            timeMs: 1000,
+            durationMs: 2000,
+            text:
+                'Khalif Malik Ibin Shaman Brown/Louis Russel Bell/Austin Richard Post/William Walsh/Carter Lang/Carl Rosen',
+          ),
+          LyricLine(
+            timeMs: 3500,
+            durationMs: 2000,
+            text: 'Ayy, ayy, ayy, ayy (ooh)',
+          ),
+          LyricLine(
+            timeMs: 6000,
+            durationMs: 2000,
+            text: 'Ooh, ooh, ooh, ooh',
+          ),
+        ],
+      );
+
+      final cleaned = normalizeKaraokeTimings(
+        sunflower,
+        title: 'Sunflower (Spider-Man: Into the Spider-Verse)',
+        artist: 'Post Malone',
+      );
+      expect(cleaned.lines.length, equals(2));
+      expect(cleaned.lines.first.text, equals('Ayy, ayy, ayy, ayy (ooh)'));
+    });
+
+    test('strips CJK and English labeled credit lines and Title - Artist headers', () {
+      const withCredits = LyricsResult(
+        isSynced: true,
+        lines: [
+          LyricLine(timeMs: 0, text: 'Sunflower - Post Malone & Swae Lee'),
+          LyricLine(timeMs: 1000, text: '词：Khalif Brown / Austin Post'),
+          LyricLine(timeMs: 2000, text: '曲：Louis Bell / Carter Lang'),
+          LyricLine(timeMs: 3000, text: 'Produced by Louis Bell & Carter Lang'),
+          LyricLine(timeMs: 4000, text: 'Needless to say, I keep her in check'),
+          LyricLine(timeMs: 7000, text: 'She was a bad-bad, nevertheless'),
+        ],
+      );
+
+      final cleaned = normalizeKaraokeTimings(
+        withCredits,
+        title: 'Sunflower',
+        artist: 'Post Malone & Swae Lee',
+      );
+      expect(cleaned.lines.map((l) => l.text).toList(), [
+        'Needless to say, I keep her in check',
+        'She was a bad-bad, nevertheless',
+      ]);
+    });
+
+    test('preserves vocal producer tags and repeated lyric slashes', () {
+      const tooManyNights = LyricsResult(
+        isSynced: true,
+        lines: [
+          LyricLine(timeMs: 1000, text: 'Honorable C.N.O.T.E.'),
+          LyricLine(timeMs: 3000, text: 'Metro!'),
+          LyricLine(timeMs: 5000, text: 'Mustard on the beat, ho'),
+          LyricLine(timeMs: 7000, text: 'Keep the bitch jump, uh-uh'),
+          LyricLine(timeMs: 9000, text: 'Yeah/Yeah/Yeah'),
+          LyricLine(timeMs: 11000, text: '24/7/365'),
+        ],
+      );
+
+      final cleaned = normalizeKaraokeTimings(
+        tooManyNights,
+        title: 'Too Many Nights (feat. Don Toliver)',
+        artist: 'Metro Boomin',
+      );
+      expect(cleaned.lines.length, equals(6));
+      expect(cleaned.lines[0].text, equals('Honorable C.N.O.T.E.'));
+      expect(cleaned.lines[1].text, equals('Metro!'));
+      expect(cleaned.lines[4].text, equals('Yeah/Yeah/Yeah'));
+      expect(cleaned.lines[5].text, equals('24/7/365'));
+    });
+  });
+
+  group('Apple Music Lyrics Depth-of-Field Blur', () {
+    testWidgets('inactive lyric line applies ImageFiltered blur while active line stays sharp', (tester) async {
+      const sampleLine = LyricLine(timeMs: 1000, text: 'Diamonds on my mind');
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: FluentThemeData.dark(),
+          home: const ScaffoldPage(
+            content: Column(
+              children: [
+                WaveKaraokeLyricLine(
+                  key: ValueKey('active_line'),
+                  line: sampleLine,
+                  positionMs: 1200,
+                  isActive: true,
+                  isPast: false,
+                  blurSigma: 3.5,
+                ),
+                WaveKaraokeLyricLine(
+                  key: ValueKey('inactive_line'),
+                  line: sampleLine,
+                  positionMs: 1200,
+                  isActive: false,
+                  isPast: false,
+                  blurSigma: 3.5,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final activeBlurFinder = find.descendant(
+        of: find.byKey(const ValueKey('active_line')),
+        matching: find.byType(ImageFiltered),
+      );
+      final inactiveBlurFinder = find.descendant(
+        of: find.byKey(const ValueKey('inactive_line')),
+        matching: find.byType(ImageFiltered),
+      );
+
+      expect(activeBlurFinder, findsNothing);
+      expect(inactiveBlurFinder, findsOneWidget);
+    });
+  });
 }

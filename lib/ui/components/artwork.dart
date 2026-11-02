@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -94,6 +96,17 @@ class _WaveArtworkState extends State<WaveArtwork> {
       widget.kind ??
       (widget.isCircle ? ArtworkKind.artist : ArtworkKind.track);
 
+  /// [WaveArtwork.url] minus images that load fine but show nothing: the
+  /// Last.fm star placeholder and Deezer's blank-artist silhouette.
+  String get _primaryUrl {
+    final u = widget.url;
+    if (u.contains('2a96cbd8b46e442fc41c2b86b821562f') ||
+        u.contains('/artist//')) {
+      return '';
+    }
+    return u;
+  }
+
   bool _fallbacksEqual(List<String> a, List<String> b) {
     if (identical(a, b)) return true;
     if (a.length != b.length) return false;
@@ -134,11 +147,13 @@ class _WaveArtworkState extends State<WaveArtwork> {
   /// Playback / another tile found a studio cover — swap this one too.
   void _onArtworkCache() {
     if (!mounted) return;
-    if (_kind == ArtworkKind.artist) return;
     final title = widget.title.isNotEmpty ? widget.title : widget.label;
     final artist = widget.artist;
     if (title.isEmpty) return;
-    final hit = _kind == ArtworkKind.album
+    final hit = _kind == ArtworkKind.artist
+        ? OfficialArtworkService.instance
+            .peekArtist(artist.isNotEmpty ? artist : title)
+        : _kind == ArtworkKind.album
         ? OfficialArtworkService.instance.peekAlbum(album: title, artist: artist)
         : OfficialArtworkService.instance.peekTrack(title: title, artist: artist);
     if (hit == null || hit.artworkUrl.isEmpty) return;
@@ -154,7 +169,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
           kind: _kind,
           candidates: [
             hit.artworkUrl,
-            widget.url,
+            _primaryUrl,
             ...widget.fallbackUrls,
           ],
           label: widget.label,
@@ -212,7 +227,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
     final target = (widget.size * dpr).clamp(64, 1024).toDouble();
     final candidates = [
       if (_resolvedUrl != null && _resolvedUrl!.isNotEmpty) _resolvedUrl!,
-      widget.url,
+      _primaryUrl,
       ...widget.fallbackUrls,
     ];
     final req = ArtworkRequest(
@@ -244,6 +259,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
   /// stays in the chain as fallback if the official source has no match.
   void _maybeUpgradeOfficial() {
     if (!widget.upgrade) return;
+    if (_fileArtworkPath(widget.url) != null) return;
     if (_upgradeAttempted || _resolveFailed || _isResolving) return;
     if (_resolvedUrl != null) return;
     final title = widget.title.isNotEmpty ? widget.title : widget.label;
@@ -264,7 +280,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
     // press photo — an iTunes album cover is official, but it is the
     // wrong kind of image for an artist tile.
     if (_kind == ArtworkKind.artist) {
-      if (OfficialArtworkService.isOfficialArtistPhoto(widget.url)) {
+      if (OfficialArtworkService.isOfficialArtistPhoto(_primaryUrl)) {
         return;
       }
     } else if (OfficialArtworkService.isOfficialArtwork(widget.url)) {
@@ -288,17 +304,23 @@ class _WaveArtworkState extends State<WaveArtwork> {
       ArtworkKind.artist => service
           .resolveArtistArtwork(artist.isNotEmpty ? artist : title),
       ArtworkKind.album =>
-        service.resolveAlbumArtwork(album: title, artist: artist),
+        service.resolveAlbumArtwork(
+            album: title, artist: artist, allowFallback: true),
       ArtworkKind.track =>
-        service.resolveOfficialArtwork(title: title, artist: artist),
+        service.resolveOfficialArtwork(
+            title: title, artist: artist, allowFallback: true),
     };
     task.then((res) {
       if (!mounted) return;
       _isResolving = false;
       if (res != null && res.artworkUrl.isNotEmpty) {
         final usable = _kind == ArtworkKind.artist
-            ? OfficialArtworkService.isOfficialArtistPhoto(res.artworkUrl)
-            : OfficialArtworkService.isOfficialArtwork(res.artworkUrl);
+            // Deezer photo, or the YouTube Music portrait fallback.
+            ? res.artworkUrl.startsWith('http')
+            : _kind != ArtworkKind.artist
+                // Store cover, or the YouTube Music cover fallback.
+                ? res.artworkUrl.startsWith('http')
+                : OfficialArtworkService.isOfficialArtwork(res.artworkUrl);
         if (!usable) {
           _resolveFailed = true;
           return;
@@ -313,7 +335,7 @@ class _WaveArtworkState extends State<WaveArtwork> {
             kind: _kind,
             candidates: [
               res.artworkUrl,
-              widget.url,
+              _primaryUrl,
               ...widget.fallbackUrls,
             ],
             label: widget.label,
@@ -325,13 +347,30 @@ class _WaveArtworkState extends State<WaveArtwork> {
           _attempt = 0;
         });
       } else {
-        _resolveFailed = true;
+        _failAndRetryLater();
       }
     }).catchError((_) {
       if (mounted) {
         _isResolving = false;
-        _resolveFailed = true;
+        _failAndRetryLater();
       }
+    });
+  }
+
+  bool _retriedResolve = false;
+
+  /// A miss is often transient (store quota, offline blip), so give the
+  /// tile one more try later instead of leaving a placeholder for good.
+  void _failAndRetryLater() {
+    _resolveFailed = true;
+    if (_retriedResolve) return;
+    _retriedResolve = true;
+    final gen = _gen;
+    Future<void>.delayed(const Duration(seconds: 8), () {
+      if (!mounted || gen != _gen || _resolvedUrl != null) return;
+      _resolveFailed = false;
+      _upgradeAttempted = false;
+      _maybeUpgradeOfficial();
     });
   }
 
@@ -471,9 +510,69 @@ class _WaveArtworkState extends State<WaveArtwork> {
     return snapped < _decodeStep ? _decodeStep : snapped;
   }
 
+  /// Local cover: a filesystem path or a `file://` URI. Network URLs stay
+  /// on the cached-image path below.
+  String? _fileArtworkPath(String raw) {
+    final url = raw.trim();
+    if (url.isEmpty) return null;
+    if (url.startsWith('file:')) {
+      try {
+        final path = Uri.parse(url).toFilePath(windows: Platform.isWindows);
+        return path.isEmpty ? null : path;
+      } catch (_) {
+        return null;
+      }
+    }
+    if (url.startsWith('http://') ||
+        url.startsWith('https://') ||
+        url.startsWith('data:')) {
+      return null;
+    }
+    if (url.contains('://')) return null;
+    final windowsDrive = RegExp(r'^[a-zA-Z]:[\\/]');
+    final looksLikePath = url.contains('\\') ||
+        url.startsWith('/') ||
+        url.startsWith(r'\\') ||
+        windowsDrive.hasMatch(url);
+    if (!looksLikePath) return null;
+    return url;
+  }
+
+  Widget? _fileImage(BuildContext context, bool dark) {
+    final path = _fileArtworkPath(widget.url);
+    if (path == null) return null;
+    final file = File(path);
+    final image = file.existsSync()
+        ? Image.file(
+            file,
+            width: widget.size,
+            height: widget.size,
+            fit: BoxFit.cover,
+            errorBuilder: (context, _, _) => _fallback(context, dark),
+          )
+        : _fallback(context, dark);
+    if (widget.isCircle) {
+      return SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: ClipOval(child: image),
+      );
+    }
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(widget.radius),
+        child: image,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    final local = _fileImage(context, dark);
+    if (local != null) return local;
     if (_chain.isEmpty || _chainIndex >= _chain.length) {
       return _fallback(context, dark);
     }

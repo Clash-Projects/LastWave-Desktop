@@ -188,17 +188,8 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
   Future<String> _resolveBrowseId() async {
     final a = widget.album;
     if (a.browseId.isNotEmpty) return a.browseId;
-    try {
-      final results = await ref
-          .read(innerTubeProvider)
-          .searchAlbums('${a.artist} ${a.title}', limit: 6);
-      return pickBestAlbumMatch(results,
-              title: a.title, artist: a.artist)
-              ?.browseId ??
-          '';
-    } catch (_) {
-      return '';
-    }
+    return resolveAlbumBrowseId(ref.read(innerTubeProvider),
+        title: a.title, artist: a.artist);
   }
 
   Future<void> _open() async {

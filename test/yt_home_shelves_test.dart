@@ -208,6 +208,60 @@ void main() {
       expect(shelf.tracks.single.artist, 'Anirudh');
     });
 
+    test('a carousel of list rows, like Quick picks, yields tracks', () {
+      final shelves = tube.parseHomeShelves({
+        'contents': {
+          'sectionListRenderer': {
+            'contents': [
+              {
+                'musicCarouselShelfRenderer': {
+                  'header': {
+                    'musicCarouselShelfBasicHeaderRenderer': {
+                      'title': {
+                        'runs': [
+                          {'text': 'Quick picks'},
+                        ],
+                      },
+                    },
+                  },
+                  'contents': [
+                    {
+                      'musicResponsiveListItemRenderer': {
+                        'playlistItemData': {'videoId': 'abcdefghijk'},
+                        'flexColumns': [
+                          {
+                            'musicResponsiveListItemFlexColumnRenderer': {
+                              'text': {
+                                'runs': [
+                                  {'text': 'Song'},
+                                ],
+                              },
+                            },
+                          },
+                          {
+                            'musicResponsiveListItemFlexColumnRenderer': {
+                              'text': {
+                                'runs': [
+                                  {'text': 'Artist'},
+                                ],
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      });
+      expect(shelves.single.title, 'Quick picks');
+      expect(shelves.single.isTrackShelf, isTrue);
+      expect(shelves.single.tracks.single.videoId, 'abcdefghijk');
+    });
+
     test('a shelf with a bare {text} title is accepted', () {
       final root = <String, dynamic>{
         'contents': {

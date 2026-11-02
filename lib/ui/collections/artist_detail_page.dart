@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,16 +13,17 @@ import '../../../features/lastfm/auth_repository.dart'
     show lastFmApiProvider;
 import '../../../features/player/playback_service.dart';
 import '../../../features/search/shared_providers.dart'
-    show prefsApiKeyProvider;
+    show databaseProvider, prefsApiKeyProvider;
 import '../components/ambient.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip, WaveChip, WaveGhostButton, WaveLink, WavePrimaryButton;
+import '../components/buttons.dart' show LWTooltip, WaveGhostButton, WaveLink, WavePrimaryButton;
 import '../components/desktop_table.dart';
 import '../components/shelf.dart';
 import '../components/skeletons.dart';
 import '../components/states.dart';
 import '../navigation/flight.dart';
 import '../navigation/wave_nav.dart';
+import 'yt_shelf_page.dart' show openYtEntity;
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -32,6 +36,16 @@ class _ArtistDetail {
   final List<YouTubeMusicEntity> albums;
   final List<YouTubeMusicEntity> singles;
   final List<String> related;
+
+  /// Every carousel on the artist's YouTube Music page, in YouTube's order
+  /// (Albums, Singles & EPs, Videos, Featured on, Playlists, Fans might also
+  /// like, …). Empty when the page could not be read; the page then falls
+  /// back to [albums] / [singles] / [related].
+  final List<YtHomeShelf> shelves;
+
+  /// Sections still loading: `art`, `bio`, `popular`, `albums`. Empty once
+  /// everything has landed (and for a stored snapshot).
+  final Set<String> pending;
   const _ArtistDetail(
       {required this.name,
       required this.artwork,
@@ -39,129 +53,394 @@ class _ArtistDetail {
       required this.popular,
       required this.albums,
       required this.singles,
-      this.related = const []});
+      this.related = const [],
+      this.shelves = const [],
+      this.pending = const {}});
 }
 
-final _artistDetailProvider = FutureProvider.autoDispose
-    .family<_ArtistDetail, String>((ref, name) async {
-  final tube = ref.watch(innerTubeProvider);
-  final q = name.trim();
-  // Portrait.
-  String art = '';
-  try {
-    final artists = await tube.searchArtists(q, limit: 3);
-    if (artists.isNotEmpty) art = artists.first.artworkUrl;
-  } catch (_) {}
-  // Popular: real Last.fm artist.gettoptracks (20), resolved to YTM.
-  List<GeneratedTrack> popular = const [];
-  String bio = '';
-  List<String> related = const [];
-  try {
-    final api = ref.watch(lastFmApiProvider);
-    final apiKey = ref.watch(prefsApiKeyProvider);
-    final json = await api.get({
-      'method': 'artist.gettoptracks',
-      'artist': q,
-      'api_key': apiKey,
-      'limit': '20',
-      'autocorrect': '1',
+/// kv_store key prefix for the on-disk artist page snapshot.
+const _artistCachePrefix = 'artist_detail_v2|';
+
+Map<String, dynamic> _ytTrackToJson(YouTubeMusicTrack t) => {
+      'v': t.videoId,
+      'n': t.title,
+      'a': t.artist,
+      'al': t.album,
+      'art': t.artworkUrl,
+      'd': t.durationSeconds,
+      'ab': t.albumBrowseId,
+    };
+
+YouTubeMusicTrack _ytTrackFromJson(Map<String, dynamic> j) => YouTubeMusicTrack(
+      videoId: j['v']?.toString() ?? '',
+      title: j['n']?.toString() ?? '',
+      artist: j['a']?.toString() ?? '',
+      album: j['al']?.toString() ?? '',
+      artworkUrl: j['art']?.toString() ?? '',
+      durationSeconds: (j['d'] as num?)?.toInt() ?? 0,
+      albumBrowseId: j['ab']?.toString() ?? '',
+    );
+
+/// A snapshot younger than this is served as-is; an older one is still
+/// shown instantly but refreshed in the background (stale-while-revalidate).
+const _artistCacheFresh = Duration(hours: 6);
+
+/// Past this the snapshot is ignored and the page loads from the network.
+const _artistCacheMaxAge = Duration(days: 30);
+
+Map<String, dynamic> _trackToJson(GeneratedTrack t) => {
+      'n': t.name,
+      'a': t.artist,
+      'al': t.album,
+      'art': t.artworkUrl,
+      'v': t.videoId,
+      'd': t.durationSeconds,
+    };
+
+GeneratedTrack _trackFromJson(Map<String, dynamic> j) => GeneratedTrack(
+      name: j['n']?.toString() ?? '',
+      artist: j['a']?.toString() ?? '',
+      album: j['al']?.toString() ?? '',
+      artworkUrl: j['art']?.toString() ?? '',
+      videoId: j['v']?.toString() ?? '',
+      durationSeconds: (j['d'] as num?)?.toInt() ?? 0,
+    );
+
+Map<String, dynamic> _entityToJson(YouTubeMusicEntity e) => {
+      'k': e.kind.name,
+      'n': e.name,
+      'a': e.artist,
+      's': e.subtitle,
+      'b': e.browseId,
+      'p': e.playlistId,
+      'art': e.artworkUrl,
+    };
+
+YouTubeMusicEntity _entityFromJson(Map<String, dynamic> j) =>
+    YouTubeMusicEntity(
+      kind: YouTubeEntityKind.values.firstWhere(
+        (k) => k.name == j['k'],
+        orElse: () => YouTubeEntityKind.album,
+      ),
+      name: j['n']?.toString() ?? '',
+      artist: j['a']?.toString() ?? '',
+      subtitle: j['s']?.toString() ?? '',
+      browseId: j['b']?.toString() ?? '',
+      playlistId: j['p']?.toString() ?? '',
+      artworkUrl: j['art']?.toString() ?? '',
+    );
+
+String _encodeArtist(_ArtistDetail d) => jsonEncode({
+      't': DateTime.now().millisecondsSinceEpoch,
+      'art': d.artwork,
+      'bio': d.bio,
+      'popular': [for (final t in d.popular) _trackToJson(t)],
+      'albums': [for (final e in d.albums) _entityToJson(e)],
+      'singles': [for (final e in d.singles) _entityToJson(e)],
+      'related': d.related,
+      'shelves': [
+        for (final s in d.shelves)
+          {
+            't': s.title,
+            'e': [for (final e in s.entities) _entityToJson(e)],
+            'c': [for (final t in s.trackCards) _ytTrackToJson(t)],
+          },
+      ],
     });
-    final items = json['toptracks']?['track'];
-    final list = items is List
-        ? items.whereType<Map<String, dynamic>>().toList()
-        : items is Map<String, dynamic>
-            ? [items]
-            : <Map<String, dynamic>>[];
-    var bare = list
-        .map((t) => _trackFromLastFm(t, q))
-        .where((t) => t.name.isNotEmpty)
-        .toList();
-    try {
-      final songs = await tube.searchSongs(q, limit: 25);
-      bare = bare.map((t) => _fillFromYtm(t, songs)).toList();
-    } catch (_) {}
-    try {
-      final repo = ref.watch(feedRepositoryProvider);
-      popular = await repo.resolveVideos(bare, limit: 20);
-      popular = [
-        for (final t in popular) await repo.fillMissingMetadata(t),
-      ];
-    } catch (_) {
-      popular = bare;
+
+/// Decodes a stored snapshot, or null when it is missing, too old or
+/// unreadable. [ageOut] receives the snapshot's age.
+_ArtistDetail? _decodeArtist(String name, String? raw,
+    {required void Function(Duration age) ageOut}) {
+  if (raw == null || raw.isEmpty) return null;
+  try {
+    final j = jsonDecode(raw) as Map<String, dynamic>;
+    final age = DateTime.now().difference(
+        DateTime.fromMillisecondsSinceEpoch((j['t'] as num).toInt()));
+    if (age > _artistCacheMaxAge) return null;
+    List<Map<String, dynamic>> list(String k) =>
+        ((j[k] as List?) ?? const []).whereType<Map<String, dynamic>>().toList();
+    ageOut(age);
+    return _ArtistDetail(
+      name: name,
+      artwork: j['art']?.toString() ?? '',
+      bio: j['bio']?.toString() ?? '',
+      popular: list('popular').map(_trackFromJson).toList(),
+      albums: list('albums').map(_entityFromJson).toList(),
+      singles: list('singles').map(_entityFromJson).toList(),
+      related: ((j['related'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      shelves: [
+        for (final s in list('shelves'))
+          YtHomeShelf(
+            title: s['t']?.toString() ?? '',
+            entities: ((s['e'] as List?) ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .map(_entityFromJson)
+                .toList(),
+            trackCards: ((s['c'] as List?) ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .map(_ytTrackFromJson)
+                .toList(),
+          ),
+      ],
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Streams the artist page as its sources land: every source that finishes
+/// emits a fresh snapshot, so the portrait, bio, tracks and shelves each
+/// appear as soon as THEIR data is ready instead of waiting for the slowest.
+/// `pending` names the sections still in flight (page shows a skeleton
+/// for those only). A stored snapshot is emitted once, complete.
+final _artistDetailProvider = StreamProvider.autoDispose
+    .family<_ArtistDetail, String>((ref, name) {
+  final tube = ref.watch(innerTubeProvider);
+  final api = ref.watch(lastFmApiProvider);
+  final apiKey = ref.watch(prefsApiKeyProvider);
+  final repo = ref.watch(feedRepositoryProvider);
+  final db = ref.watch(databaseProvider);
+  final q = name.trim();
+  final cacheKey = '$_artistCachePrefix${q.toLowerCase()}';
+
+  final ctrl = StreamController<_ArtistDetail>();
+  ref.onDispose(ctrl.close);
+
+  // [onUpdate] null = silent background refresh (cache only, no emissions).
+  Future<_ArtistDetail> load(void Function(_ArtistDetail d)? onUpdate) async {
+    Future<T> guarded<T>(Future<T> Function() run, T fallback) async {
+      try {
+        return await run();
+      } catch (_) {
+        return fallback;
+      }
     }
-    popular = popular
-        .map((t) => GeneratedTrack(
+
+    var art = '';
+    var bio = '';
+    var related = <String>[];
+    var popular = <GeneratedTrack>[];
+    var albums = <YouTubeMusicEntity>[];
+    var shelves = <YtHomeShelf>[];
+    var artistId = '';
+    // Set once the full YouTube Music song list replaces the Last.fm top
+    // tracks, so the slower enrichment loop below stops overwriting it.
+    var fullSongs = false;
+    final pending = <String>{'art', 'bio', 'popular', 'albums'};
+
+    _ArtistDetail snap() => _ArtistDetail(
+        name: q,
+        artwork: art,
+        bio: bio,
+        popular: popular,
+        albums: albums.where((a) => !_isSingle(a.subtitle)).toList(),
+        singles: albums.where((a) => _isSingle(a.subtitle)).toList(),
+        related: related,
+        shelves: shelves,
+        pending: Set.of(pending));
+
+    void done(String section) {
+      pending.remove(section);
+      onUpdate?.call(snap());
+    }
+
+    // Every source is independent, so all start at once and each publishes
+    // the moment it lands. Each leg swallows its own failure — one dead
+    // source must not blank the page.
+    final artF = guarded(() async {
+      final artists = await tube.searchArtists(q, limit: 3);
+      art = artists.isNotEmpty ? artists.first.artworkUrl : '';
+      artistId = artists.isNotEmpty ? artists.first.browseId : '';
+    }, null).whenComplete(() => done('art'));
+    final infoF = guarded(() async {
+      final json = await api.get({
+        'method': 'artist.getinfo',
+        'artist': q,
+        'api_key': apiKey,
+        'autocorrect': '1',
+      });
+      final artist = json['artist'] as Map?;
+      final summary =
+          ((artist?['bio'] as Map?)?['summary']?.toString() ?? '')
+              .replaceAll(RegExp(r'<[^>]*>'), '')
+              .trim();
+      final similar = (artist?['similar'] as Map?)?['artist'];
+      final simList = similar is List
+          ? similar.whereType<Map>().toList()
+          : similar is Map
+              ? [similar]
+              : <Map>[];
+      bio = summary.isNotEmpty ? _cleanLastFmBio(summary) : '';
+      related = simList
+          .map((m) => m['name']?.toString() ?? '')
+          .where((s) => s.isNotEmpty && s != q)
+          .take(8)
+          .toList();
+    }, null).whenComplete(() => done('bio'));
+    final albumsF = guarded(() async {
+      albums = await tube.searchAlbums(q, limit: 40);
+    }, null).whenComplete(() => done('albums'));
+
+    // The artist's own YouTube Music page: every song and every carousel
+    // (albums, singles & EPs, videos, featured on, playlists, fans also
+    // like) with nothing cut off. Needs the channel id from the artist
+    // search above.
+    final pageF = artF.then((_) => guarded(() async {
+          if (artistId.isEmpty) return;
+          final page = await tube.fetchArtistPage(artistId);
+          if (page == null) return;
+          shelves = page.shelves;
+          if (page.songs.isNotEmpty) {
+            fullSongs = true;
+            popular = [
+              for (final t in page.songs)
+                GeneratedTrack(
+                  name: t.title,
+                  artist: t.artist.isNotEmpty ? t.artist : q,
+                  album: t.album,
+                  artworkUrl: t.artworkUrl,
+                  videoId: t.videoId,
+                  durationSeconds: t.durationSeconds,
+                ),
+            ];
+            pending.remove('popular');
+          }
+          onUpdate?.call(snap());
+        }, null));
+
+    final topF = guarded(() async {
+      final json = await api.get({
+        'method': 'artist.gettoptracks',
+        'artist': q,
+        'api_key': apiKey,
+        'limit': '20',
+        'autocorrect': '1',
+      });
+      final items = json['toptracks']?['track'];
+      final list = items is List
+          ? items.whereType<Map<String, dynamic>>().toList()
+          : items is Map<String, dynamic>
+              ? [items]
+              : <Map<String, dynamic>>[];
+      return list
+          .map((t) => _trackFromLastFm(t, q))
+          .where((t) => t.name.isNotEmpty)
+          .toList();
+    }, <GeneratedTrack>[]);
+    final songsF = guarded(
+        () => tube.searchSongs(q, limit: 25), <YouTubeMusicTrack>[]);
+
+    final popularF = () async {
+      final top = await topF;
+      final songs = await songsF;
+      if (top.isNotEmpty) {
+        final bare = top.map((t) => _fillFromYtm(t, songs)).toList();
+        GeneratedTrack plain(GeneratedTrack t) => GeneratedTrack(
               name: t.name,
               artist: t.artist,
               album: t.album,
               artworkUrl: t.artworkUrl,
               videoId: t.videoId,
               durationSeconds: t.durationSeconds,
-            ))
-        .toList();
-  } catch (_) {}
-  if (popular.isEmpty) {
-    try {
-      final songs = await tube.searchSongs(q, limit: 20);
-      popular = songs
-          .map((t) => GeneratedTrack(
-              name: t.title,
-              artist: t.artist.isNotEmpty ? t.artist : q,
-              album: t.album,
-              artworkUrl: t.artworkUrl,
-              videoId: t.videoId,
-              durationSeconds: t.durationSeconds))
-          .toList();
-    } catch (_) {}
-  }
-  // Bio + related (Last.fm artist.getinfo).
-  try {
-    final api = ref.watch(lastFmApiProvider);
-    final apiKey = ref.watch(prefsApiKeyProvider);
-    final json = await api.get({
-      'method': 'artist.getinfo',
-      'artist': q,
-      'api_key': apiKey,
-      'autocorrect': '1',
-    });
-    final artist = json['artist'] as Map?;
-    final summary =
-        ((artist?['bio'] as Map?)?['summary']?.toString() ?? '')
-            .replaceAll(RegExp(r'<[^>]*>'), '')
-            .trim();
-    if (summary.isNotEmpty) {
-      bio = _cleanLastFmBio(summary);
+            );
+        try {
+          final resolved = (await repo.resolveVideos(bare, limit: 20))
+              .map(plain)
+              .toList();
+          // The full YouTube Music list may have landed while this resolved.
+          if (fullSongs) return;
+          popular = resolved;
+          // Rows are playable now; show them, then enrich in place.
+          pending.remove('popular');
+          onUpdate?.call(snap());
+          // Missing album/duration lookups run in small parallel batches
+          // rather than one serial search per track.
+          const batch = 5;
+          for (var i = 0; i < popular.length && !fullSongs; i += batch) {
+            final end = i + batch < popular.length ? i + batch : popular.length;
+            final filled = await Future.wait(
+                popular.sublist(i, end).map(repo.fillMissingMetadata));
+            if (fullSongs) break;
+            popular = [
+              ...popular.sublist(0, i),
+              ...filled.map(plain),
+              ...popular.sublist(end),
+            ];
+            onUpdate?.call(snap());
+          }
+        } catch (_) {
+          if (popular.isEmpty) popular = bare;
+        }
+      }
+      if (popular.isEmpty) {
+        // The song search already ran in parallel above — reuse it.
+        popular = songs
+            .take(20)
+            .map((t) => GeneratedTrack(
+                name: t.title,
+                artist: t.artist.isNotEmpty ? t.artist : q,
+                album: t.album,
+                artworkUrl: t.artworkUrl,
+                videoId: t.videoId,
+                durationSeconds: t.durationSeconds))
+            .toList();
+      }
+    }().whenComplete(() => done('popular'));
+
+    await Future.wait([artF, infoF, albumsF, popularF, pageF]);
+    final detail = snap();
+    // Never persist an all-empty result (offline / rate-limited): it would
+    // pin an empty page until the snapshot ages out.
+    if (detail.popular.isNotEmpty || detail.albums.isNotEmpty) {
+      try {
+        db.kvSet(cacheKey, _encodeArtist(detail));
+      } catch (_) {}
     }
-    final similar =
-        (artist?['similar'] as Map?)?['artist'];
-    final simList = similar is List
-        ? similar.whereType<Map>().toList()
-        : similar is Map
-            ? [similar]
-            : <Map>[];
-    related = simList
-        .map((m) => m['name']?.toString() ?? '')
-        .where((s) => s.isNotEmpty && s != q)
-        .take(8)
-        .toList();
-  } catch (_) {}
-  // Albums + singles.
-  List<YouTubeMusicEntity> albums = const [];
+    return detail;
+  }
+
+  void emit(_ArtistDetail d) {
+    if (!ctrl.isClosed) ctrl.add(d);
+  }
+
+  // Stale-while-revalidate: a stored snapshot renders instantly; an old one
+  // is refreshed in the background so the NEXT visit is current.
+  Duration? age;
+  String? raw;
   try {
-    albums = await tube.searchAlbums(q, limit: 12);
+    raw = db.kvGet(cacheKey);
   } catch (_) {}
-  final fullAlbums =
-      albums.where((a) => !_isSingle(a.subtitle)).take(8).toList();
-  final singles =
-      albums.where((a) => _isSingle(a.subtitle)).take(8).toList();
-  return _ArtistDetail(
+  final cached = _decodeArtist(q, raw, ageOut: (a) => age = a);
+  if (cached != null &&
+      (cached.popular.isNotEmpty || cached.albums.isNotEmpty)) {
+    emit(cached);
+    ctrl.close();
+    if (age! > _artistCacheFresh) {
+      unawaited(load(null).then<void>((_) {}, onError: (_) {}));
+    }
+    return ctrl.stream;
+  }
+
+  // First frame: everything pending, so the skeleton shows while it loads.
+  emit(_ArtistDetail(
       name: q,
-      artwork: art,
-      bio: bio,
-      popular: popular,
-      albums: fullAlbums,
-      singles: singles,
-      related: related);
+      artwork: '',
+      popular: const [],
+      albums: const [],
+      singles: const [],
+      pending: const {'art', 'bio', 'popular', 'albums'}));
+  load(emit).then<void>((_) {
+    if (!ctrl.isClosed) ctrl.close();
+  }, onError: (Object e, StackTrace s) {
+    if (!ctrl.isClosed) {
+      ctrl.addError(e, s);
+      ctrl.close();
+    }
+  });
+  return ctrl.stream;
 });
 
 bool _isSingle(String subtitle) {
@@ -256,6 +535,10 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
   bool _showAllPopular = false;
   bool _bioExpanded = false;
 
+  /// Decided on the first built frame: did the page open with everything
+  /// already loaded? Gates the cover flight (see [_body]).
+  bool? _flightOk;
+
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_artistDetailProvider(widget.name));
@@ -272,8 +555,8 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
           popular: const [],
           albums: const [],
           singles: const [],
+          pending: const {'art', 'bio', 'popular', 'albums'},
         ),
-        loading: true,
       ),
       error: (e, _) => WaveError(
         title: 'Could not load artist',
@@ -281,7 +564,105 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
         onRetry: () => ref
             .invalidate(_artistDetailProvider(widget.name)),
       ),
-      data: (d) => _body(d, loading: false),
+      data: _body,
+    );
+  }
+
+  Widget _circleRail(List<Widget> circles) => WaveRail(
+        height: 168,
+        itemCount: circles.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) => circles[i],
+      );
+
+  /// One carousel from the artist's YouTube Music page. Rails are
+  /// virtualized, so a long discography costs nothing until scrolled.
+  Widget _shelfSection(
+    BuildContext context,
+    _ArtistDetail d,
+    YtHomeShelf shelf,
+    int index,
+  ) {
+    final count = shelf.entities.length + shelf.trackCards.length;
+    final Widget rail;
+    if (_isArtistShelf(shelf)) {
+      rail = _circleRail([
+        for (final e in shelf.entities)
+          _ArtistCircle(
+            name: e.name,
+            artworkUrl: e.artworkUrl,
+            onTap: () => openYtEntity(context, e),
+          ),
+      ]);
+    } else if (shelf.entities.isNotEmpty) {
+      rail = WaveRail(
+        height: 196,
+        itemCount: shelf.entities.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final e = shelf.entities[i];
+          return _ArtistAlbumCard(
+            artworkUrl: e.artworkUrl,
+            title: e.name,
+            subtitle: e.subtitle,
+            width: 136,
+            artSize: 136,
+            artist: d.name,
+            onTap: () => openYtEntity(context, e),
+          );
+        },
+      );
+    } else {
+      GeneratedTrack asTrack(YouTubeMusicTrack t) => GeneratedTrack(
+            name: t.title,
+            artist: t.artist.isNotEmpty ? t.artist : d.name,
+            album: t.album,
+            artworkUrl: t.artworkUrl,
+            videoId: t.videoId,
+            durationSeconds: t.durationSeconds,
+          );
+      rail = WaveRail(
+        height: 196,
+        itemCount: shelf.trackCards.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final t = shelf.trackCards[i];
+          return _ArtistAlbumCard(
+            artworkUrl: t.artworkUrl,
+            title: t.title,
+            subtitle: t.artist,
+            width: 136,
+            artSize: 136,
+            artist: d.name,
+            onTap: () => playGenerated(
+              ref,
+              context,
+              asTrack(t),
+              sourceLabel: d.name,
+            ),
+          );
+        },
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(shelf.title.isEmpty ? 'More' : shelf.title,
+                  style: WaveType.sectionTitle),
+              const SizedBox(width: 8),
+              Text('$count',
+                  style: WaveType.meta
+                      .copyWith(color: waveTextTertiary(context))),
+            ],
+          ),
+          const SizedBox(height: 10),
+          rail,
+        ],
+      ),
     );
   }
 
@@ -290,7 +671,17 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
   /// already right (it came in on the route) and skeleton blocks stand in for
   /// the bio, the transport row and the track list, so the entrance animates
   /// the page the user asked for.
-  Widget _body(_ArtistDetail d, {required bool loading}) {
+  Widget _body(_ArtistDetail d) {
+    // Sections land independently (see the provider): each skeleton below
+    // stays only until ITS data arrives.
+    // The pressed cover only flies into a header that opens complete (a
+    // stored snapshot). When the portrait lands a beat after the page, the
+    // header is already on screen and a flight would come out of nowhere —
+    // there it just fades in instead.
+    _flightOk ??= d.pending.isEmpty;
+    final artLoading = d.pending.contains('art');
+    final bioLoading = d.pending.contains('bio');
+    final listLoading = d.pending.contains('popular');
     final playingKey = ref.watch(
       playbackServiceProvider.select((s) => s.current?.queueKey),
     );
@@ -308,7 +699,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
     Widget portrait(double size) => WaveFlightTarget(
           kind: 'artist',
           id: widget.name,
-          enabled: d.artwork.isNotEmpty,
+          enabled: _flightOk == true && d.artwork.isNotEmpty,
           // Artist portraits are circles; the flight morphs into one.
           radius: size / 2,
           child: Stack(
@@ -323,7 +714,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                 title: d.name,
                 artist: d.name,
               ),
-              if (loading)
+              if (artLoading)
                 SkeletonBox(width: size, height: size, radius: size / 2),
             ],
           ),
@@ -359,7 +750,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                             overflow: TextOverflow.ellipsis,
                             style: WaveType.pageTitle
                                 .copyWith(fontSize: 30)),
-                        if (loading) ...[
+                        if (bioLoading) ...[
                           const SizedBox(height: 8),
                           const SkeletonBox(width: 240, height: 10),
                           const SizedBox(height: 6),
@@ -374,7 +765,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                           ),
                         ],
                         const SizedBox(height: 14),
-                        if (loading)
+                        if (listLoading)
                           // Reserve the transport row: the buttons only exist
                           // once there are tracks, so without this the header
                           // would jump when they land.
@@ -439,7 +830,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                     ),
                   // Skeleton track list while the artist loads; the real
                   // sections below are data-guarded, so they simply take over.
-                  if (loading) ...[
+                  if (listLoading) ...[
                     const SizedBox(height: 26),
                     const SkeletonRow(count: 6),
                   ],
@@ -508,7 +899,12 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                     ),
                     ),
                   ],
-                  if (d.albums.isNotEmpty) ...[
+                  // Everything on the artist's YouTube Music page, in its
+                  // own order: albums, singles & EPs, videos, featured on,
+                  // playlists, fans might also like — each unlimited.
+                  for (var si = 0; si < d.shelves.length; si++)
+                    _shelfSection(context, d, d.shelves[si], si),
+                  if (d.shelves.isEmpty && d.albums.isNotEmpty) ...[
                     const SizedBox(height: 26),
                     WaveEntrance(
                       index: 3,
@@ -547,7 +943,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                       },
                     ),
                   ],
-                  if (d.singles.isNotEmpty) ...[
+                  if (d.shelves.isEmpty && d.singles.isNotEmpty) ...[
                     const SizedBox(height: 22),
                     WaveEntrance(
                       index: 4,
@@ -569,7 +965,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                           child: _ArtistAlbumCard(
                             artworkUrl: a.artworkUrl,
                             title: a.name,
-                            subtitle: '',
+                            subtitle: a.subtitle,
                             width: 118,
                             artSize: 118,
                             titleSize: 12,
@@ -587,7 +983,8 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                       },
                     ),
                   ],
-                  if (d.related.isNotEmpty) ...[
+                  if (d.related.isNotEmpty &&
+                      !d.shelves.any(_isArtistShelf)) ...[
                     const SizedBox(height: 22),
                     WaveEntrance(
                       index: 5,
@@ -596,44 +993,15 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
                           style: WaveType.sectionTitle),
                     ),
                     const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final r in d.related)
-                          LWTooltip(
-                            message: 'Open $r',
-                            child: Focus(
-                              canRequestFocus: true,
-                              onKeyEvent: (node, event) {
-                                if (event is KeyDownEvent &&
-                                    (event.logicalKey ==
-                                            LogicalKeyboardKey
-                                                .enter ||
-                                        event.logicalKey ==
-                                            LogicalKeyboardKey
-                                                .space)) {
-                                  waveOpen(
-                                      context,
-                                      '/artist/${Uri.encodeComponent(r)}');
-                                  return KeyEventResult.handled;
-                                }
-                                return KeyEventResult.ignored;
-                              },
-                              child: MouseRegion(
-                                cursor:
-                                    SystemMouseCursors.click,
-                                child: GestureDetector(
-                                  onTap: () => waveOpen(
-                                      context,
-                                      '/artist/${Uri.encodeComponent(r)}'),
-                                  child: WaveChip(label: r),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+                    _circleRail([
+                      for (final r in d.related)
+                        _ArtistCircle(
+                          name: r,
+                          artworkUrl: '',
+                          onTap: () => waveOpen(
+                              context, '/artist/${Uri.encodeComponent(r)}'),
+                        ),
+                    ]),
                   ],
                 ],
               ),
@@ -641,6 +1009,71 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
           ],
           ),
         );
+  }
+}
+
+bool _isArtistShelf(YtHomeShelf s) =>
+    s.entities.isNotEmpty &&
+    s.entities.every((e) => e.kind == YouTubeEntityKind.artist);
+
+/// Related artist: round portrait + name, like YouTube Music.
+class _ArtistCircle extends StatefulWidget {
+  final String name;
+  final String artworkUrl;
+  final VoidCallback onTap;
+  const _ArtistCircle({
+    required this.name,
+    required this.artworkUrl,
+    required this.onTap,
+  });
+
+  @override
+  State<_ArtistCircle> createState() => _ArtistCircleState();
+}
+
+class _ArtistCircleState extends State<_ArtistCircle> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LWTooltip(
+      message: widget.name,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: SizedBox(
+            width: 124,
+            child: AnimatedScale(
+              scale: _hover ? 1.04 : 1.0,
+              duration: const Duration(milliseconds: 140),
+              child: Column(
+                children: [
+                  WaveArtwork.circle(
+                    url: widget.artworkUrl,
+                    size: 112,
+                    label: widget.name,
+                    title: widget.name,
+                    artist: widget.name,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.name,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.trackTitle.copyWith(fontSize: 12.5),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -803,6 +1236,24 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 6),
+                    Text(widget.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: WaveType.trackTitle.copyWith(
+                            fontSize: widget.titleSize,
+                            color: dark
+                                ? WaveColors.textPrimary
+                                : WaveColors.lightTextPrimary)),
+                    if (widget.subtitle.isNotEmpty)
+                      Text(widget.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.meta.copyWith(
+                              fontSize: 11,
+                              color: dark
+                                  ? WaveColors.textSecondary
+                                  : WaveColors.lightTextSecondary)),
                   ],
                 ),
               ),

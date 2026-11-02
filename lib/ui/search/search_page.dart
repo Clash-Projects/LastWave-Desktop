@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,13 +13,18 @@ import '../theme/wave_icons.dart';
 import '../../app/track_actions.dart'
     show formatDuration, playGenerated;
 import '../../core/audio/stream_models.dart';
+import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart';
+import '../../features/lastfm/home_repository.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/podcasts/podcast_models.dart';
+import '../../features/podcasts/podcast_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../components/desktop_table.dart';
 import '../components/states.dart';
+import '../podcasts/podcasts_page.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -52,6 +58,16 @@ final waveSearchPlaylistsProvider = FutureProvider.autoDispose.family<
     List<SearchResultItem>, String>((ref, q) {
   if (q.trim().isEmpty) return Future.value(const <SearchResultItem>[]);
   return ref.watch(searchRepositoryProvider).search(SearchTab.playlists, q);
+});
+
+/// Last.fm people. [enabled] stays false for ordinary song queries so a
+/// music search does not spend a user.getinfo / user.search call.
+final waveSearchUsersProvider = FutureProvider.autoDispose.family<
+    List<SearchResultItem>, ({String q, bool enabled})>((ref, arg) {
+  if (!arg.enabled || arg.q.trim().length < 2) {
+    return Future.value(const <SearchResultItem>[]);
+  }
+  return ref.watch(searchRepositoryProvider).search(SearchTab.users, arg.q);
 });
 final waveSuggestionsProvider = FutureProvider.autoDispose
     .family<List<SearchSuggestion>, String>((ref, q) async {
@@ -111,6 +127,7 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
   String _query = '';
   String _suggestQuery = '';
   String _submitted = '';
+  SearchTab? _filter;
   int _suggestIndex = -1;
   bool _suggestDismissed = false;
 
@@ -249,7 +266,7 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
                 controller: _controller,
                 focusNode: _focus,
                 autofocus: true,
-                placeholder: 'Songs, artists, albums…',
+                placeholder: 'Songs, artists, albums, users…',
                 prefix: Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: Icon(WaveIcons.search,
@@ -321,8 +338,13 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
               _submit(q);
             }),
           ] else ...[
-            const SizedBox(height: 20),
-            _CombinedResults(query: _submitted),
+            const SizedBox(height: 16),
+            _ResultFilters(
+              selected: _filter,
+              onSelected: (tab) => setState(() => _filter = tab),
+            ),
+            const SizedBox(height: 16),
+            _CombinedResults(query: _submitted, filter: _filter),
           ],
         ],
       ),
@@ -623,8 +645,22 @@ class _BrowseCategories extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final charts =
-        ref.watch(feedProvider).valueOrNull?.charts ?? const <GeneratedTrack>[];
+    final feed = ref.watch(feedProvider).valueOrNull;
+    // Distinct cover pool across every shelf; each tile slowly cycles
+    // through it, so the grid keeps changing over time.
+    final pool = <String>{
+      if (feed != null)
+        for (final list in [
+          feed.charts,
+          feed.quickPicks,
+          feed.heavyRotation,
+          feed.freshFinds,
+          feed.jumpBackIn,
+          feed.becauseYouListened,
+        ])
+          for (final t in list)
+            if (t.artworkUrl.isNotEmpty) t.artworkUrl,
+    }.toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -652,9 +688,8 @@ class _BrowseCategories extends ConsumerWidget {
                   child: _BrowseTile(
                     name: _browseCategories[i].name,
                     tint: _browseCategories[i].tint,
-                    artworkUrl: charts.isEmpty
-                        ? ''
-                        : charts[i % charts.length].artworkUrl,
+                    pool: pool,
+                    startIndex: i * 3,
                     onTap: () => onOpen(_browseCategories[i].query),
                   ),
                 ),
@@ -669,12 +704,14 @@ class _BrowseCategories extends ConsumerWidget {
 class _BrowseTile extends StatefulWidget {
   final String name;
   final Color tint;
-  final String artworkUrl;
+  final List<String> pool;
+  final int startIndex;
   final VoidCallback onTap;
   const _BrowseTile({
     required this.name,
     required this.tint,
-    required this.artworkUrl,
+    required this.pool,
+    required this.startIndex,
     required this.onTap,
   });
   @override
@@ -683,6 +720,34 @@ class _BrowseTile extends StatefulWidget {
 
 class _BrowseTileState extends State<_BrowseTile> {
   bool _hover = false;
+  int _step = 0;
+  Timer? _timer;
+  Timer? _start;
+
+  @override
+  void initState() {
+    super.initState();
+    // Staggered start so tiles change one after another, not together.
+    _start = Timer(Duration(milliseconds: 1200 + (widget.startIndex % 15) * 700),
+        () {
+      if (!mounted) return;
+      _timer = Timer.periodic(const Duration(seconds: 10), (_) {
+        if (mounted && widget.pool.length > 1) setState(() => _step++);
+      });
+      if (widget.pool.length > 1) setState(() => _step++);
+    });
+  }
+
+  @override
+  void dispose() {
+    _start?.cancel();
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String get _url => widget.pool.isEmpty
+      ? ''
+      : widget.pool[(widget.startIndex + _step * 5) % widget.pool.length];
 
   @override
   Widget build(BuildContext context) {
@@ -702,42 +767,43 @@ class _BrowseTileState extends State<_BrowseTile> {
               fit: StackFit.expand,
               children: [
                 ColoredBox(color: widget.tint),
+                // Cover as a translucent background, crossfading to the
+                // next one every few seconds.
+                if (_url.isNotEmpty)
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 1400),
+                    child: Opacity(
+                      key: ValueKey(_url),
+                      opacity: 0.5,
+                      child: SizedBox.expand(
+                        child: CachedNetworkImage(
+                          imageUrl: _url,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 400,
+                          fadeInDuration: Duration.zero,
+                          errorWidget: (_, _, _) => const SizedBox.shrink(),
+                        ),
+                      ),
+                    ),
+                  ),
+                // Tint merges the image into the tile; deepens toward
+                // the label so the name stays readable.
                 DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        widget.tint,
-                        Color.lerp(widget.tint, Colors.black, 0.35)!,
+                        widget.tint.withValues(alpha: 0.45),
+                        Color.lerp(widget.tint, Colors.black, 0.55)!
+                            .withValues(alpha: 0.80),
                       ],
                     ),
                   ),
                 ),
-                if (widget.artworkUrl.isNotEmpty)
-                  Positioned(
-                    right: -18,
-                    bottom: -22,
-                    child: Transform.rotate(
-                      angle: 0.22,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(WaveRadius.artwork),
-                          boxShadow: WaveElevation.lift(waveIsDark(context)),
-                        ),
-                        child: WaveArtwork(
-                          url: widget.artworkUrl,
-                          size: 92,
-                          radius: WaveRadius.artwork,
-                          title: widget.name,
-                        ),
-                      ),
-                    ),
-                  ),
                 Positioned(
                   left: 12,
-                  right: 56,
+                  right: 12,
                   bottom: 12,
                   child: Text(
                     widget.name,
@@ -759,9 +825,40 @@ class _BrowseTileState extends State<_BrowseTile> {
   }
 }
 
+class _ResultFilters extends StatelessWidget {
+  final SearchTab? selected;
+  final ValueChanged<SearchTab?> onSelected;
+  const _ResultFilters({required this.selected, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    const items = <(SearchTab?, String)>[
+      (null, 'All'),
+      (SearchTab.tracks, 'Songs'),
+      (SearchTab.albums, 'Albums'),
+      (SearchTab.artists, 'Artists'),
+      (SearchTab.playlists, 'Playlists'),
+      (SearchTab.users, 'Users'),
+    ];
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final item in items)
+          ToggleButton(
+            checked: selected == item.$1,
+            onChanged: (_) => onSelected(item.$1),
+            child: Text(item.$2),
+          ),
+      ],
+    );
+  }
+}
+
 class _CombinedResults extends ConsumerStatefulWidget {
   final String query;
-  const _CombinedResults({required this.query});
+  final SearchTab? filter;
+  const _CombinedResults({required this.query, this.filter});
   @override
   ConsumerState<_CombinedResults> createState() =>
       _CombinedResultsState();
@@ -774,6 +871,10 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
   List<SearchResultItem> _albums = const [];
   List<SearchResultItem> _artists = const [];
   List<SearchResultItem> _playlists = const [];
+  List<SearchResultItem> _users = const [];
+
+  bool _show(SearchTab tab) =>
+      widget.filter == null || widget.filter == tab;
 
   Future<void> _playSongs(
       WidgetRef ref, BuildContext context, int start) async {
@@ -832,8 +933,15 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
       case SearchTab.tracks:
         if (hero.videoId.isNotEmpty) _playSingle(ref, context, hero);
       case SearchTab.users:
-        break;
+        _openUser(hero);
     }
+  }
+
+  void _openUser(SearchResultItem user) {
+    final name = user.entityId.isNotEmpty ? user.entityId : user.name;
+    if (name.isEmpty) return;
+    ref.read(viewingProfileProvider.notifier).view(name);
+    context.go('/profile');
   }
 
   void _openPlaylist(SearchResultItem item) {
@@ -859,6 +967,27 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
         ref.watch(waveSearchArtistsProvider(widget.query));
     final playlistsAsync =
         ref.watch(waveSearchPlaylistsProvider(widget.query));
+    final showSongs = _show(SearchTab.tracks);
+    final showAlbums = _show(SearchTab.albums);
+    final showArtists = _show(SearchTab.artists);
+    final showPlaylists = _show(SearchTab.playlists);
+    final showUsers = widget.filter == SearchTab.users ||
+        (widget.filter == null &&
+            ref
+                .read(searchRepositoryProvider)
+                .looksLikeLastFmUser(widget.query));
+    final usersAsync = ref.watch(waveSearchUsersProvider((
+      q: widget.query,
+      enabled: showUsers,
+    )));
+    final lastFmReady = ref.watch(prefsProvider).lastFmApiKey.isNotEmpty;
+    final podcastsOn = ref.watch(prefsProvider).podcastsEnabled &&
+        widget.query.trim().isNotEmpty &&
+        widget.filter == null;
+    final podcastAsync = ref.watch(podcastSearchProvider(widget.query));
+    final episodes = podcastsOn
+        ? (podcastAsync.valueOrNull ?? const <PodcastEpisode>[])
+        : const <PodcastEpisode>[];
 
     if (songsAsync.hasValue) {
       _songs = songsAsync.value ?? _songs;
@@ -872,29 +1001,55 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
     if (playlistsAsync.hasValue) {
       _playlists = playlistsAsync.value ?? _playlists;
     }
+    if (usersAsync.hasValue) {
+      _users = usersAsync.value ?? _users;
+    }
 
-    final anyLoading = songsAsync.isLoading ||
-        albumsAsync.isLoading ||
-        artistsAsync.isLoading ||
-        playlistsAsync.isLoading;
-    final allEmpty = _songs.isEmpty &&
-        _albums.isEmpty &&
-        _artists.isEmpty &&
-        _playlists.isEmpty;
+    final anyLoading = (showSongs && songsAsync.isLoading) ||
+        (showAlbums && albumsAsync.isLoading) ||
+        (showArtists && artistsAsync.isLoading) ||
+        (showPlaylists && playlistsAsync.isLoading) ||
+        (showUsers && usersAsync.isLoading) ||
+        (podcastsOn && podcastAsync.isLoading);
+    final allEmpty = (!showSongs || _songs.isEmpty) &&
+        (!showAlbums || _albums.isEmpty) &&
+        (!showArtists || _artists.isEmpty) &&
+        (!showPlaylists || _playlists.isEmpty) &&
+        (!showUsers || _users.isEmpty) &&
+        episodes.isEmpty;
+
+    if (widget.filter == SearchTab.users && !lastFmReady && _users.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 20),
+        child: WaveEmpty(
+          icon: WaveIcons.friends,
+          title: 'Connect Last.fm to search people',
+          subtitle: 'User search uses the Last.fm API key from Settings.',
+          actionLabel: 'Open Settings',
+          onAction: () => context.go('/settings?section=lastfm'),
+        ),
+      );
+    }
 
     if (allEmpty && !anyLoading) {
-      final anyError = songsAsync.hasError ||
-          albumsAsync.hasError ||
-          artistsAsync.hasError ||
-          playlistsAsync.hasError;
+      final anyError = (showSongs && songsAsync.hasError) ||
+          (showAlbums && albumsAsync.hasError) ||
+          (showArtists && artistsAsync.hasError) ||
+          (showPlaylists && playlistsAsync.hasError) ||
+          (showUsers && usersAsync.hasError);
+      final usersOnly = widget.filter == SearchTab.users;
       return Padding(
         padding: const EdgeInsets.only(top: 20),
         child: WaveEmpty(
           icon: anyError ? FluentIcons.error : WaveIcons.search,
-          title: anyError ? 'Search failed' : 'No results',
+          title: anyError
+              ? 'Search failed'
+              : (usersOnly ? 'No users' : 'No results'),
           subtitle: anyError
               ? 'Check your connection and try again.'
-              : 'Try a different artist, album or track.',
+              : (usersOnly
+                  ? 'No Last.fm users match that name.'
+                  : 'Try a different artist, album or track.'),
         ),
       );
     }
@@ -917,9 +1072,54 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
       child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_songs.isNotEmpty ||
+        if (showUsers) ...[
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              label: 'Users',
+              loading: lastFmReady && usersAsync.isLoading && _users.isEmpty,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (!lastFmReady)
+            Text(
+              'Connect Last.fm in Settings to search people.',
+              style: WaveType.meta.copyWith(
+                color: waveTextSecondary(context),
+              ),
+            )
+          else if (_users.isEmpty && usersAsync.isLoading)
+            const _SkeletonRows(count: 3)
+          else if (_users.isEmpty)
+            Text(
+              'No matching Last.fm users.',
+              style: WaveType.meta.copyWith(
+                color: waveTextSecondary(context),
+              ),
+            )
+          else
+            for (final user in _users.take(8))
+              ListTile(
+                leading: WaveArtwork.circle(
+                  url: user.artworkUrl,
+                  size: 36,
+                  label: user.name,
+                  title: user.name,
+                  artist: user.name,
+                ),
+                title: Text(user.name),
+                subtitle: Text(
+                  user.subtitle.isEmpty ? 'Last.fm' : user.subtitle,
+                ),
+                onPressed: () => _openUser(user),
+              ),
+          const SizedBox(height: 16),
+        ],
+        if (widget.filter == null &&
+            (_songs.isNotEmpty ||
             _artists.isNotEmpty ||
-            _albums.isNotEmpty) ...[
+            _albums.isNotEmpty)) ...[
           WaveEntrance(
             index: slot(),
             rise: 8,
@@ -948,7 +1148,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
           const SizedBox(height: 24),
         ],
         // Songs — canonical desktop table (5 rows, shrink-wrapped).
-        if (_songs.isNotEmpty || songsAsync.isLoading) ...[
+        if (showSongs && (_songs.isNotEmpty || songsAsync.isLoading)) ...[
           WaveEntrance(
             index: slot(),
             rise: 8,
@@ -961,11 +1161,13 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
           else
             _SongsTable(
               songs: _songs,
+              // "All" shows the best five; picking Songs shows everything.
+              limit: widget.filter == null ? 5 : null,
               onPlay: (i) => _playSongs(ref, context, i),
             ),
           const SizedBox(height: 24),
         ],
-        if (_albums.isNotEmpty || albumsAsync.isLoading) ...[
+        if (showAlbums && (_albums.isNotEmpty || albumsAsync.isLoading)) ...[
           WaveEntrance(
             index: slot(),
             rise: 8,
@@ -981,7 +1183,9 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               height: 178,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: rankedAlbums.take(8).length,
+                itemCount: rankedAlbums
+                    .take(widget.filter == null ? 8 : 1000)
+                    .length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(width: 12),
                 itemBuilder: (context, i) {
@@ -1017,7 +1221,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
             ),
           const SizedBox(height: 24),
         ],
-        if (_artists.isNotEmpty || artistsAsync.isLoading) ...[
+        if (showArtists && (_artists.isNotEmpty || artistsAsync.isLoading)) ...[
           WaveEntrance(
             index: slot(),
             rise: 8,
@@ -1034,7 +1238,9 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               height: 158,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: _artists.take(8).length,
+                itemCount: _artists
+                    .take(widget.filter == null ? 8 : 1000)
+                    .length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(width: 16),
                 itemBuilder: (context, i) {
@@ -1075,7 +1281,8 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
             ),
           const SizedBox(height: 24),
         ],
-        if (_playlists.isNotEmpty || playlistsAsync.isLoading) ...[
+        if (showPlaylists &&
+            (_playlists.isNotEmpty || playlistsAsync.isLoading)) ...[
           WaveEntrance(
             index: slot(),
             rise: 8,
@@ -1091,7 +1298,9 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               height: 178,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: rankedPlaylists.take(8).length,
+                itemCount: rankedPlaylists
+                    .take(widget.filter == null ? 8 : 1000)
+                    .length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(width: 12),
                 itemBuilder: (context, i) {
@@ -1110,6 +1319,33 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
                 },
               ),
             ),
+        ],
+        if (podcastsOn &&
+            (episodes.isNotEmpty || podcastAsync.isLoading)) ...[
+          const SizedBox(height: 24),
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              label: 'Episodes',
+              loading: podcastAsync.isLoading && episodes.isEmpty,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (episodes.isEmpty)
+            const _SkeletonRows(count: 3)
+          else
+            for (var i = 0; i < episodes.length && i < 8; i++)
+              PodcastEpisodeRow(
+                episode: episodes[i],
+                index: i,
+                onPlay: () => playPodcastEpisodes(
+                  ref,
+                  context,
+                  episodes[i],
+                  queue: episodes,
+                ),
+              ),
         ],
       ],
       ),
@@ -1360,8 +1596,13 @@ class _TopResult extends StatelessWidget {
 
 class _SongsTable extends ConsumerWidget {
   final List<SearchResultItem> songs;
+  final int? limit;
   final void Function(int index) onPlay;
-  const _SongsTable({required this.songs, required this.onPlay});
+  const _SongsTable({
+    required this.songs,
+    required this.onPlay,
+    this.limit,
+  });
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final playingKey = ref.watch(
@@ -1370,7 +1611,7 @@ class _SongsTable extends ConsumerWidget {
     final isPlaying = ref.watch(
       playbackServiceProvider.select((s) => s.isPlaying),
     );
-    final shown = songs.take(5).toList();
+    final shown = limit == null ? songs : songs.take(limit!).toList();
     String keyOf(SearchResultItem e) =>
         '${e.name.toLowerCase()}|${e.artist.toLowerCase()}';
     return WaveDesktopTable<SearchResultItem>(

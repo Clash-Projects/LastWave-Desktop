@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:palette_generator/palette_generator.dart';
 
@@ -122,8 +123,8 @@ class _StageScrim extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final b = boost.clamp(0.0, 1.0);
-    final topAlpha = (isDark ? 0.28 : 0.34) + b * 0.25;
-    final bottomAlpha = (isDark ? 0.54 : 0.60) + b * 0.28;
+    final topAlpha = (isDark ? 0.06 : 0.16) + b * 0.28;
+    final bottomAlpha = (isDark ? 0.34 : 0.40) + b * 0.30;
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -294,7 +295,7 @@ Color _pickDistinct(
     for (final other in already) {
       nearest = math.min(nearest, _colorDistance(color, other));
     }
-    final score = nearest + (preferSat ? hsl.saturation * 0.35 : 0);
+    final score = nearest + (preferSat ? hsl.saturation * 0.65 : 0);
     if (score > bestScore) {
       bestScore = score;
       best = color;
@@ -313,13 +314,35 @@ ArtworkPalette _paletteFromRegions({
   final leftPool = _poolFrom(left ?? full);
   final rightPool = _poolFrom(right ?? full);
   final bottomPool = _poolFrom(bottom ?? full);
-  if (pool.isEmpty) return ArtworkPalette.fallback;
+  if (pool.isEmpty &&
+      leftPool.isEmpty &&
+      rightPool.isEmpty &&
+      bottomPool.isEmpty) {
+    return ArtworkPalette.fallback;
+  }
+
+  // Merge regional pools with the full cover pool so small regional accents
+  // (e.g. a bright label or corner tape on an otherwise monochrome cover)
+  // are available when picking vibrant and primary hues.
+  final allPool = <Color>[...pool];
+  for (final regional in [leftPool, rightPool, bottomPool]) {
+    for (final c in regional) {
+      var duplicate = false;
+      for (final existing in allPool) {
+        if (_colorDistance(existing, c) < 0.06) {
+          duplicate = true;
+          break;
+        }
+      }
+      if (!duplicate) allPool.add(c);
+    }
+  }
 
   final shadow = _nudgeColor(
     _pickDistinct(
-      leftPool.isEmpty ? pool : leftPool,
+      leftPool.isEmpty ? allPool : leftPool,
       const [],
-      fallback: pool.first,
+      fallback: allPool.first,
       maxLight: 0.34,
     ),
     sat: 0.95,
@@ -328,34 +351,39 @@ ArtworkPalette _paletteFromRegions({
   );
   final cream = _toCream(
     _pickDistinct(
-      rightPool.isEmpty ? pool : rightPool,
+      rightPool.isEmpty ? allPool : rightPool,
       [shadow],
-      fallback: pool.last,
+      fallback: allPool.last,
       minLight: 0.28,
     ),
   );
   final vibrant = _nudgeColor(
     _pickDistinct(
-      pool,
+      allPool,
       [shadow, cream],
-      fallback: pool.first,
+      fallback: allPool.first,
       preferSat: true,
-      minLight: 0.22,
-      maxLight: 0.72,
+      minLight: 0.18,
+      maxLight: 0.78,
     ),
-    sat: 1.12,
+    sat: 1.24,
     minL: 0.30,
-    maxL: 0.58,
+    maxL: 0.60,
   );
   final primary = _nudgeColor(
-    _pickDistinct(pool, [shadow, cream, vibrant], fallback: vibrant),
-    sat: 0.92,
-    minL: 0.18,
-    maxL: 0.46,
+    _pickDistinct(
+      allPool,
+      [shadow, cream, vibrant],
+      fallback: vibrant,
+      preferSat: true,
+    ),
+    sat: 1.05,
+    minL: 0.20,
+    maxL: 0.48,
   );
   final light = _toGold(
     _pickDistinct(
-      bottomPool.isEmpty ? pool : bottomPool,
+      bottomPool.isEmpty ? allPool : bottomPool,
       [shadow, cream, vibrant, primary],
       fallback: vibrant,
       minLight: 0.28,
@@ -363,7 +391,7 @@ ArtworkPalette _paletteFromRegions({
   );
   final dark = _nudgeColor(
     _pickDistinct(
-      leftPool.isEmpty ? pool : leftPool,
+      leftPool.isEmpty ? allPool : leftPool,
       [shadow, cream, vibrant, primary, light],
       fallback: shadow,
       maxLight: 0.40,
@@ -782,43 +810,95 @@ final artworkSeedProvider =
   return pal.primary;
 });
 
-/// Pre-blurred, small aura texture. Blur is baked once per artwork URL;
-/// the ambient stage paints it statically (no rotation, no vsync ticks).
-final auraImageProvider =
-    FutureProvider.autoDispose.family<ui.Image, String>((ref, url) async {
+/// Pre-baked album-cover visualizer textures:
+/// - [base]: Full 256×256 saturation-boosted & blurred cover texture.
+/// - [sprite]: The same blurred cover texture masked with a radial alpha
+///   falloff (1.0 at center -> 0.0 at edge) so multiple rotating & orbiting
+///   layers can be composited with zero rectangular edges or per-frame shaders.
+class _AuraTextures {
+  final ui.Image base;
+  final ui.Image sprite;
+  const _AuraTextures({required this.base, required this.sprite});
+}
+
+final auraTexturesProvider =
+    FutureProvider.autoDispose.family<_AuraTextures, String>((ref, url) async {
   if (url.isEmpty) throw StateError('empty artwork');
   final src = await _decodeArtwork(url);
   const out = 256;
-  final recorder = ui.PictureRecorder();
-  final canvas = Canvas(recorder);
-  final paint = Paint()
+  const rect = Rect.fromLTWH(0, 0, 256, 256);
+
+  // 1. Bake full-cover saturated Gaussian blur texture.
+  final baseRecorder = ui.PictureRecorder();
+  final baseCanvas = Canvas(baseRecorder);
+  final blurPaint = Paint()
     ..filterQuality = FilterQuality.low
     ..colorFilter = const ColorFilter.matrix(<double>[
-      1.467, -0.288, -0.029, 0, 0,
-      -0.086, 1.265, -0.029, 0, 0,
-      -0.086, -0.288, 1.523, 0, 0,
+      1.58, -0.34, -0.06, 0, 0,
+      -0.11, 1.36, -0.06, 0, 0,
+      -0.11, -0.34, 1.64, 0, 0,
       0, 0, 0, 1, 0,
     ])
     ..imageFilter = ui.ImageFilter.blur(
-      sigmaX: 22,
-      sigmaY: 22,
+      sigmaX: 26,
+      sigmaY: 26,
       tileMode: TileMode.mirror,
     );
-  canvas.drawImageRect(
+  baseCanvas.drawImageRect(
     src,
     Rect.fromLTWH(0, 0, src.width.toDouble(), src.height.toDouble()),
-    const Rect.fromLTWH(0, 0, 256, 256),
-    paint,
+    rect,
+    blurPaint,
   );
   src.dispose();
-  final picture = recorder.endRecording();
+  final basePic = baseRecorder.endRecording();
+  late final ui.Image baseImg;
   try {
-    final baked = await picture.toImage(out, out);
-    ref.onDispose(baked.dispose);
-    return baked;
+    baseImg = await basePic.toImage(out, out);
   } finally {
-    picture.dispose();
+    basePic.dispose();
   }
+
+  // 2. Bake radially-feathered sprite texture from `baseImg` so orbiting/
+  //    counter-rotating layers have soft circular falloff with zero edges.
+  final spriteRecorder = ui.PictureRecorder();
+  final spriteCanvas = Canvas(spriteRecorder);
+  spriteCanvas.drawImage(baseImg, Offset.zero, Paint());
+  final maskPaint = Paint()
+    ..blendMode = BlendMode.dstIn
+    ..shader = const RadialGradient(
+      colors: [
+        Color(0xFFFFFFFF),
+        Color(0xE0FFFFFF),
+        Color(0x66FFFFFF),
+        Color(0x00FFFFFF),
+      ],
+      stops: [0.0, 0.42, 0.74, 1.0],
+    ).createShader(rect);
+  spriteCanvas.drawRect(rect, maskPaint);
+  final spritePic = spriteRecorder.endRecording();
+  late final ui.Image spriteImg;
+  try {
+    spriteImg = await spritePic.toImage(out, out);
+  } catch (_) {
+    baseImg.dispose();
+    rethrow;
+  } finally {
+    spritePic.dispose();
+  }
+
+  ref.onDispose(() {
+    baseImg.dispose();
+    spriteImg.dispose();
+  });
+  return _AuraTextures(base: baseImg, sprite: spriteImg);
+});
+
+/// Pre-blurred, small aura texture exposed for compatibility.
+final auraImageProvider =
+    FutureProvider.autoDispose.family<ui.Image, String>((ref, url) async {
+  final textures = await ref.watch(auraTexturesProvider(url).future);
+  return textures.base;
 });
 
 /// Static ambient background (no animation).
@@ -903,7 +983,10 @@ class WaveAmbientMesh extends ConsumerWidget {
     if (cinematic && artworkUrl.isNotEmpty) {
       content = Stack(
         children: [
-          _AppleArtworkAura(artworkUrl: artworkUrl),
+          _AppleArtworkAura(
+            artworkUrl: artworkUrl,
+            palette: palette,
+          ),
           // Contrast guarantee (shared _StageScrim): the aura
           // paints the cover's real colors at high opacity, so a
           // light cover yields a light stage and theme text
@@ -950,41 +1033,107 @@ class WaveAmbientMesh extends ConsumerWidget {
   }
 }
 
-/// Apple Music / monochrome artwork aura: a baked blur texture painted
-/// once, statically. No rotation, no shader, no vsync ticks.
+/// Apple Music-inspired album cover background visualizer:
+/// Composites multiple slowly counter-rotating and orbiting blurred layers of
+/// the album cover with regional palette blooms.
 class _AppleArtworkAura extends ConsumerWidget {
   final String artworkUrl;
+  final ArtworkPalette palette;
 
-  const _AppleArtworkAura({required this.artworkUrl});
+  const _AppleArtworkAura({
+    required this.artworkUrl,
+    required this.palette,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final asyncImg = ref.watch(auraImageProvider(artworkUrl));
-    return asyncImg.when(
+    final asyncTextures = ref.watch(auraTexturesProvider(artworkUrl));
+    return asyncTextures.when(
       loading: () => const ColoredBox(color: Color(0xFF0B0D11)),
       error: (_, _) => const ColoredBox(color: Color(0xFF0B0D11)),
-      data: (image) => _AuraLayers(image: image),
+      data: (textures) => _AuraLayers(
+        textures: textures,
+        palette: palette,
+      ),
     );
   }
 }
 
-/// Static aura layer.
+/// Multi-layer album-cover visualizer rendered at 0.5x canvas resolution and
+/// upscaled via [FittedBox].
 ///
-/// Paints the baked texture at half resolution and lets [FittedBox] upscale
-/// it: the aura is a blur wash, so painting at 0.5x is visually identical
-/// while the cached layer holds a quarter of the pixels. Full-window retained
-/// layers are the dominant RSS cost on Windows ANGLE.
-///
-/// Deliberately a plain image draw, not an `ImageShader` with a tile mode:
-/// the shader (plus the `ImageShader` object it had to keep alive per size)
-/// was the most expensive sampling path in the stage, so any future animation
-/// that lands a transform on this subtree paid for it per frame. A single
-/// `drawImageRect` of an already-blurred texture is the cheap path, and the
-/// 2.3x zoom is just a smaller source rect (see [_AuraPainter]).
-class _AuraLayers extends StatelessWidget {
-  final ui.Image image;
+/// Uses pre-baked 256×256 blurred cover textures ([_AuraTextures.base] and
+/// radially-feathered [_AuraTextures.sprite]) so each frame is just 4 matrix-
+/// transformed `drawImageRect` calls plus 3 soft palette radial blooms — no
+/// per-frame blur filters or `saveLayer` allocations.
+class _AuraLayers extends StatefulWidget {
+  final _AuraTextures textures;
+  final ArtworkPalette palette;
 
-  const _AuraLayers({required this.image});
+  const _AuraLayers({
+    required this.textures,
+    required this.palette,
+  });
+
+  @override
+  State<_AuraLayers> createState() => _AuraLayersState();
+}
+
+class _AuraLayersState extends State<_AuraLayers>
+    with SingleTickerProviderStateMixin {
+  Ticker? _ticker;
+  double _phase = 0.0;
+  Duration _lastTick = Duration.zero;
+
+  bool _shouldAnimate(BuildContext context) {
+    final isTest =
+        WidgetsBinding.instance.runtimeType.toString().contains('Test');
+    if (isTest) return false;
+    final disableAnimations =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (disableAnimations) return false;
+    return WaveHazeScope.blurEnabled(context);
+  }
+
+  void _syncTicker(bool animate) {
+    if (animate) {
+      _ticker ??= createTicker(_onTick);
+      if (!_ticker!.isActive) {
+        _lastTick = Duration.zero;
+        _ticker!.start();
+      }
+    } else {
+      _ticker?.stop();
+    }
+  }
+
+  void _onTick(Duration elapsed) {
+    // Throttle to ~30fps (33ms) since the blurred aura moves at a meditative
+    // pace (~45s per full revolution).
+    if (_lastTick != Duration.zero &&
+        (elapsed - _lastTick).inMilliseconds < 33) {
+      return;
+    }
+    final dtMs = _lastTick == Duration.zero
+        ? 33
+        : (elapsed - _lastTick).inMilliseconds.clamp(1, 200);
+    _lastTick = elapsed;
+    setState(() {
+      _phase = (_phase + (dtMs / 1000.0) * 0.14) % (math.pi * 200);
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncTicker(_shouldAnimate(context));
+  }
+
+  @override
+  void dispose() {
+    _ticker?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1003,8 +1152,13 @@ class _AuraLayers extends StatelessWidget {
               child: RepaintBoundary(
                 child: CustomPaint(
                   isComplex: false,
-                  willChange: false,
-                  painter: _AuraPainter(image: image, canvasSize: half),
+                  willChange: _ticker?.isActive ?? false,
+                  painter: _AuraPainter(
+                    textures: widget.textures,
+                    palette: widget.palette,
+                    canvasSize: half,
+                    phase: _phase,
+                  ),
                 ),
               ),
             ),
@@ -1016,60 +1170,176 @@ class _AuraLayers extends StatelessWidget {
 }
 
 class _AuraPainter extends CustomPainter {
-  final ui.Image image;
+  final _AuraTextures textures;
+  final ArtworkPalette palette;
   final Size canvasSize;
+  final double phase;
 
   _AuraPainter({
-    required this.image,
+    required this.textures,
+    required this.palette,
     required this.canvasSize,
+    required this.phase,
   });
 
-  /// Cover zoom: a tight crop reads as an abstract colour wash instead of a
-  /// second copy of the sleeve, and keeps bright covers from blowing the
-  /// stage out.
-  static const double _zoom = 2.3;
+  /// Alpha plus saturation in one matrix (1 = as baked, <1 = more muted).
+  static ColorFilter _alphaFilter(double alpha, [double saturation = 1.0]) {
+    final s = saturation;
+    final a = (1 - s) * 0.213;
+    final b = (1 - s) * 0.715;
+    final c = (1 - s) * 0.072;
+    return ColorFilter.matrix(<double>[
+      a + s, b, c, 0, 0, //
+      a, b + s, c, 0, 0, //
+      a, b, c + s, 0, 0, //
+      0, 0, 0, alpha, 0, //
+    ]);
+  }
+
+  void _drawRotatedTexture(
+    Canvas canvas,
+    ui.Image img, {
+    required Offset center,
+    required double diameter,
+    required double angle,
+    required double alpha,
+    double saturation = 1.0,
+  }) {
+    final src = Rect.fromLTWH(
+      0,
+      0,
+      img.width.toDouble(),
+      img.height.toDouble(),
+    );
+    final dst = Rect.fromCenter(
+      center: Offset.zero,
+      width: diameter,
+      height: diameter,
+    );
+    final paint = Paint()
+      ..isAntiAlias = true
+      ..filterQuality = FilterQuality.low
+      ..colorFilter = _alphaFilter(alpha, saturation);
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(angle);
+    canvas.drawImageRect(img, src, dst, paint);
+    canvas.restore();
+  }
+
+  void _drawPaletteBloom(
+    Canvas canvas,
+    Rect rect, {
+    required Offset center,
+    required double radius,
+    required Color color,
+    required double alpha,
+    BlendMode blendMode = BlendMode.srcOver,
+  }) {
+    final paint = Paint()
+      ..blendMode = blendMode
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: alpha.clamp(0.0, 1.0)),
+          color.withValues(alpha: (alpha * 0.45).clamp(0.0, 1.0)),
+          color.withValues(alpha: 0.0),
+        ],
+        stops: const [0.0, 0.48, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawRect(rect, paint);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-    final imageW = image.width.toDouble();
-    final imageH = image.height.toDouble();
-    if (imageW <= 0 || imageH <= 0) return;
+    final w = size.width;
+    final h = size.height;
+    final rect = Offset.zero & size;
+    final maxDim = math.max(w, h);
 
-    // Same framing the old shader sampled: cover-fit, zoomed [_zoom]x, starting
-    // at the cover's centre and running toward its bottom-right corner.
-    final pxPerImagePx = math.max(size.width, size.height) / imageW * _zoom;
-    final src = Rect.fromLTWH(
-      imageW / 2,
-      imageH / 2,
-      size.width / pxPerImagePx,
-      size.height / pxPerImagePx,
-    ).intersect(Rect.fromLTWH(0, 0, imageW, imageH));
-    if (src.isEmpty) return;
+    // Calm, tonal stage (Apple Music / Spotify style): one dominant hue of
+    // the cover, deep and low-contrast. No hot spots, no competing blobs —
+    // just a soft light source on a dark ground that fades out downward.
+    final tint = Color.lerp(palette.darkMuted, palette.primary, 0.55) ??
+        palette.primary;
+    final ground =
+        Color.lerp(const Color(0xFF05070B), tint, 0.50) ?? tint;
+    canvas.drawRect(rect, Paint()..color = ground);
 
-    final paint = Paint()
-      ..isAntiAlias = false
-      ..filterQuality = FilterQuality.low
-      // Wash, not wallpaper: this is the stage's colour, so it has to read as
-      // the cover's palette without turning into a second copy of the sleeve.
-      // 0.40 under the scrim photographed as "too dark"; 0.70 blew bright
-      // covers out into an overexposed double image.
-      //
-      // Opacity as an alpha matrix rather than `Paint.color`: image draws are
-      // allowed to ignore the paint colour (Impeller does), and this has to
-      // look identical on both backends.
-      ..colorFilter = const ColorFilter.matrix(<double>[
-        1, 0, 0, 0, 0, //
-        0, 1, 0, 0, 0, //
-        0, 0, 1, 0, 0, //
-        0, 0, 0, 0.52, 0, //
-      ]);
-    canvas.drawImageRect(image, src, Offset.zero & size, paint);
+    // Heavily blurred cover wash, muted and slow: carries the cover's real
+    // colour distribution without any visible shape.
+    _drawRotatedTexture(
+      canvas,
+      textures.base,
+      center: Offset(w * 0.50, h * 0.42),
+      diameter: maxDim * 2.3,
+      angle: phase * 0.10,
+      alpha: 0.62,
+      saturation: 0.72,
+    );
+    // One feathered sprite drifting very slowly gives the stage life.
+    _drawRotatedTexture(
+      canvas,
+      textures.sprite,
+      center: Offset(
+        w * (0.32 + 0.04 * math.cos(phase * 0.45)),
+        h * (0.36 + 0.04 * math.sin(phase * 0.40)),
+      ),
+      diameter: maxDim * 1.9,
+      angle: -phase * 0.20,
+      alpha: 0.38,
+      saturation: 0.80,
+    );
+
+    // Soft light source, upper left of centre (where the cover sits).
+    _drawPaletteBloom(
+      canvas,
+      rect,
+      center: Offset(w * 0.30, h * 0.30),
+      radius: maxDim * 0.85,
+      color: palette.primary,
+      alpha: 0.22,
+    );
+
+    // Depth: light at the top, falling away to near-black at the bottom.
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0x00000000),
+            Color(0x00000000),
+            Color(0x66000000),
+            Color(0xB3000000),
+          ],
+          stops: [0.0, 0.38, 0.72, 1.0],
+        ).createShader(rect),
+    );
+
+    // Gentle vignette so the edges settle into the page.
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const RadialGradient(
+          center: Alignment.center,
+          radius: 1.1,
+          colors: [
+            Color(0x00000000),
+            Color(0x00000000),
+            Color(0x4D000000),
+          ],
+          stops: [0.0, 0.62, 1.0],
+        ).createShader(rect),
+    );
   }
-
   @override
   bool shouldRepaint(covariant _AuraPainter old) {
-    return old.image != image || old.canvasSize != canvasSize;
+    return old.textures != textures ||
+        old.palette != palette ||
+        old.canvasSize != canvasSize ||
+        old.phase != phase;
   }
 }
 
@@ -1203,6 +1473,51 @@ class WaveAmbientBand extends StatelessWidget {
   }
 }
 
+/// Smoothstep on [0, 1] (clamped): zero slope at both ends, so gradients
+/// built from it have no visible start or stop line.
+double _smooth(double x) {
+  final t = x.clamp(0.0, 1.0);
+  return t * t * (3 - 2 * t);
+}
+
+/// Stretches a radial gradient horizontally about its own centre, turning
+/// the circle (radius = shortest side) into an ellipse across a wide band.
+class _StretchX extends GradientTransform {
+  final double sx;
+  final double cx;
+  const _StretchX(this.sx, this.cx);
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
+    final x = bounds.left + bounds.width * cx;
+    return Matrix4.identity()
+      ..translateByDouble(x, 0, 0, 1)
+      ..scaleByDouble(sx, 1, 1, 1)
+      ..translateByDouble(-x, 0, 0, 1);
+  }
+}
+
+/// One eased elliptical glow, centred at [at] (alignment in the band).
+Widget _glow(
+    Color color, double alpha, Alignment at, double radius, double stretch) {
+  const n = 14;
+  final ts = [for (var i = 0; i <= n; i++) i / n];
+  return DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: RadialGradient(
+        center: at,
+        radius: radius,
+        colors: [
+          for (final t in ts)
+            color.withValues(alpha: alpha * (1 - _smooth(t))),
+        ],
+        stops: ts,
+        transform: _StretchX(stretch, (at.x + 1) / 2),
+      ),
+    ),
+  );
+}
+
 /// Artwork-derived ambient wash for editorial headers and containers.
 class AmbientWash extends StatelessWidget {
   final String artworkUrl;
@@ -1254,32 +1569,61 @@ class AmbientWash extends StatelessWidget {
             ? (palette?.primary ?? ArtworkPalette.fallback.primary)
             : (palette?.cream ?? ArtworkPalette.fallback.cream);
         final a = ((dark ? 0.44 : 0.32) * strength).clamp(0.0, 0.92);
+        // One hue, not lead + tail: two glows in different colours read as
+        // two separate blobs. Tail only tints the lead.
+        final hue = Color.lerp(lead, tail, 0.3)!;
 
+        // Soft elliptical glows with an eased falloff, so there is no
+        // visible banding. Two masks take the wash to zero at the sides,
+        // top and foot: the band has no edge at all — it just lifts the
+        // header's own surface.
         return IgnorePointer(
           child: AnimatedOpacity(
             opacity: palette == null ? 0 : 1,
             duration: waveMotion(context, WaveMotion.slow),
             curve: WaveMotion.standard,
-            child: Container(
-              height: height,
-              decoration: BoxDecoration(
-                // Vertical fade, not a radial: a glow anchored above the
-                // box always has non-zero alpha where the header's top edge
-                // cuts the box, and that straight line of colour reads as
-                // the artwork being clipped. This is transparent at the top
-                // and at the foot, so the band has no edge at all — it just
-                // lifts the header's own surface.
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              // Side fade: without it the glow is cut flat at the band's
+              // left edge, right behind the portrait.
+              shaderCallback: (bounds) {
+                const n = 12;
+                final ts = [for (var i = 0; i <= n; i++) i / n];
+                return LinearGradient(
                   colors: [
-                    tail.withValues(alpha: 0.0),
-                    lead.withValues(alpha: a * 0.5),
-                    lead.withValues(alpha: a),
-                    tail.withValues(alpha: a * 0.28),
-                    tail.withValues(alpha: 0.0),
+                    for (final t in ts)
+                      Colors.white.withValues(
+                          alpha: _smooth(t / 0.16) *
+                              (1 - _smooth((t - 0.8) / 0.2))),
                   ],
-                  stops: const [0.0, 0.24, 0.5, 0.8, 1.0],
+                  stops: ts,
+                ).createShader(bounds);
+              },
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (bounds) {
+                  const n = 16;
+                  final ts = [for (var i = 0; i <= n; i++) i / n];
+                  return LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      for (final t in ts)
+                        Colors.white.withValues(
+                            alpha: _smooth(t / 0.3) *
+                                (1 - _smooth((t - 0.7) / 0.3))),
+                    ],
+                    stops: ts,
+                  ).createShader(bounds);
+                },
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Wide, faint fill so the band reads as one lit surface.
+                    _glow(hue, a * 0.38, const Alignment(0.0, 0.2), 1.3, 2.4),
+                    // Main glow, hugging the portrait and easing out right.
+                    _glow(hue, a * 1.15, const Alignment(-0.85, 0.1), 1.0, 3.0),
+                  ],
                 ),
               ),
             ),

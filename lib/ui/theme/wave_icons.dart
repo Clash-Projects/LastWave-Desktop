@@ -33,6 +33,8 @@ class WaveIcons {
   static const IconData settings = FluentIcons.settings;
   static const IconData history = FluentIcons.history;
   static const IconData mixes = FluentIcons.music_in_collection;
+  static const IconData podcasts = FluentIcons.headset;
+  static const IconData genres = FluentIcons.tag;
 
   // Transport
   static const IconData play = FluentIcons.play_solid;

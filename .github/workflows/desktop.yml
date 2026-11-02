@@ -475,7 +475,7 @@ jobs:
       - name: Compress macOS Bundle
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ditto -c -k --keepParent "build/macos/Build/Products/Release/lastwave_desktop.app" "lastwave_${VERSION}_macos-arm64.zip"
+          ditto -c -k --keepParent "build/macos/Build/Products/Release/LastWave.app" "lastwave_${VERSION}_macos-arm64.zip"
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4

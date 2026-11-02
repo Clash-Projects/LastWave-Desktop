@@ -184,6 +184,26 @@ class HomeRepository {
     );
   }
 
+  Future<int> fetchPeriodPlayCount({
+    String? viewingAs,
+    required int fromMillis,
+    required int toMillis,
+  }) async {
+    final user = _effectiveUser(viewingAs);
+    if (user == null) return 0;
+    final json = await _api.get({
+      'method': 'user.getrecenttracks',
+      'user': user,
+      'api_key': _apiKey,
+      'from': '${fromMillis ~/ 1000}',
+      'to': '${toMillis ~/ 1000}',
+      'limit': '1',
+      'page': '1',
+    });
+    final attributes = _asMap(_asMap(json['recenttracks'])['@attr']);
+    return int.tryParse(attributes['total']?.toString() ?? '') ?? 0;
+  }
+
   Future<List<HomeTrack>> fetchTopTracks({
     String? viewingAs,
     String period = '7day',

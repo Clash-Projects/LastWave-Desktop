@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../app/track_actions.dart';
 import '../../core/audio/artist_parser.dart';
@@ -222,16 +224,64 @@ List<WaveMenuEntry> waveTrackMenuItems({
     );
   }
   items.add(const WaveMenuSeparator());
+  final link = trackShareLink(track);
+  items.add(
+    WaveMenuAction(
+      leading: const Icon(FluentIcons.link, size: 15),
+      label: 'Copy link',
+      onPressed: link == null
+          ? null
+          : () => _copyText(context, link, 'Link copied'),
+    ),
+  );
+  items.add(
+    WaveMenuAction(
+      leading: const Icon(FluentIcons.copy, size: 15),
+      label: 'Copy title and artist',
+      onPressed: () => _copyText(
+        context,
+        '$title — $artist',
+        'Title and artist copied',
+      ),
+    ),
+  );
   items.add(
     WaveMenuAction(
       leading: const Icon(FluentIcons.info, size: 15),
       label: 'Properties',
-      onPressed: () => showWaveTrackProperties(
-        ref.context,
-        title: title,
-        artist: artist,
-        artworkUrl: artworkUrl,
-      ),
+      onPressed: () {
+        final snap = ref.read(playbackServiceProvider);
+        final origin = trackMediaOrigin(
+          track: track,
+          downloadPath: downloads.localPathFor(title, artist),
+        );
+        final same = _samePlayingTrack(snap.current, track);
+        final stream = same ? snap.stream : null;
+        var quality = _qualityLabel(stream, snap.bitrateKbps);
+        if ((quality == null || quality.isEmpty) &&
+            track.playbackMimeType.isNotEmpty) {
+          quality = track.playbackMimeType;
+        }
+        var path = origin.path;
+        final streamUrl = stream?.url ?? '';
+        if ((path == null || path.isEmpty) && streamUrl.startsWith('file:')) {
+          path = Uri.tryParse(streamUrl)?.toFilePath();
+        }
+        final duration = track.duration > Duration.zero
+            ? track.duration
+            : (same ? snap.duration : Duration.zero);
+        showWaveTrackProperties(
+          context,
+          title: title,
+          artist: artist,
+          album: track.album,
+          artworkUrl: artworkUrl,
+          duration: duration,
+          sourceKind: origin.kind,
+          quality: quality,
+          path: path,
+        );
+      },
     ),
   );
   if (removeLabel != null && onRemove != null) {
@@ -264,13 +314,100 @@ List<WaveMenuEntry> waveTrackMenuItems({
   return items;
 }
 
+/// YouTube Music watch URL when [PlayableTrack.videoId] is set.
+/// Otherwise the local playback path. Null when neither exists.
+String? trackShareLink(PlayableTrack track) {
+  if (track.videoId.isNotEmpty) {
+    return 'https://music.youtube.com/watch?v=${track.videoId}';
+  }
+  if (track.playbackUrl.isNotEmpty) return track.playbackUrl;
+  return null;
+}
+
+/// Local file, download, or stream, plus a filesystem path when the
+/// bytes are already on disk.
+({String kind, String? path}) trackMediaOrigin({
+  required PlayableTrack track,
+  String? downloadPath,
+}) {
+  final playback = track.playbackUrl;
+  final playbackIsFile = playback.isNotEmpty && File(playback).existsSync();
+  final downloaded = downloadPath != null &&
+      downloadPath.isNotEmpty &&
+      File(downloadPath).existsSync();
+  if (playbackIsFile &&
+      (!downloaded || !_sameFilePath(playback, downloadPath))) {
+    return (kind: 'Local file', path: playback);
+  }
+  if (downloaded) return (kind: 'Download', path: downloadPath);
+  if (playbackIsFile) return (kind: 'Local file', path: playback);
+  return (kind: 'Stream', path: null);
+}
+
+bool _samePlayingTrack(PlayableTrack? current, PlayableTrack track) {
+  if (current == null) return false;
+  return current.queueKey == track.queueKey &&
+      current.videoId == track.videoId &&
+      current.playbackUrl == track.playbackUrl;
+}
+
+bool _sameFilePath(String a, String b) => p.equals(a, b);
+
+String? _qualityLabel(ResolvedStream? stream, int snapshotBitrate) {
+  if (stream == null) return null;
+  final parts = <String>[];
+  if (stream.qualityBadge.isNotEmpty) parts.add(stream.qualityBadge);
+  if (stream.audioCodec.isNotEmpty) parts.add(stream.audioCodec);
+  final kbps = snapshotBitrate > 0 ? snapshotBitrate : stream.bitrateKbps;
+  if (kbps > 0) parts.add('$kbps kbps');
+  if (parts.isEmpty) return null;
+  return parts.join(' · ');
+}
+
+String formatTrackDuration(Duration duration) {
+  if (duration <= Duration.zero) return 'Unknown';
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+  if (hours > 0) {
+    return '$hours:${minutes.toString().padLeft(2, '0')}:$seconds';
+  }
+  return '$minutes:$seconds';
+}
+
+void _copyText(BuildContext context, String text, String message) {
+  Clipboard.setData(ClipboardData(text: text));
+  displayInfoBar(
+    context,
+    builder: (context, close) => InfoBar(
+      title: Text(message),
+      severity: InfoBarSeverity.success,
+      onClose: close,
+    ),
+  );
+}
+
 /// Track properties dialog (Fluent ContentDialog).
 Future<void> showWaveTrackProperties(
   BuildContext context, {
   required String title,
   required String artist,
+  String album = '',
   String artworkUrl = '',
+  Duration duration = Duration.zero,
+  String sourceKind = 'Stream',
+  String? quality,
+  String? path,
 }) {
+  final rows = <(String, String)>[
+    ('Title', title),
+    ('Artist', artist),
+    if (album.isNotEmpty) ('Album', album),
+    ('Duration', formatTrackDuration(duration)),
+    ('Source', sourceKind),
+    if (quality != null && quality.isNotEmpty) ('Quality', quality),
+    if (path != null && path.isNotEmpty) ('Path', path),
+  ];
   return showDialog(
     context: context,
     builder: (context) => ContentDialog(
@@ -282,9 +419,24 @@ Future<void> showWaveTrackProperties(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: WaveType.trackTitle),
-            const SizedBox(height: 4),
-            Text(artist, style: WaveType.body),
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) const SizedBox(height: 14),
+              Text(
+                rows[i].$1,
+                style: WaveType.meta.copyWith(
+                  color: waveTextSecondary(context),
+                ),
+              ),
+              const SizedBox(height: 3),
+              SelectableText(
+                rows[i].$2,
+                style: WaveType.body.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  height: 1.35,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -335,7 +487,7 @@ class WaveFlyoutPanel extends StatefulWidget {
 
 class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
   int _highlight = -1;
-  FlyoutController? _openSubmenu;
+  _WaveSubmenuRowState? _openSubmenu;
   final Map<int, GlobalKey<_WaveSubmenuRowState>> _subKeys = {};
   final Map<int, GlobalKey> _rowKeys = {};
   late final ScrollController _scrollController;
@@ -349,14 +501,8 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
   @override
   void dispose() {
     _scrollController.dispose();
-    // Cascaded submenu is its own route: close it with the parent.
-    // Guarded + caught: dispose order vs. the child route is not
-    // contractual, and close() asserts attached+open in debug.
-    try {
-      final sub = _openSubmenu;
-      _openSubmenu = null;
-      if (sub != null && sub.isOpen) sub.close();
-    } catch (_) {}
+    // The cascaded submenu is an OverlayPortal child of its row, so it
+    // goes away with the parent; nothing to close here.
     super.dispose();
   }
 
@@ -390,6 +536,13 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
         );
       }
     });
+  }
+
+  void _closeSubmenu() {
+    final sub = _openSubmenu;
+    if (sub == null) return;
+    _openSubmenu = null;
+    sub.close();
   }
 
   void _activate(BuildContext context, int index) {
@@ -455,9 +608,7 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
             entry: entry,
             highlighted: i == _highlight,
             onOpened: (c) {
-              if (_openSubmenu != null &&
-                  _openSubmenu != c &&
-                  _openSubmenu!.isOpen) {
+              if (_openSubmenu != null && _openSubmenu != c) {
                 _openSubmenu!.close();
               }
               _openSubmenu = c;
@@ -465,38 +616,48 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
           ));
         } else if (entry is WaveMenuAction) {
           final onPressed = entry.onPressed;
-          rows.add(WaveMenuRow(
+          rows.add(MouseRegion(
             key: rowKey,
-            selected: i == _highlight,
-            icon: entry.leading,
-            text: Text(
-              entry.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            opaque: false,
+            onEnter: (_) => _closeSubmenu(),
+            child: WaveMenuRow(
+              selected: i == _highlight,
+              icon: entry.leading,
+              text: Text(
+                entry.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: entry.hint == null
+                  ? null
+                  : Text(entry.hint!,
+                      style: const TextStyle(fontSize: 11)),
+              onPressed: onPressed == null
+                  ? null
+                  : () {
+                      Navigator.of(context).maybePop();
+                      onPressed();
+                    },
             ),
-            trailing: entry.hint == null
-                ? null
-                : Text(entry.hint!,
-                    style: const TextStyle(fontSize: 11)),
-            onPressed: onPressed == null
-                ? null
-                : () {
-                    Navigator.of(context).maybePop();
-                    onPressed();
-                  },
           ));
         }
       }
       body = Scrollbar(
         controller: _scrollController,
         interactive: true,
-        child: SingleChildScrollView(
-          controller: _scrollController,
-          physics: const ClampingScrollPhysics(),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: rows,
+        // Desktop ScrollBehavior would add its own Scrollbar on top of the
+        // explicit one above (doubled bars), so switch the implicit one off.
+        child: ScrollConfiguration(
+          behavior:
+              ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            physics: const ClampingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: rows,
+            ),
           ),
         ),
       );
@@ -663,7 +824,7 @@ class WaveMenuRow extends StatelessWidget {
 class _WaveSubmenuRow extends StatefulWidget {
   final WaveMenuSubmenu entry;
   final bool highlighted;
-  final ValueChanged<FlyoutController> onOpened;
+  final ValueChanged<_WaveSubmenuRowState> onOpened;
   const _WaveSubmenuRow({
     super.key,
     required this.entry,
@@ -676,62 +837,88 @@ class _WaveSubmenuRow extends StatefulWidget {
 }
 
 class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
-  final _controller = FlyoutController();
+  // The submenu is an OverlayPortal child of its row, NOT a second route:
+  // a second route either needs a barrier (which swallows the parent's
+  // hover/clicks) or has none (outside clicks then pop only the top route
+  // and Windows beeps on the swallowed click). In the parent's own overlay
+  // entry, the parent's barrier handles outside clicks and Esc as usual.
+  final _portal = OverlayPortalController();
+  final _link = LayerLink();
   Timer? _hoverTimer;
+  bool _flipLeft = false;
+
+  bool get isOpen => _portal.isShowing;
 
   @override
   void dispose() {
     _hoverTimer?.cancel();
-    // If the parent route is torn down with our submenu open, close it
-    // ourselves; the panel dispose covers the reverse order. Caught:
-    // the target may already be detached in debug asserts.
-    try {
-      if (_controller.isOpen) _controller.close();
-    } catch (_) {}
-    _controller.dispose();
     super.dispose();
+  }
+
+  void close() {
+    _hoverTimer?.cancel();
+    if (_portal.isShowing) _portal.hide();
   }
 
   void openNow() {
     _hoverTimer?.cancel();
-    if (_controller.isOpen) return;
-    _controller.showFlyout(
-      barrierColor: Colors.transparent,
-      placementMode: FlyoutPlacementMode.rightTop,
-      transitionDuration: const Duration(milliseconds: 90),
-      transitionBuilder: fastFlyoutTransition,
-      builder: (context) => WaveFlyoutPanel.items(
-        entries: widget.entry.items(),
-      ),
-    );
-    widget.onOpened(_controller);
+    if (_portal.isShowing) return;
+    // Flip to the left when the submenu (max 280 wide) would run off screen.
+    final box = context.findRenderObject();
+    if (box is RenderBox && box.hasSize) {
+      final right = box.localToGlobal(Offset(box.size.width, 0)).dx;
+      final screenW = MediaQuery.sizeOf(context).width;
+      _flipLeft = right + 284 > screenW;
+    }
+    _portal.show();
+    widget.onOpened(this);
   }
 
   @override
   Widget build(BuildContext context) {
-    return FlyoutTarget(
-      controller: _controller,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) {
-          _hoverTimer?.cancel();
-          _hoverTimer = Timer(
-            const Duration(milliseconds: 250),
-            openNow,
-          );
-        },
-        onExit: (_) => _hoverTimer?.cancel(),
-        child: WaveMenuRow(
-          selected: widget.highlighted,
-          icon: widget.entry.leading,
-          text: Text(
-            widget.entry.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+    return CompositedTransformTarget(
+      link: _link,
+      child: OverlayPortal(
+        controller: _portal,
+        overlayChildBuilder: (context) => Align(
+          alignment: Alignment.topLeft,
+          child: CompositedTransformFollower(
+            link: _link,
+            showWhenUnlinked: false,
+            targetAnchor:
+                _flipLeft ? Alignment.topLeft : Alignment.topRight,
+            followerAnchor:
+                _flipLeft ? Alignment.topRight : Alignment.topLeft,
+            offset: Offset(_flipLeft ? -2 : 2, -WaveMenuRow.inset),
+            child: WaveFlyoutPanel.items(entries: widget.entry.items()),
           ),
-          trailing: const Icon(FluentIcons.chevron_right, size: 12),
-          onPressed: openNow,
         ),
+        child: _row(),
+      ),
+    );
+  }
+
+  Widget _row() {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        _hoverTimer?.cancel();
+        _hoverTimer = Timer(
+          const Duration(milliseconds: 250),
+          openNow,
+        );
+      },
+      onExit: (_) => _hoverTimer?.cancel(),
+      child: WaveMenuRow(
+        selected: widget.highlighted,
+        icon: widget.entry.leading,
+        text: Text(
+          widget.entry.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(FluentIcons.chevron_right, size: 12),
+        onPressed: openNow,
       ),
     );
   }
@@ -776,7 +963,10 @@ class _WaveContextMenuState extends State<WaveContextMenu> {
     return FlyoutTarget(
       controller: _controller,
       child: GestureDetector(
-        onSecondaryTapDown: (_) => _open(),
+        // On release, like native Windows menus: opening on press leaves the
+        // right button held under the new menu, and Flutter sends no hover
+        // events while a button is down, so rows only lit up after a focus.
+        onSecondaryTapUp: (_) => _open(),
         onLongPressStart: (_) => _open(),
         child: widget.child,
       ),

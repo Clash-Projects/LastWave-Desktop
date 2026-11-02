@@ -149,6 +149,10 @@ void main() {
           ['atmos', 'hi_res', 'lossless', 'high']);
     });
 
+    test('data saver has no addon 96k code', () {
+      expect(AddonApi.serverQualitiesForTier(4), isEmpty);
+    });
+
     test('search knob mirrors Android per tier', () {
       // Android LosslessMusicApi searches with the tier's primary knob
       // (27/7 -> hi_res, 6 -> lossless, 5 -> high); desktop must send
@@ -354,6 +358,61 @@ void main() {
             artist: artist,
             album: album,
             durationSeconds: dur);
+
+    test('solo recording never answers a duet request', () {
+      const duet = 'Rahat Fateh Ali Khan & Momina Mustehsan';
+      expect(
+        AddonApi.bestMatch(
+          [t('solo', 'Afreen Afreen', 'Rahat Fateh Ali Khan')],
+          title: 'Afreen Afreen',
+          artist: duet,
+        ),
+        isNull,
+      );
+      // Both exist: the duet wins whatever the pool order.
+      final m = AddonApi.bestMatch(
+        [
+          t('solo', 'Afreen Afreen', 'Rahat Fateh Ali Khan'),
+          t('duet', 'Afreen Afreen', 'Rahat Fateh Ali Khan, Momina Mustehsan'),
+        ],
+        title: 'Afreen Afreen',
+        artist: duet,
+      );
+      expect(m?.id, 'duet');
+    });
+
+    test('duet credited via title feat still answers the duet request', () {
+      final m = AddonApi.bestMatch(
+        [
+          t('d', 'Afreen Afreen (feat. Momina Mustehsan)',
+              'Rahat Fateh Ali Khan'),
+        ],
+        title: 'Afreen Afreen',
+        artist: 'Rahat Fateh Ali Khan & Momina Mustehsan',
+      );
+      expect(m?.id, 'd');
+    });
+
+    test('solo request prefers the solo recording over the duet', () {
+      final m = AddonApi.bestMatch(
+        [
+          t('duet', 'Afreen Afreen', 'Rahat Fateh Ali Khan, Momina Mustehsan'),
+          t('solo', 'Afreen Afreen', 'Rahat Fateh Ali Khan'),
+        ],
+        title: 'Afreen Afreen',
+        artist: 'Rahat Fateh Ali Khan',
+      );
+      expect(m?.id, 'solo');
+    });
+
+    test('Last.fm ";" collab billing is not held to every co-artist', () {
+      final m = AddonApi.bestMatch(
+        [t('1', 'Song', 'Lead Artist')],
+        title: 'Song',
+        artist: 'Lead Artist; Guest One; Guest Two',
+      );
+      expect(m?.id, '1');
+    });
 
     test('exact match wins', () {
       final m = AddonApi.bestMatch(
@@ -621,6 +680,24 @@ void main() {
           AddonApi.bestMatch(pool,
               title: 'Subha Hone Na De', artist: 'Pritam'),
           isNull);
+    });
+
+    test('self-titled single/EP album match never waives artist check', () {
+      // Regression: "Jalebi Baby" single by random cover artist "Abhiram Bitla"
+      // had album "Jalebi Baby". When queued as title="Jalebi Baby",
+      // artist="Tesher", album="Jalebi Baby", the exact album match gave
+      // albumBonus=2 and waived the artist check, letting the bogus cover win!
+      final pool = [
+        ta('cover', 'Jalebi Baby', 'Abhiram Bitla', 'Jalebi Baby', 181),
+        ta('real', 'Jalebi Baby', 'Tesher', 'Jalebi Baby', 189),
+      ];
+      expect(
+          AddonApi.bestMatch(pool,
+                  title: 'Jalebi Baby',
+                  artist: 'Tesher',
+                  album: 'Jalebi Baby')
+              ?.id,
+          'real');
     });
 
     test('duration consensus rejects a short variant that leads the pool', () {

@@ -63,4 +63,35 @@ void main() {
 
     expect(palettePoolFallbacks, 0);
   });
+
+  test('regional vibrant accents on mostly-monochrome covers are captured', () async {
+    // 24x24 mostly dark charcoal grey (0x20, 0x22, 0x24), with a small 6x6
+    // bright golden-yellow patch in the top-left corner (0xF5, 0xC8, 0x22).
+    const w = 24;
+    const h = 24;
+    final bytes = <int>[];
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (x < 6 && y < 6) {
+          bytes
+            ..add(0xF5)
+            ..add(0xC8)
+            ..add(0x22)
+            ..add(255);
+        } else {
+          bytes
+            ..add(0x20)
+            ..add(0x22)
+            ..add(0x24)
+            ..add(255);
+        }
+      }
+    }
+
+    final palette = await extractPaletteForTest(bytes, w, h);
+    // The vibrant swatch should capture the warm yellow/gold regional accent
+    // (red + green channels significantly stronger than blue).
+    expect(palette.vibrant.r, greaterThan(palette.vibrant.b + 0.15));
+    expect(palette.vibrant.g, greaterThan(palette.vibrant.b + 0.10));
+  });
 }

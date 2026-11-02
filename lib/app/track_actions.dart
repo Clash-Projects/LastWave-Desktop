@@ -168,6 +168,7 @@ PlayableTrack playableFromGenerated(GeneratedTrack t) =>
       album: t.album,
       artworkUrl: t.artworkUrl,
       videoId: t.videoId,
+      playbackUrl: t.playbackUrl,
       duration: Duration(seconds: t.durationSeconds),
     );
 

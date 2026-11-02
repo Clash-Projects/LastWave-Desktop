@@ -634,25 +634,95 @@ class _LWTooltipState extends State<LWTooltip> {
   }
 }
 
+/// Accessible wrapper for custom (GestureDetector-based) controls.
+///
+/// Gives screen readers a named button with enabled / selected state and an
+/// activate action, makes the control reachable by Tab, and activates on
+/// Enter. A focus ring is painted over the child only for keyboard focus, so
+/// mouse users see nothing different.
+class WaveA11yButton extends StatefulWidget {
+  final String label;
+  final VoidCallback? onTap;
+  final bool selected;
+  final Widget child;
+  const WaveA11yButton({
+    super.key,
+    required this.label,
+    required this.onTap,
+    required this.child,
+    this.selected = false,
+  });
+
+  @override
+  State<WaveA11yButton> createState() => _WaveA11yButtonState();
+}
+
+class _WaveA11yButtonState extends State<WaveA11yButton> {
+  bool _ring = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onTap != null;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      selected: widget.selected,
+      label: widget.label,
+      onTap: widget.onTap,
+      excludeSemantics: true,
+      child: FocusableActionDetector(
+        enabled: enabled,
+        onShowFocusHighlight: (v) => setState(() => _ring = v),
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap?.call();
+              return null;
+            },
+          ),
+        },
+        child: DecoratedBox(
+          position: DecorationPosition.foreground,
+          decoration: BoxDecoration(
+            borderRadius: WaveRadius.controlsRadius,
+            border: _ring
+                ? Border.all(color: waveAccent(context), width: 2)
+                : null,
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
 /// Canonical progress slider: 3px track, white fill, 10px thumb visible
 /// on hover/drag only. Expands to available width.
 class LWProgressSlider extends StatelessWidget {
   final double value;
+  final String semanticLabel;
   final ValueChanged<double>? onChanged;
   final ValueChanged<double>? onChangeEnd;
   const LWProgressSlider({
     super.key,
     required this.value,
+    this.semanticLabel = 'Seek',
     this.onChanged,
     this.onChangeEnd,
   });
 
   @override
   Widget build(BuildContext context) {
-    return _WaveSliderBase(
+    return _SliderSemantics(
+      label: semanticLabel,
       value: value,
       onChanged: onChanged,
       onChangeEnd: onChangeEnd,
+      child: _WaveSliderBase(
+        value: value,
+        onChanged: onChanged,
+        onChangeEnd: onChangeEnd,
+      ),
     );
   }
 }
@@ -661,12 +731,14 @@ class LWProgressSlider extends StatelessWidget {
 /// 8px knob at rest growing to 10px on hover/drag/focus.
 class LWVolumeSlider extends StatelessWidget {
   final double value;
+  final String semanticLabel;
   final ValueChanged<double>? onChanged;
   final ValueChanged<double>? onChangeEnd;
   final double width;
   const LWVolumeSlider({
     super.key,
     required this.value,
+    this.semanticLabel = 'Volume',
     this.onChanged,
     this.onChangeEnd,
     this.width = 84,
@@ -676,11 +748,57 @@ class LWVolumeSlider extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
-      child: _WaveSliderBase(
+      child: _SliderSemantics(
+        label: semanticLabel,
         value: value,
         onChanged: onChanged,
         onChangeEnd: onChangeEnd,
+        child: _WaveSliderBase(
+          value: value,
+          onChanged: onChanged,
+          onChangeEnd: onChangeEnd,
+        ),
       ),
+    );
+  }
+}
+
+/// Screen-reader view of a 0..1 slider: label, percent value, and
+/// increase / decrease actions in 5% steps (what NVDA's arrow keys invoke).
+class _SliderSemantics extends StatelessWidget {
+  final String label;
+  final double value;
+  final ValueChanged<double>? onChanged;
+  final ValueChanged<double>? onChangeEnd;
+  final Widget child;
+  const _SliderSemantics({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    required this.onChangeEnd,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    void step(double d) {
+      final next = (value + d).clamp(0.0, 1.0).toDouble();
+      onChanged?.call(next);
+      onChangeEnd?.call(next);
+    }
+
+    final enabled = onChanged != null;
+    return Semantics(
+      slider: true,
+      enabled: enabled,
+      label: label,
+      value: '${(value * 100).round()} percent',
+      increasedValue: '${((value + 0.05).clamp(0.0, 1.0) * 100).round()} percent',
+      decreasedValue: '${((value - 0.05).clamp(0.0, 1.0) * 100).round()} percent',
+      onIncrease: enabled ? () => step(0.05) : null,
+      onDecrease: enabled ? () => step(-0.05) : null,
+      excludeSemantics: true,
+      child: child,
     );
   }
 }

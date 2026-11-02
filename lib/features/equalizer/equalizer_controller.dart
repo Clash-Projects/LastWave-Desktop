@@ -142,11 +142,33 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
     if (gains.every((g) => g.abs() < 0.05)) return '';
 
     final filters = <String>[];
+    // Auto pre-amp: pull the whole signal down by the largest boost so the
+    // EQ can never push peaks past full scale (the old chain clipped on
+    // loud masters, which is what made boosted presets sound harsh).
+    var maxBoost = 0.0;
+    for (final g in gains) {
+      if (g > maxBoost) maxBoost = g;
+    }
+    if (maxBoost > 0.05) {
+      filters.add('volume=volume=-${maxBoost.toStringAsFixed(1)}dB');
+    }
     for (int i = 0; i < eqBandFreqsHz.length; i++) {
       final freq = eqBandFreqsHz[i];
       final gain = gains[i];
+      if (gain.abs() < 0.05) continue; // skip flat bands
       filters.add('equalizer=f=$freq:t=o:w=1:g=${gain.toStringAsFixed(1)}');
     }
+    // Studio Master Clarity: a touch of transient sharpening on top of the
+    // curve, scaled by the output target (gentler for DACs / headphones).
+    if (s.studioClarityEnabled) {
+      final exciterTrim = s.clarityPreset.trimsDb.length > 7
+          ? s.clarityPreset.trimsDb[7]
+          : 0.0;
+      final intensity = (1.3 + exciterTrim * 0.15).clamp(0.6, 2.0);
+      filters.add('crystalizer=i=${intensity.toStringAsFixed(2)}:c=1');
+    }
+    // Safety net against inter-sample overs; does nothing below 0.98.
+    filters.add('alimiter=limit=0.98:level=0');
     return 'format=floatp,lavfi=[${filters.join(",")}]';
   }
 }

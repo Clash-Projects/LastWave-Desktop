@@ -14,12 +14,21 @@ import '../../core/storage/prefs.dart';
 import '../innertube/innertube_api.dart';
 import '../addons/addon_api.dart';
 import '../lossless/lossless_source.dart';
+import '../library/local_audio_tags.dart';
 import '../lyrics/lyrics_models.dart';
 import '../lyrics/lyrics_repository.dart';
 import '../search/shared_providers.dart';
+import 'folder_layout.dart';
 import 'media_tagger.dart';
 
 enum DownloadStatus { queued, downloading, done, error }
+
+/// Thrown when the user cancels a download that is still in progress.
+class DownloadCancelled implements Exception {
+  const DownloadCancelled();
+  @override
+  String toString() => 'Download cancelled';
+}
 
 class DownloadEntry {
   final String key;
@@ -36,6 +45,9 @@ class DownloadEntry {
   final String? filePath;
   final String? error;
 
+  /// Cover art URL stored with the download ('' when unknown).
+  final String artworkUrl;
+
   const DownloadEntry({
     required this.key,
     required this.title,
@@ -46,6 +58,7 @@ class DownloadEntry {
     this.tagNote = '',
     this.filePath,
     this.error,
+    this.artworkUrl = '',
   });
 
   DownloadEntry copyWith({
@@ -60,6 +73,7 @@ class DownloadEntry {
         key: key,
         title: title,
         artist: artist,
+        artworkUrl: artworkUrl,
         status: status ?? this.status,
         progress: progress ?? this.progress,
         badge: badge ?? this.badge,
@@ -86,6 +100,11 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   final InnerTubeMusicApi _tube;
   final LyricsRepository _lyrics;
   final Set<String> _active = {};
+  /// Bumped by [cancelDownload]. An in-flight [downloadTrack] snapshots the
+  /// value at start and treats a mismatch as a cancel, so a later download
+  /// of the same track is not skipped.
+  final Map<String, int> _cancelGeneration = {};
+  final Map<String, CancelToken> _tokens = {};
   // Keys that must never raise a "Download complete" InfoBar: everything
   // restored from the registry at boot (otherwise the last download
   // re-announces on every launch — dismissal is widget-local and resets
@@ -111,7 +130,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     late final List rows;
     try {
       rows = _db.raw.select(
-        'SELECT track_key, title, artist, file_path, format_badge, tag_status FROM downloaded_tracks '
+        'SELECT track_key, title, artist, file_path, format_badge, tag_status, artwork_url FROM downloaded_tracks '
         'ORDER BY downloaded_at_millis DESC;',
       );
     } catch (_) {
@@ -131,10 +150,50 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
               badge: r['format_badge'] as String? ?? '',
               tagNote: r['tag_status'] as String? ?? '',
               filePath: r['file_path'] as String?,
+              artworkUrl: _artOf(r),
             ))
         .toList();
     // Restored rows are history, not news — never announce them.
     _muted.addAll(state.map((e) => e.key));
+  }
+
+  /// `artwork_url` is absent on the pre-v7 fallback query.
+  static String _artOf(dynamic row) {
+    try {
+      return row['artwork_url'] as String? ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  void _dropInProgress(String key) {
+    state = [
+      for (final entry in state)
+        if (entry.key != key || entry.status == DownloadStatus.done) entry,
+    ];
+  }
+
+  bool _wasCancelled(Object error, bool Function() cancelled) {
+    if (cancelled() || error is DownloadCancelled) return true;
+    if (error is DioException &&
+        (error.type == DioExceptionType.cancel ||
+            error.error is DownloadCancelled)) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Stops [key] if it is downloading. A finished file is left alone.
+  void cancelDownload(String key) {
+    _cancelGeneration[key] = (_cancelGeneration[key] ?? 0) + 1;
+    _tokens.remove(key)?.cancel('cancelled');
+  }
+
+  /// Stops every download that is still running.
+  void cancelActive() {
+    for (final key in _active.toList()) {
+      cancelDownload(key);
+    }
   }
 
   /// Whether [key] may raise a completion InfoBar this session.
@@ -199,6 +258,109 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   String _sanitize(String s) =>
       s.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
 
+  /// Target file for a new download under the chosen folder layout.
+  Future<File> _layoutFile(
+    Directory root, {
+    required String artist,
+    required String album,
+    required String year,
+    required String filename,
+  }) async {
+    final sub = downloadSubpath(
+      structure: DownloadFolderLayout.fromId(_prefs.downloadStructure),
+      artist: artist,
+      album: album,
+      year: year,
+    );
+    final dir = sub.isEmpty ? root : Directory(p.join(root.path, sub));
+    await dir.create(recursive: true);
+    return File(p.join(dir.path, filename));
+  }
+
+  /// Moves a file, falling back to copy + delete across volumes. If the
+  /// source can't be removed (still playing), the copy is dropped so no
+  /// duplicate is left behind. Returns false when nothing moved.
+  Future<bool> _moveFile(File from, String to) async {
+    try {
+      await from.rename(to);
+      return true;
+    } catch (_) {}
+    try {
+      await from.copy(to);
+    } catch (_) {
+      return false;
+    }
+    try {
+      await from.delete();
+      return true;
+    } catch (_) {
+      try {
+        await File(to).delete();
+      } catch (_) {}
+      return false;
+    }
+  }
+
+  /// Moves tracked downloads into the current folder layout.
+  ///
+  /// Runs only when the user asks. Files already in place, missing, or
+  /// that would overwrite another file are skipped.
+  Future<({int moved, int skipped})> reorganize() async {
+    final root = await _musicDir();
+    final rows = _db.raw.select(
+      'SELECT track_key, artist, album, file_path, lrc_file_path '
+      'FROM downloaded_tracks;',
+    );
+    var moved = 0;
+    var skipped = 0;
+    for (final row in rows) {
+      final currentPath = row['file_path'] as String? ?? '';
+      final current = File(currentPath);
+      if (currentPath.isEmpty || !current.existsSync()) {
+        skipped++;
+        continue;
+      }
+      final album = row['album'] as String? ?? '';
+      var year = LocalAudioTags.read(currentPath).year;
+      if (year.isEmpty) year = LocalAudioTags.yearIn(album);
+      final dest = await _layoutFile(
+        root,
+        artist: row['artist'] as String? ?? '',
+        album: album,
+        year: year,
+        filename: p.basename(currentPath),
+      );
+      if (p.equals(dest.path, current.path) || dest.existsSync()) {
+        skipped++;
+        continue;
+      }
+      if (!await _moveFile(current, dest.path)) {
+        skipped++;
+        continue;
+      }
+      var newLrc = row['lrc_file_path'] as String? ?? '';
+      if (newLrc.isNotEmpty && File(newLrc).existsSync()) {
+        final lrcDest = '${dest.path}.lrc';
+        if (!File(lrcDest).existsSync() &&
+            await _moveFile(File(newLrc), lrcDest)) {
+          newLrc = lrcDest;
+        }
+      }
+      final key = row['track_key'] as String? ?? '';
+      _db.raw.execute(
+        'UPDATE downloaded_tracks SET file_path = ?, lrc_file_path = ? '
+        'WHERE track_key = ?;',
+        [dest.path, newLrc, key],
+      );
+      state = [
+        for (final entry in state)
+          if (entry.key == key) entry.copyWith(filePath: dest.path) else entry,
+      ];
+      moved++;
+    }
+    return (moved: moved, skipped: skipped);
+  }
+
   void _upsert(DownloadEntry entry) {
     final others = state.where((e) => e.key != entry.key).toList();
     state = [entry, ...others];
@@ -211,19 +373,29 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     String key,
     String title,
     String artist,
-    String badge,
-  ) async {
+    String badge, {
+    CancelToken? cancelToken,
+    bool Function()? cancelled,
+  }) async {
+    if (cancelled?.call() == true) throw const DownloadCancelled();
     if (!stream.url.startsWith('http')) {
-      return Uint8List.fromList(
-          await File(stream.url).readAsBytes());
+      final bytes =
+          Uint8List.fromList(await File(stream.url).readAsBytes());
+      if (cancelled?.call() == true) throw const DownloadCancelled();
+      return bytes;
     }
     final res = await _dio.get<List<int>>(
       stream.url,
+      cancelToken: cancelToken,
       options: Options(
         responseType: ResponseType.bytes,
         headers: stream.requestHeaders,
       ),
       onReceiveProgress: (received, total) {
+        if (cancelled?.call() == true) {
+          cancelToken?.cancel();
+          return;
+        }
         if (total > 0) {
           _upsert(DownloadEntry(
             key: key,
@@ -236,6 +408,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         }
       },
     );
+    if (cancelled?.call() == true) throw const DownloadCancelled();
     return Uint8List.fromList(res.data ?? const <int>[]);
   }
 
@@ -290,10 +463,16 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     required String artist,
     String album = '',
     String artworkUrl = '',
+    String year = '',
   }) async {
     final key = keyOf(title, artist);
+    final generation = _cancelGeneration[key] ?? 0;
+    bool cancelled() => (_cancelGeneration[key] ?? 0) != generation;
+    if (cancelled()) return;
     if (_active.contains(key) || isDownloaded(title, artist)) return;
     _active.add(key);
+    final token = CancelToken();
+    _tokens[key] = token;
     // A fresh download is news again, even if an old entry for this
     // track was muted (restored at boot or dismissed earlier).
     _muted.remove(key);
@@ -303,7 +482,10 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       artist: artist,
       status: DownloadStatus.downloading,
     ));
+    String? writtenPath;
+    var committed = false;
     try {
+      if (cancelled()) throw const DownloadCancelled();
       ResolvedStream? stream;
       var badge = '';
       var isLossless = false;
@@ -346,9 +528,18 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         ytCodecHint = yt.audioCodec.toUpperCase();
       }
 
+      if (cancelled()) throw const DownloadCancelled();
       // Audio bytes (progress surfaced on the entry for http sources).
-      final audioBytes =
-          await _fetchAudioBytes(stream, key, title, artist, badge);
+      final audioBytes = await _fetchAudioBytes(
+        stream,
+        key,
+        title,
+        artist,
+        badge,
+        cancelToken: token,
+        cancelled: cancelled,
+      );
+      if (cancelled()) throw const DownloadCancelled();
       if (audioBytes.isEmpty) throw Exception('Empty audio payload');
 
       // Lyrics + cover in parallel: sidecar text, embeddable plain
@@ -471,10 +662,26 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
             : (ytCodecHint.isNotEmpty ? ytCodecHint : 'AUDIO');
       }
 
+      if (cancelled()) throw const DownloadCancelled();
+      var folderYear = year;
+      if (folderYear.isEmpty && outBytes.isNotEmpty) {
+        final headLen = outBytes.length < 262144 ? outBytes.length : 262144;
+        folderYear = LocalAudioTags.fromHead(
+          Uint8List.fromList(outBytes.sublist(0, headLen)),
+        ).year;
+      }
+      if (folderYear.isEmpty) folderYear = LocalAudioTags.yearIn(album);
       final dir = await _musicDir();
-      final file = File(p.join(
-          dir.path, '${_sanitize('$artist - $title')}.$finalExt'));
+      final file = await _layoutFile(
+        dir,
+        artist: artist,
+        album: album,
+        year: folderYear,
+        filename: '${_sanitize('$artist - $title')}.$finalExt',
+      );
       await file.writeAsBytes(outBytes, flush: true);
+      writtenPath = file.path;
+      if (cancelled()) throw const DownloadCancelled();
 
       var lrcPath = '';
       if (lrcContent != null) {
@@ -545,17 +752,32 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         badge: badge,
         tagNote: tagStatus,
         filePath: file.path,
+        artworkUrl: artworkUrl,
       ));
+      committed = true;
     } catch (e) {
-      _upsert(DownloadEntry(
-        key: key,
-        title: title,
-        artist: artist,
-        status: DownloadStatus.error,
-        error: e.toString(),
-      ));
+      if (_wasCancelled(e, cancelled)) {
+        if (writtenPath != null && !committed) {
+          try {
+            await File(writtenPath).delete();
+          } catch (_) {}
+          try {
+            await File('$writtenPath.lrc').delete();
+          } catch (_) {}
+        }
+        _dropInProgress(key);
+      } else {
+        _upsert(DownloadEntry(
+          key: key,
+          title: title,
+          artist: artist,
+          status: DownloadStatus.error,
+          error: e.toString(),
+        ));
+      }
     } finally {
       _active.remove(key);
+      if (identical(_tokens[key], token)) _tokens.remove(key);
     }
   }
 

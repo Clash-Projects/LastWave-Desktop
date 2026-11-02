@@ -11,25 +11,16 @@ import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
+import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
+import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/states.dart';
+import 'friends_page.dart' show localFriendsProvider;
 import '../components/track_row.dart';
 import '../theme/tokens.dart';
 
-final _waveFriendsProvider =
-    FutureProvider<List<FriendEntry>>((ref) {
-  // The Friends tab always shows your own friends. It must not follow
-  // viewingProfileProvider: after viewing a friend's profile, `viewing`
-  // stays set, and the tab would otherwise list the friend's friends
-  // (including your own name on mutual friendships).
-  return ref.watch(homeRepositoryProvider).fetchFriends();
-});
-
-final _waveMixProvider = FutureProvider.autoDispose
-    .family<List<GeneratedTrack>, int>((ref, total) {
-  return ref.watch(feedRepositoryProvider).fetchMix(total: total);
-});
+export 'friends_page.dart' show WaveFriendsPage;
 
 /// Secondary pages re-homed in the Fluent system.
 ///
@@ -38,6 +29,11 @@ final _waveMixProvider = FutureProvider.autoDispose
 /// primary collections. Logic is reused through existing providers.
 /// Top tracks query: friend view (or self) + Last.fm period.
 typedef _TopQuery = ({String? viewing, String period});
+
+final _profileStatsProvider =
+    FutureProvider.autoDispose.family<HomeStats, String?>((ref, viewing) {
+  return ref.watch(homeRepositoryProvider).fetchStats(viewingAs: viewing);
+});
 
 final _waveTopTracksProvider =
     FutureProvider.family<List<HomeTrack>, _TopQuery>(
@@ -137,26 +133,93 @@ class _WaveProfilePageState
                   color: waveAccent(context),
                 ),
               ),
-              Text(user, style: WaveType.pageTitle),
-              const SizedBox(height: 4),
-              Text(
-                viewing != null
-                    ? 'Viewing $viewing'
-                    : 'Your Last.fm profile',
-                style: WaveType.body.copyWith(
-                  color: waveTextSecondary(context),
-                ),
-              ),
-              if (viewing != null) ...[
-                const SizedBox(height: 8),
-                WaveButton(
-                  onPressed: () => ref
-                      .read(viewingProfileProvider.notifier)
-                      .clear(),
-                  child:
-                      const Text('Back to my profile'),
-                ),
-              ],
+              Builder(builder: (context) {
+                final stats =
+                    ref.watch(_profileStatsProvider(viewing)).valueOrNull;
+                final isFriend = viewing != null &&
+                    ref.watch(localFriendsProvider).any(
+                          (n) => n.toLowerCase() == viewing.toLowerCase(),
+                        );
+                String n(int v) => v.toString().replaceAllMapped(
+                      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+                      (m) => ',',
+                    );
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    WaveArtwork.circle(
+                      url: stats?.avatarUrl ?? '',
+                      size: 88,
+                      label: user,
+                      title: user,
+                      artist: user,
+                      upgrade: false,
+                    ),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(user, style: WaveType.pageTitle),
+                          const SizedBox(height: 4),
+                          Text(
+                            viewing != null
+                                ? 'Last.fm profile'
+                                : 'Your Last.fm profile',
+                            style: WaveType.body.copyWith(
+                              color: waveTextSecondary(context),
+                            ),
+                          ),
+                          if (stats != null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              [
+                                '${n(stats.scrobbles)} scrobbles',
+                                '${n(stats.artistCount)} artists',
+                                '${n(stats.albumCount)} albums',
+                                '${n(stats.trackCount)} tracks',
+                              ].join(' · '),
+                              style: WaveType.meta.copyWith(
+                                color: waveTextTertiary(context),
+                              ),
+                            ),
+                          ],
+                          if (viewing != null) ...[
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if (isFriend)
+                                  WaveGhostButton(
+                                    label: 'Remove friend',
+                                    onPressed: () => ref
+                                        .read(localFriendsProvider.notifier)
+                                        .remove(viewing),
+                                  )
+                                else
+                                  WavePrimaryButton(
+                                    label: 'Add friend',
+                                    icon: FluentIcons.add,
+                                    onPressed: () => ref
+                                        .read(localFriendsProvider.notifier)
+                                        .add(viewing),
+                                  ),
+                                WaveButton(
+                                  onPressed: () => ref
+                                      .read(viewingProfileProvider.notifier)
+                                      .clear(),
+                                  child: const Text('Back to my profile'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }),
               const SizedBox(height: 16),
               _TopTracksSection(
                 viewing: viewing,
@@ -402,80 +465,7 @@ class _TopTracksSection extends ConsumerWidget {
   }
 }
 
-class WaveFriendsPage extends ConsumerWidget {
-  const WaveFriendsPage({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final friends = ref.watch(_waveFriendsProvider);
-    return friends.when(
-      loading: () => const WaveLoading(
-        label: 'Loading friends…',
-      ),
-      error: (e, _) => WaveError(
-        title: 'Could not load friends',
-        message: '$e',
-        onRetry: () =>
-            ref.invalidate(_waveFriendsProvider),
-      ),
-      data: (list) {
-        if (list.isEmpty) {
-          return const WaveEmpty(
-            icon: FluentIcons.people,
-            title: 'No friends yet',
-            subtitle:
-                'Add friends on Last.fm to see them here.',
-          );
-        }
-        return ListView(
-          padding:
-              const EdgeInsets.fromLTRB(24, 20, 24, 24),
-          children: [
-            const Text(
-              'Friends',
-              style: WaveType.pageTitle,
-            ),
-            const SizedBox(height: 8),
-            for (final f in list)
-              ListTile(
-                leading: const Icon(
-                  FluentIcons.contact,
-                  size: 18,
-                ),
-                title: Text(f.name),
-                subtitle: Text(
-                  f.realName.isNotEmpty
-                      ? f.realName
-                      : f.name,
-                ),
-                trailing: WaveButton(
-                  onPressed: () {
-                    ref
-                        .read(
-                          viewingProfileProvider
-                              .notifier,
-                        )
-                        .view(f.name);
-                    context.go('/profile');
-                  },
-                  child: const Text('View'),
-                ),
-                onPressed: () {
-                  ref
-                      .read(
-                        viewingProfileProvider.notifier,
-                      )
-                      .view(f.name);
-                  context.go('/profile');
-                },
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
+/// Friends page (search + add + profiles) lives in friends_page.dart.
 class WaveMixLabPage extends ConsumerStatefulWidget {
   const WaveMixLabPage({super.key});
 
@@ -484,13 +474,138 @@ class WaveMixLabPage extends ConsumerStatefulWidget {
       _WaveMixLabPageState();
 }
 
-class _WaveMixLabPageState
-    extends ConsumerState<WaveMixLabPage> {
-  int _total = 32;
+class _WaveMixLabPageState extends ConsumerState<WaveMixLabPage> {
+  static const _modes = <(MixMode, String)>[
+    (MixMode.top, 'Top tracks'),
+    (MixMode.recent, 'Recent'),
+    (MixMode.similarTracks, 'Song radio'),
+    (MixMode.similarArtists, 'Similar artists'),
+    (MixMode.tag, 'Tag'),
+    (MixMode.mix, 'Mix'),
+    (MixMode.recommendations, 'Recommendations'),
+    (MixMode.neverHeard, 'Never heard'),
+    (MixMode.library, 'Library'),
+  ];
+  static const _periods = <(String, String)>[
+    ('overall', 'Overall'),
+    ('12month', '12 months'),
+    ('6month', '6 months'),
+    ('3month', '3 months'),
+    ('1month', '1 month'),
+    ('7day', '7 days'),
+  ];
+
+  MixMode _mode = MixMode.mix;
+  String _period = 'overall';
+  int _length = 25;
+  bool _busy = false;
+  String? _error;
+  List<GeneratedTrack> _tracks = const [];
+  final _seedTrack = TextEditingController();
+  final _seedArtist = TextEditingController();
+  final _tag = TextEditingController();
+
+  bool get _periodMatters => switch (_mode) {
+        MixMode.top ||
+        MixMode.recent ||
+        MixMode.similarArtists ||
+        MixMode.neverHeard ||
+        MixMode.library =>
+          true,
+        _ => false,
+      };
+
+  bool get _lengthLocked => _mode == MixMode.recommendations;
+  int get _count => _lengthLocked ? 35 : _length;
+
+  @override
+  void dispose() {
+    _seedTrack.dispose();
+    _seedArtist.dispose();
+    _tag.dispose();
+    super.dispose();
+  }
+
+  String get _modeLabel =>
+      _modes.firstWhere((m) => m.$1 == _mode).$2;
+
+  Future<void> _generate() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final tracks = await ref.read(feedRepositoryProvider).generate(
+            mode: _mode,
+            total: _count,
+            period: _period,
+            seedTrack: _seedTrack.text,
+            seedArtist: _seedArtist.text,
+            tag: _tag.text,
+          );
+      if (!mounted) return;
+      setState(() {
+        _tracks = tracks;
+        _busy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    if (_tracks.isEmpty) return;
+    final name = TextEditingController(text: _modeLabel);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text('Save playlist'),
+        content: TextBox(
+          controller: name,
+          placeholder: 'Playlist name',
+        ),
+        actions: [
+          WaveButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          WaveFilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final title = name.text.trim();
+    name.dispose();
+    if (ok != true || !mounted) return;
+    final saved = await ref.read(playlistRepositoryProvider.notifier).saveGenerated(
+          title.isEmpty ? _modeLabel : title,
+          [
+            for (final t in _tracks)
+              StoredTrack(
+                name: t.name,
+                artist: t.artist,
+                album: t.album,
+                artworkUrl: t.artworkUrl,
+                videoId: t.videoId,
+                durationSeconds: t.durationSeconds,
+                playbackUrl: t.playbackUrl,
+              ),
+          ],
+        );
+    if (mounted) context.go('/playlists/${saved.id}');
+  }
 
   @override
   Widget build(BuildContext context) {
-    final mix = ref.watch(_waveMixProvider(_total));
+    final playingKey = ref.watch(
+      playbackServiceProvider.select((s) => s.current?.queueKey),
+    );
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       children: [
@@ -499,121 +614,150 @@ class _WaveMixLabPageState
             maxWidth: WaveDensity.contentMax,
           ),
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'COLLECT',
-                style: WaveType.overline.copyWith(
-                  color: waveAccent(context),
-                ),
+                'LISTEN',
+                style: WaveType.overline.copyWith(color: waveAccent(context)),
               ),
-              const Text(
-                'Mix Lab',
-                style: WaveType.pageTitle,
-              ),
+              const Text('Mix Lab', style: WaveType.pageTitle),
               const SizedBox(height: 2),
               Text(
-                'A fresh $_total-track mix from your taste.',
-                style: WaveType.body.copyWith(
-                  color: waveTextSecondary(context),
-                ),
+                '$_count tracks · $_modeLabel',
+                style: WaveType.body.copyWith(color: waveTextSecondary(context)),
               ),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
+                runSpacing: 8,
                 children: [
-                  for (final t in [24, 32, 40])
+                  for (final mode in _modes)
                     ToggleButton(
-                      checked: _total == t,
-                      onChanged: (_) =>
-                          setState(() => _total = t),
-                      child: Text('$t'),
-                    ),
-                  WavePrimaryButton(
-                    label: 'Regenerate',
-                    icon: FluentIcons.refresh,
-                    onPressed: () => ref.invalidate(
-                      _waveMixProvider(_total),
-                    ),
-                  ),
-                  if ((mix.valueOrNull ?? []).isNotEmpty)
-                    WaveGhostButton(
-                      label: 'Play mix',
-                      icon: FluentIcons.play,
-                      onPressed: () {
-                        final tracks =
-                            mix.valueOrNull ?? [];
-                        if (tracks.isEmpty) return;
-                        playGenerated(
-                          ref,
-                          context,
-                          tracks.first,
-                          sourceLabel: 'Mix Lab',
-                          queueAll: tracks,
-                        );
-                      },
+                      checked: _mode == mode.$1,
+                      onChanged: (_) => setState(() => _mode = mode.$1),
+                      child: Text(mode.$2),
                     ),
                 ],
               ),
-              const SizedBox(height: 12),
-              mix.when(
-                loading: () => const WaveLoading(
-                  label: 'Generating mix…',
-                ),
-                error: (e, _) => WaveError(
-                  title: 'Mix failed',
-                  message: '$e',
-                  onRetry: () => ref.invalidate(
-                    _waveMixProvider(_total),
-                  ),
-                ),
-                data: (tracks) {
-                  if (tracks.isEmpty) {
-                    return const WaveEmpty(
-                      icon: FluentIcons.lightbulb,
-                      title: 'No mix yet',
-                      subtitle:
-                          'Generate a mix to hear your taste distilled.',
-                    );
-                  }
-                  final playingKey = ref.watch(
-                    playbackServiceProvider.select(
-                      (s) => s.current?.queueKey,
-                    ),
-                  );
-                  return Column(
-                    children: [
-                      const WaveTrackTableHeader(
-                        showAlbum: false,
+              if (_periodMatters) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final period in _periods)
+                      ToggleButton(
+                        checked: _period == period.$1,
+                        onChanged: (_) => setState(() => _period = period.$1),
+                        child: Text(period.$2),
                       ),
-                      for (var i = 0;
-                          i < tracks.length;
-                          i++)
-                        WaveTrackRow(
-                          index: i + 1,
-                          title: tracks[i].name,
-                          artist: tracks[i].artist,
-                          artworkUrl:
-                              tracks[i].artworkUrl,
-                          videoId: tracks[i].videoId,
-                          playing: playingKey ==
-                              tracks[i].key,
-                          isCurrent: playingKey ==
-                              tracks[i].key,
-                          onTap: () => playGenerated(
-                            ref,
-                            context,
-                            tracks[i],
-                            sourceLabel: 'Mix Lab',
-                            queueAll: tracks,
-                            startIndex: i,
-                          ),
-                        ),
-                    ],
-                  );
-                },
+                  ],
+                ),
+              ],
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  SizedBox(
+                    width: 92,
+                    child: Text('$_count tracks', style: WaveType.meta),
+                  ),
+                  Expanded(
+                    child: Slider(
+                      value: _count.toDouble(),
+                      min: 5,
+                      max: 35,
+                      divisions: 30,
+                      onChanged: _lengthLocked
+                          ? null
+                          : (v) => setState(() => _length = v.round()),
+                    ),
+                  ),
+                ],
               ),
+              if (_mode == MixMode.similarTracks) ...[
+                const SizedBox(height: 8),
+                TextBox(controller: _seedTrack, placeholder: 'Song'),
+                const SizedBox(height: 8),
+                TextBox(controller: _seedArtist, placeholder: 'Artist'),
+              ],
+              if (_mode == MixMode.similarArtists) ...[
+                const SizedBox(height: 8),
+                TextBox(controller: _seedArtist, placeholder: 'Artist'),
+              ],
+              if (_mode == MixMode.tag) ...[
+                const SizedBox(height: 8),
+                TextBox(controller: _tag, placeholder: 'Tag'),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  WavePrimaryButton(
+                    label: _busy ? 'Generating…' : 'Generate',
+                    icon: FluentIcons.refresh,
+                    onPressed: _busy ? null : _generate,
+                  ),
+                  if (_tracks.isNotEmpty) ...[
+                    WaveGhostButton(
+                      label: 'Play',
+                      icon: FluentIcons.play,
+                      onPressed: () => playGenerated(
+                        ref,
+                        context,
+                        _tracks.first,
+                        sourceLabel: 'Mix Lab',
+                        queueAll: _tracks,
+                      ),
+                    ),
+                    WaveGhostButton(
+                      label: 'Save playlist',
+                      icon: FluentIcons.save,
+                      onPressed: _save,
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_busy)
+                const WaveLoading(label: 'Generating mix…')
+              else if (_error != null)
+                WaveError(
+                  title: 'Mix failed',
+                  message: _error!,
+                  onRetry: _generate,
+                )
+              else if (_tracks.isEmpty)
+                const WaveEmpty(
+                  icon: FluentIcons.lightbulb,
+                  title: 'No mix yet',
+                  subtitle:
+                      'Pick a mode and generate a playlist from your taste.',
+                )
+              else
+                Column(
+                  children: [
+                    const WaveTrackTableHeader(showAlbum: false),
+                    for (var i = 0; i < _tracks.length; i++)
+                      WaveTrackRow(
+                        index: i + 1,
+                        title: _tracks[i].name,
+                        artist: _tracks[i].artist,
+                        artworkUrl: _tracks[i].artworkUrl,
+                        videoId: _tracks[i].videoId,
+                        playing: playingKey == _tracks[i].key,
+                        isCurrent: playingKey == _tracks[i].key,
+                        onTap: () => playGenerated(
+                          ref,
+                          context,
+                          _tracks[i],
+                          sourceLabel: 'Mix Lab',
+                          queueAll: _tracks,
+                          startIndex: i,
+                        ),
+                      ),
+                  ],
+                ),
             ],
           ),
         ),

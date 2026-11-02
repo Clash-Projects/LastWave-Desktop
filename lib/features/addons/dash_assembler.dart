@@ -152,6 +152,56 @@ class DashAssembler {
     }
   }
 
+  /// Single HTTP byte-range fetch with automatic retries. Null on persistent miss.
+  static Future<List<int>?> fetchRangeBytes(
+    Dio dio,
+    String url, {
+    required int start,
+    required int end,
+    int timeoutSeconds = 20,
+    int retries = 2,
+  }) async {
+    for (var attempt = 0; attempt <= retries; attempt++) {
+      try {
+        final res = await dio
+            .get<List<int>>(
+              url,
+              options: Options(
+                responseType: ResponseType.bytes,
+                headers: {'Range': 'bytes=$start-$end'},
+              ),
+            )
+            .timeout(Duration(seconds: timeoutSeconds));
+        final bytes = res.data;
+        if (bytes != null && bytes.isNotEmpty) return bytes;
+      } catch (_) {
+        if (attempt == retries) return null;
+        await Future.delayed(Duration(milliseconds: 100 * (attempt + 1)));
+      }
+    }
+    return null;
+  }
+
+  /// Init range fetch with quick retries.
+  static Future<List<int>?> fetchInitRange(
+    Dio dio,
+    String url, {
+    required int start,
+    required int end,
+  }) async {
+    for (final secs in [3, 3, 20]) {
+      final bytes = await fetchRangeBytes(
+        dio,
+        url,
+        start: start,
+        end: end,
+        timeoutSeconds: secs,
+      );
+      if (bytes != null) return bytes;
+    }
+    return null;
+  }
+
   /// Init fetch with quick retries. The init is ~1KB but gates every
   /// first byte, and mpv aborts the open after seconds of silence —
   /// so a stalled first attempt must not consume the whole budget.
@@ -193,6 +243,50 @@ class DashAssembler {
           batch.add(fetchBytes(
             dio,
             segmentUrlFor(mediaTemplate, startNumber + index),
+          ).then((bytes) {
+            if (bytes == null) return false;
+            onSegment(index, bytes);
+            return true;
+          }));
+        }
+        final results = await Future.wait(batch);
+        if (results.any((ok) => !ok)) return false;
+        if (onBatch != null) await onBatch(base, end);
+      }
+      return true;
+    }
+
+    if (totalTimeout == null) return run();
+    try {
+      return await run().timeout(totalTimeout);
+    } on TimeoutException {
+      return false;
+    }
+  }
+
+  /// Parallel-batched segment fetch for hybrid byte ranges.
+  static Future<bool> fetchHybridSegments(
+    Dio dio, {
+    required String cdnUrl,
+    required List<({int start, int end})> ranges,
+    required void Function(int index, List<int> bytes) onSegment,
+    Future<void> Function(int base, int end)? onBatch,
+    Duration? totalTimeout,
+    int from = 0,
+  }) async {
+    final count = ranges.length;
+    Future<bool> run() async {
+      for (var base = from; base < count; base += parallelDownloads) {
+        final end = (base + parallelDownloads).clamp(0, count);
+        final batch = <Future<bool>>[];
+        for (var i = base; i < end; i++) {
+          final index = i;
+          final range = ranges[i];
+          batch.add(fetchRangeBytes(
+            dio,
+            cdnUrl,
+            start: range.start,
+            end: range.end,
           ).then((bytes) {
             if (bytes == null) return false;
             onSegment(index, bytes);

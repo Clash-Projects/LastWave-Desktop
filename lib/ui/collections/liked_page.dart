@@ -7,7 +7,9 @@ import '../../app/track_actions.dart'
         mergeYtTracks,
         playGenerated,
         playableFromGenerated;
+import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart';
+import '../../features/innertube/innertube_api.dart' show YouTubeMusicTrack;
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
@@ -56,8 +58,11 @@ class _WaveLikedPageState
         playlists.where((p) => p.isLikedSongs).firstOrNull;
     final all = liked?.tracks ?? const [];
     final query = _q.trim().toLowerCase();
-    final ytLiked =
-        ref.watch(ytLikedSongsProvider).value ?? const [];
+    // With two-way sync on, YouTube likes are already rows in `all`; merging
+    // the fetched list too would resurrect a just-removed like.
+    final ytLiked = ref.watch(prefsProvider).syncYtLibrary
+        ? const <YouTubeMusicTrack>[]
+        : ref.watch(ytLikedSongsProvider).value ?? const [];
 
     final bool tracksChanged = !identical(all, _lastAll) || all != _lastAll;
     final bool ytChanged = !identical(ytLiked, _lastYtLiked) || ytLiked != _lastYtLiked;
@@ -71,8 +76,10 @@ class _WaveLikedPageState
             (t) => GeneratedTrack(
               name: t.name,
               artist: t.artist,
+              album: t.album,
               artworkUrl: t.artworkUrl,
               videoId: t.videoId,
+              durationSeconds: t.durationSeconds,
             ),
           )
           .toList();
@@ -119,8 +126,10 @@ class _WaveLikedPageState
             (t) => GeneratedTrack(
               name: t.name,
               artist: t.artist,
+              album: t.album,
               artworkUrl: t.artworkUrl,
               videoId: t.videoId,
+              durationSeconds: t.durationSeconds,
             ),
           )
           .toList();

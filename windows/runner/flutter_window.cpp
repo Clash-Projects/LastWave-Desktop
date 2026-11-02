@@ -1,17 +1,24 @@
 ﻿#include "flutter_window.h"
 
 #include <optional>
+#include <string>
+
+#include <flutter/standard_method_codec.h>
 
 #include <propkey.h>
 #include <propvarutil.h>
 #include <shobjidl.h>
 
 #include "app_identity.h"
+#include "utils.h"
 #include "flutter/generated_plugin_registrant.h"
 #include "smtc_channel.h"
 #include "wasapi_channel.h"
 
 namespace {
+
+// dwData tag on the WM_COPYDATA that carries a lastwave:// link (see main.cpp).
+constexpr ULONG_PTR kDeepLinkCopyData = 0x4C57;
 
 // Window-level AppUserModelID: GetForWindow-based SMTC resolves the
 // flyout label/icon from the HWND's property store first, then falls
@@ -70,6 +77,10 @@ bool FlutterWindow::OnCreate() {
   // Best-effort: init failures degrade to silence inside the channel.
   smtc_channel_ = std::make_unique<lastwave::SmtcChannel>(
       flutter_controller_->engine()->messenger(), GetHandle());
+  deeplink_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "lastwave/deeplink",
+          &flutter::StandardMethodCodec::GetInstance());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -91,6 +102,7 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   destroying_ = true;
   smtc_channel_.reset();
+  deeplink_channel_.reset();
   wasapi_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
@@ -116,6 +128,24 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case WM_COPYDATA: {
+      // A second launch (browser/chat link) hands its lastwave:// URL to
+      // this instance. Only that scheme is forwarded to Dart.
+      auto* data = reinterpret_cast<COPYDATASTRUCT*>(lparam);
+      if (data != nullptr && data->dwData == kDeepLinkCopyData &&
+          data->lpData != nullptr && deeplink_channel_ && !destroying_) {
+        std::wstring link(static_cast<const wchar_t*>(data->lpData),
+                          data->cbData / sizeof(wchar_t));
+        while (!link.empty() && link.back() == L'\0') link.pop_back();
+        if (link.rfind(L"lastwave://", 0) == 0) {
+          deeplink_channel_->InvokeMethod(
+              "link", std::make_unique<flutter::EncodableValue>(
+                          Utf8FromUtf16(link.c_str())));
+        }
+        return TRUE;
+      }
+      break;
+    }
     case WM_FONTCHANGE:
       if (flutter_controller_ && flutter_controller_->engine()) {
         flutter_controller_->engine()->ReloadSystemFonts();

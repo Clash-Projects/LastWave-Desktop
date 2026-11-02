@@ -29,22 +29,27 @@ final waveLyricsProvider = StreamProvider.autoDispose
   // Watched, so switching sources refetches through a new cache key.
   final override = ref.watch(lyricsProviderOverrideProvider(track.queueKey));
   final excludes = ref.watch(lyricsExcludedProvidersProvider(track.queueKey));
-  // Duration read initially; if 0 (stream loading/buffering), we listen for arrival
-  // so lyrics are fetched automatically without requiring a manual refresh.
+  // Duration read initially (preferring live playback duration, falling back
+  // to the track's advertised duration); if still 0 (stream loading/buffering),
+  // we listen for arrival so lyrics are fetched or re-validated automatically.
   final playback = ref.read(playbackServiceProvider);
-  final initialDurationSecs = playback.current?.queueKey == track.queueKey
+  final playbackSecs = playback.current?.queueKey == track.queueKey
       ? playback.duration.inSeconds
       : 0;
+  final initialDurationSecs =
+      playbackSecs > 0 ? playbackSecs : track.duration.inSeconds;
   final results = StreamController<LyricsResult>();
   var disposed = false;
-  // The controller is closed by the first fetch that produced content,
+  // The controller is closed once a duration-validated fetch produces content,
   // while a second fetch (the duration-arrival refetch) may still be in
   // flight. `disposed` alone does not cover that: closing here used to
   // throw "Cannot add event after closing" from a late result.
   var closed = false;
   var hasEmittedContent = false;
+  LyricsResult? lastEmitted;
   void emit(LyricsResult result) {
     if (disposed || closed || results.isClosed) return;
+    lastEmitted = result;
     results.add(result);
   }
 
@@ -61,11 +66,12 @@ final waveLyricsProvider = StreamProvider.autoDispose
   });
 
   void runFetch(int? secs) {
+    final hasSecs = secs != null && secs > 0;
     unawaited(repo.getLyrics(
       title: track.title,
       artist: track.artist,
       album: track.album,
-      durationSeconds: secs != null && secs > 0 ? secs : null,
+      durationSeconds: hasSecs ? secs : null,
       wordByWord: wordByWord,
       videoId: track.videoId.isNotEmpty ? track.videoId : null,
       preferredProviderId: override ?? defaultProviderId,
@@ -81,7 +87,7 @@ final waveLyricsProvider = StreamProvider.autoDispose
         if (!result.isEmpty) {
           hasEmittedContent = true;
           emit(result);
-        } else if (!hasEmittedContent && (secs == null || secs <= 0)) {
+        } else if (!hasEmittedContent && !hasSecs) {
           final curSecs = ref.read(playbackServiceProvider).duration.inSeconds;
           if (curSecs > 0) {
             runFetch(curSecs);
@@ -97,7 +103,7 @@ final waveLyricsProvider = StreamProvider.autoDispose
         results.addError(error, stack);
       }
     }).whenComplete(() {
-      if (!disposed && (hasEmittedContent || (secs != null && secs > 0))) {
+      if (!disposed && hasSecs) {
         finish();
       }
     }));
@@ -110,8 +116,17 @@ final waveLyricsProvider = StreamProvider.autoDispose
       playbackServiceProvider.select((s) =>
           s.current?.queueKey == track.queueKey ? s.duration.inSeconds : 0),
       (prev, next) {
-        if (!disposed && !hasEmittedContent && next > 0 && (prev == null || prev <= 0)) {
-          runFetch(next);
+        if (!disposed && next > 0 && (prev == null || prev <= 0)) {
+          final prevResult = lastEmitted;
+          final needsRefetch = !hasEmittedContent ||
+              prevResult == null ||
+              prevResult.isEmpty ||
+              !lyricsPlausibleDuration(prevResult.lines, next);
+          if (needsRefetch) {
+            runFetch(next);
+          } else {
+            finish();
+          }
         }
       },
     );

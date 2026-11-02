@@ -393,14 +393,16 @@ class LyricsRepository {
     final key =
         '${_key(title, artist, album)}|${durationSeconds ?? 0}|$wordByWord|${preferred.id}|${sortedExcludes.join(',')}';
     if (!forceRefresh) {
-      final cached = _lookup(key);
+      final rawCached = _lookup(key);
       // Empty results are never stored, so any cache hit is usable.
       // If word-by-word was requested, only return from cache immediately
       // if the cached entry is word-synced (or instrumental).
       // If the cached entry is only line-synced, stream it as an immediate
       // partial so the UI has lyrics instantly, but allow the race below
       // to seek a true word-synced version.
-      if (cached != null) {
+      if (rawCached != null) {
+        final cached =
+            stripLyricCreditLines(rawCached, title: title, artist: artist);
         if (!wordByWord || cached.isWordSynced || cached.isInstrumental) {
           onPartialResult?.call(cached);
           return lyricsForDisplayMode(cached, wordByWord: wordByWord);
@@ -416,11 +418,15 @@ class LyricsRepository {
     LyricsResult? normalize(LyricsResult? result) {
       if (result == null || result.isEmpty) return null;
       try {
-        return normalizeKaraokeTimings(result);
+        return normalizeKaraokeTimings(
+          result,
+          title: title,
+          artist: artist,
+        );
       } catch (_) {
         // Never drop lyrics over a normalization edge: fall back to
         // the un-normalized result.
-        return result;
+        return stripLyricCreditLines(result, title: title, artist: artist);
       }
     }
 
