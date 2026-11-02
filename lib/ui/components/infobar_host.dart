@@ -6,6 +6,7 @@ import '../../core/network/network_monitor.dart';
 import '../../features/addons/addon_api.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/innertube/innertube_api.dart';
+import '../../features/innertube/yt_session_keeper.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart';
@@ -36,9 +37,37 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
   bool _dismissedYt = false;
   String? _dismissedDownloadKey;
   String? _dismissedQuotaNotice;
+  bool _ytRecovering = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The stale flag may already be set before this host mounts.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && ref.read(ytAuthStaleProvider)) _recoverYt();
+    });
+  }
+
+  /// A restart (every setup/portable update is one) often brings back
+  /// a stored YouTube jar Google has already rotated out. Before
+  /// telling the user to sign in again, try once per run to re-mint it
+  /// silently from the persisted WebView2 profile.
+  Future<void> _recoverYt() async {
+    if (_ytRecovering || YtSessionKeeper.autoAttempted) return;
+    if (!ref.read(ytConnectionProvider).connected) return;
+    setState(() => _ytRecovering = true);
+    try {
+      await YtSessionKeeper.autoRecover(ref);
+    } finally {
+      if (mounted) setState(() => _ytRecovering = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<bool>(ytAuthStaleProvider, (prev, stale) {
+      if (stale && prev != true) _recoverYt();
+    });
     final online = ref.watch(networkMonitorProvider);
     final auth = ref.watch(authRepositoryProvider);
     final downloads = ref.watch(downloadManagerProvider);
@@ -83,6 +112,15 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
     // YouTube Music session the server has rejected. Not silent noise:
     // library, history and uploads all stay empty until this is fixed.
     if (ref.watch(ytConnectionProvider).connected &&
+        ref.watch(ytAuthStaleProvider) &&
+        _ytRecovering) {
+      bars.add(const InfoBar(
+        title: Text('Reconnecting YouTube Music…'),
+        content: Text('Refreshing the saved session in the background.'),
+        severity: InfoBarSeverity.info,
+        isLong: false,
+      ));
+    } else if (ref.watch(ytConnectionProvider).connected &&
         ref.watch(ytAuthStaleProvider) &&
         !_dismissedYt) {
       bars.add(InfoBar(

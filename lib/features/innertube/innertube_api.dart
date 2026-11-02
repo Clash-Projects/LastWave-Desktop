@@ -774,6 +774,24 @@ class InnerTubeMusicApi {
   InnerTubeMusicApi(this._dio, this._secure, [this._poTokens]) {
     _decipher = SignatureDecipher(_dio);
     MemoryProbe.register('yt', () => debugGauge);
+    // Google rotates the session cookies (`__Secure-*PSIDTS`, `SIDCC`
+    // family) through `Set-Cookie` on authenticated responses. Without
+    // absorbing them the stored jar slowly falls behind the live
+    // session, so it works while the app runs but comes back
+    // "signed out" after a restart — which every update forces.
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onResponse: (response, handler) {
+          _absorbRotatedCookies(response);
+          handler.next(response);
+        },
+        onError: (error, handler) {
+          final response = error.response;
+          if (response != null) _absorbRotatedCookies(response);
+          handler.next(error);
+        },
+      ),
+    );
   }
 
   /// Long-lived InnerTube memo residency. Every one of these is capped
@@ -897,6 +915,136 @@ class InnerTubeMusicApi {
 
   void setConnection(YtConnection c) => _connection = c;
 
+  // -- cookie rotation ---------------------------------------------------------
+
+  /// The jar currently in secure storage for the active connection.
+  /// Rotations are only absorbed into THAT jar — never into a
+  /// candidate being verified by [connectAs] or a temporary probe jar
+  /// ([resolveIdentityFor] / [fetchChannelsFor]).
+  String _persistedCookies = '';
+
+  /// Serializes rotation writes so an older jar never lands last.
+  Future<void> _rotationWrite = Future<void>.value();
+
+  /// Notified after the active jar absorbed rotated cookies and was
+  /// persisted (old header, new header). Wired by [innerTubeProvider]
+  /// to keep the multi-profile roster's copy of the jar in step.
+  void Function(String previous, String next)? onCookiesRotated;
+
+  void _absorbRotatedCookies(Response<dynamic> response) {
+    try {
+      final current = _connection.cookies;
+      if (!_connection.connected || current.isEmpty) return;
+      if (current != _persistedCookies) return;
+      final headers = response.requestOptions.headers;
+      final sent = headers['Cookie'] ?? headers['cookie'];
+      if (sent is! String || sent != current) return;
+      final setCookies = response.headers.map['set-cookie'];
+      if (setCookies == null || setCookies.isEmpty) return;
+      final next = mergeRotatedCookies(
+        current,
+        setCookies,
+        host: response.requestOptions.uri.host,
+      );
+      if (next == null || next == current) return;
+      final c = _connection;
+      _connection = YtConnection(
+        connected: c.connected,
+        cookies: next,
+        accountName: c.accountName,
+        channelHandle: c.channelHandle,
+        photoUrl: c.photoUrl,
+        connectedAtMillis: c.connectedAtMillis,
+        profileEmail: c.profileEmail,
+        activePageId: c.activePageId,
+      );
+      _persistedCookies = next;
+      if (kDebugMode) {
+        debugPrint('InnerTube: absorbed rotated session cookies');
+      }
+      _rotationWrite = _rotationWrite.then((_) async {
+        try {
+          await _secure.writeYtCookies(next);
+        } catch (_) {}
+        try {
+          onCookiesRotated?.call(current, next);
+        } catch (_) {}
+      });
+    } catch (_) {
+      // Never let bookkeeping break a request.
+    }
+  }
+
+  /// Waits for pending rotation writes (call before a hard exit, e.g.
+  /// handing over to an update installer).
+  Future<void> flushPendingWrites() => _rotationWrite;
+
+  /// Merges `Set-Cookie` header lines into a `Cookie` header [jar].
+  ///
+  /// Only names already present in the jar are updated (the jar is a
+  /// curated session set — tracking cookies are not adopted), only for
+  /// youtube.com / google.com scopes, and deletions (expired, Max-Age
+  /// <= 0, empty value) are ignored so a rotation can never shrink the
+  /// session. Returns null when nothing changed.
+  @visibleForTesting
+  static String? mergeRotatedCookies(
+    String jar,
+    Iterable<String> setCookies, {
+    required String host,
+  }) {
+    final pairs = <String, String>{};
+    for (final part in jar.split(';')) {
+      final t = part.trim();
+      final eq = t.indexOf('=');
+      if (eq <= 0) continue;
+      pairs[t.substring(0, eq).trim()] = t.substring(eq + 1).trim();
+    }
+    if (pairs.isEmpty) return null;
+    var changed = false;
+    for (final line in setCookies) {
+      final segments = line.split(';');
+      if (segments.isEmpty) continue;
+      final first = segments.first.trim();
+      final eq = first.indexOf('=');
+      if (eq <= 0) continue;
+      final name = first.substring(0, eq).trim();
+      final value = first.substring(eq + 1).trim();
+      if (!pairs.containsKey(name)) continue;
+      if (value.isEmpty || value == 'EXPIRED' || value == 'deleted') continue;
+      var domain = host.toLowerCase();
+      var deleted = false;
+      for (final attr in segments.skip(1)) {
+        final a = attr.trim();
+        final aeq = a.indexOf('=');
+        final key = (aeq < 0 ? a : a.substring(0, aeq)).trim().toLowerCase();
+        final val = aeq < 0 ? '' : a.substring(aeq + 1).trim();
+        if (key == 'domain' && val.isNotEmpty) {
+          domain = val.toLowerCase();
+          if (domain.startsWith('.')) domain = domain.substring(1);
+        } else if (key == 'max-age') {
+          final age = int.tryParse(val);
+          if (age != null && age <= 0) deleted = true;
+        } else if (key == 'expires') {
+          try {
+            if (HttpDate.parse(val).isBefore(DateTime.now())) deleted = true;
+          } catch (_) {}
+        }
+      }
+      if (deleted) continue;
+      final scoped = domain == 'youtube.com' ||
+          domain.endsWith('.youtube.com') ||
+          domain == 'google.com' ||
+          domain.endsWith('.google.com');
+      if (!scoped) continue;
+      if (pairs[name] != value) {
+        pairs[name] = value;
+        changed = true;
+      }
+    }
+    if (!changed) return null;
+    return pairs.entries.map((e) => '${e.key}=${e.value}').join('; ');
+  }
+
   // -- session freshness -----------------------------------------------------
 
   /// True when YouTube has definitively treated the stored jar as
@@ -932,12 +1080,39 @@ class InnerTubeMusicApi {
     }
     try {
       await verifyConnection();
+      _authRetries = 0;
       return true;
     } on FormatException {
+      _authRetries = 0;
       return false;
+    } on InnerTubeHttpException catch (e) {
+      // 401 is YouTube saying "these credentials are not valid" — as
+      // definitive as an anonymous page.
+      if (e.responseCode == 401) {
+        _authRetries = 0;
+        _setAuthStale(true);
+        return false;
+      }
+      _scheduleAuthRetry();
+      return !_authStale;
     } catch (_) {
+      _scheduleAuthRetry();
       return !_authStale;
     }
+  }
+
+  /// Inconclusive checks (startup races the network, transient 5xx)
+  /// used to leave a dead session looking "connected" for the whole
+  /// run. Re-check a few times with backoff instead.
+  int _authRetries = 0;
+  Timer? _authRetryTimer;
+
+  void _scheduleAuthRetry() {
+    if (_authRetries >= 4 || (_authRetryTimer?.isActive ?? false)) return;
+    _authRetries++;
+    _authRetryTimer = Timer(Duration(seconds: 20 * _authRetries), () {
+      if (_connection.connected) unawaited(checkAuth());
+    });
   }
 
   Future<void> loadPersistedConnection() async {
@@ -953,6 +1128,7 @@ class InnerTubeMusicApi {
       cookies = stored.trim();
     }
     if (cookies.isEmpty) return;
+    _persistedCookies = cookies;
     // Restore the active profile pointer (email + brand page ID).
     // Absent on pre-roster installs → main channel, as before.
     var profileEmail = '';
@@ -1141,7 +1317,13 @@ class InnerTubeMusicApi {
       rethrow;
     }
     _setAuthStale(false);
+    // Rotation writes still queued for the previous jar must not land
+    // after (and overwrite) the new one.
+    try {
+      await _rotationWrite;
+    } catch (_) {}
     await _secure.writeYtCookies(normalized);
+    _persistedCookies = normalized;
     await _persistActivePointer();
     if (kDebugMode) {
       debugPrint('InnerTube: connect verified');
@@ -1160,10 +1342,7 @@ class InnerTubeMusicApi {
       libraryPlaylistsBrowseId,
       authenticated: true,
     );
-    final contents = root['contents'];
-    final text = jsonEncode(root);
-    if (contents == null ||
-        (text.contains('SIGN_IN') && !text.contains('music_liked_playlists'))) {
+    if (looksSignedOut(root)) {
       if (kDebugMode) {
         debugPrint('YtVerify: REJECTED ${_authDebug()}');
       }
@@ -1190,11 +1369,48 @@ class InnerTubeMusicApi {
   }
 
   void _observeAuthenticatedBrowse(_Map root) {
+    _setAuthStale(looksSignedOut(root));
+  }
+
+  /// YouTube's own verdict on whether a response was served to a
+  /// signed-in user: `responseContext.serviceTrackingParams[].params[]`
+  /// carries `logged_in` = "1" / "0" on every browse. Null when absent.
+  @visibleForTesting
+  static bool? loggedInFlag(Map<String, dynamic> root) {
+    try {
+      final ctx = root['responseContext'];
+      if (ctx is! Map) return null;
+      final services = ctx['serviceTrackingParams'];
+      if (services is! List) return null;
+      for (final service in services) {
+        if (service is! Map) continue;
+        final params = service['params'];
+        if (params is! List) continue;
+        for (final param in params) {
+          if (param is Map && param['key'] == 'logged_in') {
+            final v = param['value']?.toString();
+            if (v == '1') return true;
+            if (v == '0') return false;
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// True when an AUTHENTICATED browse was answered as anonymous.
+  ///
+  /// The explicit `logged_in` flag wins: a stale jar is served a
+  /// perfectly normal-looking (guest) page, which the old heuristics
+  /// alone missed — the app kept showing "connected" while history and
+  /// library sync silently came back empty.
+  @visibleForTesting
+  static bool looksSignedOut(Map<String, dynamic> root) {
+    final flag = loggedInFlag(root);
+    if (flag != null) return !flag;
+    if (root['contents'] == null) return true;
     final text = jsonEncode(root);
-    final rejected =
-        root['contents'] == null ||
-        (text.contains('SIGN_IN') && !text.contains('music_liked_playlists'));
-    _setAuthStale(rejected);
+    return text.contains('SIGN_IN') && !text.contains('music_liked_playlists');
   }
 
   /// Account liked songs (VLLM), authenticated. Empty when signed out
@@ -1820,6 +2036,10 @@ class InnerTubeMusicApi {
   }
 
   Future<void> signOut() async {
+    _persistedCookies = '';
+    try {
+      await _rotationWrite;
+    } catch (_) {}
     await _secure.writeYtCookies(null);
     await _secure.writeYtProfiles(null);
     await _secure.writeYtActive(null);
@@ -2056,7 +2276,11 @@ class InnerTubeMusicApi {
     if (!_connection.connected) return 'anonymous';
     final digest = sha256
         .convert(
-          utf8.encode('${_connection.cookies}|${_connection.activePageId}'),
+          // SAPISID identifies the login and never rotates, so cookie
+          // rotations don't invalidate the per-account stream cache.
+          utf8.encode(
+            '${_sapisid() ?? _connection.cookies}|${_connection.activePageId}',
+          ),
         )
         .bytes
         .take(8)
@@ -7290,6 +7514,40 @@ final innerTubeProvider = Provider<InnerTubeMusicApi>((ref) {
     try {
       ref.read(ytAuthStaleProvider.notifier).state = stale;
     } catch (_) {}
+  };
+  // Keep the roster's copy of the active jar in step with cookie
+  // rotations, so switching profiles (or the next launch) never falls
+  // back to an already-rotated jar. The reactive connection mirror is
+  // deliberately NOT republished: that would refetch every account
+  // surface on each rotation.
+  api.onCookiesRotated = (previous, next) {
+    unawaited(() async {
+      try {
+        final store = ref.read(secureStoreProvider);
+        var roster = ref.read(ytProfilesProvider);
+        if (roster.isEmpty) {
+          final raw = await store.readYtProfiles() ?? '';
+          if (raw.isNotEmpty) roster = YtProfile.listFromJson(raw);
+        }
+        if (roster.isEmpty) return;
+        final email = api.connection.profileEmail;
+        var changed = false;
+        final updated = [
+          for (final p in roster)
+            if (p.cookies == previous ||
+                (email.isNotEmpty && p.email == email))
+              () {
+                changed = changed || p.cookies != next;
+                return p.copyWith(cookies: next);
+              }()
+            else
+              p,
+        ];
+        if (!changed) return;
+        ref.read(ytProfilesProvider.notifier).state = updated;
+        await store.writeYtProfiles(YtProfile.listToJson(updated));
+      } catch (_) {}
+    }());
   };
   // Direct-only escape hatch: never open the BotGuard WebView.
   try {

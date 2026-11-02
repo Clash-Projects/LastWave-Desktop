@@ -1453,28 +1453,34 @@ class _YtStaleBanner extends ConsumerStatefulWidget {
 }
 
 class _YtStaleBannerState extends ConsumerState<_YtStaleBanner> {
-  static bool _autoAttempted = false;
   bool _busy = false;
   bool _dismissed = false;
 
   @override
   void initState() {
     super.initState();
-    // One silent attempt per app run, and only when this run actually
-    // created the sign-in window — with no cached window there is
-    // nothing to reload and the user must sign in.
-    if (!_autoAttempted && YtWebLogin.cachedWindow != null) {
-      _autoAttempted = true;
+    // One silent attempt per app run (shared with the shell info bar).
+    // The persisted WebView2 profile survives restarts and updates, so
+    // this works even when this run never opened the sign-in window.
+    if (!YtSessionKeeper.autoAttempted && !YtSessionKeeper.isRunning) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _refresh();
+        if (mounted) _refresh(auto: true);
       });
     }
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool auto = false}) async {
     if (_busy || !mounted) return;
     setState(() => _busy = true);
-    final ok = await YtSessionKeeper.refresh(ref);
+    final ok = auto
+        ? await YtSessionKeeper.autoRecover(ref)
+        : await YtSessionKeeper.refresh(ref, allowCreateWindow: true);
+    if (!mounted) return;
+    if (auto && !ok) {
+      // Silent first attempt: no error dialog, the banner stays.
+      setState(() => _busy = false);
+      return;
+    }
     if (!mounted) return;
     setState(() => _busy = false);
     if (!ok) {
