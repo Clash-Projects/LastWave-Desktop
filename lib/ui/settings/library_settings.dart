@@ -3,8 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/prefs.dart';
 import '../../features/home/home_providers.dart';
-import '../../features/library/playlists.dart';
-import '../../features/library/yt_playlist_sync.dart';
+import '../../features/library/yt_library_sync.dart';
 import '../../features/search/shared_providers.dart';
 import '../components/buttons.dart';
 import '../theme/tokens.dart';
@@ -19,34 +18,6 @@ class LibrarySettings extends ConsumerStatefulWidget {
 }
 
 class _LibrarySettingsState extends ConsumerState<LibrarySettings> {
-  bool _syncing = false;
-  String _syncMessage = '';
-
-  Future<void> _sync() async {
-    setState(() {
-      _syncing = true;
-      _syncMessage = '';
-    });
-    final result = await ref.read(ytPlaylistSyncProvider).syncNow();
-    if (!mounted) return;
-    setState(() {
-      _syncing = false;
-      _syncMessage = result.message;
-    });
-  }
-
-  void _setSelected(int id, bool on) {
-    final sync = ref.read(ytPlaylistSyncProvider);
-    final next = {...sync.load().selectedIds};
-    if (on) {
-      next.add(id);
-    } else {
-      next.remove(id);
-    }
-    sync.setSelected(next);
-    setState(() {});
-  }
-
   void _restore(String key) {
     ref.read(databaseProvider).removeExclusion(key);
     ref.invalidate(feedProvider);
@@ -56,11 +27,7 @@ class _LibrarySettingsState extends ConsumerState<LibrarySettings> {
   @override
   Widget build(BuildContext context) {
     final prefs = ref.watch(prefsProvider);
-    final playlists = ref
-        .watch(playlistRepositoryProvider)
-        .where((p) => !p.isLikedSongs && !p.isLocal)
-        .toList();
-    final sync = ref.watch(ytPlaylistSyncProvider).load();
+    final sync = ref.watch(ytSyncStatusProvider);
     final exclusions = ref.watch(databaseProvider).listExclusions();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -68,7 +35,7 @@ class _LibrarySettingsState extends ConsumerState<LibrarySettings> {
         Text('Library', style: WaveType.pageTitle),
         const SizedBox(height: 4),
         Text(
-          'Podcasts, folders you play in place, and what gets mirrored.',
+          'Podcasts, YouTube Music sync, and hidden tracks.',
           style: WaveType.body.copyWith(color: waveTextSecondary(context)),
         ),
         const SizedBox(height: 16),
@@ -92,56 +59,52 @@ class _LibrarySettingsState extends ConsumerState<LibrarySettings> {
         const SizedBox(height: 22),
         Text('YouTube Music sync', style: WaveType.sectionTitle),
         const SizedBox(height: 6),
-        Text(
-          'Sync copies the playlists you tick to your YouTube Music library. Liked Songs and Local songs are never uploaded. A remote playlist is deleted only when you remove it here and that row’s delete option is on.',
-          style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
-        ),
-        const SizedBox(height: 10),
-        if (playlists.isEmpty)
-          Text(
-            'Create a playlist to sync it.',
-            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
-          )
-        else
-          for (final playlist in playlists) ...[
-            Checkbox(
-              checked: sync.selectedIds.contains(playlist.id),
-              onChanged: (v) => _setSelected(playlist.id, v == true),
-              content: Text(
-                playlist.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Keep Liked Songs and your playlists the same here and on YouTube Music. Changes here go up within seconds; changes on YouTube arrive within about a minute. Local songs are never uploaded, and new playlists are created as private.',
+                style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.only(left: 28, bottom: 6),
-              child: Checkbox(
-                checked: sync.mappings[playlist.id]?.deleteRemoteWithLocal ==
-                    true,
-                onChanged: (v) {
-                  ref
-                      .read(ytPlaylistSyncProvider)
-                      .setDeleteRemote(playlist.id, v == true);
-                  setState(() {});
-                },
-                content: const Text(
-                  'Delete the YouTube copy when I delete it here',
-                ),
-              ),
+            const SizedBox(width: 12),
+            ToggleSwitch(
+              checked: prefs.syncYtLibrary,
+              onChanged: (v) async {
+                await widget.onUpdate((p) => p.setSyncYtLibrary(v));
+                if (v) ref.read(ytLibrarySyncProvider).kick();
+              },
             ),
           ],
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: WavePrimaryButton(
-            label: _syncing ? 'Syncing…' : 'Sync now',
-            icon: FluentIcons.sync,
-            onPressed: _syncing ? null : _sync,
-          ),
         ),
-        if (_syncMessage.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            WaveGhostButton(
+              label: sync.running ? 'Syncing…' : 'Sync now',
+              icon: FluentIcons.sync,
+              onPressed: sync.running || !prefs.syncYtLibrary
+                  ? null
+                  : () => ref.read(ytLibrarySyncProvider).kick(),
+            ),
+            if (sync.heldRemovals > 0)
+              WaveGhostButton(
+                label: 'Remove ${sync.heldRemovals} songs',
+                icon: FluentIcons.delete,
+                onPressed: () =>
+                    ref.read(ytLibrarySyncProvider).applyHeldRemovals(),
+              ),
+          ],
+        ),
+        if (sync.message.isNotEmpty) ...[
           const SizedBox(height: 8),
-          Text(_syncMessage, style: WaveType.body),
+          Text(
+            sync.message,
+            style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+          ),
         ],
         const SizedBox(height: 22),
         Text('Hidden from recommendations', style: WaveType.sectionTitle),

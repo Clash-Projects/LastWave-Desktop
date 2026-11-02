@@ -390,7 +390,13 @@ class Prefs {
   // -- YouTube Music --------------------------------------------------------
   /// Push played tracks into the account's YT Music watch history.
   /// Default off: writing to the Google account is opt-in.
-  bool get syncYtHistory => _sp.getBool('lw_sync_yt_history') ?? false;
+  bool get syncYtHistory => _sp.getBool('lw_sync_yt_history') ?? true;
+
+  /// Two-way YouTube Music sync of Liked Songs and playlists.
+  bool get syncYtLibrary => _sp.getBool('lw_sync_yt_library') ?? true;
+
+  Future<void> setSyncYtLibrary(bool v) =>
+      _sp.setBool('lw_sync_yt_library', v);
 
   Future<void> setSyncYtHistory(bool v) =>
       _sp.setBool('lw_sync_yt_history', v);

@@ -8,6 +8,7 @@ import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/library/local_music_library.dart';
 import '../../features/library/playlists.dart';
+import '../../features/library/yt_library_sync.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/hero.dart';
@@ -58,7 +59,7 @@ class _WavePlaylistsPageState
       builder: (context) => ContentDialog(
         title: const Text('Delete playlists?'),
         content: Text(
-          '${doomed.length} playlist${doomed.length == 1 ? '' : 's'} will be removed. Liked Songs and Local songs stay.',
+          '${doomed.length} playlist${doomed.length == 1 ? '' : 's'} will be removed, including any copy on YouTube Music. Liked Songs and Local songs stay.',
         ),
         actions: [
           WaveButton(
@@ -96,12 +97,14 @@ class _WavePlaylistsPageState
               p.title.toLowerCase().contains(_q.toLowerCase()),
         )
         .toList();
-    // Signed-in YouTube Music playlists (own + liked), read-only.
-    // Rendered as their own section below the local grid.
+    // YouTube Music playlists not linked to a row above: the ones saved from
+    // other people, which YouTube won't let this account edit. Read-only.
+    final linked = ref.watch(ytSyncStatusProvider).linkedRemoteIds;
     final ytLists = (ref.watch(ytAccountPlaylistsProvider).value ??
             const [])
         .where(
           (p) =>
+              !linked.contains(YtLibrarySync.bareId(p.id)) &&
               p.title.toLowerCase().contains(_q.toLowerCase()),
         )
         .toList();

@@ -1,6 +1,5 @@
 // ignore_for_file: prefer_initializing_formals
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,7 +9,6 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/app_database.dart';
-import '../innertube/innertube_api.dart';
 import '../search/shared_providers.dart';
 
 /// Stored playlist track (JSON-serialised inside `saved_playlists`).
@@ -123,11 +121,8 @@ class SavedPlaylist {
 /// Mirrors Android `PlaylistRepository` + `LikedSongsManager`.
 class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
   final AppDatabase _db;
-  final InnerTubeMusicApi? _innerTube;
 
-  PlaylistRepository(this._db, {InnerTubeMusicApi? innerTube})
-      : _innerTube = innerTube,
-        super(const []) {
+  PlaylistRepository(this._db) : super(const []) {
     refresh();
     collapseDuplicateLikedRows();
   }
@@ -323,6 +318,42 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
     refresh();
   }
 
+  /// One atomic edit: drop [removeKeys], then append [add] (deduped by
+  /// name|artist). Bulk sync writes go through here so a large merge is one
+  /// write and one state change, not one per track.
+  void applyBatch(
+    int id, {
+    List<StoredTrack> add = const [],
+    Set<String> removeKeys = const {},
+  }) {
+    if (add.isEmpty && removeKeys.isEmpty) return;
+    final playlist = state.firstWhere((p) => p.id == id);
+    String keyOf(StoredTrack t) =>
+        '${t.name.toLowerCase()}|${t.artist.toLowerCase()}';
+    final updated =
+        playlist.tracks.where((t) => !removeKeys.contains(keyOf(t))).toList();
+    final seen = updated.map(keyOf).toSet();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final t in add) {
+      if (!seen.add(keyOf(t))) continue;
+      updated.add(StoredTrack(
+        name: t.name,
+        artist: t.artist,
+        artworkUrl: t.artworkUrl,
+        videoId: t.videoId,
+        album: t.album,
+        durationSeconds: t.durationSeconds,
+        playbackUrl: t.playbackUrl,
+        addedAtMillis: t.addedAtMillis == 0 ? now : t.addedAtMillis,
+      ));
+    }
+    _db.raw.execute(
+      'UPDATE saved_playlists SET tracks_json = ? WHERE id = ?;',
+      [jsonEncode(updated.map((t) => t.toJson()).toList()), id],
+    );
+    refresh();
+  }
+
   Future<void> replaceTracks(int id, List<StoredTrack> tracks) async {
     _db.raw.execute(
       'UPDATE saved_playlists SET tracks_json = ? WHERE id = ?;',
@@ -383,7 +414,7 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
   }
 
   /// Idempotent like toggle; returns new liked state.
-  /// Also mirrors to connected YouTube Music account's Liked Music auto playlist.
+  /// YtLibrarySync carries the change to YouTube Music.
   Future<bool> toggleLiked(StoredTrack track) async {
     final liked = await ensureLikedSongs();
     final key =
@@ -396,29 +427,6 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
     } else {
       await addTrack(liked.id, track);
     }
-
-    final tube = _innerTube;
-    if (tube != null && tube.connection.connected) {
-      unawaited(() async {
-        try {
-          var vid = track.videoId;
-          if (vid.isEmpty) {
-            final hit = await tube.searchSongs('${track.name} ${track.artist}', limit: 1);
-            if (hit.isNotEmpty) {
-              vid = hit.first.videoId;
-            }
-          }
-          if (vid.isNotEmpty) {
-            if (result) {
-              await tube.likeVideo(vid);
-            } else {
-              await tube.removeVideoLike(vid);
-            }
-          }
-        } catch (_) {}
-      }());
-    }
-
     return result;
   }
 
@@ -465,8 +473,5 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
 final playlistRepositoryProvider =
     StateNotifierProvider<PlaylistRepository, List<SavedPlaylist>>(
         (ref) {
-  return PlaylistRepository(
-    ref.watch(databaseProvider),
-    innerTube: ref.watch(innerTubeProvider),
-  );
+  return PlaylistRepository(ref.watch(databaseProvider));
 });

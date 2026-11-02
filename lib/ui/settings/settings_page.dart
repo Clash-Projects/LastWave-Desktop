@@ -1187,7 +1187,7 @@ class _Ytm extends ConsumerWidget {
                       value: prefs.syncYtHistory,
                       onChanged: (v) => onUpdate((p) => p.setSyncYtHistory(v)),
                       title: 'Sync listening history',
-                      subtitle: 'Record plays to your YouTube Music history',
+                      subtitle: 'Songs you play here show up in your YouTube Music history',
                     ),
                   ],
                 )

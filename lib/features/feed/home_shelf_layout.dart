@@ -16,6 +16,7 @@ const homeShelfLayoutKey = 'home_shelf_layout';
 abstract final class HomeShelfId {
   static const mixes = 'mixes';
   static const youtube = 'youtube';
+  static const youtubeMore = 'youtube_more';
   static const quickPicks = 'quick_picks';
   static const continueListening = 'continue';
   static const because = 'because';
@@ -45,11 +46,26 @@ abstract final class HomeShelfCatalog {
     HomeShelfId.releases,
     HomeShelfId.popular,
     HomeShelfId.podcasts,
+    HomeShelfId.youtubeMore,
+  ];
+
+  /// Top to bottom when YouTube Music is connected and the layout was never
+  /// edited: what you play most first, broad browsing last. Podcasts and the
+  /// taste-only shelves are left out unless a saved layout asks for them.
+  static const connected = <String>[
+    HomeShelfId.quickPicks,
+    HomeShelfId.continueListening,
+    HomeShelfId.youtube,
+    HomeShelfId.because,
+    HomeShelfId.artists,
+    HomeShelfId.youtubeMore,
+    HomeShelfId.friends,
   ];
 
   static const labels = <String, String>{
     HomeShelfId.mixes: 'Mixes',
     HomeShelfId.youtube: 'YouTube Music',
+    HomeShelfId.youtubeMore: 'More from YouTube Music',
     HomeShelfId.quickPicks: 'Quick Picks',
     HomeShelfId.continueListening: 'Continue Listening',
     HomeShelfId.because: 'Because You Listened',
