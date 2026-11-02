@@ -589,7 +589,16 @@ class YtLibrarySync {
     // Deleted here: delete there too. An all-empty table is a wiped or
     // restored database, not the user deleting everything.
     final anyMirrorable = rowsById.values.any(_mirrorable);
-    if (anyMirrorable) {
+    if (!anyMirrorable) {
+      // Wiped database: forget links to rows that no longer exist (the
+      // remote playlists stay untouched). Left in place they hid the
+      // remote from the YouTube section AND blocked re-importing it below.
+      for (final id in account.links.keys.toList()) {
+        if (rowsById.containsKey(id)) continue;
+        account.links.remove(id);
+        changed = true;
+      }
+    } else {
       for (final id in account.links.keys.toList()) {
         if (rowsById.containsKey(id)) continue;
         final link = account.links[id]!;
@@ -649,6 +658,13 @@ class YtLibrarySync {
       if (!bare.startsWith('PL') ||
           linkedRemote.contains(bare) ||
           account.notOwned.contains(bare)) {
+        continue;
+      }
+      // A local row with these titles is read as the Liked Songs list
+      // (`SavedPlaylist.isLikedSongs`), so importing would merge into it.
+      // Such a playlist stays in the YouTube section instead.
+      final lowered = s.title.toLowerCase();
+      if (lowered == SavedPlaylist.likedTitle.toLowerCase() || lowered == 'liked music') {
         continue;
       }
       final owned = await _tube.fetchOwnedPlaylistItems(bare);

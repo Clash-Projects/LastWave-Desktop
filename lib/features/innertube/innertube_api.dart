@@ -1784,14 +1784,13 @@ class InnerTubeMusicApi {
             (p) =>
                 !p.id.startsWith('UC') &&
                 !p.id.startsWith('MPRE') &&
-                !isLikedMusicId(p.id) &&
-                p.title.toLowerCase() != 'liked music' &&
-                p.title.toLowerCase() != 'liked songs',
+                // By id only: a user's own playlist can be titled
+                // "liked songs"; YouTube's real one is always `LM`.
+                !isLikedMusicId(p.id),
           )
           .toList();
       if (kDebugMode) {
-        debugPrint('YtFetch: playlists=${lists.length} ${_authDebug()}');
-      }
+        debugPrint('YtFetch: playlists=${lists.length} ${_authDebug()}');      }
       return lists;
     } catch (e) {
       if (kDebugMode) {
