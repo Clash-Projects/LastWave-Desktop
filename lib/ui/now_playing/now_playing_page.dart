@@ -19,6 +19,7 @@ import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artist_line.dart';
 import '../components/artwork.dart';
+import '../components/image_aspect.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
 import '../queue/queue_panel.dart';
@@ -868,6 +869,8 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
 
   String _podcastVid = '\u0000';
   bool _isPodcast = false;
+  String _aspectUrl = '';
+  double? _aspect;
 
   /// Podcast episodes are the only tracks with a saved progress row.
   bool _podcast(PlayableTrack t) {
@@ -891,8 +894,23 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     final track = widget.track;
     final size = widget.size;
     final dark = waveIsDark(context);
-    // Podcasts keep their native 16:9 cover — never squared to 1:1.
+    // Podcasts keep their native shape: 16:9 art stays 16:9, square art
+    // falls through to the normal 1:1 cover below.
     if (track.artworkUrl.isNotEmpty && _podcast(track)) {
+      if (_aspectUrl != track.artworkUrl) {
+        _aspectUrl = track.artworkUrl;
+        _aspect = ImageAspect.peek(track.artworkUrl);
+        if (_aspect == null) {
+          final url = track.artworkUrl;
+          ImageAspect.resolve(url).then((a) {
+            if (mounted && _aspectUrl == url) setState(() => _aspect = a);
+          });
+        }
+      }
+    }
+    if (track.artworkUrl.isNotEmpty &&
+        _podcast(track) &&
+        (_aspect ?? ImageAspect.wide) > 1.2) {
       final w = size;
       final h = size * 9 / 16;
       return Center(

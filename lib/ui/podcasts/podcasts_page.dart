@@ -12,6 +12,7 @@ import '../../features/player/playback_service.dart';
 import '../../features/podcasts/podcast_models.dart';
 import '../../features/podcasts/podcast_repository.dart';
 import '../components/buttons.dart';
+import '../components/image_aspect.dart';
 import '../components/hero.dart';
 import '../components/shelf.dart';
 import '../components/states.dart';
@@ -115,11 +116,13 @@ Future<void> playPodcastEpisodes(
 
 /// 16:9 podcast card: native video-style cover, never squared.
 class _WidePodcastCard extends StatefulWidget {
+  final double aspect;
   final String title;
   final String subtitle;
   final String artworkUrl;
   final VoidCallback onTap;
   const _WidePodcastCard({
+    this.aspect = 16 / 9,
     required this.title,
     required this.subtitle,
     required this.artworkUrl,
@@ -150,7 +153,7 @@ class _WidePodcastCardState extends State<_WidePodcastCard> {
               scale: _hover ? 1.02 : 1.0,
               duration: const Duration(milliseconds: 140),
               child: AspectRatio(
-                aspectRatio: 16 / 9,
+                aspectRatio: widget.aspect,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(WaveRadius.artwork),
                   child: Stack(
@@ -267,19 +270,24 @@ Widget _episodeRail(
     itemBuilder: (context, i) {
       final episode = episodes[i];
       if (wide) {
-        return SizedBox(
-          width: 256,
-          child: _WidePodcastCard(
-            title: episode.title,
-            subtitle: episode.showTitle.isNotEmpty
-                ? episode.showTitle
-                : episode.publishedLabel,
-            artworkUrl: episode.artworkUrl,
-            onTap: () => playPodcastEpisodes(
-              ref,
-              context,
-              episode,
-              queue: episodes,
+        // Each cover keeps its own shape: 16:9 stays 16:9, 1:1 stays 1:1.
+        return ImageAspectBuilder(
+          url: episode.artworkUrl,
+          builder: (context, aspect) => SizedBox(
+            width: 144 * aspect,
+            child: _WidePodcastCard(
+              aspect: aspect,
+              title: episode.title,
+              subtitle: episode.showTitle.isNotEmpty
+                  ? episode.showTitle
+                  : episode.publishedLabel,
+              artworkUrl: episode.artworkUrl,
+              onTap: () => playPodcastEpisodes(
+                ref,
+                context,
+                episode,
+                queue: episodes,
+              ),
             ),
           ),
         );
@@ -367,7 +375,7 @@ class _WavePodcastsPageState extends ConsumerState<WavePodcastsPage> {
             if (shows.isNotEmpty) ...[
               LWSectionHeader(title: 'Shows'),
               const SizedBox(height: 10),
-              _showRail(context, shows, wide: true),
+              _showRail(context, shows),
               const SizedBox(height: 22),
             ],
             LWSectionHeader(title: 'Episodes'),
@@ -472,7 +480,8 @@ class _WavePodcastsPageState extends ConsumerState<WavePodcastsPage> {
                 LWSectionHeader(title: shelf.title),
                 const SizedBox(height: 10),
                 if (shelf.shows.isNotEmpty)
-                  _showRail(context, shelf.shows, wide: true)
+                  // Shows keep their square (1:1) cover; episodes are 16:9.
+                  _showRail(context, shelf.shows)
                 else
                   _episodeRail(context, ref, shelf.episodes, wide: true),
                 const SizedBox(height: 22),
@@ -698,22 +707,25 @@ class PodcastEpisodeRow extends StatelessWidget {
                   ),
                 ),
               ),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(WaveRadius.artwork),
-                child: SizedBox(
-                  width: 78,
-                  height: 44,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ColoredBox(color: waveHoverWash(context)),
-                      if (episode.artworkUrl.isNotEmpty)
-                        CachedNetworkImage(
-                          imageUrl: episode.artworkUrl,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, _, _) => const SizedBox.shrink(),
-                        ),
-                    ],
+              ImageAspectBuilder(
+                url: episode.artworkUrl,
+                builder: (context, aspect) => ClipRRect(
+                  borderRadius: BorderRadius.circular(WaveRadius.artwork),
+                  child: SizedBox(
+                    width: 44 * aspect,
+                    height: 44,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ColoredBox(color: waveHoverWash(context)),
+                        if (episode.artworkUrl.isNotEmpty)
+                          CachedNetworkImage(
+                            imageUrl: episode.artworkUrl,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, _, _) => const SizedBox.shrink(),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),

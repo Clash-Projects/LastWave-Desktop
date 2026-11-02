@@ -10,11 +10,11 @@ import 'package:lastwave_desktop/features/player/loudness.dart';
 import 'package:lastwave_desktop/features/player/timed_mix.dart';
 
 void main() {
-  test('data saver is a persisted quality and names the YouTube fallback', () {
+  test('data saver is a persisted quality with a short label', () {
     expect(Prefs.allowedQualities, contains(AudioQualityTiers.dataSaver));
     expect(
       AudioQualityTiers.label(AudioQualityTiers.dataSaver),
-      contains('smallest YouTube'),
+      'Data saver',
     );
   });
 

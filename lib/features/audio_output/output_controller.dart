@@ -200,7 +200,10 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
     await playback.configureWasapi(
       exclusive: exclusive,
       mpvDevice: device?.mpvDeviceName ?? 'auto',
-      lockSoftwareVolume: exclusive,
+      // Only pin the software volume when the DAC really has a hardware
+      // volume to take over. Without one the slider must keep working
+      // (software gain), otherwise exclusive mode left volume dead.
+      lockSoftwareVolume: hw,
       outputFormat: exclusive ? decision?.output : null,
     );
     if (hw) {
@@ -220,14 +223,19 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
         state.exclusiveRequested && !playback.processingBlocksExclusive;
     final hw = exclusiveLive && (device?.hardwareVolume ?? false);
     if (hw) {
-      await playback.setVolume(volume, software: false);
-      await _engine.setHardwareVolume(device!.id, volume);
-      return;
-    }
-    if (exclusiveLive) {
-      await playback.setVolume(1.0, software: false);
-      _rebuildPath();
-      return;
+      final ok = await _engine.setHardwareVolume(device!.id, volume);
+      if (ok) {
+        await playback.setVolume(volume, software: false);
+        return;
+      }
+      // Endpoint refused the hardware write: don't leave the slider dead.
+      wasapiLog('Hardware volume write failed — using software volume');
+      await playback.unlockSoftwareVolume();
+    } else if (exclusiveLive) {
+      // Exclusive without a hardware volume: software gain keeps the
+      // slider and mute working (the path shows it is no longer
+      // bit-perfect below 100%).
+      await playback.unlockSoftwareVolume();
     }
     await playback.setVolume(volume, software: true);
     _rebuildPath();

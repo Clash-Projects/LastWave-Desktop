@@ -211,6 +211,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   // -- Dual-engine Crossfade & Standby state -------------------------------
   Player? _standbyPlayer;
   bool _standbyArmed = false;
+
+  /// True only once the standby deck has the next track fully opened and
+  /// prepared. The overlap never starts before this: starting it on a deck
+  /// that is still loading is what made AutoMix degrade into a hard cut
+  /// followed by the new track starting over.
+  bool _standbyReady = false;
+
+  /// Track whose overlap was abandoned (deck not ready in time), so it is
+  /// not re-armed every tick — that track falls back to a gapless change.
+  String _mixGaveUpFor = '';
+
+  /// How long before the overlap window the standby deck is loaded.
+  static const Duration _armLead = Duration(seconds: 14);
   PlayableTrack? _standbyTrack;
   ResolvedStream? _standbyStream;
   int _standbyIndex = -1;
@@ -581,6 +594,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     _crossfading = false;
     _standbyArmed = false;
+    _standbyReady = false;
     _standbyTrack = null;
     _standbyStream = null;
     _standbyIndex = -1;
@@ -658,19 +672,33 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       _maybeEarlyResolveNextTrack(nextTrack, nextIndex);
     }
 
-    // 2. Arm standby player 6s before the overlap window
-    if (remaining <= fadeDuration + const Duration(seconds: 6) &&
+    // 2. Load the standby deck well before the overlap window.
+    if (remaining <= fadeDuration + _armLead &&
         !_crossfading &&
-        !_standbyArmed) {
+        !_standbyArmed &&
+        _mixGaveUpFor != nextTrack.queueKey) {
       _armStandbyForNext(nextTrack, nextIndex);
     }
 
-    // 3. Start the overlap when position enters the window
+    // 3. Start the overlap when position enters the window — and only on a
+    // deck that is actually ready.
     if (remaining <= fadeDuration &&
         _standbyArmed &&
+        _standbyReady &&
         !_crossfading &&
         _standbyPlayer != null) {
       _startCrossfade(fadeDuration);
+    }
+
+    // 4. Deck still not ready with the window nearly gone: give up on the
+    // overlap for this track and let the normal gapless change happen,
+    // instead of firing a half-loaded deck.
+    if (!_crossfading &&
+        _standbyArmed &&
+        !_standbyReady &&
+        remaining <= fadeDuration - const Duration(seconds: 3)) {
+      _mixGaveUpFor = nextTrack.queueKey;
+      cancelCrossfade();
     }
   }
 
@@ -697,9 +725,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         final dur = state.duration;
         final rem = dur - pos;
         final fade = _overlapLength();
-        if (rem <= fade + const Duration(seconds: 6) &&
+        if (rem <= fade + _armLead &&
             !_crossfading &&
             !_standbyArmed &&
+            _mixGaveUpFor != nextTrack.queueKey &&
             state.isPlaying) {
           _armStandbyForNext(nextTrack, currentNext);
         }
@@ -720,6 +749,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     _standbyArmed = true;
+    _standbyReady = false;
     _standbyTrack = nextTrack;
     _standbyIndex = nextIndex;
     _standbyStream = stream;
@@ -728,6 +758,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     final sb = _standbyPlayer;
     if (sb == null) {
       _standbyArmed = false;
+      _standbyReady = false;
       _standbyTrack = null;
       _standbyStream = null;
       _standbyIndex = -1;
@@ -759,13 +790,31 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           await sb.stop();
         } catch (_) {}
         _standbyArmed = false;
+        _standbyReady = false;
         _standbyTrack = null;
         _standbyStream = null;
         _standbyIndex = -1;
         return;
       }
+      // Wait until the deck has really loaded the stream (duration known),
+      // so the overlap starts on audible audio, not on a deck still opening.
+      final waitStart = DateTime.now();
+      while (sb.state.duration == Duration.zero &&
+          DateTime.now().difference(waitStart) <
+              const Duration(seconds: 8)) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (!_standbyArmed ||
+            _standbyTrack?.queueKey != nextTrack.queueKey ||
+            exclusiveApplied) {
+          return;
+        }
+      }
+      if (sb.state.duration == Duration.zero) return; // never became ready
+      // Opened, filtered and silent at 0: safe to fade in.
+      _standbyReady = true;
     } catch (_) {
       _standbyArmed = false;
+      _standbyReady = false;
       _standbyTrack = null;
       _standbyStream = null;
       _standbyIndex = -1;
@@ -887,10 +936,23 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {}
     _player = sb;
     _standbyPlayer = oldPrimary;
+    // The deck that just faded out still carries the low-pass sweep; clear
+    // it so the next mix does not start from a darkened signal.
+    unawaited(_setAf(oldPrimary, _playbackAf()).catchError((_) {}));
 
     _rebindPlayerStreams();
 
     final trackDur = sb.state.duration;
+    // The incoming deck has already been playing for the whole overlap, so
+    // it keeps ITS real position — resetting the clock to 0 here made the
+    // new track look (and scrobble/lyric-sync) as if it restarted.
+    final livePos = sb.state.position;
+    // A deck that somehow stayed paused must not hand over silence.
+    if (!sb.state.playing) {
+      try {
+        unawaited(sb.play());
+      } catch (_) {}
+    }
 
     _activeQueueKey = incomingTrack.queueKey;
     _audioClockKey = incomingTrack.queueKey;
@@ -904,7 +966,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       bitrateKbps: incomingStream?.bitrateKbps,
       isPlaying: true,
       isBuffering: false,
-      position: Duration.zero,
+      position: livePos > Duration.zero ? livePos : Duration.zero,
       duration: trackDur,
       clearError: true,
     );
@@ -913,6 +975,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
     _crossfading = false;
     _standbyArmed = false;
+    _standbyReady = false;
     _standbyTrack = null;
     _standbyStream = null;
     _standbyIndex = -1;
@@ -1155,6 +1218,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     cancelCrossfade();
     await _player?.seek(position);
     state = state.copyWith(position: position);
+  }
+
+  /// Lets the volume slider drive libmpv again after a lock (used when a
+  /// DAC has no usable hardware volume).
+  Future<void> unlockSoftwareVolume() async {
+    _lockSoftwareVolume = false;
   }
 
   Future<void> setVolume(double volume, {bool software = true}) async {

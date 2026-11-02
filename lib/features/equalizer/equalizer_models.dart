@@ -98,11 +98,40 @@ class EqualizerPresets {
     [0.0, 0.0, -0.5, -0.5, 0.2, 1.0, 1.8, 3.0, 4.0, 5.0],
   );
 
+  static const bassBoost = EqPreset(
+    'Bass Boost',
+    [6.0, 5.0, 3.5, 1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+  );
+
+  static const warm = EqPreset(
+    'Warm',
+    [2.0, 2.0, 1.5, 1.0, 0.5, 0.0, -0.5, -1.2, -2.0, -2.8],
+  );
+
+  static const bright = EqPreset(
+    'Bright',
+    [-1.0, -0.5, 0.0, 0.0, 0.0, 0.5, 1.5, 3.0, 4.0, 4.5],
+  );
+
+  static const lateNight = EqPreset(
+    'Late Night',
+    [1.5, 1.0, 0.5, 0.0, 0.0, 0.5, 1.0, 1.0, 0.5, 0.0],
+  );
+
+  static const speech = EqPreset(
+    'Speech / Podcast',
+    [-4.0, -3.0, -1.5, 0.0, 1.5, 3.0, 3.5, 2.5, 0.5, -1.0],
+  );
+
   static const List<EqPreset> all = [
     flat,
     studioMaster,
     vocalClarity,
     deepBassClean,
+    bassBoost,
+    warm,
+    bright,
+    lateNight,
     rock,
     pop,
     electronic,
@@ -111,6 +140,7 @@ class EqualizerPresets {
     classical,
     jazz,
     trebleAir,
+    speech,
   ];
 
   static EqPreset? byName(String name) {
@@ -242,6 +272,8 @@ class EqualizerState {
           trim = clarity.trimsDb[4]; // 2k-4k presence
         } else if (i >= 8) {
           trim = clarity.trimsDb[5]; // 8k-16k air
+          // The "exciter" stage trims the very top band too (DAC target).
+          if (i == 9) trim += clarity.trimsDb[7];
         }
         gain += (smGain + trim);
       }
