@@ -13,19 +13,14 @@ import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
+import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/states.dart';
+import 'friends_page.dart' show localFriendsProvider;
 import '../components/track_row.dart';
 import '../theme/tokens.dart';
 
-final _waveFriendsProvider =
-    FutureProvider<List<FriendEntry>>((ref) {
-  // The Friends tab always shows your own friends. It must not follow
-  // viewingProfileProvider: after viewing a friend's profile, `viewing`
-  // stays set, and the tab would otherwise list the friend's friends
-  // (including your own name on mutual friendships).
-  return ref.watch(homeRepositoryProvider).fetchFriends();
-});
+export 'friends_page.dart' show WaveFriendsPage;
 
 /// Secondary pages re-homed in the Fluent system.
 ///
@@ -34,6 +29,11 @@ final _waveFriendsProvider =
 /// primary collections. Logic is reused through existing providers.
 /// Top tracks query: friend view (or self) + Last.fm period.
 typedef _TopQuery = ({String? viewing, String period});
+
+final _profileStatsProvider =
+    FutureProvider.autoDispose.family<HomeStats, String?>((ref, viewing) {
+  return ref.watch(homeRepositoryProvider).fetchStats(viewingAs: viewing);
+});
 
 final _waveTopTracksProvider =
     FutureProvider.family<List<HomeTrack>, _TopQuery>(
@@ -133,26 +133,93 @@ class _WaveProfilePageState
                   color: waveAccent(context),
                 ),
               ),
-              Text(user, style: WaveType.pageTitle),
-              const SizedBox(height: 4),
-              Text(
-                viewing != null
-                    ? 'Viewing $viewing'
-                    : 'Your Last.fm profile',
-                style: WaveType.body.copyWith(
-                  color: waveTextSecondary(context),
-                ),
-              ),
-              if (viewing != null) ...[
-                const SizedBox(height: 8),
-                WaveButton(
-                  onPressed: () => ref
-                      .read(viewingProfileProvider.notifier)
-                      .clear(),
-                  child:
-                      const Text('Back to my profile'),
-                ),
-              ],
+              Builder(builder: (context) {
+                final stats =
+                    ref.watch(_profileStatsProvider(viewing)).valueOrNull;
+                final isFriend = viewing != null &&
+                    ref.watch(localFriendsProvider).any(
+                          (n) => n.toLowerCase() == viewing.toLowerCase(),
+                        );
+                String n(int v) => v.toString().replaceAllMapped(
+                      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+                      (m) => ',',
+                    );
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    WaveArtwork.circle(
+                      url: stats?.avatarUrl ?? '',
+                      size: 88,
+                      label: user,
+                      title: user,
+                      artist: user,
+                      upgrade: false,
+                    ),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(user, style: WaveType.pageTitle),
+                          const SizedBox(height: 4),
+                          Text(
+                            viewing != null
+                                ? 'Last.fm profile'
+                                : 'Your Last.fm profile',
+                            style: WaveType.body.copyWith(
+                              color: waveTextSecondary(context),
+                            ),
+                          ),
+                          if (stats != null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              [
+                                '${n(stats.scrobbles)} scrobbles',
+                                '${n(stats.artistCount)} artists',
+                                '${n(stats.albumCount)} albums',
+                                '${n(stats.trackCount)} tracks',
+                              ].join(' · '),
+                              style: WaveType.meta.copyWith(
+                                color: waveTextTertiary(context),
+                              ),
+                            ),
+                          ],
+                          if (viewing != null) ...[
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if (isFriend)
+                                  WaveGhostButton(
+                                    label: 'Remove friend',
+                                    onPressed: () => ref
+                                        .read(localFriendsProvider.notifier)
+                                        .remove(viewing),
+                                  )
+                                else
+                                  WavePrimaryButton(
+                                    label: 'Add friend',
+                                    icon: FluentIcons.add,
+                                    onPressed: () => ref
+                                        .read(localFriendsProvider.notifier)
+                                        .add(viewing),
+                                  ),
+                                WaveButton(
+                                  onPressed: () => ref
+                                      .read(viewingProfileProvider.notifier)
+                                      .clear(),
+                                  child: const Text('Back to my profile'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }),
               const SizedBox(height: 16),
               _TopTracksSection(
                 viewing: viewing,
@@ -398,80 +465,7 @@ class _TopTracksSection extends ConsumerWidget {
   }
 }
 
-class WaveFriendsPage extends ConsumerWidget {
-  const WaveFriendsPage({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final friends = ref.watch(_waveFriendsProvider);
-    return friends.when(
-      loading: () => const WaveLoading(
-        label: 'Loading friends…',
-      ),
-      error: (e, _) => WaveError(
-        title: 'Could not load friends',
-        message: '$e',
-        onRetry: () =>
-            ref.invalidate(_waveFriendsProvider),
-      ),
-      data: (list) {
-        if (list.isEmpty) {
-          return const WaveEmpty(
-            icon: FluentIcons.people,
-            title: 'No friends yet',
-            subtitle:
-                'Add friends on Last.fm to see them here.',
-          );
-        }
-        return ListView(
-          padding:
-              const EdgeInsets.fromLTRB(24, 20, 24, 24),
-          children: [
-            const Text(
-              'Friends',
-              style: WaveType.pageTitle,
-            ),
-            const SizedBox(height: 8),
-            for (final f in list)
-              ListTile(
-                leading: const Icon(
-                  FluentIcons.contact,
-                  size: 18,
-                ),
-                title: Text(f.name),
-                subtitle: Text(
-                  f.realName.isNotEmpty
-                      ? f.realName
-                      : f.name,
-                ),
-                trailing: WaveButton(
-                  onPressed: () {
-                    ref
-                        .read(
-                          viewingProfileProvider
-                              .notifier,
-                        )
-                        .view(f.name);
-                    context.go('/profile');
-                  },
-                  child: const Text('View'),
-                ),
-                onPressed: () {
-                  ref
-                      .read(
-                        viewingProfileProvider.notifier,
-                      )
-                      .view(f.name);
-                  context.go('/profile');
-                },
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
+/// Friends page (search + add + profiles) lives in friends_page.dart.
 class WaveMixLabPage extends ConsumerStatefulWidget {
   const WaveMixLabPage({super.key});
 
