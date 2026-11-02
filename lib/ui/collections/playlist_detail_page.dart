@@ -350,13 +350,13 @@ class _WavePlaylistDetailPageState
                             value: _sort,
                             options: const [
                               WaveSelectOption(
-                                  value: 'default', label: 'Custom order'),
+                                  value: 'default', label: 'Default order'),
                               WaveSelectOption(
                                   value: 'added', label: 'Date added'),
                               WaveSelectOption(
-                                  value: 'title', label: 'Title'),
+                                  value: 'title', label: 'Title A–Z'),
                               WaveSelectOption(
-                                  value: 'artist', label: 'Artist'),
+                                  value: 'artist', label: 'Artist A–Z'),
                             ],
                             onChanged: (v) => _setSort(v, _asc),
                           ),
