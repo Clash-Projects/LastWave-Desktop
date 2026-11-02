@@ -2113,7 +2113,9 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           ).createShader(bounds);
         },
         blendMode: BlendMode.dstIn,
-        child: ListView.builder(
+        child: ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: ListView.builder(
           physics: const ClampingScrollPhysics(),
           padding: padding,
           itemCount: widget.result.lines.length,
@@ -2138,6 +2140,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
               ),
             );
           },
+        ),
         ),
       );
     }
@@ -2257,7 +2260,12 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
         ).createShader(bounds);
       },
       blendMode: BlendMode.dstIn,
-      child: list,
+      // The app-wide scrollbar flashes on every programmatic follow-scroll;
+      // lyrics are tap/wheel/drag driven, so it carries no information here.
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: list,
+      ),
     );
 
     return Stack(
