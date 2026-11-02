@@ -1016,9 +1016,10 @@ class _WaveMenuButtonState extends State<WaveMenuButton> {
     _controller.showFlyout(
       barrierColor: Colors.transparent,
       placementMode: widget.placement,
-      autoModeConfiguration: FlyoutAutoConfiguration(
-        preferredMode: widget.placement,
-      ),
+      // fluent_ui asserts `preferredMode != auto`; auto needs no config.
+      autoModeConfiguration: widget.placement == FlyoutPlacementMode.auto
+          ? null
+          : FlyoutAutoConfiguration(preferredMode: widget.placement),
       transitionDuration: const Duration(milliseconds: 90),
       transitionBuilder: fastFlyoutTransition,
       builder: (context) => WaveFlyoutPanel.items(
