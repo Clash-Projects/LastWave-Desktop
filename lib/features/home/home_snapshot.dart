@@ -17,9 +17,12 @@ import '../search/shared_providers.dart';
 /// provider, which rebuilds once with the fresh value. Every later load of
 /// the same key (refresh button, sign-in) skips the snapshot and fetches.
 ///
-/// Snapshots live in `kv_store` (no schema change) under keys scoped to the
-/// account, so a different Last.fm user or YouTube channel never sees
-/// someone else's picks.
+/// Snapshots live in the capped `snapshot_cache` table (see
+/// [AppDatabase.cachePut]) under keys scoped to the account, so a different
+/// Last.fm user or YouTube channel never sees someone else's picks.
+
+/// Cache group (and cap) for Home snapshots.
+const homeCacheGroup = 'home';
 
 /// A snapshot older than this is not shown (the taste it encodes is stale
 /// enough that the skeleton is the honest state).
@@ -29,13 +32,13 @@ const _feedKeyPrefix = 'home_feed_v1|';
 const _shelvesKeyPrefix = 'home_yt_v1|';
 const _version = 1;
 
-/// kv_store key for a Last.fm user's feed; null when there is no user.
+/// Cache key for a Last.fm user's feed; null when there is no user.
 String? homeFeedSnapshotKey(String username) {
   final u = username.trim().toLowerCase();
   return u.isEmpty ? null : '$_feedKeyPrefix$u';
 }
 
-/// kv_store key for a YouTube Music identity (login + channel); null when
+/// Cache key for a YouTube Music identity (login + channel); null when
 /// signed out.
 String? homeShelvesSnapshotKey({
   required bool connected,
@@ -46,12 +49,12 @@ String? homeShelvesSnapshotKey({
   return '$_shelvesKeyPrefix${profileEmail.trim().toLowerCase()}|$activePageId';
 }
 
-/// How one kind of Home data is stored.
+/// How one kind of cached data is stored.
 class SnapshotCodec<T> {
-  final String Function(T value, DateTime now) encode;
+  final String Function(T value) encode;
 
   /// Null when the payload is unreadable or from another version.
-  final ({T value, DateTime savedAt})? Function(String raw) decode;
+  final T? Function(String raw) decode;
 
   /// Empty results are never persisted and never replace a good snapshot:
   /// an offline or rate-limited refresh must not blank the page.
@@ -95,9 +98,8 @@ List<GeneratedTrack> _tracksFrom(Object? raw) => [
         if (e is Map) _trackFromJson(e.cast<String, dynamic>()),
     ];
 
-String _encodeFeed(FeedData f, DateTime now) => jsonEncode({
+String _encodeFeed(FeedData f) => jsonEncode({
       'v': _version,
-      't': now.millisecondsSinceEpoch,
       'quick': f.quickPicks.map(_trackToJson).toList(),
       'heavy': f.heavyRotation.map(_trackToJson).toList(),
       'fresh': f.freshFinds.map(_trackToJson).toList(),
@@ -109,14 +111,11 @@ String _encodeFeed(FeedData f, DateTime now) => jsonEncode({
       'aff': f.tasteAffinities,
     });
 
-({FeedData value, DateTime savedAt})? _decodeFeed(String raw) {
+FeedData? _decodeFeed(String raw) {
   try {
     final j = jsonDecode(raw);
     if (j is! Map || j['v'] != _version) return null;
-    final savedAt = DateTime.fromMillisecondsSinceEpoch(
-      (j['t'] as num?)?.toInt() ?? 0,
-    );
-    final data = FeedData(
+    return FeedData(
       quickPicks: _tracksFrom(j['quick']),
       heavyRotation: _tracksFrom(j['heavy']),
       freshFinds: _tracksFrom(j['fresh']),
@@ -132,7 +131,6 @@ String _encodeFeed(FeedData f, DateTime now) => jsonEncode({
           e.key.toString(): (e.value as num).toDouble(),
       },
     );
-    return (value: data, savedAt: savedAt);
   } catch (_) {
     return null;
   }
@@ -196,9 +194,8 @@ List<T> _listOf<T>(Object? raw, T Function(Map<String, dynamic>) read) => [
         if (e is Map) read(e.cast<String, dynamic>()),
     ];
 
-String _encodeShelves(List<YtHomeShelf> shelves, DateTime now) => jsonEncode({
+String _encodeShelves(List<YtHomeShelf> shelves) => jsonEncode({
       'v': _version,
-      't': now.millisecondsSinceEpoch,
       'shelves': [
         for (final s in shelves)
           {
@@ -211,14 +208,11 @@ String _encodeShelves(List<YtHomeShelf> shelves, DateTime now) => jsonEncode({
       ],
     });
 
-({List<YtHomeShelf> value, DateTime savedAt})? _decodeShelves(String raw) {
+List<YtHomeShelf>? _decodeShelves(String raw) {
   try {
     final j = jsonDecode(raw);
     if (j is! Map || j['v'] != _version) return null;
-    final savedAt = DateTime.fromMillisecondsSinceEpoch(
-      (j['t'] as num?)?.toInt() ?? 0,
-    );
-    final shelves = <YtHomeShelf>[
+    return [
       for (final s in (j['shelves'] as List? ?? const []))
         if (s is Map)
           YtHomeShelf(
@@ -229,7 +223,6 @@ String _encodeShelves(List<YtHomeShelf> shelves, DateTime now) => jsonEncode({
             entities: _listOf(s['ents'], _entityFromJson),
           ),
     ];
-    return (value: shelves, savedAt: savedAt);
   } catch (_) {
     return null;
   }
@@ -254,7 +247,7 @@ class SwrState {
 
 final swrStateProvider = Provider<SwrState>((ref) => SwrState());
 
-/// The body of a Home `FutureProvider`, with a persisted snapshot behind it.
+/// The body of a `FutureProvider`, with a persisted snapshot behind it.
 ///
 /// - `key == null` (no account): plain [fetch].
 /// - A value handed over by a finished background refresh: returned as is.
@@ -263,11 +256,16 @@ final swrStateProvider = Provider<SwrState>((ref) => SwrState());
 ///   provider once (via `invalidateSelf`) with the fresh value. A refresh
 ///   that comes back empty or throws leaves the snapshot on screen.
 /// - Otherwise: [fetch], persisted when non-empty.
+///
+/// [group] picks the cap in `snapshot_cache`; [maxAge] bounds how old a
+/// snapshot may be and still be shown.
 Future<T> swrLoad<T extends Object>(
   Ref ref, {
   required String? key,
   required SnapshotCodec<T> codec,
   required Future<T> Function() fetch,
+  String group = homeCacheGroup,
+  Duration maxAge = homeSnapshotMaxAge,
   DateTime Function()? clock,
 }) async {
   if (key == null) return fetch();
@@ -282,12 +280,12 @@ Future<T> swrLoad<T extends Object>(
   void persist(T value) {
     if (codec.isEmpty(value)) return;
     try {
-      db.kvSet(key, codec.encode(value, now()));
+      db.cachePut(key, group, codec.encode(value), now: now());
     } catch (_) {}
   }
 
   if (state.served.add(key)) {
-    final cached = _readSnapshot(db, key, codec, now());
+    final cached = readSnapshot(db, key, codec, now(), maxAge);
     if (cached != null) {
       var disposed = false;
       ref.onDispose(() => disposed = true);
@@ -310,20 +308,22 @@ Future<T> swrLoad<T extends Object>(
   return fresh;
 }
 
-T? _readSnapshot<T>(
+/// The stored value for [key], or null when absent, unreadable, empty or
+/// older than [maxAge].
+T? readSnapshot<T>(
   AppDatabase db,
   String key,
   SnapshotCodec<T> codec,
   DateTime now,
+  Duration maxAge,
 ) {
-  String? raw;
+  ({String value, DateTime savedAt})? row;
   try {
-    raw = db.kvGet(key);
+    row = db.cacheGet(key, now: now);
   } catch (_) {}
-  if (raw == null) return null;
-  final decoded = codec.decode(raw);
-  if (decoded == null) return null;
-  if (codec.isEmpty(decoded.value)) return null;
-  if (now.difference(decoded.savedAt) > homeSnapshotMaxAge) return null;
-  return decoded.value;
+  if (row == null) return null;
+  if (now.difference(row.savedAt) > maxAge) return null;
+  final value = codec.decode(row.value);
+  if (value == null || codec.isEmpty(value)) return null;
+  return value;
 }

@@ -42,6 +42,13 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'export import json restore backup playlists migrate',
   ),
   SettingsSearchEntry(
+    id: 'general.cache',
+    section: 'general',
+    title: 'Cached data',
+    subtitle: 'Pages saved on this device so they open instantly',
+    keywords: 'cache clear storage snapshot disk space lyrics home offline',
+  ),
+  SettingsSearchEntry(
     id: 'general.diagnostics',
     section: 'general',
     title: 'Diagnostics',

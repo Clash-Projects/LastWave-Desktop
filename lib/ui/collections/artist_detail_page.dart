@@ -58,7 +58,7 @@ class _ArtistDetail {
       this.pending = const {}});
 }
 
-/// kv_store key prefix for the on-disk artist page snapshot.
+/// Cache-key prefix for the on-disk artist page snapshot (group `artist`).
 const _artistCachePrefix = 'artist_detail_v2|';
 
 Map<String, dynamic> _ytTrackToJson(YouTubeMusicTrack t) => {
@@ -396,7 +396,7 @@ final _artistDetailProvider = StreamProvider.autoDispose
     // pin an empty page until the snapshot ages out.
     if (detail.popular.isNotEmpty || detail.albums.isNotEmpty) {
       try {
-        db.kvSet(cacheKey, _encodeArtist(detail));
+        db.cachePut(cacheKey, 'artist', _encodeArtist(detail));
       } catch (_) {}
     }
     return detail;
@@ -411,7 +411,7 @@ final _artistDetailProvider = StreamProvider.autoDispose
   Duration? age;
   String? raw;
   try {
-    raw = db.kvGet(cacheKey);
+    raw = db.cacheGet(cacheKey)?.value;
   } catch (_) {}
   final cached = _decodeArtist(q, raw, ageOut: (a) => age = a);
   if (cached != null &&

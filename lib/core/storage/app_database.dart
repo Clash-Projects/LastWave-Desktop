@@ -19,7 +19,7 @@ import '../audio/artist_parser.dart';
 /// Migrations are additive and never drop user data (no destructive
 /// fallback, unlike the temporary Android `fallbackToDestructiveMigration`).
 class AppDatabase {
-  static const int schemaVersion = 8;
+  static const int schemaVersion = 9;
 
   final Database _db;
 
@@ -79,6 +79,10 @@ class AppDatabase {
     if (version < 8) {
       _createV8();
       _db.execute('PRAGMA user_version=8;');
+    }
+    if (version < 9) {
+      _createV9();
+      _db.execute('PRAGMA user_version=9;');
     }
   }
 
@@ -514,6 +518,116 @@ class AppDatabase {
         added_at_millis INTEGER NOT NULL DEFAULT 0
       );
     ''');
+  }
+
+  /// v9: one capped, prunable store for every "show it now, refresh behind
+  /// it" snapshot (Home, lyrics, library and detail pages, Last.fm reads).
+  /// `kv_store` has no timestamps, so its per-item snapshots (one per artist
+  /// ever visited) could only grow; this table keeps `saved_at` and
+  /// `hit_at` so each group is trimmed to its cap, least recently used first.
+  void _createV9() {
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS snapshot_cache (
+        k TEXT PRIMARY KEY,
+        grp TEXT NOT NULL,
+        v TEXT NOT NULL,
+        saved_at INTEGER NOT NULL DEFAULT 0,
+        hit_at INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+    _db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_snapshot_grp_hit '
+      'ON snapshot_cache(grp, hit_at);',
+    );
+    // Artist pages and the first Home snapshots lived in kv_store.
+    for (final prefix in const ['artist_detail_v2|', 'home_feed_v1|', 'home_yt_v1|']) {
+      try {
+        _db.execute('DELETE FROM kv_store WHERE k LIKE ?;', ['$prefix%']);
+      } catch (_) {}
+    }
+  }
+
+  // -- snapshot cache --------------------------------------------------------
+
+  /// Entries kept per group; the least recently used beyond this go on
+  /// every write. Unlisted groups get [defaultCacheCap].
+  static const Map<String, int> cacheCaps = {
+    'home': 12,
+    'artist': 150,
+    'album': 200,
+    'playlist': 100,
+    'library': 40,
+    'lyrics': 600,
+    'lastfm': 80,
+    'genre': 60,
+  };
+  static const int defaultCacheCap = 100;
+
+  /// The stored value and when it was saved; null when absent. Reading
+  /// marks the entry as recently used.
+  ({String value, DateTime savedAt})? cacheGet(String key, {DateTime? now}) {
+    final rows = _db.select(
+      'SELECT v, saved_at FROM snapshot_cache WHERE k = ?',
+      [key],
+    );
+    if (rows.isEmpty) return null;
+    final at = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    try {
+      _db.execute('UPDATE snapshot_cache SET hit_at = ? WHERE k = ?;', [at, key]);
+    } catch (_) {}
+    return (
+      value: rows.first['v'] as String,
+      savedAt: DateTime.fromMillisecondsSinceEpoch(
+        rows.first['saved_at'] as int,
+      ),
+    );
+  }
+
+  /// Stores [value] under [key] in [group] and trims the group to its cap.
+  void cachePut(String key, String group, String value, {DateTime? now}) {
+    final at = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    _db.execute(
+      'INSERT INTO snapshot_cache(k, grp, v, saved_at, hit_at) '
+      'VALUES(?, ?, ?, ?, ?) '
+      'ON CONFLICT(k) DO UPDATE SET grp = excluded.grp, v = excluded.v, '
+      'saved_at = excluded.saved_at, hit_at = excluded.hit_at;',
+      [key, group, value, at, at],
+    );
+    final cap = cacheCaps[group] ?? defaultCacheCap;
+    _db.execute(
+      'DELETE FROM snapshot_cache WHERE grp = ? AND k NOT IN ('
+      'SELECT k FROM snapshot_cache WHERE grp = ? '
+      'ORDER BY hit_at DESC LIMIT ?);',
+      [group, group, cap],
+    );
+  }
+
+  void cacheDelete(String key) {
+    _db.execute('DELETE FROM snapshot_cache WHERE k = ?;', [key]);
+  }
+
+  /// Drops one group, or everything when [group] is null.
+  void cacheClear({String? group}) {
+    if (group == null) {
+      _db.execute('DELETE FROM snapshot_cache;');
+    } else {
+      _db.execute('DELETE FROM snapshot_cache WHERE grp = ?;', [group]);
+    }
+  }
+
+  /// Entry count and stored characters per group, for Settings.
+  Map<String, ({int entries, int chars})> cacheStats() {
+    final rows = _db.select(
+      'SELECT grp, COUNT(*) AS n, COALESCE(SUM(LENGTH(v)), 0) AS chars '
+      'FROM snapshot_cache GROUP BY grp;',
+    );
+    return {
+      for (final r in rows)
+        r['grp'] as String: (
+          entries: r['n'] as int,
+          chars: r['chars'] as int,
+        ),
+    };
   }
 
   // -- local play log (keyless-guest taste) --------------------------------

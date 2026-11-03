@@ -31,11 +31,8 @@ FeedData _feed(String tag) => FeedData(
 void main() {
   group('codecs', () {
     test('feed round-trips every field the page reads', () {
-      final at = DateTime(2026, 11, 4, 10);
-      final raw = feedSnapshotCodec.encode(_feed('a'), at);
-      final back = feedSnapshotCodec.decode(raw)!;
-      expect(back.savedAt, at);
-      final f = back.value;
+      final raw = feedSnapshotCodec.encode(_feed('a'));
+      final f = feedSnapshotCodec.decode(raw)!;
       expect(f.quickPicks.single.name, 'Song a');
       expect(f.quickPicks.single.videoId, 'vida');
       expect(f.quickPicks.single.durationSeconds, 201);
@@ -71,8 +68,8 @@ void main() {
           ],
         ),
       ];
-      final raw = shelvesSnapshotCodec.encode(shelves, DateTime(2026));
-      final s = shelvesSnapshotCodec.decode(raw)!.value.single;
+      final raw = shelvesSnapshotCodec.encode(shelves);
+      final s = shelvesSnapshotCodec.decode(raw)!.single;
       expect(s.title, 'Listen again');
       expect(s.tracks.single.videoId, 'v1');
       expect(s.trackCards.single.albumBrowseId, 'MPRE1');
@@ -140,12 +137,12 @@ void main() {
       final c = container();
       addTearDown(c.dispose);
       expect((await c.read(p.future)).quickPicks.single.name, 'Song 1');
-      expect(db.kvGet('k'), isNotNull);
+      expect(db.cacheGet('k'), isNotNull);
     });
 
     test('snapshot paints at once, fresh data replaces it in place',
         () async {
-      db.kvSet('k', feedSnapshotCodec.encode(_feed('old'), now));
+      db.cachePut('k', 'home', feedSnapshotCodec.encode(_feed('old')), now: now);
       final gate = Completer<FeedData>();
       final p = provider(() => gate.future);
       final c = container();
@@ -161,7 +158,7 @@ void main() {
       expect(songOf(c, p), 'Song new');
       // ...and the next launch starts from the fresh one.
       expect(
-        feedSnapshotCodec.decode(db.kvGet('k')!)!.value.quickPicks.single.name,
+        feedSnapshotCodec.decode(db.cacheGet('k')!.value)!.quickPicks.single.name,
         'Song new',
       );
     });
@@ -171,7 +168,7 @@ void main() {
         () async => throw Exception('offline'),
         () async => const FeedData(),
       ]) {
-        db.kvSet('k', feedSnapshotCodec.encode(_feed('old'), now));
+        db.cachePut('k', 'home', feedSnapshotCodec.encode(_feed('old')), now: now);
         final c = container();
         final p = provider(fetch);
         c.listen(p, (_, _) {});
@@ -180,12 +177,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         expect(songOf(c, p), 'Song old');
         expect(
-          feedSnapshotCodec
-              .decode(db.kvGet('k')!)!
-              .value
-              .quickPicks
-              .single
-              .name,
+          feedSnapshotCodec.decode(db.cacheGet('k')!.value)!.quickPicks.single.name,
           'Song old',
           reason: 'an empty refresh must not overwrite the good snapshot',
         );
@@ -195,7 +187,7 @@ void main() {
 
     test('an explicit refresh in the same session fetches, not the snapshot',
         () async {
-      db.kvSet('k', feedSnapshotCodec.encode(_feed('old'), now));
+      db.cachePut('k', 'home', feedSnapshotCodec.encode(_feed('old')), now: now);
       var calls = 0;
       final p = provider(() async => _feed('f${++calls}'));
       final c = container();
@@ -211,12 +203,11 @@ void main() {
     });
 
     test('a snapshot older than a week is not shown', () async {
-      db.kvSet(
+      db.cachePut(
         'k',
-        feedSnapshotCodec.encode(
-          _feed('old'),
-          now.subtract(homeSnapshotMaxAge + const Duration(hours: 1)),
-        ),
+        'home',
+        feedSnapshotCodec.encode(_feed('old')),
+        now: now.subtract(homeSnapshotMaxAge + const Duration(hours: 1)),
       );
       final p = provider(() async => _feed('fresh'));
       final c = container();
@@ -225,7 +216,7 @@ void main() {
     });
 
     test('another account never sees this snapshot', () async {
-      db.kvSet('bob', feedSnapshotCodec.encode(_feed('bobs'), now));
+      db.cachePut('bob', 'home', feedSnapshotCodec.encode(_feed('bobs')), now: now);
       final p = provider(() async => _feed('amys'), key: 'amy');
       final c = container();
       addTearDown(c.dispose);
@@ -237,7 +228,7 @@ void main() {
       final c = container();
       addTearDown(c.dispose);
       await c.read(p.future);
-      expect(db.kvGet('null'), isNull);
+      expect(db.cacheStats(), isEmpty);
     });
   });
 }

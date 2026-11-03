@@ -49,6 +49,7 @@ import '../../features/presence/discord_presence_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
 import 'backup_settings.dart';
+import 'cache_settings.dart';
 import 'diagnostics_actions.dart';
 import 'download_layout_settings.dart';
 import 'library_settings.dart';
@@ -3262,6 +3263,13 @@ class _General extends ConsumerWidget {
           title: 'Backup',
           subtitle: 'Move your playlists and settings to another device',
           child: BackupSettings(),
+        ),
+        const SizedBox(height: 16),
+        const _Group(
+          id: 'general.cache',
+          title: 'Cached data',
+          subtitle: 'Pages saved on this device so they open instantly',
+          child: CacheSettings(),
         ),
         const SizedBox(height: 16),
         // Diagnostics live on the General page on purpose: a user with a
