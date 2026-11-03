@@ -3305,7 +3305,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
             },
             title: 'Timed mix',
             subtitle: prefs.autoMixEnabled
-                ? '${prefs.autoMixSeconds}s overlap on the standby deck'
+                ? 'Up to ${prefs.autoMixSeconds}s overlap, shorter on short songs. Album tracks stay gapless.'
                 : 'Gapless until you turn this on',
           ),
           if (prefs.autoMixEnabled) ...[
@@ -3357,7 +3357,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
               },
               title: 'Filter sweep',
               subtitle:
-                  'Low-pass on the way out and high-pass on the way in. Volume overlap stays if the player rejects the filter.',
+                  'Low-pass on the way out and high-pass on the way in. Turns itself off (volume blend only) if the audio engine lacks the filters.',
             ),
           ],
         ],

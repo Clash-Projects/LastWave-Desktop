@@ -16,6 +16,7 @@ import '../equalizer/headphone_profiles.dart';
 import 'audio_graph.dart';
 import 'loudness.dart';
 import 'timed_mix.dart';
+import 'mix_planner.dart';
 import '../downloads/download_manager.dart';
 import '../addons/addon_api.dart';
 import '../innertube/innertube_api.dart';
@@ -208,6 +209,63 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     return Duration(seconds: _prefs.crossfadeSeconds.clamp(3, 12));
   }
 
+  /// AutoMix plan for the current track into [next]. Crossfade mode keeps
+  /// its fixed, user-chosen blend.
+  MixPlan _planFor(PlayableTrack next) {
+    final requested = _overlapLength();
+    if (!_timedMixEnabled) {
+      return MixPlan(style: MixStyle.blend, overlap: requested);
+    }
+    final cur = state.current;
+    final sb = _standbyPlayer;
+    final incomingDur =
+        (_standbyTrack?.queueKey == next.queueKey && sb != null)
+            ? sb.state.duration
+            : Duration.zero;
+    final inDur = incomingDur > Duration.zero ? incomingDur : next.duration;
+    final key = '${cur?.queueKey}>${next.queueKey}|${state.duration.inSeconds}'
+        '|${inDur.inSeconds}|${requested.inSeconds}|$_sweepSupported'
+        '|${_prefs.autoMixSpectral}';
+    final cached = _mixPlan;
+    if (cached != null && key == _mixPlanKey) return cached;
+    final plan = MixPlanner.plan(
+      outgoing: MixTrackInfo(
+        title: cur?.title ?? '',
+        artist: cur?.artist ?? '',
+        album: cur?.album ?? '',
+        duration: state.duration,
+      ),
+      incoming: MixTrackInfo(
+        title: next.title,
+        artist: next.artist,
+        album: next.album,
+        duration: inDur,
+      ),
+      requested: requested,
+      // Unknown counts as available: the probe on the standby deck (and
+      // the error guard during the mix) settle it before it can hurt.
+      sweepAvailable: _sweepSupported != false,
+      sweepWanted: _prefs.autoMixSpectral,
+    );
+    if (_mixPlanKey.split('|').first != key.split('|').first) {
+      _crumb('automix plan ${cur?.queueKey} -> ${next.queueKey} '
+          'style=${plan.style.name} overlap=${plan.overlap.inSeconds}s '
+          'reason=${plan.reason}');
+    }
+    _mixPlan = plan;
+    _mixPlanKey = key;
+    return plan;
+  }
+
+  /// Overlap for the pair that is about to mix (falls back to the user
+  /// setting when there is no next track).
+  Duration _currentOverlap() {
+    final ni = _nextIndex();
+    if (ni == null || !_queueIndexValid(ni)) return _overlapLength();
+    final plan = _planFor(state.queue[ni]);
+    return plan.mixes ? plan.overlap : Duration.zero;
+  }
+
   // -- Dual-engine Crossfade & Standby state -------------------------------
   Player? _standbyPlayer;
   bool _standbyArmed = false;
@@ -235,6 +293,22 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   String _crossfadeResolvedKey = '';
   DateTime _lastCrossfadeResolveAttempt =
       DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Whether this libmpv build can run the AutoMix low/high-pass sweep.
+  /// Null until probed on the standby deck. Some builds ship without the
+  /// `lowpass`/`highpass` lavfi filters; the sweep then fails on every
+  /// write and must fall back to a pure volume blend.
+  bool? _sweepSupported;
+  bool _filterErrorLogged = false;
+
+  /// AutoMix plan for the current -> next pair (cached per pair).
+  MixPlan? _mixPlan;
+  String _mixPlanKey = '';
+
+  /// Where an error-retry of the same track should resume, so a
+  /// transient stream failure does not restart the song from 0:00.
+  Duration? _resumeAt;
+  String _resumeKey = '';
 
   /// Crash-surviving breadcrumb (`<temp>/lastwave/mpv-ops.log`).
   /// Written synchronously with flush BEFORE each native op, so the
@@ -490,6 +564,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       }),
       p.stream.error.listen((e) {
         runGuarded('player.error-event', () {
+          // A rejected audio filter is not a broken stream: the audio
+          // keeps playing. Treating it as one restarted the song, then
+          // fell back to YouTube, then marked it unavailable and skipped.
+          if (isFilterGraphError(e)) {
+            _onFilterGraphError(e);
+            return;
+          }
           if (kDebugMode) {
             debugPrint('LastWave-Player: mpv error: $e');
             _dumpMpvLog('p.stream.error');
@@ -623,9 +704,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   void _updateCrossfadeSchedule(Duration position) {
-    // Crossfade (3–12s) and timed AutoMix (12–30s) share the standby
-    // deck. AutoMix is a clocked overlap plus an optional filter sweep.
-    // It does not detect beats or key.
+    // Crossfade (3–12s) and AutoMix (12–30s, planned per pair) share the
+    // standby deck.
     if (!_overlapEnabled) {
       if (_standbyArmed || _crossfading) cancelCrossfade();
       return;
@@ -639,19 +719,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     if (!state.isPlaying || _resolving || state.error != null) return;
+    // Once the overlap runs, the timer owns it; re-planning mid-mix (the
+    // incoming duration just became known) must not disturb it.
+    if (_crossfading) return;
     final duration = state.duration;
-    final fadeDuration = _overlapLength();
-    // Timed mixes need the outgoing track to be longer than the overlap.
-    // Short crossfades keep the old 10s floor.
-    if (_timedMixEnabled) {
-      if (duration < fadeDuration + const Duration(seconds: 8)) {
-        if (_standbyArmed || _crossfading) cancelCrossfade();
-        return;
-      }
-    } else if (duration.inSeconds < 10) {
-      return;
-    }
-    final remaining = duration - position;
+    if (duration.inSeconds < 10) return;
 
     final nextIndex = _nextIndex();
     if (nextIndex == null || !_queueIndexValid(nextIndex)) {
@@ -662,6 +734,20 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (_standbyArmed && _standbyTrack?.queueKey != nextTrack.queueKey) {
       cancelCrossfade();
     }
+
+    final plan = _planFor(nextTrack);
+    if (!plan.mixes) {
+      // Album continuity / live / too short: the normal track change
+      // happens at EOF, no overlap.
+      if (_standbyArmed) cancelCrossfade();
+      return;
+    }
+    final fadeDuration = plan.overlap;
+    if (duration < fadeDuration + const Duration(seconds: 8)) {
+      if (_standbyArmed) cancelCrossfade();
+      return;
+    }
+    final remaining = duration - position;
 
     // 1. Pre-resolve the next track before the overlap window.
     final resolveLead = fadeDuration + const Duration(seconds: 12);
@@ -674,7 +760,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
     // 2. Load the standby deck well before the overlap window.
     if (remaining <= fadeDuration + _armLead &&
-        !_crossfading &&
         !_standbyArmed &&
         _mixGaveUpFor != nextTrack.queueKey) {
       _armStandbyForNext(nextTrack, nextIndex);
@@ -685,19 +770,18 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (remaining <= fadeDuration &&
         _standbyArmed &&
         _standbyReady &&
-        !_crossfading &&
         _standbyPlayer != null) {
-      _startCrossfade(fadeDuration);
+      _startCrossfade(fadeDuration, sweep: plan.style == MixStyle.filterSweep);
     }
 
     // 4. Deck still not ready with the window nearly gone: give up on the
-    // overlap for this track and let the normal gapless change happen,
+    // overlap for this track and let the normal track change happen,
     // instead of firing a half-loaded deck.
-    if (!_crossfading &&
-        _standbyArmed &&
+    if (_standbyArmed &&
         !_standbyReady &&
         remaining <= fadeDuration - const Duration(seconds: 3)) {
       _mixGaveUpFor = nextTrack.queueKey;
+      _crumb('automix gave up key=${nextTrack.queueKey} (deck not ready)');
       cancelCrossfade();
     }
   }
@@ -724,8 +808,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         final pos = state.position;
         final dur = state.duration;
         final rem = dur - pos;
-        final fade = _overlapLength();
-        if (rem <= fade + _armLead &&
+        final fade = _currentOverlap();
+        if (fade > Duration.zero &&
+            rem <= fade + _armLead &&
             !_crossfading &&
             !_standbyArmed &&
             _mixGaveUpFor != nextTrack.queueKey &&
@@ -810,6 +895,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         }
       }
       if (sb.state.duration == Duration.zero) return; // never became ready
+      if (_timedMixEnabled &&
+          _prefs.autoMixSpectral &&
+          _sweepSupported == null) {
+        await _probeSweepSupport(sb);
+        if (!_standbyArmed || _standbyTrack?.queueKey != nextTrack.queueKey) {
+          return;
+        }
+      }
       // Opened, filtered and silent at 0: safe to fade in.
       _standbyReady = true;
     } catch (_) {
@@ -821,7 +914,51 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
   }
 
-  void _startCrossfade(Duration fadeDuration) {
+  /// Writes the sweep filter once on the paused standby deck and listens
+  /// for mpv rejecting it. Settles [_sweepSupported] for the session.
+  Future<void> _probeSweepSupport(Player sb) async {
+    var failed = false;
+    StreamSubscription<String>? sub;
+    try {
+      sub = sb.stream.error.listen((e) {
+        if (isFilterGraphError(e)) failed = true;
+      });
+      await _setAf(sb, _playbackAf(sweep: TimedMixSweep.incoming(0)));
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+    } catch (_) {
+      failed = true;
+    } finally {
+      await sub?.cancel();
+    }
+    try {
+      await _setAf(sb, _playbackAf());
+    } catch (_) {}
+    _sweepSupported = !failed;
+    _crumb('automix sweep probe supported=$_sweepSupported');
+  }
+
+  /// mpv rejected an audio filter. During a mix that is the sweep: drop
+  /// it for the rest of the session and keep mixing on volume alone.
+  void _onFilterGraphError(String text) {
+    if (!_filterErrorLogged) {
+      _filterErrorLogged = true;
+      _crumb('filter rejected (not a stream error): '
+          '${text.length > 120 ? text.substring(0, 120) : text}');
+    }
+    final mixing = _crossfading || _standbyArmed || _mixSweepBusy;
+    if (!mixing) return;
+    _sweepSupported = false;
+    if (_mixSweepFailed) return;
+    _mixSweepFailed = true;
+    unawaited(() async {
+      try {
+        await _setAf(_player, _playbackAf());
+        await _setAf(_standbyPlayer, _playbackAf());
+      } catch (_) {}
+    }());
+  }
+
+  void _startCrossfade(Duration fadeDuration, {bool sweep = false}) {
     if (_crossfading || !_standbyArmed || _standbyPlayer == null) return;
     _crossfading = true;
     _crossfadeDuration = fadeDuration;
@@ -829,7 +966,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _crossfadeTargetVolume = state.volume;
     _mixSweepFailed = false;
     _lastMixSweep = DateTime.fromMillisecondsSinceEpoch(0);
-    final spectral = _timedMixEnabled && _prefs.autoMixSpectral;
+    final spectral = sweep &&
+        _timedMixEnabled &&
+        _prefs.autoMixSpectral &&
+        _sweepSupported != false;
+    _crumb('automix start key=${_standbyTrack?.queueKey} '
+        'overlap=${fadeDuration.inSeconds}s sweep=$spectral');
 
     try {
       unawaited(_standbyPlayer!.play());
@@ -854,9 +996,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           .clamp(0.0, 1.0);
       final masterVol100 = (_crossfadeTargetVolume * 100).clamp(0.0, 100.0);
 
-      // Perceptual equal-power curve (sin/cos preserves energy level)
-      final outVol = math.cos(progress * math.pi / 2) * masterVol100;
-      final inVol = math.sin(progress * math.pi / 2) * masterVol100;
+      // Smoothed equal-power curve: level loudness, gentle at both ends.
+      final (outGain, inGain) = _timedMixEnabled
+          ? MixPlanner.gains(progress)
+          : (math.cos(progress * math.pi / 2), math.sin(progress * math.pi / 2));
+      final outVol = outGain * masterVol100;
+      final inVol = inGain * masterVol100;
 
       try {
         _player?.setVolume(outVol.clamp(0.0, 100.0));
@@ -864,6 +1009,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       } catch (_) {}
 
       if (spectral &&
+          _sweepSupported != false &&
           !_mixSweepFailed &&
           !_mixSweepBusy &&
           DateTime.now().difference(_lastMixSweep).inMilliseconds >= 200) {
@@ -1587,6 +1733,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       await seek(Duration.zero);
       return;
     }
+    // An explicit Previous is a fresh attempt: a track marked unavailable
+    // by an earlier failure must not bounce the press straight back to
+    // the next track.
+    _unavailable.remove(state.queue[prevIndex].queueKey);
     state = state.copyWith(
       currentIndex: prevIndex,
       current: state.queue[prevIndex],
@@ -1601,6 +1751,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   Future<void> seekToQueueItem(int index) async {
     if (index < 0 || index >= state.queue.length) return;
     cancelCrossfade();
+    _unavailable.remove(state.queue[index].queueKey);
     state = state.copyWith(
       currentIndex: index,
       current: state.queue[index],
@@ -1752,6 +1903,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         !forceRefresh &&
         !forceYoutube) {
       return;
+    }
+    if (attempt == 0 && !forceRefresh && !forceYoutube) {
+      _resumeKey = '';
+      _resumeAt = null;
     }
     final generation = ++_resolveGeneration;
     _resolving = true;
@@ -2397,9 +2552,18 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           await _applyLoudnessTo(_player, album: track.album);
         } catch (_) {}
 
+        Duration? resumeAt;
+        if (_resumeKey == wantedQueueKey) {
+          resumeAt = _resumeAt;
+          _resumeKey = '';
+          _resumeAt = null;
+          if (resumeAt != null) {
+            _crumb('open key=$wantedQueueKey resume=${resumeAt.inSeconds}s');
+          }
+        }
         final loadSw = Stopwatch()..start();
         await _player?.open(
-          Media(playUrl, httpHeaders: stream.requestHeaders),
+          Media(playUrl, httpHeaders: stream.requestHeaders, start: resumeAt),
           play: true,
         );
         loadSw.stop();
@@ -2472,6 +2636,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> _onPlayerError() async {
+    // The outgoing deck died during an AutoMix overlap: the incoming deck
+    // is already playing, so finish the hand-off instead of restarting
+    // the song that was ending anyway.
+    if (_crossfading && _standbyReady && _standbyTrack != null) {
+      _crumb('automix outgoing error -> early handoff '
+          'key=${_standbyTrack?.queueKey}');
+      _completeCrossfade();
+      return;
+    }
     final track = state.current;
     final generation = _resolveGeneration;
     if (track == null || _resolving || state.error != null ||
@@ -2480,6 +2653,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     _failedGeneration = generation;
+    // Resume a retry where the listener was, not from 0:00.
+    final pos = state.position;
+    final dur = state.duration;
+    if (pos > const Duration(seconds: 3) &&
+        (dur == Duration.zero || dur - pos > const Duration(seconds: 5))) {
+      _resumeKey = track.queueKey;
+      _resumeAt = pos;
+    }
     _invalidatePlayCache(track);
     final streamKey = state.stream?.cacheKey ?? '';
     if (streamKey.startsWith('lossless:') || streamKey.startsWith('tidal:')) {
@@ -2537,6 +2718,31 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     cancelCrossfade();
     if (_resolving || state.error != null) return;
+    // A late EOF from the stream that was just torn down (retry, skip)
+    // lands after the new open has reset position/duration to zero.
+    // Advancing on it skipped the track that had only just started.
+    final openedAt = _audioOpenDoneAt;
+    if (state.duration == Duration.zero &&
+        state.position < const Duration(seconds: 2) &&
+        (openedAt == null ||
+            DateTime.now().difference(openedAt) <
+                const Duration(seconds: 3))) {
+      final key = state.current?.queueKey ?? '';
+      final gen = _resolveGeneration;
+      _crumb('stale eof ignored key=$key');
+      // If the new stream really is empty it never reports a duration;
+      // hand it to the error path then instead of hanging silently.
+      Future<void>.delayed(const Duration(seconds: 6), () {
+        if (gen != _resolveGeneration || _resolving) return;
+        if (state.current?.queueKey != key) return;
+        if (state.duration > Duration.zero ||
+            state.position > Duration.zero) {
+          return;
+        }
+        unawaited(_onPlayerError());
+      });
+      return;
+    }
     _flushScrobble(completed: true);
     if (state.duration - state.position > const Duration(seconds: 10)) {
       // mpv reported clean EOF far from the known end: a truncated
