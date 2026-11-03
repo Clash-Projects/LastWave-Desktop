@@ -124,6 +124,9 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
       ref.read(animatedArtworkSessionProvider).setBackgrounded(!visible);
     } catch (_) {}
     try {
+      ref.read(canvasPanelSessionProvider).setBackgrounded(!visible);
+    } catch (_) {}
+    try {
       // Back the connectivity probe cadence off while minimized /
       // tray-hidden (and re-probe immediately on restore). Playback is
       // unaffected — stream failures are handled by mpv, not this flag.

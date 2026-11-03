@@ -56,6 +56,7 @@ class WaveIcons {
   static const IconData queue = WindowsIcons.bulleted_list;
   static const IconData radio = FluentIcons.radio_btn_on;
   static const IconData speaker = FluentIcons.speakers;
+  static const IconData canvas = FluentIcons.video;
   static const IconData volume = FluentIcons.volume2;
   static const IconData volumeMute = FluentIcons.volume_disabled;
 

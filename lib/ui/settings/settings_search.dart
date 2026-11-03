@@ -183,6 +183,14 @@ const settingsSearchEntries = <SettingsSearchEntry>[
         'channel sync listening history liked songs',
   ),
   SettingsSearchEntry(
+    id: 'integrations.spotify',
+    section: 'integrations',
+    title: 'Spotify',
+    subtitle: 'Your playlists, Liked Songs and Canvas',
+    keywords: 'spotify sp_dc cookie sign in login webview canvas playlists '
+        'liked songs',
+  ),
+  SettingsSearchEntry(
     id: 'integrations.discord',
     section: 'integrations',
     title: 'Discord',

@@ -589,3 +589,14 @@ final animatedArtworkSessionProvider =
     ChangeNotifierProvider<AnimatedArtworkSession>((ref) {
       return AnimatedArtworkSession();
     });
+
+/// Second, independent motion player for the Canvas side panel.
+///
+/// The Now Playing cover owns [animatedArtworkSessionProvider]; sharing one
+/// texture between a square cover clip and a 9:16 canvas clip would make
+/// them fight over the same `loadfile`. Same crash-hardening contract: one
+/// player + one texture for the whole run, created lazily on first open.
+final canvasPanelSessionProvider =
+    ChangeNotifierProvider<AnimatedArtworkSession>((ref) {
+      return AnimatedArtworkSession();
+    });

@@ -27,6 +27,9 @@ import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
 import 'yt_profile_chooser.dart';
+import 'spotify_connect.dart';
+import '../../features/spotify/spotify_api.dart';
+import '../../features/spotify/spotify_auth.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/settings/accent.dart';
@@ -1527,6 +1530,64 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
   }
 }
 
+/// Spotify account: two sign-in routes (system WebView, pasted `sp_dc`),
+/// connection state, Canvas toggle.
+class _SpotifyCard extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _SpotifyCard({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(spotifyAuthProvider);
+    final prefs = ref.watch(prefsProvider);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(FluentIcons.music_note, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                auth.connected ? 'Connected' : 'Not connected',
+                style: WaveType.trackTitle,
+              ),
+            ),
+            if (auth.connected)
+              WaveButton(
+                onPressed: () async {
+                  await auth.disconnect();
+                  ref.invalidate(spotifyPlaylistsProvider);
+                },
+                child: const Text('Disconnect'),
+              )
+            else ...[
+              WaveButton(
+                onPressed: () => spotifyConnectWithCookie(context, ref),
+                child: const Text('Paste sp_dc'),
+              ),
+              const SizedBox(width: 8),
+              WaveFilledButton(
+                onPressed: () => spotifyConnectWithWebView(context, ref),
+                child: const Text('Sign in'),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        _SwitchRow(
+          value: prefs.spotifyCanvasEnabled,
+          onChanged: (v) => onUpdate((p) => p.setSpotifyCanvasEnabled(v)),
+          title: 'Spotify Canvas',
+          subtitle: 'Use Spotify\'s vertical looping video in the Canvas panel '
+              '(needs a connected account)',
+        ),
+      ],
+    );
+  }
+}
+
 class _Ytm extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Ytm({required this.onUpdate});
@@ -1582,6 +1643,13 @@ class _Ytm extends ConsumerWidget {
                     ),
                   ],
                 ),
+        ),
+        const SizedBox(height: 16),
+        _Group(
+          id: 'integrations.spotify',
+          title: 'Spotify',
+          subtitle: 'Your playlists, Liked Songs and Canvas',
+          child: _SpotifyCard(onUpdate: onUpdate),
         ),
         const SizedBox(height: 16),
         _Group(

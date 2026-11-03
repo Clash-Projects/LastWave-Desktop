@@ -562,6 +562,11 @@ class Prefs {
   Future<void> setSpotifyCanvasEnabled(bool v) =>
       _sp.setBool('spotify_canvas_enabled', v);
 
+  /// Per-install id presented to Spotify's client-token endpoint.
+  String get spotifyDeviceId => _sp.getString('spotify_device_id') ?? '';
+  Future<void> setSpotifyDeviceId(String v) =>
+      _sp.setString('spotify_device_id', v);
+
   // -- Download folder layout (Android DownloadFolderStructure ids) ---------
   String get downloadStructure {
     final raw = _sp.getString('lw_download_structure') ?? 'flat';

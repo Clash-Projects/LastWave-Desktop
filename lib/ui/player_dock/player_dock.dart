@@ -39,9 +39,15 @@ class WavePlayerDock extends ConsumerWidget {
   final VoidCallback onToggleQueue;
   final VoidCallback onToggleLyrics;
   final VoidCallback? onToggleEqualizer;
+
+  /// Canvas panel (9:16 looping video, docked on the left like the queue
+  /// is on the right). Takes the place the Output glyph used to have;
+  /// Output now lives inside the More menu.
+  final VoidCallback? onToggleCanvas;
   final bool queueActive;
   final bool lyricsActive;
   final bool equalizerActive;
+  final bool canvasActive;
   final VoidCallback onToggleMini;
   const WavePlayerDock({
     super.key,
@@ -49,9 +55,11 @@ class WavePlayerDock extends ConsumerWidget {
     required this.onToggleQueue,
     required this.onToggleLyrics,
     this.onToggleEqualizer,
+    this.onToggleCanvas,
     this.queueActive = false,
     this.lyricsActive = false,
     this.equalizerActive = false,
+    this.canvasActive = false,
     required this.onToggleMini,
   });
 
@@ -304,7 +312,6 @@ class WavePlayerDock extends ConsumerWidget {
                     final showJam = dockW >= 560;
                     final showQuality =
                         dockW >= 900 && player.stream != null;
-                    final showOutput = dockW >= 800;
                     final showVolumeSlider = dockW >= 800;
                     final showExpand = dockW >= 850;
                     final showMini = dockW >= 950;
@@ -349,7 +356,13 @@ class WavePlayerDock extends ConsumerWidget {
                               active: equalizerActive,
                               onTap: onToggleEqualizer!,
                             ),
-                          if (showOutput) const _OutputGlyph(),
+                          if (onToggleCanvas != null)
+                            _Glyph(
+                              tooltip: 'Canvas',
+                              icon: WaveIcons.canvas,
+                              active: canvasActive,
+                              onTap: onToggleCanvas!,
+                            ),
                           if (showVolumeSlider)
                             const _VolumeSection()
                           else
@@ -370,7 +383,7 @@ class WavePlayerDock extends ConsumerWidget {
                             showJamItem: !showJam,
                             showQualityItem: !showQuality &&
                                 player.stream != null,
-                            showOutputItem: !showOutput,
+                            showOutputItem: true,
                             showExpandItem: !showExpand,
                             showMiniItem: !showMini,
                             onExpand: onExpand,
@@ -545,32 +558,7 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
   }
 }
 
-/// Output — where the sound goes and in what shape, as one control.
-///
-/// The dock used to carry two glyphs side by side: a stream-path status menu
-/// (source → endpoint → bit-perfect) and a separate endpoint picker. They
-/// answer one question between them, so they are one glyph now: the accent
-/// tint is still the bit-perfect status, the tooltip names the endpoint, and
-/// the menu opens on the endpoints before the path detail.
-class _OutputGlyph extends ConsumerWidget {
-  const _OutputGlyph();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final output = ref.watch(audioOutputProvider);
-    final path = output.path;
-    final name = output.selected?.displayName ?? 'System default';
-    return _Glyph(
-      tooltip: path.bitPerfect ? '$name · Bit-Perfect' : '$name · Stream path',
-      icon: WaveIcons.speaker,
-      active: path.bitPerfect,
-      menuItems: _outputEntries(context, ref, output),
-    );
-  }
-}
-
-/// Endpoints + path detail, shared by [_OutputGlyph] and the narrow-width More
-/// menu so the two can never drift. The current endpoint is tinted with the
+/// Endpoints + path detail for the More menu's Output submenu. The current endpoint is tinted with the
 /// accent — the same signal the glyph itself carries when the path is
 /// bit-perfect.
 List<WaveMenuEntry> _outputEntries(
@@ -1578,7 +1566,9 @@ class _DockOverflow extends ConsumerWidget {
         if (showOutputItem)
           WaveMenuSubmenu(
             leading: const Icon(WaveIcons.speaker, size: 15),
-            label: 'Output · $outputName',
+            label: output.path.bitPerfect
+                ? 'Output · $outputName · Bit-Perfect'
+                : 'Output · $outputName',
             items: () => outputEntries,
           ),
         if (showExpandItem)

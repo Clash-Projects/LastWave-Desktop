@@ -9,6 +9,7 @@ import '../../features/innertube/yt_library_providers.dart';
 import '../../features/library/local_music_library.dart';
 import '../../features/library/playlists.dart';
 import '../../features/library/yt_library_sync.dart';
+import '../../features/spotify/spotify_api.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/hero.dart';
@@ -108,6 +109,12 @@ class _WavePlaylistsPageState
               p.title.toLowerCase().contains(_q.toLowerCase()),
         )
         .toList();
+    // Spotify account playlists + Liked Songs. Shown here only: Spotify
+    // likes are deliberately never merged into the app's own Liked page.
+    final spLists = (ref.watch(spotifyPlaylistsProvider).value ??
+            const <SpotifyPlaylistSummary>[])
+        .where((p) => p.name.toLowerCase().contains(_q.toLowerCase()))
+        .toList();
     // Header cover: the most recent playlist (list order) that has art.
     var heroCover = '';
     for (final p in all) {
@@ -200,7 +207,7 @@ class _WavePlaylistsPageState
               const SizedBox(height: 12),
               const _LocalFolders(),
               const SizedBox(height: 18),
-              if (shown.isEmpty && ytLists.isEmpty)
+              if (shown.isEmpty && ytLists.isEmpty && spLists.isEmpty)
                 WaveEmpty(
                   icon: WaveIcons.playlists,
                   title: 'No playlists yet',
@@ -255,6 +262,11 @@ class _WavePlaylistsPageState
                   if (shown.isNotEmpty)
                     const SizedBox(height: 18),
                   _YtSection(lists: ytLists),
+                ],
+                if (spLists.isNotEmpty) ...[
+                  if (shown.isNotEmpty || ytLists.isNotEmpty)
+                    const SizedBox(height: 18),
+                  _SpotifySection(lists: spLists),
                 ],
               ],
             ],
@@ -446,6 +458,142 @@ class _YtCardState extends ConsumerState<_YtCard> {
           ),
         ),
       );
+  }
+}
+
+/// Spotify account playlists (own + followed) and Liked Songs.
+/// Read-only grid; tap opens the Spotify detail page.
+class _SpotifySection extends StatelessWidget {
+  final List<SpotifyPlaylistSummary> lists;
+  const _SpotifySection({required this.lists});
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('SPOTIFY',
+            style: WaveType.overline.copyWith(color: waveAccent(context))),
+        const SizedBox(height: 2),
+        Text('${lists.length} ${lists.length == 1 ? 'playlist' : 'playlists'}',
+            style:
+                WaveType.meta.copyWith(color: waveTextTertiary(context))),
+        const SizedBox(height: 6),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 180,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 12,
+            mainAxisExtent: 218,
+          ),
+          itemCount: lists.length,
+          itemBuilder: (context, i) => WaveEntrance(
+            index: i,
+            rise: 10,
+            child: _SpotifyCard(playlist: lists[i], artSize: 160),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SpotifyCard extends StatefulWidget {
+  final SpotifyPlaylistSummary playlist;
+  final double artSize;
+  const _SpotifyCard({required this.playlist, required this.artSize});
+
+  @override
+  State<_SpotifyCard> createState() => _SpotifyCardState();
+}
+
+class _SpotifyCardState extends State<_SpotifyCard> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final p = widget.playlist;
+    void open() => waveOpen(
+          context,
+          '/spotifyplaylist/${Uri.encodeComponent(p.id)}'
+          '?title=${Uri.encodeComponent(p.name)}'
+          '&art=${Uri.encodeComponent(p.artworkUrl)}',
+        );
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: open,
+        child: AnimatedScale(
+          scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+          duration: waveMotion(context, WaveMotion.fast),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: waveMotion(context, WaveMotion.normal),
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              borderRadius: WaveRadius.artworkRadius,
+              boxShadow: [if (_hover) ...WaveElevation.lift(dark)],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                p.isLiked
+                    ? Container(
+                        width: widget.artSize,
+                        height: widget.artSize,
+                        decoration: BoxDecoration(
+                          borderRadius: WaveRadius.artworkRadius,
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              waveAccent(context),
+                              waveAccent(context).withValues(alpha: 0.45),
+                            ],
+                          ),
+                        ),
+                        child: Icon(
+                          WaveIcons.likedFill,
+                          size: 44,
+                          color: waveOnAccent(context),
+                        ),
+                      )
+                    : WaveArtwork(
+                        url: p.artworkUrl,
+                        size: widget.artSize,
+                        radius: WaveRadius.artwork,
+                        label: p.name,
+                      ),
+                const SizedBox(height: 6),
+                Text(p.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.trackTitle.copyWith(fontSize: 12.5)),
+                Text(
+                  p.trackCount > 0
+                      ? '${p.trackCount} tracks'
+                      : (p.owner.isNotEmpty ? p.owner : 'Spotify playlist'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WaveType.meta.copyWith(fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

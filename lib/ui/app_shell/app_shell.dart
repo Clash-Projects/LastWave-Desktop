@@ -24,6 +24,7 @@ import '../navigation/route_origin.dart';
 import '../navigation/side_rail.dart';
 import '../navigation/wave_nav.dart';
 import '../player_dock/player_dock.dart';
+import '../canvas/canvas_panel.dart';
 import '../queue/queue_panel.dart';
 import '../theme/tokens.dart';
 import '../updates/update_dialog.dart';
@@ -61,6 +62,8 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _railExpanded = false;
   bool _queueOpen = false;
   bool _equalizerOpen = false;
+  // Canvas: docked on the LEFT (right of the rail), pushes the page.
+  bool _canvasOpen = false;
   bool _miniOpen = false;
   bool _draggingFiles = false;
 
@@ -117,6 +120,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       _miniOpen = true;
       _queueOpen = false;
       _equalizerOpen = false;
+      _canvasOpen = false;
     });
 
     try {
@@ -201,8 +205,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _dockLyricsActive = false;
   bool _dockQueueActive = false;
   bool _dockEqualizerActive = false;
+  bool _dockCanvasActive = false;
 
   void _closeQueue() => setState(() => _queueOpen = false);
+  void _closeCanvas() => setState(() => _canvasOpen = false);
   void _closeEqualizer() => setState(() => _equalizerOpen = false);
 
   /// Cached dock: same instance across navigations (glyphs + cover art
@@ -212,14 +218,17 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     required bool lyricsActive,
     required bool queueActive,
     required bool equalizerActive,
+    required bool canvasActive,
   }) {
     if (_dockCache == null ||
         _dockLyricsActive != lyricsActive ||
         _dockQueueActive != queueActive ||
-        _dockEqualizerActive != equalizerActive) {
+        _dockEqualizerActive != equalizerActive ||
+        _dockCanvasActive != canvasActive) {
       _dockLyricsActive = lyricsActive;
       _dockQueueActive = queueActive;
       _dockEqualizerActive = equalizerActive;
+      _dockCanvasActive = canvasActive;
       // The dock is structural: reserves 80px on every view, including
       // Now Playing — its in-page transport was removed so this dock is
       // the single control surface.
@@ -228,6 +237,8 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         lyricsActive: lyricsActive,
         queueActive: queueActive,
         equalizerActive: equalizerActive,
+        canvasActive: canvasActive,
+        onToggleCanvas: () => setState(() => _canvasOpen = !_canvasOpen),
         onToggleMini: _toggleMiniPlayer,
         // Lyrics live on Now Playing (focus mode is its top-bar toggle).
         onToggleLyrics: _openNowPlaying,
@@ -346,6 +357,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       return true;
     } else if (_queueOpen) {
       setState(() => _queueOpen = false);
+      return true;
+    } else if (_canvasOpen) {
+      setState(() => _canvasOpen = false);
       return true;
     } else if (_miniOpen) {
       _exitMiniPlayer();
@@ -798,6 +812,20 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               .clamp(440.0, 560.0)
                               .toDouble();
 
+                          final railW = collapsed
+                              ? WaveDensity.railCollapsed
+                              : WaveDensity.railExpanded;
+                          final rightW = _queueOpen
+                              ? qw
+                              : (_equalizerOpen ? ew : 0.0);
+                          // Exact 9:16 from the content height; the page
+                          // keeps its minimum width.
+                          final cw = canvasPanelWidth(
+                            height: constraints.maxHeight,
+                            available:
+                                constraints.maxWidth - railW - rightW,
+                          );
+
                           return Stack(
                             children: [
                               // Page reserves the collapsed rail
@@ -815,15 +843,39 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 // The expanded rail is the collapsed
                                 // rail grown wider: the page makes room
                                 // for it and it stays until toggled off.
-                                left: collapsed
-                                    ? WaveDensity.railCollapsed
-                                    : WaveDensity.railExpanded,
+                                left: railW + (_canvasOpen ? cw : 0),
                                 top: 0,
                                 bottom: 0,
-                                right: _queueOpen
-                                    ? qw
-                                    : (_equalizerOpen ? ew : 0),
+                                right: rightW,
                                 child: widget.child,
+                              ),
+                              // Canvas — docks left of the page (beside
+                              // the rail) and pushes it, like the queue
+                              // does from the right. Painted under the
+                              // rail so it slides out from behind it.
+                              AnimatedPositioned(
+                                duration: waveMotion(
+                                  context,
+                                  WaveMotion.normal,
+                                ),
+                                curve: Curves.easeOutCubic,
+                                top: 0,
+                                bottom: 0,
+                                left: _canvasOpen ? railW : railW - cw - 12,
+                                width: cw,
+                                child: ExcludeFocus(
+                                  excluding: !_canvasOpen,
+                                  child: IgnorePointer(
+                                    ignoring: !_canvasOpen,
+                                    child: Offstage(
+                                      offstage: !_canvasOpen,
+                                      child: WaveCanvasPanel(
+                                        open: _canvasOpen,
+                                        onClose: _closeCanvas,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                               // Rail: one solid strip, 60px collapsed /
                               // 200px expanded.
@@ -914,6 +966,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                     lyricsActive: isNowPlaying,
                     queueActive: _queueOpen,
                     equalizerActive: _equalizerOpen,
+                    canvasActive: _canvasOpen,
                   ),
                 ],
               ),
