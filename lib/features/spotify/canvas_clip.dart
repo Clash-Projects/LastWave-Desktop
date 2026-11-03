@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/storage/prefs.dart';
 import 'spotify_api.dart';
@@ -49,6 +50,7 @@ final canvasPanelClipProvider = FutureProvider.autoDispose
 
   if (!prefs.spotifyCanvasEnabled) {
     note = 'Spotify Canvas is switched off in Settings';
+    DiagnosticsLog.info('spotify-canvas skipped reason=toggle-off');
   } else {
     // The stored cookie loads asynchronously at startup: wait for it
     // instead of racing it (a lookup before it lands used to fall
@@ -56,6 +58,7 @@ final canvasPanelClipProvider = FutureProvider.autoDispose
     final hasCookie = await auth.spdc() != null;
     if (!hasCookie) {
       note = 'Connect Spotify in Settings → Integrations for Spotify Canvas';
+      DiagnosticsLog.info('spotify-canvas skipped reason=not-connected');
     } else {
       final res = await ref.watch(spotifyApiProvider).canvas(
             title: q.title,
@@ -100,5 +103,6 @@ final canvasPanelClipProvider = FutureProvider.autoDispose
       ),
     );
   }
+  DiagnosticsLog.info('canvas-panel none note="$note"');
   return CanvasPanelOutcome(note: note);
 });
