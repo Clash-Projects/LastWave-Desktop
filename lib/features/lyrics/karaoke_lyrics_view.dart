@@ -276,16 +276,50 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     }
   }
 
+  DateTime _lastPokeAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastArmAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _armedHideSeconds = 0;
+
   /// Shows the toolbar and re-arms the idle fade (Auto-hide setting).
+  ///
+  /// Called from MouseRegion.onHover, i.e. for every pointer move (up to
+  /// ~1000Hz on high-poll mice), and each call used to cancel and allocate
+  /// a Timer. While the toolbar is already shown and armed with the same
+  /// timeout, re-arms are throttled to one per 200ms; [_onHideTimeout]
+  /// measures from the latest poke, so the fade still lands exactly
+  /// `seconds` after the last movement (same scheme as Now Playing's
+  /// idle timer).
   void _pokeControls() {
     final seconds = ref.read(prefsProvider).lyricsAutoHideSeconds;
+    final now = DateTime.now();
+    _lastPokeAt = now;
+    if (_controlsShown &&
+        !_selectMode &&
+        seconds > 0 &&
+        seconds == _armedHideSeconds &&
+        (_hideTimer?.isActive ?? false) &&
+        now.difference(_lastArmAt).inMilliseconds < 200) {
+      return;
+    }
     _hideTimer?.cancel();
     if (!_controlsShown && mounted) setState(() => _controlsShown = true);
     if (_selectMode || seconds <= 0) return;
-    _hideTimer = Timer(Duration(seconds: seconds), () {
-      if (!mounted || _selectMode) return;
-      setState(() => _controlsShown = false);
-    });
+    _lastArmAt = now;
+    _armedHideSeconds = seconds;
+    _hideTimer = Timer(Duration(seconds: seconds), _onHideTimeout);
+  }
+
+  void _onHideTimeout() {
+    if (!mounted || _selectMode) return;
+    // A throttled poke may have landed after the last arm: wait out the
+    // remainder instead of hiding early.
+    final remainingMs = _armedHideSeconds * 1000 -
+        DateTime.now().difference(_lastPokeAt).inMilliseconds;
+    if (remainingMs > 0) {
+      _hideTimer = Timer(Duration(milliseconds: remainingMs), _onHideTimeout);
+      return;
+    }
+    setState(() => _controlsShown = false);
   }
 
   void _toggleSelectMode() {
