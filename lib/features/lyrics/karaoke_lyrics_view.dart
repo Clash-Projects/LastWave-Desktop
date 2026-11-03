@@ -28,19 +28,21 @@ import 'lyrics_providers.dart';
 import 'lyrics_translation.dart';
 
 /// Provider for track-specific lyrics timing offset in milliseconds.
-final lyricsOffsetProvider = StateNotifierProvider.family<LyricsOffsetNotifier, int, String>(
-  (ref, trackKey) {
-    final prefs = ref.read(prefsProvider);
-    return LyricsOffsetNotifier(prefs, trackKey);
-  },
-);
+final lyricsOffsetProvider =
+    StateNotifierProvider.family<LyricsOffsetNotifier, int, String>((
+      ref,
+      trackKey,
+    ) {
+      final prefs = ref.read(prefsProvider);
+      return LyricsOffsetNotifier(prefs, trackKey);
+    });
 
 class LyricsOffsetNotifier extends StateNotifier<int> {
   final Prefs _prefs;
   final String _trackKey;
 
   LyricsOffsetNotifier(this._prefs, this._trackKey)
-      : super(_prefs.getLyricsOffset(_trackKey));
+    : super(_prefs.getLyricsOffset(_trackKey));
 
   void adjust(int deltaMs) {
     final next = state + deltaMs;
@@ -62,15 +64,15 @@ class LyricsOffsetNotifier extends StateNotifier<int> {
 /// Provider for transliteration display toggle.
 final lyricsTransliterationProvider =
     StateNotifierProvider<LyricsTransliterationNotifier, bool>((ref) {
-  final prefs = ref.read(prefsProvider);
-  return LyricsTransliterationNotifier(prefs);
-});
+      final prefs = ref.read(prefsProvider);
+      return LyricsTransliterationNotifier(prefs);
+    });
 
 class LyricsTransliterationNotifier extends StateNotifier<bool> {
   final Prefs _prefs;
 
   LyricsTransliterationNotifier(this._prefs)
-      : super(_prefs.lyricsTransliteration);
+    : super(_prefs.lyricsTransliteration);
 
   void toggle() {
     state = !state;
@@ -105,6 +107,10 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
   final bool fillRemainingSpace;
   final bool isActive;
 
+  /// Space kept free at the right of the toolbar (Now Playing lines the
+  /// toolbar up with its top action bar and must not run under it).
+  final double toolbarRightInset;
+
   const WaveKaraokeLyricsView({
     super.key,
     required this.track,
@@ -114,6 +120,7 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
     this.fontSize,
     this.fillRemainingSpace = true,
     this.isActive = true,
+    this.toolbarRightInset = 0,
   });
 
   @override
@@ -155,9 +162,9 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     _lyricController = LyricController();
     _lyricController.setOnTapLineCallback((duration) {
       final seekTargetMs = duration.inMilliseconds + _offsetMs;
-      ref.read(playbackServiceProvider.notifier).seek(
-            Duration(milliseconds: math.max(0, seekTargetMs)),
-          );
+      ref
+          .read(playbackServiceProvider.notifier)
+          .seek(Duration(milliseconds: math.max(0, seekTargetMs)));
       _lyricController.stopSelection();
       if (!_following) {
         setState(() => _following = true);
@@ -220,7 +227,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   bool _shouldTickerRun() {
     if (!_isEffectivelyActive || !_isPlaying) return false;
     final res = _currentResult;
-    if (res == null || !res.isSynced || res.lines.isEmpty || res.isInstrumental) {
+    if (res == null ||
+        !res.isSynced ||
+        res.lines.isEmpty ||
+        res.isInstrumental) {
       return false;
     }
     if (!_lastWordByWord && !res.isWordSynced) {
@@ -313,7 +323,8 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     if (!mounted || _selectMode) return;
     // A throttled poke may have landed after the last arm: wait out the
     // remainder instead of hiding early.
-    final remainingMs = _armedHideSeconds * 1000 -
+    final remainingMs =
+        _armedHideSeconds * 1000 -
         DateTime.now().difference(_lastPokeAt).inMilliseconds;
     if (remainingMs > 0) {
       _hideTimer = Timer(Duration(milliseconds: remainingMs), _onHideTimeout);
@@ -346,10 +357,9 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
 
   /// A card with the ticked lines, in song order.
   Future<void> _shareSelected(LyricsResult result) async {
-    final indexes = _selectedLines
-        .where((i) => i >= 0 && i < result.lines.length)
-        .toList()
-      ..sort();
+    final indexes =
+        _selectedLines.where((i) => i >= 0 && i < result.lines.length).toList()
+          ..sort();
     final lines = [for (final i in indexes.take(12)) result.lines[i].text];
     if (!mounted || lines.isEmpty) return;
     await exportLyricsShareCard(context, track: widget.track, lines: lines);
@@ -399,11 +409,13 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       _lastTickMs = nowMs;
 
       final elapsed = now.difference(_lastSyncTime).inMilliseconds;
-      final currentMs =
-          _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
+      final currentMs = _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
       _interpolatedPositionMs.value = currentMs;
       if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
-        final lineIndex = activeLyricLineIndex(_currentResult!.lines, currentMs);
+        final lineIndex = activeLyricLineIndex(
+          _currentResult!.lines,
+          currentMs,
+        );
         if (_activeLineIndex.value != lineIndex) {
           _activeLineIndex.value = lineIndex;
         }
@@ -433,7 +445,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       final effectiveMs = audioMs - _offsetMs;
       _interpolatedPositionMs.value = effectiveMs;
       if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
-        final lineIndex = activeLyricLineIndex(_currentResult!.lines, effectiveMs);
+        final lineIndex = activeLyricLineIndex(
+          _currentResult!.lines,
+          effectiveMs,
+        );
         if (_activeLineIndex.value != lineIndex) {
           _activeLineIndex.value = lineIndex;
         }
@@ -448,7 +463,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         final effectiveMs = audioMs - _offsetMs;
         _interpolatedPositionMs.value = effectiveMs;
         if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
-          final lineIndex = activeLyricLineIndex(_currentResult!.lines, effectiveMs);
+          final lineIndex = activeLyricLineIndex(
+            _currentResult!.lines,
+            effectiveMs,
+          );
           if (_activeLineIndex.value != lineIndex) {
             _activeLineIndex.value = lineIndex;
           }
@@ -523,12 +541,11 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     final showTransliteration = ref.watch(lyricsTransliterationProvider);
     // Select the single pref: toggling theme/quality elsewhere must
     // not rebuild the karaoke view (it recreates the lyric adapter).
-    final wordByWord =
-        ref.watch(prefsProvider.select((p) => p.wordByWord));
-    final textScale =
-        ref.watch(prefsProvider.select((p) => p.lyricsTextScale));
-    final autoHide =
-        ref.watch(prefsProvider.select((p) => p.lyricsAutoHideSeconds));
+    final wordByWord = ref.watch(prefsProvider.select((p) => p.wordByWord));
+    final textScale = ref.watch(prefsProvider.select((p) => p.lyricsTextScale));
+    final autoHide = ref.watch(
+      prefsProvider.select((p) => p.lyricsAutoHideSeconds),
+    );
     final async = ref.watch(waveLyricsProvider(widget.track));
     final lyricFontSize =
         (widget.fontSize ?? (widget.compact ? 28.0 : 36.0)) * textScale;
@@ -554,8 +571,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         child: WaveError(
           title: 'Lyrics unavailable',
           message: 'Check your connection and try again.',
-          onRetry: () =>
-              ref.invalidate(waveLyricsProvider(widget.track)),
+          onRetry: () => ref.invalidate(waveLyricsProvider(widget.track)),
         ),
       ),
       data: (result) {
@@ -577,6 +593,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                   result: effectiveResult,
                   offsetMs: offsetMs,
                   showTransliteration: showTransliteration,
+                  rightInset: widget.toolbarRightInset,
                   following: _following,
                   compact: widget.compact,
                   wordByWord: wordByWord,
@@ -598,21 +615,24 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         }
 
         if (effectiveResult.isInstrumental) {
-          return withHeader(const WaveEmpty(
-            icon: FluentIcons.music_note,
-            title: 'Instrumental',
-            subtitle: 'No lyrics for this track.',
-          ));
+          return withHeader(
+            const WaveEmpty(
+              icon: FluentIcons.music_note,
+              title: 'Instrumental',
+              subtitle: 'No lyrics for this track.',
+            ),
+          );
         }
         if (effectiveResult.isEmpty) {
-          return withHeader(WaveEmpty(
-            icon: FluentIcons.microphone,
-            title: 'No lyrics found',
-            subtitle: 'Pick another source, or check back later.',
-            actionLabel: 'Try again',
-            onAction: () =>
-                ref.invalidate(waveLyricsProvider(widget.track)),
-          ));
+          return withHeader(
+            WaveEmpty(
+              icon: FluentIcons.microphone,
+              title: 'No lyrics found',
+              subtitle: 'Pick another source, or check back later.',
+              actionLabel: 'Try again',
+              onAction: () => ref.invalidate(waveLyricsProvider(widget.track)),
+            ),
+          );
         }
 
         if (_currentTrackKey != widget.track.queueKey ||
@@ -628,8 +648,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           _lastTransliteration = showTransliteration;
           _lastWordByWord = wordByWord;
           if (effectiveResult.lines.isNotEmpty && effectiveResult.isSynced) {
-            final lineIndex =
-                activeLyricLineIndex(effectiveResult.lines, _interpolatedPositionMs.value);
+            final lineIndex = activeLyricLineIndex(
+              effectiveResult.lines,
+              _interpolatedPositionMs.value,
+            );
             if (_activeLineIndex.value != lineIndex) {
               _activeLineIndex.value = lineIndex;
             }
@@ -648,105 +670,111 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         final translations = translateKey == null
             ? const <String?>[]
             : ref.watch(lyricsTranslationProvider(translateKey)).valueOrNull ??
-                const <String?>[];
+                  const <String?>[];
 
         return MouseRegion(
           onEnter: (_) => _pokeControls(),
           onHover: (_) => _pokeControls(),
           child: RepaintBoundary(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (widget.showHeaderControls)
-                AnimatedOpacity(
-                  opacity: _controlsShown ? 1 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  child: IgnorePointer(
-                    ignoring: !_controlsShown,
-                    child: _KaraokeToolbar(
-                  track: widget.track,
-                  result: effectiveResult,
-                  offsetMs: offsetMs,
-                  showTransliteration: showTransliteration,
-                  following: _following,
-                  compact: widget.compact,
-                  wordByWord: wordByWord,
-                  onClose: widget.onClose,
-                  selectMode: _selectMode,
-                  selectedCount: _selectedLines.length,
-                  onToggleSelectMode: _toggleSelectMode,
-                  onShareSong: () => _shareSong(effectiveResult),
-                  onShareSelection: () => _shareSelected(effectiveResult),
-                  onPrefsChanged: () {
-                    if (mounted) setState(() {});
-                    _pokeControls();
-                  },
-                  onToggleFollowing: () {
-                    if (!_following) {
-                      _lyricController.stopSelection();
-                      setState(() => _following = true);
-                    } else {
-                      setState(() => _following = false);
-                    }
-                  },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (widget.showHeaderControls)
+                  AnimatedOpacity(
+                    opacity: _controlsShown ? 1 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: IgnorePointer(
+                      ignoring: !_controlsShown,
+                      child: _KaraokeToolbar(
+                        track: widget.track,
+                        result: effectiveResult,
+                        offsetMs: offsetMs,
+                        showTransliteration: showTransliteration,
+                        rightInset: widget.toolbarRightInset,
+                        following: _following,
+                        compact: widget.compact,
+                        wordByWord: wordByWord,
+                        onClose: widget.onClose,
+                        selectMode: _selectMode,
+                        selectedCount: _selectedLines.length,
+                        onToggleSelectMode: _toggleSelectMode,
+                        onShareSong: () => _shareSong(effectiveResult),
+                        onShareSelection: () => _shareSelected(effectiveResult),
+                        onPrefsChanged: () {
+                          if (mounted) setState(() {});
+                          _pokeControls();
+                        },
+                        onToggleFollowing: () {
+                          if (!_following) {
+                            _lyricController.stopSelection();
+                            setState(() => _following = true);
+                          } else {
+                            setState(() => _following = false);
+                          }
+                        },
+                      ),
                     ),
                   ),
-                ),
-              if (_selectMode)
-                _SelectBanner(
-                  count: _selectedLines.length,
-                  onShare: () => _shareSelected(effectiveResult),
-                  onCancel: _toggleSelectMode,
-                ),
-              Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: RepaintBoundary(
-                        child: _AppleLineLyricsView(
-                          result: effectiveResult,
-                          activeLineListenable: _activeLineIndex,
-                          positionListenable: _interpolatedPositionMs,
-                          compact: widget.compact,
-                          translations: translations,
-                          fontSize: lyricFontSize,
-                          showTransliteration: showTransliteration,
-                          following: _following,
-                          selectMode: _selectMode,
-                          selected: _selectedLines,
-                          onToggleSelect: _toggleShareLine,
-                          onUserScroll: () {
-                            if (_following) setState(() => _following = false);
-                          },
-                          onResume: () {
-                            setState(() => _following = true);
-                          },
-                          onSeekLineMs: (lineMs) {
-                            if (!effectiveResult.isSynced || lineMs <= 0) return;
-                            final seekTargetMs = lineMs + _offsetMs;
-                            ref.read(playbackServiceProvider.notifier).seek(
-                                  Duration(
-                                      milliseconds: math.max(0, seekTargetMs)),
-                                );
-                          },
+                if (_selectMode)
+                  _SelectBanner(
+                    count: _selectedLines.length,
+                    onShare: () => _shareSelected(effectiveResult),
+                    onCancel: _toggleSelectMode,
+                  ),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: RepaintBoundary(
+                          child: _AppleLineLyricsView(
+                            result: effectiveResult,
+                            activeLineListenable: _activeLineIndex,
+                            positionListenable: _interpolatedPositionMs,
+                            compact: widget.compact,
+                            translations: translations,
+                            fontSize: lyricFontSize,
+                            showTransliteration: showTransliteration,
+                            following: _following,
+                            selectMode: _selectMode,
+                            selected: _selectedLines,
+                            onToggleSelect: _toggleShareLine,
+                            onUserScroll: () {
+                              if (_following)
+                                setState(() => _following = false);
+                            },
+                            onResume: () {
+                              setState(() => _following = true);
+                            },
+                            onSeekLineMs: (lineMs) {
+                              if (!effectiveResult.isSynced || lineMs <= 0)
+                                return;
+                              final seekTargetMs = lineMs + _offsetMs;
+                              ref
+                                  .read(playbackServiceProvider.notifier)
+                                  .seek(
+                                    Duration(
+                                      milliseconds: math.max(0, seekTargetMs),
+                                    ),
+                                  );
+                            },
+                          ),
                         ),
                       ),
-                    ),
-                    if (!_following && effectiveResult.isSynced)
-                      Positioned(
-                        right: 16,
-                        bottom: 16,
-                        child: _ReturnToCurrentPill(
-                          onTap: () {
-                            setState(() => _following = true);
-                          },
+                      if (!_following && effectiveResult.isSynced)
+                        Positioned(
+                          right: 16,
+                          bottom: 16,
+                          child: _ReturnToCurrentPill(
+                            onTap: () {
+                              setState(() => _following = true);
+                            },
+                          ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
           ),
         );
       },
@@ -793,19 +821,23 @@ List<KaraokeWordGroup> groupSyllablesIntoWords(
     }
 
     if (isWordEnd) {
-      words.add(KaraokeWordGroup(
-        syllables: currentWordSyllables,
-        hasTrailingSpace: i < syllables.length - 1,
-      ));
+      words.add(
+        KaraokeWordGroup(
+          syllables: currentWordSyllables,
+          hasTrailingSpace: i < syllables.length - 1,
+        ),
+      );
       currentWordSyllables = [];
     }
   }
 
   if (currentWordSyllables.isNotEmpty) {
-    words.add(KaraokeWordGroup(
-      syllables: currentWordSyllables,
-      hasTrailingSpace: false,
-    ));
+    words.add(
+      KaraokeWordGroup(
+        syllables: currentWordSyllables,
+        hasTrailingSpace: false,
+      ),
+    );
   }
   return words;
 }
@@ -905,9 +937,11 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     // every join. Those scripts keep their natural advance.
     final tracking = isJoinedScript(widget.line.text) ? 0.0 : -0.3;
 
-    final activeTextColor = dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B);
-    final idleTextColor = (dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B))
-        .withValues(
+    final activeTextColor = dark
+        ? const Color(0xFFF6F4EF)
+        : const Color(0xFF18181B);
+    final idleTextColor =
+        (dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B)).withValues(
           alpha: widget.softenIdle ? (widget.isPast ? 0.38 : 0.44) : 0.92,
         );
 
@@ -961,12 +995,12 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       _cachedUseKaraokeWipe = useKaraokeWipe;
       _cachedSyllables = useKaraokeWipe
           ? (widget.line.hasSyllables
-              ? widget.line.syllables
-              : interpolateLineSyllables(
-                  text: widget.line.text,
-                  startTimeMs: widget.line.timeMs,
-                  durationMs: widget.line.durationMs,
-                ))
+                ? widget.line.syllables
+                : interpolateLineSyllables(
+                    text: widget.line.text,
+                    startTimeMs: widget.line.timeMs,
+                    durationMs: widget.line.durationMs,
+                  ))
           : const <LyricSyllable>[];
       _cachedWords = _cachedSyllables.isNotEmpty
           ? groupSyllablesIntoWords(_cachedSyllables, widget.line.text)
@@ -975,15 +1009,17 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
 
     if (_cachedWords.isNotEmpty) {
       content = Wrap(
-        textDirection:
-            widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
+        textDirection: widget.line.isRtl
+            ? TextDirection.rtl
+            : TextDirection.ltr,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           for (final word in _cachedWords)
             Row(
               mainAxisSize: MainAxisSize.min,
-              textDirection:
-                  widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
+              textDirection: widget.line.isRtl
+                  ? TextDirection.rtl
+                  : TextDirection.ltr,
               children: [
                 for (final syl in word.syllables)
                   _KaraokeSyllableWidget(
@@ -1009,7 +1045,9 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       content = Text(
         widget.line.text,
         style: fade.style,
-        textDirection: widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
+        textDirection: widget.line.isRtl
+            ? TextDirection.rtl
+            : TextDirection.ltr,
         softWrap: true,
         overflow: TextOverflow.visible,
       );
@@ -1022,8 +1060,9 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       duration: waveMotion(context, WaveMotion.fast),
       style: widget.isActive ? activeStyle : idleStyle,
       child: Column(
-        crossAxisAlignment:
-            widget.line.isRtl ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: widget.line.isRtl
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           content,
@@ -1042,7 +1081,8 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
                 textDirection: TextDirection.ltr,
               ),
             ),
-          if (widget.showTransliteration && widget.line.transliteration.isNotEmpty)
+          if (widget.showTransliteration &&
+              widget.line.transliteration.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
@@ -1054,17 +1094,17 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
                     alpha: widget.isActive ? 0.72 : 0.40,
                   ),
                 ),
-                textDirection:
-                    widget.line.isRtl ? TextDirection.rtl : TextDirection.ltr,
+                textDirection: widget.line.isRtl
+                    ? TextDirection.rtl
+                    : TextDirection.ltr,
               ),
             ),
         ],
       ),
     );
 
-    final double targetBlur = (widget.isActive ||
-            _isHovered ||
-            !WaveHazeScope.blurEnabled(context))
+    final double targetBlur =
+        (widget.isActive || _isHovered || !WaveHazeScope.blurEnabled(context))
         ? 0.0
         : widget.blurSigma.clamp(0.0, 12.0);
 
@@ -1089,8 +1129,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     return IgnorePointer(
       ignoring: widget.lineOpacity < 0.05,
       child: AnimatedOpacity(
-        duration:
-            waveMotion(context, const Duration(milliseconds: 220)),
+        duration: waveMotion(context, const Duration(milliseconds: 220)),
         curve: Curves.easeOutCubic,
         opacity: widget.lineOpacity.clamp(0.0, 1.0),
         child: RepaintBoundary(
@@ -1111,7 +1150,9 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
               ),
               decoration: BoxDecoration(
                 color: _isHovered && !widget.isActive
-                    ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.06)
+                    ? (dark ? Colors.white : Colors.black).withValues(
+                        alpha: 0.06,
+                      )
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
               ),
@@ -1289,7 +1330,10 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
       _cachedScaler = scaler;
       _idlePainter?.dispose();
       _idlePainter = TextPainter(
-        text: TextSpan(text: text, style: _groupFade(widget.idleStyle, text).style),
+        text: TextSpan(
+          text: text,
+          style: _groupFade(widget.idleStyle, text).style,
+        ),
         textDirection: textDirection,
         textScaler: scaler,
       )..layout();
@@ -1479,8 +1523,6 @@ class _KaraokeSyllablePainter extends CustomPainter {
   }
 }
 
-
-
 /// Top toolbar with timing controls, transliteration toggle, and close button.
 /// Lyrics source switcher (Now Playing toolbar): Auto + every provider
 /// with the effective pick checked, plus `Try another source` which
@@ -1495,8 +1537,9 @@ class _SourceMenu extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final queueKey = track.queueKey;
     final override = ref.watch(lyricsProviderOverrideProvider(queueKey));
-    final defaultId =
-        ref.watch(prefsProvider.select((p) => p.lyricsProviderId));
+    final defaultId = ref.watch(
+      prefsProvider.select((p) => p.lyricsProviderId),
+    );
     final effective = override ?? defaultId;
     final currentId = lyricsSourceToProviderId(result.source);
 
@@ -1512,8 +1555,7 @@ class _SourceMenu extends ConsumerWidget {
         final next = nextLyricsSelection(
           pickedId: pickedId,
           currentId: currentId,
-          currentExcludes:
-              ref.read(lyricsExcludedProvidersProvider(queueKey)),
+          currentExcludes: ref.read(lyricsExcludedProvidersProvider(queueKey)),
         );
         ref.read(lyricsProviderOverrideProvider(queueKey).notifier).state =
             next.override;
@@ -1545,10 +1587,8 @@ class _SourceMenu extends ConsumerWidget {
             onPressed: () => apply(null),
           ),
         ],
-        buttonBuilder: (context, onOpen) => _MiniIconButton(
-          icon: WaveIcons.lyrics,
-          onTap: onOpen,
-        ),
+        buttonBuilder: (context, onOpen) =>
+            _MiniIconButton(icon: WaveIcons.lyrics, onTap: onOpen),
       ),
     );
   }
@@ -1570,6 +1610,7 @@ class _KaraokeToolbar extends ConsumerWidget {
   final VoidCallback? onShareSelection;
   final VoidCallback? onPrefsChanged;
   final VoidCallback onToggleFollowing;
+  final double rightInset;
 
   const _KaraokeToolbar({
     required this.track,
@@ -1587,25 +1628,29 @@ class _KaraokeToolbar extends ConsumerWidget {
     this.onShareSelection,
     this.onPrefsChanged,
     required this.onToggleFollowing,
+    this.rightInset = 0,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
-    final textScale =
-        ref.watch(prefsProvider.select((p) => p.lyricsTextScale));
-    final translationLang =
-        ref.watch(prefsProvider.select((p) => p.lyricsTranslationLang));
-    final autoHide =
-        ref.watch(prefsProvider.select((p) => p.lyricsAutoHideSeconds));
+    final textScale = ref.watch(prefsProvider.select((p) => p.lyricsTextScale));
+    final translationLang = ref.watch(
+      prefsProvider.select((p) => p.lyricsTranslationLang),
+    );
+    final autoHide = ref.watch(
+      prefsProvider.select((p) => p.lyricsAutoHideSeconds),
+    );
     Widget menuMark(bool on) => on
         ? const Icon(FluentIcons.check_mark, size: 13)
         : const SizedBox(width: 13);
-    final offsetNotifier =
-        ref.read(lyricsOffsetProvider(track.queueKey).notifier);
-    final transliterationNotifier =
-        ref.read(lyricsTransliterationProvider.notifier);
+    final offsetNotifier = ref.read(
+      lyricsOffsetProvider(track.queueKey).notifier,
+    );
+    final transliterationNotifier = ref.read(
+      lyricsTransliterationProvider.notifier,
+    );
 
     final offsetDisplay = formatOffsetDisplay(offsetMs);
     // Offset / transliteration / follow all act on lyric content. With no
@@ -1617,7 +1662,7 @@ class _KaraokeToolbar extends ConsumerWidget {
       padding: EdgeInsets.fromLTRB(
         compact ? 8 : 4,
         4,
-        compact ? 8 : 4,
+        (compact ? 8 : 4) + rightInset,
         8,
       ),
       child: WaveGlass(
@@ -1628,218 +1673,220 @@ class _KaraokeToolbar extends ConsumerWidget {
           vertical: 6,
         ),
         child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              wordByWord
-                  ? (result.isWordSynced
-                      ? 'Karaoke · Syllable Synced'
-                      : result.isSynced
+          children: [
+            Expanded(
+              child: Text(
+                wordByWord
+                    ? (result.isWordSynced
+                          ? 'Karaoke · Syllable Synced'
+                          : result.isSynced
                           ? 'Synced Lyrics'
                           : result.source.isNotEmpty
-                              ? result.source
-                              : 'Lyrics')
-                  : result.isSynced
-                      ? 'Apple Music · Line Synced'
-                      : result.source.isNotEmpty
                           ? result.source
-                          : 'Lyrics',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: WaveType.meta.copyWith(
-                fontWeight: FontWeight.w600,
-                color: waveTextPrimary(context),
+                          : 'Lyrics')
+                    : result.isSynced
+                    ? 'Apple Music · Line Synced'
+                    : result.source.isNotEmpty
+                    ? result.source
+                    : 'Lyrics',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WaveType.meta.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: waveTextPrimary(context),
+                ),
               ),
             ),
-          ),
-          // Lyrics source switcher: pick a provider (tried first, the
-          // current one excluded from fallback) or retry with the best
-          // provider excluding the current one.
-          _SourceMenu(
-            track: track,
-            result: result,
-          ),
-          const SizedBox(width: 8),
-          // Timing Offset Controls: [-] offset [+] [Reset]
-          if (hasLyrics && result.isSynced) Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            decoration: BoxDecoration(
-              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(WaveRadius.controls),
-              border: Border.all(
-                color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.12),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LWTooltip(
-                  message: 'Lyrics earlier (-0.5s)',
-                  child: _MiniIconButton(
-                    icon: FluentIcons.remove,
-                    onTap: () => offsetNotifier.adjust(-500),
+            // Lyrics source switcher: pick a provider (tried first, the
+            // current one excluded from fallback) or retry with the best
+            // provider excluding the current one.
+            _SourceMenu(track: track, result: result),
+            const SizedBox(width: 8),
+            // Timing Offset Controls: [-] offset [+] [Reset]
+            if (hasLyrics && result.isSynced)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: (dark ? Colors.white : Colors.black).withValues(
+                    alpha: 0.10,
+                  ),
+                  borderRadius: BorderRadius.circular(WaveRadius.controls),
+                  border: Border.all(
+                    color: (dark ? Colors.white : Colors.black).withValues(
+                      alpha: 0.12,
+                    ),
                   ),
                 ),
-                LWTooltip(
-                  message: 'Timing offset for this track',
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Text(
-                      offsetDisplay,
-                      style: WaveType.meta.copyWith(
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                        fontWeight: FontWeight.w600,
-                        fontSize: 11,
-                        color: offsetMs != 0
-                            ? accent
-                            : waveTextPrimary(context),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    LWTooltip(
+                      message: 'Lyrics earlier (-0.5s)',
+                      child: _MiniIconButton(
+                        icon: FluentIcons.remove,
+                        onTap: () => offsetNotifier.adjust(-500),
                       ),
                     ),
-                  ),
-                ),
-                LWTooltip(
-                  message: 'Lyrics later (+0.5s)',
-                  child: _MiniIconButton(
-                    icon: FluentIcons.add,
-                    onTap: () => offsetNotifier.adjust(500),
-                  ),
-                ),
-                if (offsetMs != 0)
-                  LWTooltip(
-                    message: 'Reset offset to 0.0s',
-                    child: _MiniIconButton(
-                      icon: FluentIcons.reset,
-                      onTap: offsetNotifier.reset,
+                    LWTooltip(
+                      message: 'Timing offset for this track',
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Text(
+                          offsetDisplay,
+                          style: WaveType.meta.copyWith(
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            fontWeight: FontWeight.w600,
+                            fontSize: 11,
+                            color: offsetMs != 0
+                                ? accent
+                                : waveTextPrimary(context),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-              ],
-            ),
-          ),
-          if (hasLyrics && result.isSynced) const SizedBox(width: 8),
-          // Transliteration / Romaji Toggle
-          if (hasLyrics) LWTooltip(
-            message: showTransliteration
-                ? 'Transliteration enabled'
-                : 'Enable transliteration',
-            child: _MiniIconButton(
-              icon: FluentIcons.globe,
-              active: showTransliteration,
-              onTap: transliterationNotifier.toggle,
-            ),
-          ),
-          if (hasLyrics) const SizedBox(width: 4),
-          if (hasLyrics) LWTooltip(
-            message: 'Lyrics size, translation, and share',
-            child: WaveMenuButton(
-              placement: FlyoutPlacementMode.bottomRight,
-              entries: [
-                if (onPrefsChanged != null) ...[
-                  WaveMenuSubmenu(
-                    leading: const Icon(FluentIcons.font_size, size: 13),
-                    label: 'Text size',
-                    items: () => [
-                      for (final entry in Prefs.lyricsTextScales)
-                        WaveMenuAction(
-                          leading: menuMark(textScale == entry.$1),
-                          label: entry.$2,
-                          onPressed: () async {
-                            await ref
-                                .read(prefsProvider)
-                                .setLyricsTextScale(entry.$1);
-                            onPrefsChanged!();
-                          },
+                    LWTooltip(
+                      message: 'Lyrics later (+0.5s)',
+                      child: _MiniIconButton(
+                        icon: FluentIcons.add,
+                        onTap: () => offsetNotifier.adjust(500),
+                      ),
+                    ),
+                    if (offsetMs != 0)
+                      LWTooltip(
+                        message: 'Reset offset to 0.0s',
+                        child: _MiniIconButton(
+                          icon: FluentIcons.reset,
+                          onTap: offsetNotifier.reset,
                         ),
-                    ],
-                  ),
-                  WaveMenuSubmenu(
-                    leading:
-                        const Icon(FluentIcons.locale_language, size: 13),
-                    label: 'Translation',
-                    items: () => [
-                      for (final entry
-                          in Prefs.lyricsTranslationOptions.entries)
-                        WaveMenuAction(
-                          leading: menuMark(translationLang == entry.key),
-                          label: entry.value,
-                          onPressed: () async {
-                            await ref
-                                .read(prefsProvider)
-                                .setLyricsTranslationLang(entry.key);
-                            onPrefsChanged!();
-                          },
-                        ),
-                    ],
-                  ),
-                  WaveMenuSubmenu(
-                    leading: const Icon(FluentIcons.clock, size: 13),
-                    label: 'Auto-hide',
-                    items: () => [
-                      for (final entry in Prefs.lyricsAutoHideOptions.entries)
-                        WaveMenuAction(
-                          leading: menuMark(autoHide == entry.key),
-                          label: entry.value,
-                          onPressed: () async {
-                            await ref
-                                .read(prefsProvider)
-                                .setLyricsAutoHideSeconds(entry.key);
-                            onPrefsChanged!();
-                          },
-                        ),
-                    ],
-                  ),
-                  const WaveMenuSeparator(),
-                ],
-                if (onToggleSelectMode != null)
-                  WaveMenuAction(
-                    leading: const Icon(FluentIcons.bulleted_list, size: 13),
-                    label: selectMode ? 'Stop selecting lines' : 'Select lines',
-                    onPressed: onToggleSelectMode,
-                  ),
-                WaveMenuAction(
-                  leading: const Icon(FluentIcons.share, size: 13),
-                  label: 'Share song card',
-                  onPressed: onShareSong,
+                      ),
+                  ],
                 ),
-                if (onToggleSelectMode != null)
-                  WaveMenuAction(
-                    leading: const Icon(FluentIcons.share, size: 13),
-                    label: selectedCount == 0
-                        ? 'Share selected lines'
-                        : 'Share $selectedCount lines',
-                    onPressed: selectMode && selectedCount > 0
-                        ? onShareSelection
-                        : null,
+              ),
+            if (hasLyrics && result.isSynced) const SizedBox(width: 8),
+            if (hasLyrics)
+              LWTooltip(
+                message: 'More',
+                child: WaveMenuButton(
+                  placement: FlyoutPlacementMode.bottomRight,
+                  entries: [
+                    WaveMenuAction(
+                      leading: menuMark(showTransliteration),
+                      label: 'Romanisation',
+                      onPressed: transliterationNotifier.toggle,
+                    ),
+                    if (onPrefsChanged != null) ...[
+                      WaveMenuSubmenu(
+                        leading: const Icon(FluentIcons.font_size, size: 13),
+                        label: 'Text size',
+                        items: () => [
+                          for (final entry in Prefs.lyricsTextScales)
+                            WaveMenuAction(
+                              leading: menuMark(textScale == entry.$1),
+                              label: entry.$2,
+                              onPressed: () async {
+                                await ref
+                                    .read(prefsProvider)
+                                    .setLyricsTextScale(entry.$1);
+                                onPrefsChanged!();
+                              },
+                            ),
+                        ],
+                      ),
+                      WaveMenuSubmenu(
+                        leading: const Icon(
+                          FluentIcons.locale_language,
+                          size: 13,
+                        ),
+                        label: 'Translation',
+                        items: () => [
+                          for (final entry
+                              in Prefs.lyricsTranslationOptions.entries)
+                            WaveMenuAction(
+                              leading: menuMark(translationLang == entry.key),
+                              label: entry.value,
+                              onPressed: () async {
+                                await ref
+                                    .read(prefsProvider)
+                                    .setLyricsTranslationLang(entry.key);
+                                onPrefsChanged!();
+                              },
+                            ),
+                        ],
+                      ),
+                      WaveMenuSubmenu(
+                        leading: const Icon(FluentIcons.clock, size: 13),
+                        label: 'Auto-hide',
+                        items: () => [
+                          for (final entry
+                              in Prefs.lyricsAutoHideOptions.entries)
+                            WaveMenuAction(
+                              leading: menuMark(autoHide == entry.key),
+                              label: entry.value,
+                              onPressed: () async {
+                                await ref
+                                    .read(prefsProvider)
+                                    .setLyricsAutoHideSeconds(entry.key);
+                                onPrefsChanged!();
+                              },
+                            ),
+                        ],
+                      ),
+                      const WaveMenuSeparator(),
+                    ],
+                    if (onToggleSelectMode != null)
+                      WaveMenuAction(
+                        leading: const Icon(
+                          FluentIcons.bulleted_list,
+                          size: 13,
+                        ),
+                        label: selectMode
+                            ? 'Stop selecting lines'
+                            : 'Select lines',
+                        onPressed: onToggleSelectMode,
+                      ),
+                    WaveMenuAction(
+                      leading: const Icon(FluentIcons.share, size: 13),
+                      label: 'Share song card',
+                      onPressed: onShareSong,
+                    ),
+                    if (onToggleSelectMode != null)
+                      WaveMenuAction(
+                        leading: const Icon(FluentIcons.share, size: 13),
+                        label: selectedCount == 0
+                            ? 'Share selected lines'
+                            : 'Share $selectedCount lines',
+                        onPressed: selectMode && selectedCount > 0
+                            ? onShareSelection
+                            : null,
+                      ),
+                  ],
+                  buttonBuilder: (context, onOpen) => _MiniIconButton(
+                    icon: WaveIcons.more,
+                    active: selectMode,
+                    onTap: onOpen,
                   ),
-              ],
-              buttonBuilder: (context, onOpen) => _MiniIconButton(
-                icon: FluentIcons.share,
-                active: selectMode,
-                onTap: onOpen,
+                ),
               ),
-            ),
-          ),
-          if (hasLyrics && result.isSynced) const SizedBox(width: 4),
-          if (hasLyrics && result.isSynced) LWTooltip(
-            message: following
-                ? 'Pause automatic scrolling'
-                : 'Return to the line being sung',
-            child: _MiniIconButton(
-              icon: following ? FluentIcons.pin : FluentIcons.unpin,
-              active: following,
-              onTap: onToggleFollowing,
-            ),
-          ),
-          if (onClose != null) ...[
-            const SizedBox(width: 6),
-            LWTooltip(
-              message: 'Close panel',
-              child: _MiniIconButton(
-                icon: WaveIcons.close,
-                onTap: onClose!,
+            if (hasLyrics && result.isSynced) const SizedBox(width: 4),
+            if (hasLyrics && result.isSynced)
+              LWTooltip(
+                message: following
+                    ? 'Pause automatic scrolling'
+                    : 'Return to the line being sung',
+                child: _MiniIconButton(
+                  icon: following ? FluentIcons.pin : FluentIcons.unpin,
+                  active: following,
+                  onTap: onToggleFollowing,
+                ),
               ),
-            ),
+            if (onClose != null) ...[
+              const SizedBox(width: 6),
+              LWTooltip(
+                message: 'Close panel',
+                child: _MiniIconButton(icon: WaveIcons.close, onTap: onClose!),
+              ),
+            ],
           ],
-        ],
         ),
       ),
     );
@@ -1871,9 +1918,9 @@ class _MiniIconButtonState extends State<_MiniIconButton> {
     final color = widget.active
         ? accent
         : _hover
-            ? (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
-            : (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
-                .withValues(alpha: 0.88);
+        ? (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
+        : (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
+              .withValues(alpha: 0.88);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -1891,9 +1938,7 @@ class _MiniIconButtonState extends State<_MiniIconButton> {
                 : Colors.transparent,
             borderRadius: WaveRadius.controlsRadius,
           ),
-          child: Center(
-            child: Icon(widget.icon, size: 13, color: color),
-          ),
+          child: Center(child: Icon(widget.icon, size: 13, color: color)),
         ),
       ),
     );
@@ -1932,11 +1977,9 @@ class _SelectBanner extends StatelessWidget {
               count == 0
                   ? 'Tap lines to include them on the card'
                   : count == 1
-                      ? '1 line selected'
-                      : '$count lines selected',
-              style: WaveType.meta.copyWith(
-                color: waveTextSecondary(context),
-              ),
+                  ? '1 line selected'
+                  : '$count lines selected',
+              style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
             ),
           ),
           Button(
@@ -1962,8 +2005,7 @@ class _ReturnToCurrentPill extends StatelessWidget {
 
     return WaveHaze(
       level: LwHazeLevel.l2,
-      base: waveSurfaceRaised(context)
-          .withValues(alpha: 0.85),
+      base: waveSurfaceRaised(context).withValues(alpha: 0.85),
       borderRadius: WaveRadius.heroRadius,
       border: Border.all(color: waveDivider(context)),
       child: MouseRegion(
@@ -2099,10 +2141,9 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       _lastIndex = -1;
     }
     if (widget.following && !oldWidget.following) {
-      final untimed = !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
-      _scrollTo(
-        untimed ? 0 : widget.activeLineListenable.value,
-      );
+      final untimed =
+          !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
+      _scrollTo(untimed ? 0 : widget.activeLineListenable.value);
     }
   }
 
@@ -2115,10 +2156,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       } else if (active != _lastIndex) {
         final wasUninitialized = _lastIndex < 0;
         _lastIndex = active;
-        _scrollTo(
-          active,
-          animate: !wasUninitialized && active > 0,
-        );
+        _scrollTo(active, animate: !wasUninitialized && active > 0);
       }
     } else {
       _lastIndex = active;
@@ -2128,10 +2166,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   void _scrollTo(int index, {bool animate = true}) {
     if (!_scroll.isAttached) return;
     if (index < 0) index = 0;
-    final alignment = lyricFollowAlignment(
-      index,
-      compact: widget.compact,
-    );
+    final alignment = lyricFollowAlignment(index, compact: widget.compact);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       runGuarded('karaoke.scroll', () {
         if (!_scroll.isAttached || !mounted) return;
@@ -2157,7 +2192,8 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
 
   @override
   Widget build(BuildContext context) {
-    final untimed = !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
+    final untimed =
+        !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
     final padding = EdgeInsets.fromLTRB(
       widget.compact ? 12 : 28,
       widget.compact ? 36 : 64,
@@ -2184,31 +2220,31 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
         child: ScrollConfiguration(
           behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
           child: ListView.builder(
-          physics: const ClampingScrollPhysics(),
-          padding: padding,
-          itemCount: widget.result.lines.length,
-          itemBuilder: (context, i) {
-            final line = widget.result.lines[i];
-            final canSeek = widget.result.isSynced && line.timeMs > 0;
-            return _tappableLine(
-              index: i,
-              seekable: canSeek,
-              onSeek: () => widget.onSeekLineMs(line.timeMs),
-              child: WaveKaraokeLyricLine(
-                line: line,
-                positionMs: 0,
-                isActive: false,
-                isPast: false,
-                compact: widget.compact,
-                fontSize: widget.fontSize,
-                showTransliteration: widget.showTransliteration,
-                translation: _translationAt(i),
-                karaoke: false,
-                softenIdle: false,
-              ),
-            );
-          },
-        ),
+            physics: const ClampingScrollPhysics(),
+            padding: padding,
+            itemCount: widget.result.lines.length,
+            itemBuilder: (context, i) {
+              final line = widget.result.lines[i];
+              final canSeek = widget.result.isSynced && line.timeMs > 0;
+              return _tappableLine(
+                index: i,
+                seekable: canSeek,
+                onSeek: () => widget.onSeekLineMs(line.timeMs),
+                child: WaveKaraokeLyricLine(
+                  line: line,
+                  positionMs: 0,
+                  isActive: false,
+                  isPast: false,
+                  compact: widget.compact,
+                  fontSize: widget.fontSize,
+                  showTransliteration: widget.showTransliteration,
+                  translation: _translationAt(i),
+                  karaoke: false,
+                  softenIdle: false,
+                ),
+              );
+            },
+          ),
         ),
       );
     }
@@ -2292,8 +2328,9 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                 child: WaveKaraokeLyricLine(
                   line: line,
                   positionMs: 0,
-                  positionListenable:
-                      isActive ? widget.positionListenable : null,
+                  positionListenable: isActive
+                      ? widget.positionListenable
+                      : null,
                   isActive: isActive,
                   isPast: active >= 0 && i < active,
                   compact: widget.compact,

@@ -100,8 +100,10 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     // the remainder instead of hiding early.
     final elapsed = DateTime.now().difference(_lastHoverAt).inMilliseconds;
     if (elapsed < 3500) {
-      _idleTimer =
-          Timer(Duration(milliseconds: 3500 - elapsed), _onIdleTimeout);
+      _idleTimer = Timer(
+        Duration(milliseconds: 3500 - elapsed),
+        _onIdleTimeout,
+      );
       return;
     }
     setState(() => _controlsIdle = true);
@@ -131,9 +133,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   }
 
   Widget _buildPage(BuildContext context) {
-    final current = ref.watch(
-      playbackServiceProvider.select((s) => s.current),
-    );
+    final current = ref.watch(playbackServiceProvider.select((s) => s.current));
 
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
 
@@ -148,8 +148,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
             child: WaveEmpty(
               icon: WaveIcons.music,
               title: 'Nothing playing',
-              subtitle:
-                  'Pick something from Home, Discover or Search and it will take centre stage here.',
+              subtitle: 'Pick something from Home, Discover or Search and it will take centre stage here.',
               actionLabel: 'Browse music',
               onAction: () => context.go('/home'),
             ),
@@ -191,19 +190,23 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
       final q = snap.queue;
       final i = snap.currentIndex;
       final anim = ref.read(animatedArtworkServiceProvider);
-      anim.prefetch(AnimatedArtworkQuery(
-        artist: current.artist,
-        album: current.album,
-        title: current.title,
-      ));
+      anim.prefetch(
+        AnimatedArtworkQuery(
+          artist: current.artist,
+          album: current.album,
+          title: current.title,
+        ),
+      );
       for (final offset in [1, 2]) {
         if (i + offset >= q.length) continue;
         final track = q[i + offset];
-        anim.prefetch(AnimatedArtworkQuery(
-          artist: track.artist,
-          album: track.album,
-          title: track.title,
-        ));
+        anim.prefetch(
+          AnimatedArtworkQuery(
+            artist: track.artist,
+            album: track.album,
+            title: track.title,
+          ),
+        );
       }
     }
 
@@ -218,7 +221,9 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
         },
       },
       child: MouseRegion(
-        cursor: _controlsIdle ? SystemMouseCursors.none : SystemMouseCursors.basic,
+        cursor: _controlsIdle
+            ? SystemMouseCursors.none
+            : SystemMouseCursors.basic,
         onHover: (_) => _resetIdleTimer(),
         child: Stack(
           children: [
@@ -228,9 +233,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
             // fade with it — and then the backdrop vanished the instant the
             // route did. Painting it here keeps the whole screen, backdrop
             // included, inside the page's own transition.
-            Positioned.fill(
-              child: ColoredBox(color: waveBackground(context)),
-            ),
+            Positioned.fill(child: ColoredBox(color: waveBackground(context))),
 
             // Background Visualizer
             Positioned.fill(
@@ -251,75 +254,94 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth > 860;
 
-                  return Column(
+                  // The body spans the whole page and the top action bar floats
+                  // over it, so the lyrics toolbar can sit on the same row as the
+                  // top bar instead of costing the lyrics a row of their own.
+                  return Stack(
                     children: [
-                      // Top Actions Bar (Fadeable on idle)
-                      AnimatedOpacity(
-                        duration: waveMotion(context, const Duration(milliseconds: 350)),
-                        opacity: _controlsIdle ? 0.0 : 1.0,
-                        child: ExcludeFocus(
-                          excluding: _controlsIdle,
-                          child: IgnorePointer(
-                            ignoring: _controlsIdle,
-                            child: _TopActionsBar(
-                              lyricsVisible: _lyricsVisible,
-                              focusMode: _focusMode,
-                              visualizerEnabled: visualizerEnabled,
-                              onToggleLyrics: () {
-                                _resetIdleTimer();
-                                setState(() {
-                                  _lyricsVisible = !_lyricsVisible;
-                                  if (!_lyricsVisible) _focusMode = false;
-                                });
-                              },
-                              onToggleFocus: () {
-                                _resetIdleTimer();
-                                setState(() {
-                                  _focusMode = !_focusMode;
-                                  if (_focusMode) _lyricsVisible = true;
-                                });
-                              },
-                              onToggleVisualizer: () {
-                                _resetIdleTimer();
-                                ref.read(visualizerEnabledProvider.notifier).toggle();
-                              },
-                              onClose: () {
-                                if (context.canPop()) {
-                                  context.pop();
-                                } else {
-                                  context.go('/home');
-                                }
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // Body
-                      Expanded(
+                      Positioned.fill(
                         child: isWide
                             ? _DesktopDualPane(
+                                topInset: _kTopBarHeight,
                                 track: current,
                                 lyricsVisible: _lyricsVisible,
                                 focusMode: _focusMode,
                               )
-                            : _NarrowCenteredPane(
-                                track: current,
-                                lyricsVisible: _lyricsVisible,
+                            : Padding(
+                                padding: const EdgeInsets.only(
+                                  top: _kTopBarHeight,
+                                ),
+                                child: _NarrowCenteredPane(
+                                  track: current,
+                                  lyricsVisible: _lyricsVisible,
+                                ),
                               ),
+                      ),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: // Top Actions Bar (Fadeable on idle)
+                        AnimatedOpacity(
+                          duration: waveMotion(
+                            context,
+                            const Duration(milliseconds: 350),
+                          ),
+                          opacity: _controlsIdle ? 0.0 : 1.0,
+                          child: ExcludeFocus(
+                            excluding: _controlsIdle,
+                            child: IgnorePointer(
+                              ignoring: _controlsIdle,
+                              child: _TopActionsBar(
+                                lyricsVisible: _lyricsVisible,
+                                focusMode: _focusMode,
+                                visualizerEnabled: visualizerEnabled,
+                                onToggleLyrics: () {
+                                  _resetIdleTimer();
+                                  setState(() {
+                                    _lyricsVisible = !_lyricsVisible;
+                                    if (!_lyricsVisible) _focusMode = false;
+                                  });
+                                },
+                                onToggleFocus: () {
+                                  _resetIdleTimer();
+                                  setState(() {
+                                    _focusMode = !_focusMode;
+                                    if (_focusMode) _lyricsVisible = true;
+                                  });
+                                },
+                                onToggleVisualizer: () {
+                                  _resetIdleTimer();
+                                  ref
+                                      .read(visualizerEnabledProvider.notifier)
+                                      .toggle();
+                                },
+                                onClose: () {
+                                  if (context.canPop()) {
+                                    context.pop();
+                                  } else {
+                                    context.go('/home');
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   );
                 },
               ),
             ),
-
           ],
         ),
       ),
     );
   }
 }
+
+/// Height of the top action bar (also the lyrics toolbar's row).
+const double _kTopBarHeight = 54;
 
 class _TopActionsBar extends StatelessWidget {
   final bool lyricsVisible;
@@ -343,7 +365,7 @@ class _TopActionsBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 54,
+      height: _kTopBarHeight,
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
         children: [
@@ -397,10 +419,7 @@ class _TopActionsBar extends StatelessWidget {
                 ),
                 LWTooltip(
                   message: 'Close (Esc)',
-                  child: _FsIconButton(
-                    icon: WaveIcons.close,
-                    onTap: onClose,
-                  ),
+                  child: _FsIconButton(icon: WaveIcons.close, onTap: onClose),
                 ),
               ],
             ),
@@ -436,7 +455,7 @@ class _FsIconButtonState extends State<_FsIconButton> {
     final color = widget.active
         ? accent
         : (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
-            .withValues(alpha: _hover ? 1.0 : 0.92);
+              .withValues(alpha: _hover ? 1.0 : 0.92);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -453,8 +472,8 @@ class _FsIconButtonState extends State<_FsIconButton> {
             color: widget.active
                 ? accent.withValues(alpha: 0.15)
                 : _hover
-                    ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.10)
-                    : Colors.transparent,
+                ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.10)
+                : Colors.transparent,
             borderRadius: WaveRadius.controlsRadius,
             border: Border.all(
               color: widget.active
@@ -462,9 +481,7 @@ class _FsIconButtonState extends State<_FsIconButton> {
                   : Colors.transparent,
             ),
           ),
-          child: Center(
-            child: Icon(widget.icon, size: 16, color: color),
-          ),
+          child: Center(child: Icon(widget.icon, size: 16, color: color)),
         ),
       ),
     );
@@ -510,7 +527,8 @@ class _VisibleTickerState extends ConsumerState<_VisibleTicker> {
   }
 
   void _onRouteStatus(AnimationStatus status) {
-    final settled = status == AnimationStatus.completed ||
+    final settled =
+        status == AnimationStatus.completed ||
         status == AnimationStatus.dismissed;
     if (settled != _routeSettled && mounted) {
       setState(() => _routeSettled = settled);
@@ -535,11 +553,14 @@ class _VisibleTickerState extends ConsumerState<_VisibleTicker> {
 
 /// Desktop Dual-Pane split layout with smooth cinematic centering when lyrics are hidden.
 class _DesktopDualPane extends StatelessWidget {
+  /// Top action bar height the body now sits under (see the page Stack).
+  final double topInset;
   final PlayableTrack track;
   final bool lyricsVisible;
   final bool focusMode;
 
   const _DesktopDualPane({
+    required this.topInset,
     required this.track,
     required this.lyricsVisible,
     this.focusMode = false,
@@ -550,7 +571,13 @@ class _DesktopDualPane extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxWidth = constraints.maxWidth;
-        final maxHeight = math.max(0.0, constraints.maxHeight - 24.0);
+        // [maxHeight] is the old body height (under the top bar); the lyrics
+        // column is [fullHeight] tall because it also fills the top bar row.
+        final maxHeight = math.max(
+          0.0,
+          constraints.maxHeight - 24.0 - topInset,
+        );
+        final fullHeight = maxHeight + topInset;
 
         // Symmetrical desktop dual pane layout:
         // When lyrics are visible, media column and lyrics column have harmonious, balanced
@@ -565,86 +592,105 @@ class _DesktopDualPane extends StatelessWidget {
 
         // Harmonized lyrics column width, balancing the visual weight of the left column
         final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
-        final maxAllowedLyricsWidth = math.max(320.0, maxWidth - colWidth - gap - 48.0);
+        final maxAllowedLyricsWidth = math.max(
+          320.0,
+          maxWidth - colWidth - gap - 48.0,
+        );
         final lyricsWidth = focusMode
             ? math.min(760.0, math.max(320.0, maxWidth - 48.0))
             : lyricsVisible
-                ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
-                : 0.0;
+            ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
+            : 0.0;
+
+        // Keep the lyrics toolbar clear of the top bar's action group.
+        final total = (focusMode ? 0.0 : colWidth) + gap + lyricsWidth;
+        final lyricsRight = (maxWidth + total) / 2;
+        final toolbarInset = math.max(
+          0.0,
+          math.min(
+            lyricsRight - (maxWidth - 24 - 250),
+            math.max(0.0, lyricsWidth - 300),
+          ),
+        );
 
         return Center(
           child: Padding(
             padding: const EdgeInsets.only(bottom: 24),
             child: SizedBox(
-              height: maxHeight,
+              height: fullHeight,
               child: Row(
                 mainAxisSize: MainAxisSize.max,
                 mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Left Column (Media Player) — the metadata keeps its
                   // intrinsic height; artwork takes whatever remains.
-                  AnimatedContainer(
-                    duration:
-                        waveMotion(context, const Duration(milliseconds: 500)),
-                    curve: Curves.easeInOutCubic,
-                    width: focusMode ? 0.0 : colWidth,
-                    height: maxHeight,
-                    // Children keep their full width while the column
-                    // collapses (focus mode), so nothing overflows mid-anim.
-                    // Clip is outset (except in focus mode, where the column
-                    // collapses) so the cover's drop shadow isn't cut off at
-                    // the column edges.
-                    child: ClipRect(
-                      clipper: _OutsetClipper(focusMode ? 0 : 56),
-                      child: OverflowBox(
-                        alignment: Alignment.centerLeft,
-                        minWidth: colWidth,
-                        maxWidth: colWidth,
-                        child: ExcludeFocus(
-                          excluding: focusMode,
-                          child: RepaintBoundary(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.max,
-                        crossAxisAlignment: lyricsVisible
-                            ? CrossAxisAlignment.start
-                            : CrossAxisAlignment.center,
-                        children: [
-                          Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, artConstraints) {
-                                final artSize = math.max(
-                                  0.0,
-                                  math.min(
-                                    artConstraints.maxWidth,
-                                    artConstraints.maxHeight,
-                                  ),
-                                );
-                                if (artSize <= 0) {
-                                  return const SizedBox.shrink();
-                                }
-                                return Center(
-                                  child: _HeroArtworkCard(
-                                    track: track,
-                                    size: artSize,
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Track Info & Badges — crossfades on track change.
-                          _TrackSwap(
-                            child: _TrackMetadataSection(
-                              key: ValueKey(track.queueKey),
-                              track: track,
-                              alignCenter: !lyricsVisible,
-                            ),
-                          ),
-                        ],
+                  Padding(
+                    padding: EdgeInsets.only(top: topInset),
+                    child: AnimatedContainer(
+                      duration: waveMotion(
+                        context,
+                        const Duration(milliseconds: 500),
                       ),
-                    ),
+                      curve: Curves.easeInOutCubic,
+                      width: focusMode ? 0.0 : colWidth,
+                      height: maxHeight,
+                      // Children keep their full width while the column
+                      // collapses (focus mode), so nothing overflows mid-anim.
+                      // Clip is outset (except in focus mode, where the column
+                      // collapses) so the cover's drop shadow isn't cut off at
+                      // the column edges.
+                      child: ClipRect(
+                        clipper: _OutsetClipper(focusMode ? 0 : 56),
+                        child: OverflowBox(
+                          alignment: Alignment.centerLeft,
+                          minWidth: colWidth,
+                          maxWidth: colWidth,
+                          child: ExcludeFocus(
+                            excluding: focusMode,
+                            child: RepaintBoundary(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.max,
+                                crossAxisAlignment: lyricsVisible
+                                    ? CrossAxisAlignment.start
+                                    : CrossAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: LayoutBuilder(
+                                      builder: (context, artConstraints) {
+                                        final artSize = math.max(
+                                          0.0,
+                                          math.min(
+                                            artConstraints.maxWidth,
+                                            artConstraints.maxHeight,
+                                          ),
+                                        );
+                                        if (artSize <= 0) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        return Center(
+                                          child: _HeroArtworkCard(
+                                            track: track,
+                                            size: artSize,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+
+                                  // Track Info & Badges — crossfades on track change.
+                                  _TrackSwap(
+                                    child: _TrackMetadataSection(
+                                      key: ValueKey(track.queueKey),
+                                      track: track,
+                                      alignCenter: !lyricsVisible,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -652,23 +698,29 @@ class _DesktopDualPane extends StatelessWidget {
 
                   // Gap
                   AnimatedContainer(
-                    duration:
-                        waveMotion(context, const Duration(milliseconds: 500)),
+                    duration: waveMotion(
+                      context,
+                      const Duration(milliseconds: 500),
+                    ),
                     curve: Curves.easeInOutCubic,
                     width: gap,
                   ),
 
                   // Right Column (Apple Music Karaoke Lyrics Pane)
                   AnimatedContainer(
-                    duration:
-                        waveMotion(context, const Duration(milliseconds: 500)),
+                    duration: waveMotion(
+                      context,
+                      const Duration(milliseconds: 500),
+                    ),
                     curve: Curves.easeInOutCubic,
                     width: lyricsWidth,
-                    height: maxHeight,
+                    height: fullHeight,
                     child: ClipRect(
                       child: AnimatedOpacity(
                         duration: waveMotion(
-                            context, const Duration(milliseconds: 350)),
+                          context,
+                          const Duration(milliseconds: 350),
+                        ),
                         curve: Curves.easeInOutCubic,
                         opacity: lyricsVisible ? 1.0 : 0.0,
                         child: ExcludeFocus(
@@ -676,7 +728,7 @@ class _DesktopDualPane extends StatelessWidget {
                           child: IgnorePointer(
                             ignoring: !lyricsVisible,
                             child: SizedBox(
-                              height: maxHeight,
+                              height: fullHeight,
                               width: lyricsWidth,
                               child: Offstage(
                                 offstage: !lyricsVisible,
@@ -689,6 +741,7 @@ class _DesktopDualPane extends StatelessWidget {
                                       showHeaderControls: true,
                                       fontSize: 36.0,
                                       isActive: lyricsVisible,
+                                      toolbarRightInset: toolbarInset,
                                     ),
                                   ),
                                 ),
@@ -714,10 +767,7 @@ class _NarrowCenteredPane extends StatelessWidget {
   final PlayableTrack track;
   final bool lyricsVisible;
 
-  const _NarrowCenteredPane({
-    required this.track,
-    required this.lyricsVisible,
-  });
+  const _NarrowCenteredPane({required this.track, required this.lyricsVisible});
 
   @override
   Widget build(BuildContext context) {
@@ -744,10 +794,7 @@ class _NarrowCenteredPane extends StatelessWidget {
                       return const SizedBox.shrink();
                     }
                     return Center(
-                      child: _HeroArtworkCard(
-                        track: track,
-                        size: artSize,
-                      ),
+                      child: _HeroArtworkCard(track: track, size: artSize),
                     );
                   },
                 ),
@@ -783,10 +830,7 @@ class _NarrowCenteredPane extends StatelessWidget {
 
     return IndexedStack(
       index: lyricsVisible ? 1 : 0,
-      children: [
-        coverArtSubtree,
-        lyricsSubtree,
-      ],
+      children: [coverArtSubtree, lyricsSubtree],
     );
   }
 }
@@ -814,14 +858,10 @@ class _HeroArtworkCard extends ConsumerStatefulWidget {
   final PlayableTrack track;
   final double size;
 
-  const _HeroArtworkCard({
-    required this.track,
-    required this.size,
-  });
+  const _HeroArtworkCard({required this.track, required this.size});
 
   @override
-  ConsumerState<_HeroArtworkCard> createState() =>
-      _HeroArtworkCardState();
+  ConsumerState<_HeroArtworkCard> createState() => _HeroArtworkCardState();
 }
 
 class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
@@ -842,10 +882,12 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     if (_podcastVid != t.videoId) {
       _podcastVid = t.videoId;
       try {
-        _isPodcast = t.videoId.isNotEmpty &&
+        _isPodcast =
+            t.videoId.isNotEmpty &&
             ref
                 .read(podcastRepositoryProvider)
-                .progressFor([t.videoId]).containsKey(t.videoId);
+                .progressFor([t.videoId])
+                .containsKey(t.videoId);
       } catch (_) {
         _isPodcast = false;
       }
@@ -912,15 +954,18 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     }
     // Visualizer toggle owns ALL page motion: aura + motion-art clip.
     final visualizerOn = ref.watch(visualizerEnabledProvider);
-    final motion = ref.watch(animatedArtworkProvider(
-      AnimatedArtworkQuery(
-        artist: track.artist,
-        album: track.album,
-        title: track.title,
+    final motion = ref.watch(
+      animatedArtworkProvider(
+        AnimatedArtworkQuery(
+          artist: track.artist,
+          album: track.album,
+          title: track.title,
+        ),
       ),
-    ));
-    final motionUrl =
-        motion.valueOrNull?.hasUrl == true ? motion.valueOrNull!.url : '';
+    );
+    final motionUrl = motion.valueOrNull?.hasUrl == true
+        ? motion.valueOrNull!.url
+        : '';
     final motionFallbackUrl = motion.valueOrNull?.fallbackUrl ?? '';
     if (!motion.isLoading) {
       _lastMotionUrl = motionUrl;
@@ -929,12 +974,14 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       _lastMotionUrl = motionUrl;
       _lastMotionFallbackUrl = motionFallbackUrl;
     }
-    final activeVideoUrl =
-        motionUrl.isNotEmpty ? motionUrl : (motion.isLoading ? _lastMotionUrl : '');
+    final activeVideoUrl = motionUrl.isNotEmpty
+        ? motionUrl
+        : (motion.isLoading ? _lastMotionUrl : '');
     final activeVideoFallbackUrl = motionUrl.isNotEmpty
         ? motionFallbackUrl
         : (motion.isLoading ? _lastMotionFallbackUrl : '');
-    final motionReady = visualizerOn &&
+    final motionReady =
+        visualizerOn &&
         motionUrl.isNotEmpty &&
         ref.watch(
           animatedArtworkSessionProvider.select((s) => s.isReadyFor(motionUrl)),
@@ -945,14 +992,14 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     if (!motionReady) _sleeveGone = false;
     final showSleeve = !motionReady || !_sleeveGone;
     WaveArtwork stillCover() => WaveArtwork(
-          url: track.artworkUrl,
-          videoId: track.videoId,
-          size: size,
-          radius: 12,
-          label: track.title,
-          title: track.title,
-          artist: track.artist,
-        );
+      url: track.artworkUrl,
+      videoId: track.videoId,
+      size: size,
+      radius: 12,
+      label: track.title,
+      title: track.title,
+      artist: track.artist,
+    );
 
     return Container(
       width: size,
@@ -1091,10 +1138,7 @@ const _metadataShadow = [Shadow(color: Color(0x59000000), blurRadius: 10)];
     if (stream.bitrateKbps > 0) '${stream.bitrateKbps} kbps',
   ];
   if (tier.isEmpty && detailParts.isEmpty) return null;
-  return (
-    tier: tier.isEmpty ? 'AUDIO' : tier,
-    detail: detailParts.join(' · '),
-  );
+  return (tier: tier.isEmpty ? 'AUDIO' : tier, detail: detailParts.join(' · '));
 }
 
 class _TrackMetadataSection extends ConsumerWidget {
@@ -1109,12 +1153,11 @@ class _TrackMetadataSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final stream = ref.watch(
-      playbackServiceProvider.select((s) => s.stream),
-    );
+    final stream = ref.watch(playbackServiceProvider.select((s) => s.stream));
     final quality = stream == null ? null : _streamQualityParts(stream);
 
-    final showDistinctAlbum = track.album.isNotEmpty &&
+    final showDistinctAlbum =
+        track.album.isNotEmpty &&
         track.album.toLowerCase().trim() != track.title.toLowerCase().trim();
 
     final artistStyle = WaveType.meta.copyWith(
@@ -1127,8 +1170,9 @@ class _TrackMetadataSection extends ConsumerWidget {
 
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment:
-          alignCenter ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      crossAxisAlignment: alignCenter
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
       children: [
         Text(
           track.title,
@@ -1285,10 +1329,7 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
               color: Colors.white.withValues(alpha: 0.30),
             ),
           ),
-          TextSpan(
-            text: nextTrack.artist,
-            style: nextStyle,
-          ),
+          TextSpan(text: nextTrack.artist, style: nextStyle),
         ],
       ),
       maxLines: 1,
@@ -1335,8 +1376,9 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Column(
-        crossAxisAlignment:
-            widget.centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+        crossAxisAlignment: widget.centered
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.start,
         children: [
           Container(
             width: 28,
