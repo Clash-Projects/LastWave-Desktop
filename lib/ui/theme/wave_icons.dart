@@ -16,9 +16,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 /// Both fonts are drawn on the same 16px grid with a ~1px stroke, so they
 /// sit together without a weight jump.
 ///
-/// Lyrics use the speech-bubble [WindowsIcons.message], not a music note,
-/// so the lyrics, visualizer and music toggles on Now Playing are
-/// distinguishable at a glance.
+/// The Now Playing visualizer toggle uses sound bars rather than music
+/// notes, so it can't be confused with the lyrics toggle next to it.
 class WaveIcons {
   WaveIcons._();
 
@@ -53,7 +52,7 @@ class WaveIcons {
   // Content
   static const IconData music = FluentIcons.music_note;
   static const IconData musicCollection = WindowsIcons.audio;
-  static const IconData lyrics = WindowsIcons.message;
+  static const IconData lyrics = FluentIcons.music_note;
   static const IconData queue = WindowsIcons.bulleted_list;
   static const IconData radio = FluentIcons.radio_btn_on;
   static const IconData speaker = FluentIcons.speakers;
