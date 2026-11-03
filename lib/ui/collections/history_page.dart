@@ -6,7 +6,10 @@ import '../../app/track_actions.dart'
     show playGenerated, relativeTime;
 import '../../features/feed/feed_repository.dart';
 import '../../features/innertube/yt_library_providers.dart';
+import '../../core/storage/prefs.dart';
+import '../../features/home/home_snapshot.dart';
 import '../../features/lastfm/home_repository.dart';
+import '../../features/lastfm/lastfm_snapshot.dart';
 import '../../features/player/playback_service.dart';
 import '../components/states.dart';
 import '../components/track_row.dart';
@@ -17,9 +20,16 @@ import '../theme/wave_icons.dart';
 final _waveHistoryProvider =
     FutureProvider<List<HomeTrack>>((ref) {
   final viewing = ref.watch(viewingProfileProvider);
-  return ref
-      .watch(homeRepositoryProvider)
-      .fetchRecentTracks(viewingAs: viewing, limit: 100);
+  final home = ref.watch(homeRepositoryProvider);
+  return swrLoad<List<HomeTrack>>(
+    ref,
+    key: lastFmCacheKey('recent', ref.read(prefsProvider).username,
+        viewing: viewing),
+    codec: homeTracksSnapshotCodec,
+    group: cacheGroupLastFm,
+    maxAge: lastFmCacheMaxAge,
+    fetch: () => home.fetchRecentTracks(viewingAs: viewing, limit: 100),
+  );
 });
 
 String _dayGroup(DateTime? dt) {

@@ -11,6 +11,9 @@ import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
+import '../../features/lastfm/lastfm_snapshot.dart';
+import '../../features/home/home_snapshot.dart';
+import '../../core/storage/prefs.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
@@ -32,17 +35,36 @@ typedef _TopQuery = ({String? viewing, String period});
 
 final _profileStatsProvider =
     FutureProvider.autoDispose.family<HomeStats, String?>((ref, viewing) {
-  return ref.watch(homeRepositoryProvider).fetchStats(viewingAs: viewing);
+  final home = ref.watch(homeRepositoryProvider);
+  return swrLoad<HomeStats>(
+    ref,
+    key: lastFmCacheKey('stats', ref.read(prefsProvider).username,
+        viewing: viewing),
+    codec: homeStatsSnapshotCodec,
+    group: cacheGroupLastFm,
+    maxAge: lastFmCacheMaxAge,
+    everyBuild: true,
+    fetch: () => home.fetchStats(viewingAs: viewing),
+  );
 });
 
 final _waveTopTracksProvider =
     FutureProvider.family<List<HomeTrack>, _TopQuery>(
         (ref, q) {
-  return ref.watch(homeRepositoryProvider).fetchTopTracks(
-        viewingAs: q.viewing,
-        period: q.period,
-        limit: 100,
-      );
+  final home = ref.watch(homeRepositoryProvider);
+  return swrLoad<List<HomeTrack>>(
+    ref,
+    key: lastFmCacheKey('top', ref.read(prefsProvider).username,
+        viewing: q.viewing, extra: q.period),
+    codec: homeTracksSnapshotCodec,
+    group: cacheGroupLastFm,
+    maxAge: lastFmCacheMaxAge,
+    fetch: () => home.fetchTopTracks(
+      viewingAs: q.viewing,
+      period: q.period,
+      limit: 100,
+    ),
+  );
 });
 
 const _topPeriods = ['7day', '1month', '12month', 'overall'];

@@ -6,7 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/lastfm/auth_repository.dart';
+import '../../core/storage/prefs.dart';
+import '../../features/home/home_snapshot.dart';
 import '../../features/lastfm/home_repository.dart';
+import '../../features/lastfm/lastfm_snapshot.dart';
 import '../../features/search/search_repository.dart';
 import '../../features/search/shared_providers.dart' show databaseProvider;
 import '../components/artwork.dart';
@@ -68,7 +71,15 @@ final localFriendsProvider =
 
 final _lastFmFriendsProvider = FutureProvider<List<FriendEntry>>((ref) {
   // Always your own friends: it must not follow viewingProfileProvider.
-  return ref.watch(homeRepositoryProvider).fetchFriends();
+  final home = ref.watch(homeRepositoryProvider);
+  return swrLoad<List<FriendEntry>>(
+    ref,
+    key: lastFmCacheKey('friends', ref.read(prefsProvider).username),
+    codec: friendEntriesSnapshotCodec,
+    group: cacheGroupLastFm,
+    maxAge: lastFmCacheMaxAge,
+    fetch: home.fetchFriends,
+  );
 });
 
 /// Avatar for a friend added here (stored by name only, so it has none).
