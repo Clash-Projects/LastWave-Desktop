@@ -26,6 +26,7 @@ import 'animated_artwork_service.dart';
 class AnimatedArtworkSession extends ChangeNotifier {
   Player? _player;
   VideoController? _controller;
+  bool _controllerReady = false;
   StreamSubscription<int?>? _widthSub;
   StreamSubscription<Duration>? _positionSub;
   StreamSubscription<bool>? _bufferingSub;
@@ -53,7 +54,13 @@ class AnimatedArtworkSession extends ChangeNotifier {
   // Serializes native ops (open/stop/dispose): each waits for the previous.
   Future<void> _tail = Future.value();
 
-  VideoController? get controller => _controller;
+  /// The controller the UI may mount a `Video` on. Withheld until media_kit
+  /// has finished creating its native D3D/ANGLE texture: a `Video` widget
+  /// that mounts mid-creation races the resize to the clip's real size and
+  /// took the whole process down on a cold open of Now Playing with an
+  /// animated track (the controller already existing, as after a
+  /// non-animated first track, was always fine).
+  VideoController? get controller => _controllerReady ? _controller : null;
   String get url => _url;
   bool get ready => _ready;
 
@@ -429,10 +436,14 @@ class AnimatedArtworkSession extends ChangeNotifier {
       ),
     );
     _bindLoopWatchdogs(player);
-    _notify();
     try {
       await _controller!.platform.future.timeout(const Duration(seconds: 6));
     } catch (_) {}
+    // Texture exists (or the wait gave up): only now may a Video mount.
+    if (_controller != null) {
+      _controllerReady = true;
+      _notify();
+    }
     if (!_silenced) {
       _silenced = true;
       await _silence(player);
@@ -566,6 +577,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
     final player = _player;
     _player = null;
     _controller = null;
+    _controllerReady = false;
     if (player != null) {
       unawaited(
         _serialized(() async {
