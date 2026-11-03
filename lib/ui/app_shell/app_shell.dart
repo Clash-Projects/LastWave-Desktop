@@ -25,6 +25,7 @@ import '../navigation/side_rail.dart';
 import '../navigation/wave_nav.dart';
 import '../player_dock/player_dock.dart';
 import '../canvas/canvas_panel.dart';
+import '../now_playing/immersive.dart';
 import '../queue/queue_panel.dart';
 import '../theme/tokens.dart';
 import '../updates/update_dialog.dart';
@@ -233,7 +234,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       // Now Playing — its in-page transport was removed so this dock is
       // the single control surface.
       _dockCache = WavePlayerDock(
-        onExpand: _openNowPlaying,
+        onExpand: _expandNowPlaying,
         lyricsActive: lyricsActive,
         queueActive: queueActive,
         equalizerActive: equalizerActive,
@@ -349,6 +350,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   /// Esc priority chain. Returns true when something was closed/unfocused.
   bool _handleEscape() {
+    if (ref.read(nowPlayingImmersiveProvider)) {
+      ref.read(nowPlayingImmersiveProvider.notifier).state = false;
+      return true;
+    }
     if (_searchFocus.hasFocus) {
       _searchFocus.unfocus();
       return true;
@@ -561,6 +566,17 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   /// Opens Now Playing *on top* of the current page, so the page the user was
   /// on is still underneath when it crossfades closed over it (see waveOpen).
+  /// Dock expand button: opens Now Playing; pressed again while already
+  /// there it goes edge-to-edge (see [nowPlayingImmersiveProvider]).
+  void _expandNowPlaying() {
+    if (widget.location.startsWith('/now')) {
+      final immersive = ref.read(nowPlayingImmersiveProvider.notifier);
+      immersive.state = !immersive.state;
+      return;
+    }
+    _openNowPlaying();
+  }
+
   void _openNowPlaying() {
     // Already there (the dock is on every view, Now Playing included).
     if (widget.location.startsWith('/now')) return;
@@ -705,6 +721,31 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     final collapsed = width < 900 ? true : !_railExpanded;
     final routePath = waveRoutePath(widget.location);
     final isNowPlaying = routePath.startsWith('/now');
+    final immersive =
+        ref.watch(nowPlayingImmersiveProvider) && isNowPlaying;
+    // Immersive only lives on Now Playing: leaving the route resets it.
+    if (!isNowPlaying && ref.read(nowPlayingImmersiveProvider)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(nowPlayingImmersiveProvider.notifier).state = false;
+        }
+      });
+    }
+    ref.listen<bool>(nowPlayingImmersiveProvider, (prev, next) {
+      if (next) {
+        setState(() {
+          _queueOpen = false;
+          _equalizerOpen = false;
+          _canvasOpen = false;
+          _railExpanded = false;
+        });
+      }
+      () async {
+        try {
+          await windowManager.setFullScreen(next);
+        } catch (_) {}
+      }();
+    });
 
     // Snapshot for the focus-independent Esc chain (the global
     // HardwareKeyboard handler reads these fields).
@@ -782,8 +823,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         },
         child: Column(
           children: [
-            _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
-            const WaveInfoBarHost(),
+            if (!immersive) ...[
+              _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
+              const WaveInfoBarHost(),
+            ],
             // Overlay rail: the content below keeps full width and the
             // rail floats above its left edge (60 collapsed, 200
             // expanded). Toggling used to reflow the whole window, so
@@ -812,9 +855,11 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               .clamp(440.0, 560.0)
                               .toDouble();
 
-                          final railW = collapsed
-                              ? WaveDensity.railCollapsed
-                              : WaveDensity.railExpanded;
+                          final railW = immersive
+                              ? 0.0
+                              : (collapsed
+                                  ? WaveDensity.railCollapsed
+                                  : WaveDensity.railExpanded);
                           // Exact 9:16 from the content height; the page
                           // keeps its minimum width.
                           final cw = canvasPanelWidth(
@@ -876,16 +921,17 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               ),
                               // Rail: one solid strip, 60px collapsed /
                               // 200px expanded.
-                              Positioned(
-                                left: 0,
-                                top: 0,
-                                bottom: 0,
-                                child: WaveSideRail(
-                                  expanded: !collapsed,
-                                  active: active,
-                                  onGo: _go,
+                              if (!immersive)
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  child: WaveSideRail(
+                                    expanded: !collapsed,
+                                    active: active,
+                                    onGo: _go,
+                                  ),
                                 ),
-                              ),
                               if (_draggingFiles)
                                 Positioned.fill(
                                   child: Container(
@@ -959,12 +1005,13 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                       ),
                     ),
                   ),
-                  _dockFor(
-                    lyricsActive: isNowPlaying,
-                    queueActive: _queueOpen,
-                    equalizerActive: _equalizerOpen,
-                    canvasActive: _canvasOpen,
-                  ),
+                  if (!immersive)
+                    _dockFor(
+                      lyricsActive: isNowPlaying,
+                      queueActive: _queueOpen,
+                      equalizerActive: _equalizerOpen,
+                      canvasActive: _canvasOpen,
+                    ),
                 ],
               ),
             ),

@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/window_lifecycle.dart';
 import '../../core/artwork/animated_artwork_service.dart';
+import 'immersive.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
@@ -213,6 +214,10 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (ref.read(nowPlayingImmersiveProvider)) {
+            ref.read(nowPlayingImmersiveProvider.notifier).state = false;
+            return;
+          }
           if (context.canPop()) {
             context.pop();
           } else {
@@ -317,6 +322,15 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                                       .toggle();
                                 },
                                 onClose: () {
+                                  // Edge-to-edge mode: the cross leaves it.
+                                  if (ref.read(nowPlayingImmersiveProvider)) {
+                                    ref
+                                        .read(
+                                          nowPlayingImmersiveProvider.notifier,
+                                        )
+                                        .state = false;
+                                    return;
+                                  }
                                   if (context.canPop()) {
                                     context.pop();
                                   } else {
