@@ -206,7 +206,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   Duration _overlapLength() {
     if (_timedMixEnabled) {
-      return Duration(seconds: _prefs.autoMixSeconds.clamp(12, 30));
+      return Duration(seconds: _prefs.autoMixSeconds.clamp(12, 18));
     }
     return Duration(seconds: _prefs.crossfadeSeconds.clamp(3, 12));
   }
@@ -318,6 +318,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   BeatMixPlan? _armedBeatPlan;
   Timer? _rateRampTimer;
   BeatLock? _beatLock;
+
+  /// Volume-stream events before this instant are fade echoes.
+  DateTime _volumeEchoUntil = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _beatMixWallStart = DateTime.fromMillisecondsSinceEpoch(0);
   String _nextStreamMemoKey = '';
   ResolvedStream? _nextStreamMemo;
@@ -561,6 +564,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       p.stream.volume.listen((v) {
         runGuarded('player.volume', () {
           if (_lockSoftwareVolume) return;
+          // Mix fades drive the deck volume 25x a second. Those echoes are
+          // not the listener's volume: taking them as such left the volume
+          // at ~0 after one mix, and the next mix faded songs to silence.
+          if (_crossfading ||
+              _standbyArmed ||
+              DateTime.now().isBefore(_volumeEchoUntil)) {
+            return;
+          }
           state = state.copyWith(volume: (v / 100).clamp(0.0, 1.0));
         });
       }),
@@ -687,6 +698,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _armedBeatPlan = null;
     final restoreChain = _crossfading || _standbyArmed || ramping;
     if (_crossfading || _standbyArmed) {
+      _volumeEchoUntil = DateTime.now().add(const Duration(seconds: 2));
+      if (_crossfading) {
+        // The fade owned the volume; hand the listener's level back.
+        state = state.copyWith(volume: _crossfadeTargetVolume);
+      }
       try {
         _standbyPlayer?.stop();
         _standbyPlayer?.setVolume(0);
@@ -1130,7 +1146,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       final progress =
           ((outPos - plan.mixOutStart) / plan.overlap).clamp(0.0, 1.0);
       final master = (_crossfadeTargetVolume * 100).clamp(0.0, 100.0);
-      final (og, ig) = MixPlanner.gains(progress);
+      final (og, ig) = plan.beatMatched
+          ? MixPlanner.djGains(progress)
+          : MixPlanner.gains(progress);
       try {
         out.setVolume((og * master).clamp(0.0, 100.0));
         sb.setVolume((ig * master).clamp(0.0, 100.0));
@@ -1394,6 +1412,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           'beat=${beatPlan.beatMatched} '
           'phase_err_ms=${(meanErr * 1000).round()}');
     }
+    _volumeEchoUntil = DateTime.now().add(const Duration(seconds: 2));
     try {
       sb.setVolume((_crossfadeTargetVolume * 100).clamp(0.0, 100.0));
       if (beatPlan != null && beatPlan.beatMatched) {
@@ -1442,6 +1461,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       isBuffering: false,
       position: livePos > Duration.zero ? livePos : Duration.zero,
       duration: trackDur,
+      volume: _crossfadeTargetVolume,
       clearError: true,
     );
 

@@ -3324,15 +3324,15 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
               ],
             ),
             Slider(
-              value: seconds.clamp(12.0, 30.0),
+              value: seconds.clamp(12.0, 18.0),
               min: 12,
-              max: 30,
-              divisions: 18,
+              max: 18,
+              divisions: 6,
               onChanged: (v) => setState(() => _dragSeconds = v),
               onChangeEnd: (v) async {
                 setState(() => _dragSeconds = null);
                 await widget.onUpdate(
-                    (p) => p.setAutoMixSeconds(v.round().clamp(12, 30)));
+                    (p) => p.setAutoMixSeconds(v.round().clamp(12, 18)));
               },
             ),
             Row(
@@ -3341,7 +3341,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
                 Text('12s',
                     style: WaveType.meta
                         .copyWith(color: waveTextSecondary(context))),
-                Text('30s',
+                Text('18s',
                     style: WaveType.meta
                         .copyWith(color: waveTextSecondary(context))),
               ],

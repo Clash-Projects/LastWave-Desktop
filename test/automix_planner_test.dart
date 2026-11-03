@@ -50,16 +50,28 @@ void main() {
     });
 
     test('short songs get a shorter overlap', () {
-      // 150s song: 30s would eat a fifth of it.
+      // 120s song: 18s would eat 15% of it; capped at 12%.
       final plan = MixPlanner.plan(
-        outgoing: t('Haath Varthi', seconds: 150),
-        incoming: t('Nanchaku', seconds: 210),
-        requested: const Duration(seconds: 30),
+        outgoing: t('Namastute', seconds: 120),
+        incoming: t('No Cap', seconds: 205),
+        requested: const Duration(seconds: 18),
         sweepAvailable: false,
       );
       expect(plan.mixes, isTrue);
-      expect(plan.overlap, const Duration(seconds: 24));
+      expect(plan.overlap, const Duration(seconds: 14));
       expect(plan.reason, 'shortened');
+    });
+
+    test('DJ curve keeps the outgoing track up through its ending', () {
+      final (o40, i40) = MixPlanner.djGains(0.4);
+      expect(o40, closeTo(1, 1e-9));
+      expect(i40, greaterThan(0.8));
+      final (o1, i1) = MixPlanner.djGains(1);
+      expect(o1, closeTo(0, 1e-9));
+      expect(i1, closeTo(1, 1e-9));
+      final (o0, i0) = MixPlanner.djGains(0);
+      expect(o0, 1);
+      expect(i0, 0);
     });
 
     test('consecutive album tracks stay gapless', () {
