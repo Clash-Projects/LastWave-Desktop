@@ -2546,6 +2546,28 @@ class InnerTubeMusicApi {
     return results;
   }
 
+  /// Unfiltered YouTube Music search: songs AND videos. Last-resort pool for
+  /// tracks that only exist as a video (fan edits, AMVs, uploads), which the
+  /// songs filter never returns.
+  Future<List<YouTubeMusicTrack>> searchMixed(
+    String query, {
+    int limit = 20,
+  }) async {
+    if (query.trim().isEmpty) return const [];
+    await _ensureConfig();
+    final root = await _post(
+      '$musicApi/search?key=$_apiKey&prettyPrint=false',
+      body: {
+        'context': _webContext(_clientVersion, _visitorData),
+        'query': query.trim(),
+      },
+      clientName: 'WEB_REMIX',
+      clientVersion: _clientVersion,
+      userAgent: webUserAgent,
+    );
+    return _parseSongRenderers(root).take(limit).toList();
+  }
+
   Future<List<YouTubeMusicEntity>> searchArtists(
     String query, {
     int limit = 30,
@@ -4779,7 +4801,81 @@ class InnerTubeMusicApi {
     } catch (e) {
       PlayDiag.log('match MISS title-only "$title" ($e)');
     }
+
+    // The title is often a raw YouTube video title ("RAGE - Sirf Tum ft.
+    // @x (Anime Music Video)"): retry on the song name alone.
+    final core = coreSongTitle(title, artist);
+    if (core.isNotEmpty && normalize(core) != normalize(title)) {
+      for (final a in <String>[primary.isNotEmpty ? primary : artist, '']) {
+        try {
+          final m = await findBestMatch(
+            core,
+            a,
+            excludedVideoIds: excludedVideoIds,
+          ).timeout(const Duration(seconds: 5));
+          PlayDiag.log('match HIT core "$core" — "${m.title}" [${m.videoId}]');
+          return m;
+        } catch (e) {
+          PlayDiag.log('match miss core "$core" — "$a" ($e)');
+        }
+      }
+      // Songs-only search cannot see video-only uploads: look at the
+      // unfiltered pool and accept a candidate that carries every word of
+      // the core title and the artist's name.
+      try {
+        final pool = await searchMixed('$core $primary')
+            .timeout(const Duration(seconds: 6));
+        final coreTokens = _tokens(core);
+        final artistTokens = _tokens(primary.isNotEmpty ? primary : artist);
+        for (final c in pool) {
+          if (c.videoId.isEmpty || excludedVideoIds.contains(c.videoId)) {
+            continue;
+          }
+          final hay = _tokens('${c.title} ${c.artist}');
+          if (coreTokens.isNotEmpty &&
+              hay.containsAll(coreTokens) &&
+              (artistTokens.isEmpty ||
+                  artistTokens.intersection(hay).isNotEmpty)) {
+            PlayDiag.log(
+              'match HIT mixed "$core" — "${c.title}" [${c.videoId}]',
+            );
+            return c;
+          }
+        }
+      } catch (e) {
+        PlayDiag.log('match miss mixed "$core" ($e)');
+      }
+    }
     return null;
+  }
+
+  /// The song name inside a video-style title: drops `@handles`, bracketed
+  /// video/audio/lyric tags, a trailing `ft./feat. …`, and a leading
+  /// `Artist - ` credit.
+  static String coreSongTitle(String title, String artist) {
+    var s = title
+        .replaceAll(RegExp(r'@\w+'), ' ')
+        .replaceAll(
+          RegExp(
+            r'[\(\[][^\)\]]*(?:video|official|lyric|audio|visuali[sz]er|'
+            r'amv|\bmv\b|remaster|hd|4k)[^\)\]]*[\)\]]',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
+        .split(RegExp(r'\s+[(\[]?(?:feat\.?|ft\.?|featuring)\b',
+            caseSensitive: false))
+        .first;
+    final dash = RegExp(r'\s[-–—]\s').firstMatch(s);
+    if (dash != null) {
+      final head = s.substring(0, dash.start);
+      final a = normalize(artist);
+      final h = normalize(head);
+      if (h.isNotEmpty && a.isNotEmpty && (a.contains(h) || h.contains(a))) {
+        s = s.substring(dash.end);
+      }
+    }
+    return s.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   void rememberMatch(YouTubeMusicTrack track, {String? title, String? artist}) {
