@@ -241,164 +241,63 @@ TrackAnalysis analyzePcm(Int16List pcm, int sampleRate,
     return acf[i] * (1 - fr) + acf[i + 1] * fr;
   }
 
-  var bestLag = 0;
-  var bestScore = -1e9;
+  // Score every lag: autocorrelation plus its harmonics, with a mild
+  // prior toward 120 BPM. Keep the strongest few local peaks: rival
+  // readings of one groove (3:4, 2:3) score within a few percent of each
+  // other, so the winner is picked on how well its grid holds, below.
+  final scores = Float64List(maxLag + 2);
   for (var lag = minLag; lag <= maxLag; lag++) {
     final bpm = 60 * fps / lag;
     final lg = math.log(bpm / 120) / math.ln2;
     final prior = math.exp(-0.5 * (lg / 0.8) * (lg / 0.8));
-    final s = (acf[lag] +
+    scores[lag] = (acf[lag] +
             0.5 * acfAt(lag * 2.0) +
             0.33 * acfAt(lag * 3.0) +
             0.25 * acfAt(lag * 4.0)) *
         (0.5 + prior);
-    if (s > bestScore) {
-      bestScore = s;
-      bestLag = lag;
+  }
+  final peaks = <int>[];
+  for (var lag = minLag + 1; lag < maxLag; lag++) {
+    if (scores[lag] >= scores[lag - 1] && scores[lag] > scores[lag + 1]) {
+      peaks.add(lag);
     }
   }
-  // Parabolic refinement of the peak.
-  var period = bestLag.toDouble();
-  if (bestLag > 1 && bestLag + 1 < acfLen) {
-    final a = acf[bestLag - 1], b = acf[bestLag], c = acf[bestLag + 1];
-    final den = a - 2 * b + c;
-    if (den.abs() > 1e-12) {
-      final shift = 0.5 * (a - c) / den;
-      if (shift.abs() < 1) period += shift;
-    }
+  peaks.sort((x, y) => scores[y].compareTo(scores[x]));
+  final candidates = <int>[];
+  for (final l in peaks) {
+    if (candidates.any((c) => (c - l).abs() <= c * 0.04)) continue;
+    if (scores[l] < scores[peaks.first] * 0.6) break;
+    candidates.add(l);
+    if (candidates.length == 3) break;
   }
-
-  // A peak at k·period pins the period k times more precisely than the
-  // first peak does: 0.25% error is ~140ms of drift across a 60s window.
-  for (final mult in const [8, 4, 2]) {
-    final centre = period * mult;
-    final c = centre.round();
-    if (c + 4 >= acfLen) continue;
-    var bi = c;
-    for (var i = c - 3; i <= c + 3; i++) {
-      if (acf[i] > acf[bi]) bi = i;
-    }
-    var peak = bi.toDouble();
-    final a = acf[bi - 1], b = acf[bi], cc = acf[bi + 1];
-    final den = a - 2 * b + cc;
-    if (den.abs() > 1e-12) {
-      final shift = 0.5 * (a - cc) / den;
-      if (shift.abs() < 1) peak += shift;
-    }
-    final refined = peak / mult;
-    if ((refined - period).abs() < period * 0.03) period = refined;
-    break;
+  if (candidates.isEmpty) {
+    return _noBeat(offsetSeconds, windowEnd, audibleStart, contentEnd,
+        energyDb, energyHop);
   }
 
-  // ---- phase (comb) -----------------------------------------------------
-  double sampleAt(Float64List x, double pos) {
-    final i = pos.floor();
-    if (i < 0 || i + 1 >= x.length) return 0;
-    final fr = pos - i;
-    return x[i] * (1 - fr) + x[i + 1] * fr;
+  _Grid? best;
+  for (final lag in candidates) {
+    final g = _fitGrid(onset, acf, acfLen, lag);
+    if (g == null) continue;
+    // Stability decides; the autocorrelation score breaks near-ties.
+    final rank = g.stability + 0.1 * scores[lag] / scores[candidates.first];
+    if (best == null || rank > best.rank) {
+      best = g..rank = rank;
+    }
   }
+  if (best == null) {
+    return _noBeat(offsetSeconds, windowEnd, audibleStart, contentEnd,
+        energyDb, energyHop);
+  }
+  final period = best.period;
+  final phase = best.phase;
+  // A steady grid on which onsets clearly pile up. Noise reaches an
+  // onset contrast of ~1.4 at most; real grooves sit at 2-15.
+  final confidence =
+      (best.stability * ((best.contrast - 1.5) / 1.5).clamp(0.0, 1.0))
+          .toDouble();
 
-  var bestPhase = 0.0;
-  var bestPhaseScore = -1e9;
-  for (var ph = 0.0; ph < period; ph += 0.5) {
-    var s = 0.0;
-    for (var p = ph; p < onset.length; p += period) {
-      s += sampleAt(onset, p);
-    }
-    if (s > bestPhaseScore) {
-      bestPhaseScore = s;
-      bestPhase = ph;
-    }
-  }
-
-  // ---- refine grid through real peaks (least squares, iterated) --------
-  final sorted = List<double>.of(onset)..sort();
-  final floor = sorted[(sorted.length * 0.6).floor()];
-  var phase = bestPhase;
-  var fitCount = 0;
-  for (var pass = 0; pass < 3; pass++) {
-    final ks = <double>[];
-    final ts = <double>[];
-    final radius = math.max(1, (period * (pass == 0 ? 0.2 : 0.12)).round());
-    var k = 0;
-    for (var p = phase; p < onset.length; p += period, k++) {
-      final c = p.round();
-      var bi = -1;
-      var bv = floor;
-      for (var i = c - radius; i <= c + radius; i++) {
-        if (i <= 0 || i + 1 >= onset.length) continue;
-        final v = onset[i];
-        if (v > bv && v >= onset[i - 1] && v >= onset[i + 1]) {
-          bv = v;
-          bi = i;
-        }
-      }
-      if (bi >= 0) {
-        ks.add(k.toDouble());
-        ts.add(bi.toDouble());
-      }
-    }
-    fitCount = ks.length;
-    if (ks.length < 8) break;
-    final n = ks.length;
-    final mk = ks.reduce((a, b) => a + b) / n;
-    final mt = ts.reduce((a, b) => a + b) / n;
-    var sxy = 0.0, sxx = 0.0;
-    for (var i = 0; i < n; i++) {
-      sxy += (ks[i] - mk) * (ts[i] - mt);
-      sxx += (ks[i] - mk) * (ks[i] - mk);
-    }
-    if (sxx <= 0) break;
-    final slope = sxy / sxx;
-    if ((slope - period).abs() >= period * 0.04) break;
-    period = slope;
-    phase = mt - slope * mk;
-    while (phase < 0) {
-      phase += period;
-    }
-    while (phase >= period) {
-      phase -= period;
-    }
-  }
-
-  // ---- confidence ---------------------------------------------------------
-  // How far the chosen phase stands out from every other phase of the
-  // same period. A best-of-many pick on noise lands ~2-3σ above the
-  // rest; a real groove sits far higher. The fit share (beats that found
-  // a real onset peak) guards against one loud stretch carrying it.
-  final phaseScores = <double>[];
-  double combAt(double ph) {
-    var c = 0.0;
-    var n = 0;
-    for (var p = ph; p < onset.length; p += period) {
-      c += sampleAt(onset, p);
-      n++;
-    }
-    return n == 0 ? 0 : c / n;
-  }
-
-  for (var ph = 0.0; ph < period; ph += 0.5) {
-    phaseScores.add(combAt(ph));
-  }
-  var pm = 0.0;
-  for (final v in phaseScores) {
-    pm += v;
-  }
-  pm /= phaseScores.length;
-  var pv = 0.0;
-  for (final v in phaseScores) {
-    pv += (v - pm) * (v - pm);
-  }
-  final psd = math.sqrt(pv / phaseScores.length);
-  final z = psd <= 1e-12 ? 0.0 : (combAt(phase) - pm) / psd;
-  var onCount = 0;
-  for (var p = phase; p < onset.length; p += period) {
-    onCount++;
-  }
-  final fitShare = fitCount / math.max(1, onCount);
-  final confidence = (((z - 3.0) / 3.0).clamp(0.0, 1.0) *
-          (0.5 + 0.5 * fitShare.clamp(0.0, 1.0)))
-      .toDouble();
+  double sampleAt(Float64List x, double pos) => _sampleAt(x, pos);
 
   // ---- grid, downbeats ---------------------------------------------------
   final beats = <double>[];
@@ -433,6 +332,162 @@ TrackAnalysis analyzePcm(Int16List pcm, int sampleRate,
     energyDb: energyDb,
     energyHop: energyHop,
   );
+}
+
+double _sampleAt(Float64List x, double pos) {
+  final i = pos.floor();
+  if (i < 0 || i + 1 >= x.length) return 0;
+  final fr = pos - i;
+  return x[i] * (1 - fr) + x[i + 1] * fr;
+}
+
+class _Grid {
+  _Grid(this.period, this.phase, this.stability, this.contrast);
+  final double period;
+  final double phase;
+  final double contrast;
+
+  /// 0..1 — share of ~15 s sections that independently land on this grid.
+  final double stability;
+  double rank = 0;
+}
+
+/// Best comb phase for [period] over frames [from, to).
+double _bestPhase(Float64List onset, double period, int from, int to) {
+  var best = 0.0;
+  var bestScore = -1e9;
+  for (var ph = 0.0; ph < period; ph += 0.5) {
+    var s = 0.0;
+    var n = 0;
+    final start = from + ((ph - from) % period + period) % period;
+    for (var p = start; p < to; p += period) {
+      s += _sampleAt(onset, p);
+      n++;
+    }
+    if (n > 0 && s / n > bestScore) {
+      bestScore = s / n;
+      best = start % period;
+    }
+  }
+  return best;
+}
+
+/// Refines a tempo candidate into a grid and measures how steady it is.
+_Grid? _fitGrid(Float64List onset, Float64List acf, int acfLen, int lag) {
+  var period = lag.toDouble();
+  if (lag > 1 && lag + 1 < acfLen) {
+    final a = acf[lag - 1], b = acf[lag], c = acf[lag + 1];
+    final den = a - 2 * b + c;
+    if (den.abs() > 1e-12) {
+      final shift = 0.5 * (a - c) / den;
+      if (shift.abs() < 1) period += shift;
+    }
+  }
+  // A peak at k·period pins the period k times more precisely.
+  for (final mult in const [8, 4, 2]) {
+    final c = (period * mult).round();
+    if (c + 4 >= acfLen) continue;
+    var bi = c;
+    for (var i = c - 3; i <= c + 3; i++) {
+      if (acf[i] > acf[bi]) bi = i;
+    }
+    var peak = bi.toDouble();
+    final a = acf[bi - 1], b = acf[bi], cc = acf[bi + 1];
+    final den = a - 2 * b + cc;
+    if (den.abs() > 1e-12) {
+      final shift = 0.5 * (a - cc) / den;
+      if (shift.abs() < 1) peak += shift;
+    }
+    final refined = peak / mult;
+    if ((refined - period).abs() < period * 0.03) period = refined;
+    break;
+  }
+
+  var phase = _bestPhase(onset, period, 0, onset.length);
+
+  // Least squares through the real onset peaks near each predicted beat.
+  final sorted = List<double>.of(onset)..sort();
+  final floor = sorted[(sorted.length * 0.6).floor()];
+  for (var pass = 0; pass < 3; pass++) {
+    final ks = <double>[];
+    final ts = <double>[];
+    final radius = math.max(1, (period * (pass == 0 ? 0.2 : 0.12)).round());
+    var k = 0;
+    for (var p = phase; p < onset.length; p += period, k++) {
+      final c = p.round();
+      var bi = -1;
+      var bv = floor;
+      for (var i = c - radius; i <= c + radius; i++) {
+        if (i <= 0 || i + 1 >= onset.length) continue;
+        final v = onset[i];
+        if (v > bv && v >= onset[i - 1] && v >= onset[i + 1]) {
+          bv = v;
+          bi = i;
+        }
+      }
+      if (bi >= 0) {
+        ks.add(k.toDouble());
+        ts.add(bi.toDouble());
+      }
+    }
+    if (ks.length < 8) break;
+    final n = ks.length;
+    final mk = ks.reduce((a, b) => a + b) / n;
+    final mt = ts.reduce((a, b) => a + b) / n;
+    var sxy = 0.0, sxx = 0.0;
+    for (var i = 0; i < n; i++) {
+      sxy += (ks[i] - mk) * (ts[i] - mt);
+      sxx += (ks[i] - mk) * (ks[i] - mk);
+    }
+    if (sxx <= 0) break;
+    final slope = sxy / sxx;
+    if ((slope - period).abs() >= period * 0.04) break;
+    period = slope;
+    phase = mt - slope * mk;
+    phase = (phase % period + period) % period;
+  }
+
+  // Stability: split into ~10 s sections and find each section's own
+  // best phase for this period. A real groove puts (nearly) all sections
+  // on one phase whatever else is in the mix; on noise the phases scatter,
+  // so ≥4 of 6 agreeing by chance is rare.
+  const sectionFrames = 861; // ≈10 s at 86 frames/s
+  final sections = math.max(1, onset.length ~/ sectionFrames);
+  final len = onset.length ~/ sections;
+  if (len < period * 6) return null;
+  final phases = <double>[
+    for (var s = 0; s < sections; s++)
+      _bestPhase(onset, period, s * len,
+          s == sections - 1 ? onset.length : (s + 1) * len),
+  ];
+  var agree = 0;
+  for (final c in phases) {
+    var n = 0;
+    for (final q in phases) {
+      var d = (q - c).abs() % period;
+      if (d > period / 2) d = period - d;
+      if (d <= period * 0.06) n++;
+    }
+    agree = math.max(agree, n);
+  }
+  final share = agree / sections;
+  final stability = sections < 4
+      ? (share >= 1 ? 0.5 : 0.0)
+      : ((share - 0.4) / 0.6).clamp(0.0, 1.0).toDouble();
+  // How much onset energy sits on the grid points (vs. the average).
+  var on = 0.0;
+  var cnt = 0;
+  for (var p = phase; p < onset.length; p += period) {
+    on += _sampleAt(onset, p);
+    cnt++;
+  }
+  var mean = 0.0;
+  for (final v in onset) {
+    mean += v;
+  }
+  mean /= onset.length;
+  final contrast = mean <= 1e-12 || cnt == 0 ? 0.0 : (on / cnt) / mean;
+  return _Grid(period, phase, stability, contrast);
 }
 
 TrackAnalysis _noBeat(double ws, double we, double as, double ce,
