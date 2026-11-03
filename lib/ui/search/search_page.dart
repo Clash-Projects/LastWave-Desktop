@@ -194,6 +194,13 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
     context.go('/search?q=${Uri.encodeComponent(q)}');
   }
 
+  /// Rows the dropdown actually shows. Arrow keys and Enter must stay
+  /// inside it: clamping to the full list let ↓ walk onto hidden rows (no
+  /// highlight visible) and Enter then searched for one of them.
+  static const int _maxVisibleSuggestions = 6;
+  static int _visibleSuggestionCount(List<SearchSuggestion> s) =>
+      math.min(s.length, _maxVisibleSuggestions);
+
   KeyEventResult _onPageKey(
       KeyEvent event, List<SearchSuggestion> suggestions) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -214,13 +221,13 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
     }
     if (!showSuggestions) return KeyEventResult.ignored;
     if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-      setState(() => _suggestIndex =
-          (_suggestIndex + 1).clamp(0, suggestions.length - 1));
+      setState(() => _suggestIndex = (_suggestIndex + 1)
+          .clamp(0, _visibleSuggestionCount(suggestions) - 1));
       return KeyEventResult.handled;
     }
     if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-      setState(() => _suggestIndex =
-          (_suggestIndex - 1).clamp(0, suggestions.length - 1));
+      setState(() => _suggestIndex = (_suggestIndex - 1)
+          .clamp(0, _visibleSuggestionCount(suggestions) - 1));
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -278,8 +285,8 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
                 onChanged: _onChanged,
                 onSubmitted: (v) {
                   if (showSuggestions && _suggestIndex >= 0) {
-                    final pick = suggestions[
-                        _suggestIndex.clamp(0, suggestions.length - 1)];
+                    final pick = suggestions[_suggestIndex.clamp(
+                        0, _visibleSuggestionCount(suggestions) - 1)];
                     _controller.text = pick.text;
                     _submit(pick.text);
                   } else {
@@ -298,7 +305,9 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (var i = 0; i < suggestions.take(6).length; i++)
+                    for (var i = 0;
+                        i < _visibleSuggestionCount(suggestions);
+                        i++)
                       _SuggestionRow(
                         suggestion: suggestions[i],
                         highlighted: i == _suggestIndex,
