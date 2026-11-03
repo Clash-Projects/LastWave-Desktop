@@ -1928,6 +1928,10 @@ Future<void> _ytConnectWithCookies(BuildContext context, WidgetRef ref) async {
                     onPressed: () async {
                       final text = await _pickCookieFile();
                       if (text == null || text.isEmpty) return;
+                      // The picker is not modal everywhere (Linux
+                      // portals): the dialog may have closed and its
+                      // controller been disposed while it was open.
+                      if (!context.mounted) return;
                       controller.text = text;
                       setState(() {
                         errorText = null;
