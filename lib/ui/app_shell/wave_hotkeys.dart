@@ -15,6 +15,8 @@ import 'package:flutter/services.dart';
 /// - Space toggles playback globally, everywhere except text fields.
 ///   (Same as Spotify: Space never activates the focused button;
 ///   Enter is the keyboard activation for buttons.)
+/// - F11 toggles edge-to-edge Now Playing (opens it first elsewhere),
+///   also while typing.
 /// - Left/Right seek (5s, Shift 15s) globally whenever not typing.
 /// - Up/Down change volume (5%, Shift 15%) globally, EXCEPT inside a
 ///   [WaveKeyNavScope] (track tables, menus), where they navigate the
@@ -36,6 +38,7 @@ class WaveHotkeyActions {
     required this.openPalette,
     required this.focusSearch,
     required this.toggleLyrics,
+    required this.toggleFullscreen,
     required this.goBack,
     required this.goForward,
     required this.handleEscape,
@@ -51,6 +54,9 @@ class WaveHotkeyActions {
   final void Function() openPalette;
   final void Function() focusSearch;
   final void Function() toggleLyrics;
+
+  /// F11: edge-to-edge Now Playing (opens it first when elsewhere).
+  final void Function() toggleFullscreen;
   final void Function() goBack;
   final void Function() goForward;
 
@@ -195,6 +201,16 @@ bool handleWaveHotkey(KeyEvent event, WaveHotkeyActions a) {
   // Esc handlers (palette, suggestions) still work. ---
   if (k == LogicalKeyboardKey.escape && !ctrl && !alt && !meta && isDown) {
     return a.handleEscape();
+  }
+
+  // --- F11: fullscreen Now Playing. Not a text key, so it works while
+  // typing too; key-repeat is ignored so holding it doesn't flicker. ---
+  if (k == LogicalKeyboardKey.f11 && !ctrl && !alt && !meta && isDown) {
+    if (a.hasTrack()) {
+      a.toggleFullscreen();
+      return true;
+    }
+    return false;
   }
 
   // Everything below is disabled while typing so text entry is untouched.

@@ -58,6 +58,10 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   // visualizer toggle (the only thing that renders a clip), so flipping
   // the toggle on must re-arm for the current track.
   String _prefetchedMotionKey = '';
+  // Captured up front: `ref` is not safe to read while the element unmounts.
+  late final StateController<bool> _idleMirror =
+      ref.read(nowPlayingControlsIdleProvider.notifier);
+
   @override
   void initState() {
     super.initState();
@@ -67,6 +71,10 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   @override
   void dispose() {
     _idleTimer?.cancel();
+    // Not while the tree is finalizing: a hidden-dock state must not
+    // outlive the page.
+    final mirror = _idleMirror;
+    Future.microtask(() => mirror.state = false);
     super.dispose();
   }
 
@@ -74,6 +82,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     _lastHoverAt = DateTime.now();
     if (_controlsIdle) {
       setState(() => _controlsIdle = false);
+      _idleMirror.state = false;
       _armIdleTimer();
       return;
     }
@@ -108,6 +117,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
       return;
     }
     setState(() => _controlsIdle = true);
+    _idleMirror.state = true;
   }
 
   // Dark theme for the Apple Music stage, memoized on the accent so page
@@ -120,6 +130,10 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   /// way Apple Music's lyrics view does. WinUI keeps following the theme.
   @override
   Widget build(BuildContext context) {
+    // Pointer activity on the immersive overlay dock keeps the stage awake.
+    // Must live here: `_buildPage` runs inside a Builder on the Apple stage,
+    // where `ref.listen` is not allowed.
+    ref.listen<int>(nowPlayingActivityProvider, (_, _) => _resetIdleTimer());
     final apple = ref.watch(ambientStyleProvider) == AmbientStyle.apple;
     if (!apple) return _buildPage(context);
     final accent = waveAccent(context);

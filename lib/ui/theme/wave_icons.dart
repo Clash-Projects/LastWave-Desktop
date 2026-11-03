@@ -82,6 +82,7 @@ class WaveIcons {
   static const IconData clock = FluentIcons.clock;
   static const IconData gauge = FluentIcons.speed_high;
   static const IconData expand = FluentIcons.full_screen;
+  static const IconData exitFullscreen = FluentIcons.back_to_window;
   static const IconData miniPlayer = FluentIcons.mini_expand;
   static const IconData device = FluentIcons.speakers;
   static const IconData check = FluentIcons.check_mark;

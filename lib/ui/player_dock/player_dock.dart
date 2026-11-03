@@ -48,8 +48,14 @@ class WavePlayerDock extends ConsumerWidget {
   final bool equalizerActive;
   final bool canvasActive;
   final VoidCallback onToggleMini;
+
+  /// Fullscreen Now Playing overlay: one slim row with only the essentials
+  /// (like, transport, timeline, volume, queue, exit). The track identity is
+  /// already on the stage, so it is not repeated here.
+  final bool compact;
   const WavePlayerDock({
     super.key,
+    this.compact = false,
     required this.onExpand,
     required this.onToggleQueue,
     required this.onToggleLyrics,
@@ -114,7 +120,7 @@ class WavePlayerDock extends ConsumerWidget {
         );
       },
       child: SizedBox(
-        height: WaveDensity.dock,
+        height: compact ? _kCompactDockHeight : WaveDensity.dock,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: LayoutBuilder(
@@ -123,6 +129,18 @@ class WavePlayerDock extends ConsumerWidget {
               // MediaQuery window width which overestimates by ~200px.
               final dockW = constraints.maxWidth;
               final narrow = dockW < 680;
+              if (compact) {
+                return _compactBar(
+                  dockW: dockW,
+                  narrow: narrow,
+                  current: current,
+                  isPlaying: player.isPlaying,
+                  isBuffering: player.isBuffering,
+                  jamLocked: jamLocked,
+                  jamUnlockAt: jamUnlockAt,
+                  notifier: notifier,
+                );
+              }
               return Row(
                 children: [
                   // LEFT — identity (290px, placeholder when idle).
@@ -401,7 +419,75 @@ class WavePlayerDock extends ConsumerWidget {
       ),
     );
   }
+
+  /// The fullscreen overlay row. One line instead of the dock's two-row
+  /// centre: [like] [prev play next] [time ━━━ time] [volume] [queue] [exit].
+  /// Shuffle/repeat, quality, Jam, equalizer, canvas, mini player and the
+  /// More menu are left out; leaving fullscreen brings them all back.
+  Widget _compactBar({
+    required double dockW,
+    required bool narrow,
+    required PlayableTrack? current,
+    required bool isPlaying,
+    required bool isBuffering,
+    required bool jamLocked,
+    required String jamUnlockAt,
+    required PlaybackService notifier,
+  }) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1100),
+        child: Row(
+          children: [
+            if (current != null) _LikeGlyph(track: current),
+            _Glyph(
+              tooltip:
+                  jamLocked ? 'Locked in Jam until $jamUnlockAt' : 'Previous',
+              icon: WaveIcons.previous,
+              large: true,
+              onTap: current == null || jamLocked ? null : notifier.previous,
+            ),
+            _PlayGlyph(
+              playing: isPlaying,
+              buffering: isBuffering,
+              enabled: current != null && !(jamLocked && isPlaying),
+              onTap: notifier.toggle,
+            ),
+            _Glyph(
+              tooltip: jamLocked ? 'Locked in Jam until $jamUnlockAt' : 'Next',
+              icon: WaveIcons.next,
+              large: true,
+              onTap: current == null || jamLocked ? null : notifier.next,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: RepaintBoundary(child: _DockProgress(compact: narrow)),
+            ),
+            const SizedBox(width: 8),
+            if (dockW >= 700)
+              const _VolumeSection()
+            else
+              const _VolumeFlyoutSection(),
+            _Glyph(
+              tooltip: 'Queue',
+              icon: WaveIcons.queue,
+              active: queueActive,
+              onTap: onToggleQueue,
+            ),
+            _Glyph(
+              tooltip: 'Exit fullscreen (Esc)',
+              icon: WaveIcons.exitFullscreen,
+              onTap: onExpand,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+
+/// Height of the fullscreen overlay dock ([WavePlayerDock.compact]).
+const double _kCompactDockHeight = 56;
 
 /// Placeholder identity — dock never collapses to zero height.
 class _IdleIdentity extends StatelessWidget {
