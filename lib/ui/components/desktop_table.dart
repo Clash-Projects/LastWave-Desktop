@@ -193,7 +193,30 @@ class _WaveDesktopTableState<T extends Object>
     widget.onSelectionChanged?.call(next);
   }
 
+  /// Display order memo. [_order] used to allocate and (when a column
+  /// sort is active) fully re-sort the index list on EVERY access — and it
+  /// is read once per row built, so a scroll frame or a hover rebuild of a
+  /// 2 000-row table ran ~20 O(n log n) sorts. The inputs are only the
+  /// widget config (invalidated in [didUpdateWidget]) and the sort state
+  /// (invalidated in [_cycleSort]); the length guard keeps the old
+  /// behaviour if a caller ever mutates [WaveDesktopTable.items] in place.
+  List<int>? _orderCache;
+
   List<int> get _order {
+    final cached = _orderCache;
+    if (cached != null && cached.length == widget.items.length) {
+      return cached;
+    }
+    return _orderCache = _computeOrder();
+  }
+
+  @override
+  void didUpdateWidget(covariant WaveDesktopTable<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _orderCache = null;
+  }
+
+  List<int> _computeOrder() {
     final order = List<int>.generate(widget.items.length, (i) => i);
     if (_sortCol < 0) return order;
     Comparable Function(T)? fn;
@@ -223,6 +246,7 @@ class _WaveDesktopTableState<T extends Object>
 
   void _cycleSort(int col) {
     setState(() {
+      _orderCache = null;
       if (_sortCol != col) {
         _sortCol = col;
         _sortDir = WaveSortDir.asc;
