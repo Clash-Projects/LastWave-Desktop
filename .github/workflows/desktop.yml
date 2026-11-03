@@ -180,6 +180,16 @@ jobs:
           # "undefined symbol nghttp2_option_set_no_rfc9113_..."). TLS and
           # HTTP/2 libraries are ABI-stable and present on every distro
           # that ships OpenSSL 3, so use the host's, never a bundled copy.
+          # GPU stack: Mesa/GL/EGL/GBM/DRM/Wayland must come from the HOST so
+          # they match its kernel driver. A bundled (Ubuntu 22.04) copy next
+          # to a rolling-release Mesa (Arch) is the classic AppImage black
+          # window: the app starts, the GL context never presents a frame.
+          for pat in 'libGL.so*' 'libGLX*.so*' 'libGLdispatch.so*' 'libEGL.so*' \
+                     'libGLESv2.so*' 'libgbm.so*' 'libdrm*.so*' \
+                     'libwayland-*.so*' 'libvulkan.so*' 'libxcb-dri*.so*' \
+                     'libglapi.so*' 'libLLVM*.so*'; do
+            find AppDir/usr/lib -maxdepth 1 -name "$pat" -print -delete
+          done
           for pat in 'libssl.so*' 'libcrypto.so*' 'libnghttp2.so*' 'libcurl.so*'; do
             find AppDir/usr/lib -maxdepth 1 -name "$pat" -print -delete
           done
@@ -235,6 +245,13 @@ jobs:
           # stacks ("Failed to setup compositor shaders").
           unset GTK_MODULES
           export WEBKIT_DISABLE_DMABUF_RENDERER=1
+
+          # Proprietary NVIDIA on Wayland: GTK's Wayland GL path commonly
+          # presents nothing (black window). XWayland is reliable there.
+          if [ -n "$WAYLAND_DISPLAY" ] && [ -z "$GDK_BACKEND" ] \
+             && [ -e /proc/driver/nvidia/version ]; then
+            export GDK_BACKEND=x11
+          fi
 
           # Handle legacy OpenGL (< 3.0 / missing glBlitFramebuffer) or explicit flags
           USE_SOFTWARE=0
