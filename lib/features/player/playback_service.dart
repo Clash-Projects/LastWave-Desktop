@@ -17,6 +17,8 @@ import 'audio_graph.dart';
 import 'loudness.dart';
 import 'timed_mix.dart';
 import 'mix_planner.dart';
+import '../automix/automix_analyzer.dart';
+import '../automix/beat_mix_planner.dart';
 import '../downloads/download_manager.dart';
 import '../addons/addon_api.dart';
 import '../innertube/innertube_api.dart';
@@ -304,6 +306,22 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// AutoMix plan for the current -> next pair (cached per pair).
   MixPlan? _mixPlan;
   String _mixPlanKey = '';
+
+  // -- Beat-aware AutoMix -------------------------------------------------
+  /// Hidden decode deck + analysis cache (tempo, beats, audible bounds).
+  late final AutomixAnalyzer _analyzer =
+      AutomixAnalyzer(serialize: _serializedMpv, log: _crumb);
+  BeatMixPlan? _beatPlan;
+  String _beatPlanKey = '';
+
+  /// Plan the standby deck was armed for (null = plain timed overlap).
+  BeatMixPlan? _armedBeatPlan;
+  Timer? _rateRampTimer;
+  BeatLock? _beatLock;
+  DateTime _beatMixWallStart = DateTime.fromMillisecondsSinceEpoch(0);
+  String _nextStreamMemoKey = '';
+  ResolvedStream? _nextStreamMemo;
+  DateTime _nextStreamMemoAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Where an error-retry of the same track should resume, so a
   /// transient stream failure does not restart the song from 0:00.
@@ -663,7 +681,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   void cancelCrossfade() {
     _crossfadeTimer?.cancel();
     _crossfadeTimer = null;
-    final restoreChain = _crossfading || _standbyArmed;
+    final ramping = _rateRampTimer != null;
+    _rateRampTimer?.cancel();
+    _rateRampTimer = null;
+    _armedBeatPlan = null;
+    final restoreChain = _crossfading || _standbyArmed || ramping;
     if (_crossfading || _standbyArmed) {
       try {
         _standbyPlayer?.stop();
@@ -741,6 +763,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       // happens at EOF, no overlap.
       if (_standbyArmed) cancelCrossfade();
       return;
+    }
+    if (_timedMixEnabled) {
+      _requestAnalyses(position, nextTrack);
+      if (_runBeatSchedule(position, nextTrack, nextIndex, plan)) return;
     }
     final fadeDuration = plan.overlap;
     if (duration < fadeDuration + const Duration(seconds: 8)) {
@@ -821,14 +847,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }, onError: (_) {}));
   }
 
-  Future<void> _armStandbyForNext(
-      PlayableTrack nextTrack, int nextIndex) async {
+  Future<void> _armStandbyForNext(PlayableTrack nextTrack, int nextIndex,
+      {BeatMixPlan? beatPlan, ResolvedStream? withStream}) async {
     if (_standbyArmed || _crossfading) return;
     if (exclusiveApplied) return;
     if (state.repeatMode == RepeatMode.one) return;
 
     final cacheKey = _playCacheKey(nextTrack, false);
-    final stream = _localStream(nextTrack) ?? _playCache.get(cacheKey);
+    final stream =
+        withStream ?? _localStream(nextTrack) ?? _playCache.get(cacheKey);
     if (stream == null) {
       // Stream resolution is currently in-flight; will arm when finished
       return;
@@ -838,6 +865,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _standbyTrack = nextTrack;
     _standbyIndex = nextIndex;
     _standbyStream = stream;
+    _armedBeatPlan = beatPlan;
+    final startAt = beatPlan != null && beatPlan.incomingStartAt > 0.05
+        ? Duration(milliseconds: (beatPlan.incomingStartAt * 1000).round())
+        : null;
 
     await _ensureStandbyPlayer();
     final sb = _standbyPlayer;
@@ -860,7 +891,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       await _serializedMpv(() async {
         await _applyLoudnessTo(sb, album: nextTrack.album);
         await sb.open(
-          Media(playUrl, httpHeaders: stream.requestHeaders),
+          Media(playUrl, httpHeaders: stream.requestHeaders, start: startAt),
           play: false,
         );
       });
@@ -912,6 +943,286 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       _standbyStream = null;
       _standbyIndex = -1;
     }
+  }
+
+  // -- Beat-aware AutoMix ---------------------------------------------------
+
+  static double _secs(Duration d) => d.inMicroseconds / 1e6;
+
+  /// The next track's playable stream, if already resolved (memoised for
+  /// a second: this runs on every 10 Hz position tick).
+  ResolvedStream? _nextStreamFor(PlayableTrack next) {
+    final now = DateTime.now();
+    if (_nextStreamMemoKey == next.queueKey &&
+        now.difference(_nextStreamMemoAt) < const Duration(seconds: 1)) {
+      return _nextStreamMemo;
+    }
+    _nextStreamMemoKey = next.queueKey;
+    _nextStreamMemoAt = now;
+    _nextStreamMemo =
+        _localStream(next) ?? _playCache.get(_playCacheKey(next, false));
+    return _nextStreamMemo;
+  }
+
+  String _tailKey(PlayableTrack t, ResolvedStream s, Duration dur) =>
+      AutomixAnalyzer.keyFor('${t.queueKey}@${dur.inSeconds}',
+          AutomixAnalyzer.sourceId(s.cacheKey), AnalysisSide.tail);
+
+  String _headKey(PlayableTrack t, ResolvedStream s) => AutomixAnalyzer.keyFor(
+      t.queueKey, AutomixAnalyzer.sourceId(s.cacheKey), AnalysisSide.head);
+
+  /// Queues the tail of the playing track and the head of the next one
+  /// for analysis. Cheap when already cached or in flight.
+  void _requestAnalyses(Duration position, PlayableTrack next) {
+    if (exclusiveApplied) return;
+    final cur = state.current;
+    final cs = state.stream;
+    final dur = state.duration;
+    // Leave the first seconds of a track to its own buffering.
+    if (cur != null &&
+        cs != null &&
+        position >= const Duration(seconds: 8) &&
+        dur > const Duration(seconds: 40)) {
+      unawaited(_analyzer.request(
+        key: _tailKey(cur, cs, dur),
+        side: AnalysisSide.tail,
+        url: cs.url,
+        headers: cs.requestHeaders,
+        duration: dur,
+      ));
+    }
+    final ns = _nextStreamFor(next);
+    if (ns != null) {
+      unawaited(_analyzer.request(
+        key: _headKey(next, ns),
+        side: AnalysisSide.head,
+        url: ns.url,
+        headers: ns.requestHeaders,
+      ));
+    } else if (dur - position <= const Duration(seconds: 90) &&
+        dur - position > Duration.zero) {
+      // Resolve early enough that the head can be analysed before the mix.
+      final ni = _nextIndex();
+      if (ni != null) _maybeEarlyResolveNextTrack(next, ni);
+    }
+  }
+
+  BeatMixPlan? _beatPlanFor(PlayableTrack next, Duration maxOverlap) {
+    final cur = state.current;
+    final cs = state.stream;
+    final ns = _nextStreamFor(next);
+    if (cur == null || cs == null || ns == null) return null;
+    final tk = _tailKey(cur, cs, state.duration);
+    final hk = _headKey(next, ns);
+    final allowTempo = (state.pitch - 1.0).abs() <= 0.005;
+    final key = '$tk>$hk|${maxOverlap.inSeconds}|$allowTempo';
+    if (key == _beatPlanKey) return _beatPlan;
+    final tail = _analyzer.cached(tk);
+    final head = _analyzer.cached(hk);
+    if (tail == null || head == null) return null;
+    final inDur = next.duration > Duration.zero
+        ? _secs(next.duration)
+        : (head.windowEnd < 59.5 ? head.windowEnd : 1e6);
+    final plan = BeatMixPlanner.plan(
+      outgoingTail: tail,
+      incomingHead: head,
+      outgoingDuration: _secs(state.duration),
+      incomingDuration: inDur,
+      maxOverlap: _secs(maxOverlap),
+      allowTempo: allowTempo,
+    );
+    _beatPlanKey = key;
+    _beatPlan = plan;
+    if (plan != null) {
+      _crumb('automix beatplan ${cur.queueKey} -> ${next.queueKey} '
+          '${plan.reason} out=${plan.mixOutStart.toStringAsFixed(2)}s '
+          'in=${plan.incomingCue.toStringAsFixed(2)}s '
+          'overlap=${plan.overlap.toStringAsFixed(1)}s beats=${plan.beats} '
+          'rate=${plan.rate.toStringAsFixed(4)}');
+    } else {
+      _crumb('automix beatplan ${cur.queueKey} -> ${next.queueKey} none');
+    }
+    return plan;
+  }
+
+  /// Drives arm / start for a beat plan. Returns false to let the plain
+  /// timed overlap handle this tick (no plan, or it is already too late).
+  bool _runBeatSchedule(Duration position, PlayableTrack next, int nextIndex,
+      MixPlan mixPlan) {
+    // Already armed the plain way: finish that one.
+    if (_standbyArmed && _armedBeatPlan == null) return false;
+    final bp = _armedBeatPlan ?? _beatPlanFor(next, mixPlan.overlap);
+    if (bp == null) return false;
+    final pos = _secs(position);
+    if (!_standbyArmed && pos >= bp.mixOutStart) {
+      // Seeked past the mix point: let the plain path decide.
+      return false;
+    }
+    if (!_standbyArmed &&
+        pos >= bp.triggerAt - _secs(_armLead) &&
+        _mixGaveUpFor != next.queueKey) {
+      unawaited(_armStandbyForNext(next, nextIndex,
+          beatPlan: bp, withStream: _nextStreamFor(next)));
+      return true;
+    }
+    if (_standbyArmed &&
+        _standbyReady &&
+        _armedBeatPlan != null &&
+        _standbyPlayer != null &&
+        pos >= _armedBeatPlan!.triggerAt - 0.1) {
+      _startBeatMix(_armedBeatPlan!,
+          sweep: mixPlan.style == MixStyle.filterSweep);
+      return true;
+    }
+    if (_standbyArmed && !_standbyReady && pos >= bp.mixOutStart + 2) {
+      _mixGaveUpFor = next.queueKey;
+      _crumb('automix gave up key=${next.queueKey} (deck not ready)');
+      cancelCrossfade();
+    }
+    return true;
+  }
+
+  /// Starts the incoming deck muted ahead of the cue, keeps it locked to
+  /// the outgoing beat grid with small speed nudges, and blends on the
+  /// OUTGOING deck's own clock — so a stall or a late start shifts the
+  /// whole mix instead of tearing the beats apart.
+  void _startBeatMix(BeatMixPlan plan, {bool sweep = false}) {
+    if (_crossfading || !_standbyArmed || _standbyPlayer == null) return;
+    final sb = _standbyPlayer!;
+    _crossfading = true;
+    _crossfadeTargetVolume = state.volume;
+    _mixSweepFailed = false;
+    _lastMixSweep = DateTime.fromMillisecondsSinceEpoch(0);
+    _beatMixWallStart = DateTime.now();
+    final speed = state.speed <= 0 ? 1.0 : state.speed;
+    final lock = BeatLock(plan, speed: speed);
+    _beatLock = lock;
+    final spectral = sweep &&
+        _prefs.autoMixSpectral &&
+        _sweepSupported != false;
+    _crumb('automix start key=${_standbyTrack?.queueKey} beat=${plan.beatMatched} '
+        'rate=${plan.rate.toStringAsFixed(4)} '
+        'overlap=${plan.overlap.toStringAsFixed(1)}s sweep=$spectral');
+    try {
+      sb.setVolume(0);
+      if (plan.beatMatched) sb.setRate(speed * plan.rate);
+      unawaited(sb.play());
+    } catch (_) {
+      cancelCrossfade();
+      return;
+    }
+    var spectralStarted = false;
+    var clockBusy = false;
+    final maxWall = Duration(
+        milliseconds: (((plan.mixOutEnd - plan.triggerAt) / speed + 6) * 1000)
+            .round());
+
+    _crossfadeTimer?.cancel();
+    _crossfadeTimer =
+        Timer.periodic(const Duration(milliseconds: 25), (timer) {
+      if (!_crossfading) {
+        timer.cancel();
+        return;
+      }
+      final out = _player;
+      if (out == null) return;
+      final outPos = _secs(out.state.position);
+      final progress =
+          ((outPos - plan.mixOutStart) / plan.overlap).clamp(0.0, 1.0);
+      final master = (_crossfadeTargetVolume * 100).clamp(0.0, 100.0);
+      final (og, ig) = MixPlanner.gains(progress);
+      try {
+        out.setVolume((og * master).clamp(0.0, 100.0));
+        sb.setVolume((ig * master).clamp(0.0, 100.0));
+      } catch (_) {}
+
+      // Phase lock: sample both decks' mpv clocks every tick (the
+      // position stream lags in bursts), act on the average.
+      final now = DateTime.now();
+      if (plan.beatMatched && !clockBusy) {
+        clockBusy = true;
+        unawaited(() async {
+          try {
+            final o = await _deckClock(out);
+            final i = await _deckClock(sb);
+            if (!_crossfading || !identical(_beatLock, lock)) return;
+            lock.sample(o, i);
+            final action = lock.step(DateTime.now());
+            final seekTo = action.seekTo;
+            final rate = action.rate;
+            if (seekTo != null) {
+              await sb.seek(Duration(milliseconds: (seekTo * 1000).round()));
+            } else if (rate != null) {
+              await sb.setRate(rate);
+            }
+          } catch (_) {
+          } finally {
+            clockBusy = false;
+          }
+        }());
+      }
+
+      if (spectral && progress > 0) {
+        if (!spectralStarted) {
+          spectralStarted = true;
+          unawaited(_writeMixSweep(0));
+        } else if (_sweepSupported != false &&
+            !_mixSweepFailed &&
+            !_mixSweepBusy &&
+            now.difference(_lastMixSweep).inMilliseconds >= 200) {
+          _lastMixSweep = now;
+          unawaited(_writeMixSweep(progress));
+        }
+      }
+
+      if (progress >= 1.0 || now.difference(_beatMixWallStart) > maxWall) {
+        timer.cancel();
+        _completeCrossfade();
+      }
+    });
+  }
+
+  /// mpv's own playback clock (`time-pos`), read now. Falls back to the
+  /// last streamed position.
+  Future<double> _deckClock(Player p) async {
+    try {
+      final v =
+          await (p.platform as dynamic).getProperty('time-pos') as String;
+      final d = double.tryParse(v);
+      if (d != null) return d;
+    } catch (_) {}
+    return _secs(p.state.position);
+  }
+
+  /// Eases the (new) primary deck's tempo back to the user's speed after
+  /// a beat-matched hand-off, instead of jumping.
+  void _rampRateBack(Player deck, double from) {
+    _rateRampTimer?.cancel();
+    final to = state.speed <= 0 ? 1.0 : state.speed;
+    if ((from - to).abs() < 0.001) {
+      unawaited(_applyRateAndPitchTo(deck));
+      return;
+    }
+    const steps = 80; // 8 s
+    var i = 0;
+    _rateRampTimer = Timer.periodic(const Duration(milliseconds: 100), (t) {
+      if (!identical(_player, deck)) {
+        t.cancel();
+        _rateRampTimer = null;
+        return;
+      }
+      i++;
+      final p = i / steps;
+      final s = p * p * (3 - 2 * p);
+      try {
+        deck.setRate(from + (to - from) * s);
+      } catch (_) {}
+      if (i >= steps) {
+        t.cancel();
+        _rateRampTimer = null;
+        unawaited(_applyRateAndPitchTo(deck));
+      }
+    });
   }
 
   /// Writes the sweep filter once on the paused standby deck and listens
@@ -1074,10 +1385,24 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       oldPrimary?.setVolume(0);
     } catch (_) {}
 
+    final beatPlan = _armedBeatPlan;
+    _armedBeatPlan = null;
+    if (beatPlan != null) {
+      final meanErr = _beatLock?.meanAudibleError ?? 0.0;
+      _beatLock = null;
+      _crumb('automix handoff key=${incomingTrack.queueKey} '
+          'beat=${beatPlan.beatMatched} '
+          'phase_err_ms=${(meanErr * 1000).round()}');
+    }
     try {
       sb.setVolume((_crossfadeTargetVolume * 100).clamp(0.0, 100.0));
-      // Drop the sweep filter on the deck that is now primary.
-      unawaited(_applyRateAndPitchTo(sb));
+      if (beatPlan != null && beatPlan.beatMatched) {
+        // Drop the sweep now; tempo glides home over a few bars.
+        unawaited(_setAf(sb, _playbackAf()).catchError((_) {}));
+      } else {
+        // Drop the sweep filter on the deck that is now primary.
+        unawaited(_applyRateAndPitchTo(sb));
+      }
       unawaited(_applyLoudnessTo(sb, album: incomingTrack.album));
     } catch (_) {}
     _player = sb;
@@ -1087,6 +1412,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     unawaited(_setAf(oldPrimary, _playbackAf()).catchError((_) {}));
 
     _rebindPlayerStreams();
+    if (beatPlan != null && beatPlan.beatMatched) {
+      _rampRateBack(sb, sb.state.rate);
+    }
 
     final trackDur = sb.state.duration;
     // The incoming deck has already been playing for the whole overlap, so
@@ -1331,6 +1659,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         await seek(resumeAt);
       }
       return;
+    }
+    // Pausing mid-mix must silence the incoming deck too, not just the
+    // outgoing one; the mix re-plans from where playback resumes.
+    if (state.isPlaying && (_crossfading || _standbyArmed)) {
+      cancelCrossfade();
     }
     try {
       await _player?.playOrPause();
@@ -1783,6 +2116,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> setSpeed(double speed) async {
+    _rateRampTimer?.cancel();
+    _rateRampTimer = null;
     // Continuous control is 0.5×–1.5×. 2.0× stays available as a preset.
     final clamped = speed.clamp(0.5, 2.0).toDouble();
     state = state.copyWith(speed: clamped);
@@ -1793,6 +2128,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   /// Pitch is independent of the speed control. Clamped to 0.5×–1.5×.
   Future<void> setPitch(double pitch) async {
+    _rateRampTimer?.cancel();
+    _rateRampTimer = null;
     final clamped = pitch.clamp(0.5, 1.5).toDouble();
     state = state.copyWith(pitch: clamped);
     await _applyRateAndPitch();

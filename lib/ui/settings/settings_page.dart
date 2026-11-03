@@ -3305,7 +3305,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
             },
             title: 'Timed mix',
             subtitle: prefs.autoMixEnabled
-                ? 'Up to ${prefs.autoMixSeconds}s overlap, shorter on short songs. Album tracks stay gapless.'
+                ? 'Up to ${prefs.autoMixSeconds}s, beat-matched on the downbeat when tempos are close. Skips silent intros and outros; album tracks stay gapless.'
                 : 'Gapless until you turn this on',
           ),
           if (prefs.autoMixEnabled) ...[
