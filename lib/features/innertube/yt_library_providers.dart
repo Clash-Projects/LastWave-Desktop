@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../home/home_snapshot.dart';
 import 'innertube_api.dart';
 
 /// YouTube Music account surfaces.
@@ -52,10 +53,23 @@ final ytAccountProvider = FutureProvider<YtAccount?>((ref) async {
 /// on any failure, so the Home page simply omits the section.
 final ytHomeShelvesProvider =
     FutureProvider<List<YtHomeShelf>>((ref) async {
-  if (!ref.watch(ytConnectionProvider).connected) {
+  final conn = ref.watch(ytConnectionProvider);
+  if (!conn.connected) {
     return const [];
   }
-  return ref.watch(innerTubeProvider).fetchHomeShelves();
+  final tube = ref.watch(innerTubeProvider);
+  // Stale-while-revalidate over a per-channel disk snapshot, so the Home
+  // shelves are there on launch instead of after the browse round trips.
+  return swrLoad<List<YtHomeShelf>>(
+    ref,
+    key: homeShelvesSnapshotKey(
+      connected: conn.connected,
+      profileEmail: conn.profileEmail,
+      activePageId: conn.activePageId,
+    ),
+    codec: shelvesSnapshotCodec,
+    fetch: tube.fetchHomeShelves,
+  );
 });
 
 

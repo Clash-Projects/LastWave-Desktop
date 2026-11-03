@@ -2,14 +2,26 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/storage/prefs.dart';
 import '../feed/feed_repository.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/home_repository.dart';
+import 'home_snapshot.dart';
 
 /// Home data providers: feed sections and new-release records load
 /// independently so partial data still renders a rich page.
+///
+/// The feed is stale-while-revalidate over a per-user disk snapshot (see
+/// `home_snapshot.dart`): a cold start paints the last feed at once and the
+/// fresh one replaces it in place when it lands.
 final feedProvider = FutureProvider<FeedData>((ref) {
-  return ref.watch(feedRepositoryProvider).loadFeed();
+  final repo = ref.watch(feedRepositoryProvider);
+  return swrLoad<FeedData>(
+    ref,
+    key: homeFeedSnapshotKey(ref.read(prefsProvider).username),
+    codec: feedSnapshotCodec,
+    fetch: repo.loadFeed,
+  );
 });
 
 final newAlbumsProvider =
