@@ -26,6 +26,14 @@ Future<void> main(List<String> args) async {
   // change, measured). See lib/core/platform/allocator_tuning.dart.
   applyAllocatorTuning();
   WidgetsFlutterBinding.ensureInitialized();
+  // Desktop is always mouse + keyboard. In the default "automatic" mode a
+  // single touch/pen pointer event (touchscreen, Windows Ink, a touch
+  // keyboard tap) flips Flutter's highlight mode to `touch`, which silences
+  // every hover highlight (FocusableActionDetector only reports hover in
+  // traditional mode), and only a key press flips it back — hence menu rows
+  // that stayed dead until Tab or an Alt+Tab round trip.
+  FocusManager.instance.highlightStrategy =
+      FocusHighlightStrategy.alwaysTraditional;
   DeepLinks.start(args);
   // Fatal breadcrumbs: log-and-continue-handling (return false) so the
   // next fail-fast names its line in mpv-ops.log. Sync writes only.
