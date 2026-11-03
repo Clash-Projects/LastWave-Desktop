@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/artwork/animated_artwork_service.dart'
     show canvasArtistsMatch, canvasTitlesMatch, cleanCanvasQuery;
+import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/storage/prefs.dart';
 import 'spotify_auth.dart';
 import 'spotify_web_player.dart';
@@ -70,6 +71,15 @@ class SpotifyCanvasClip {
   final String url;
   final String trackId;
   const SpotifyCanvasClip({required this.url, required this.trackId});
+}
+
+/// Result of a Canvas lookup: the clip, or the reason there is none
+/// (also written to the diagnostics log; never contains tokens).
+class SpotifyCanvasResult {
+  final SpotifyCanvasClip? clip;
+  final String reason;
+  const SpotifyCanvasResult.found(SpotifyCanvasClip this.clip) : reason = '';
+  const SpotifyCanvasResult.none(this.reason) : clip = null;
 }
 
 /// Spotify web-player GraphQL ("Pathfinder") client: account playlists,
@@ -143,10 +153,18 @@ class SpotifyApi {
           validateStatus: (_) => true,
         ),
       );
-      if ((res.statusCode ?? 0) ~/ 100 != 2) return null;
+      if ((res.statusCode ?? 0) ~/ 100 != 2) {
+        DiagnosticsLog.info(
+          'spotify query op=$operation http=${res.statusCode}',
+        );
+        return null;
+      }
       final body = jsonDecode(res.data ?? '{}');
       return body is Map ? Map<String, dynamic>.from(body) : null;
-    } catch (_) {
+    } catch (e) {
+      DiagnosticsLog.info(
+        'spotify query op=$operation error=${e.runtimeType}',
+      );
       return null;
     }
   }
@@ -327,21 +345,41 @@ class SpotifyApi {
 
   // -- canvas -------------------------------------------------------------
 
-  /// The Spotify Canvas of a track, or null when it has none, the track
-  /// could not be matched, or there is no usable session.
-  Future<SpotifyCanvasClip?> canvas({
+  /// The Spotify Canvas of a track, or the reason there is none.
+  Future<SpotifyCanvasResult> canvas({
     required String title,
     required String artist,
     int durationMs = 0,
   }) async {
+    final tag = 'spotify-canvas "$title" - "$artist"';
     final personal = await _auth.personalToken();
-    if (personal == null) return null;
+    if (personal == null) {
+      DiagnosticsLog.info('$tag stage=session ok=false');
+      return const SpotifyCanvasResult.none(
+        'Spotify session is not signed in (sign in again in Settings)',
+      );
+    }
     final match = await _searchTrack(title, artist, durationMs);
-    if (match == null) return null;
+    if (match == null) {
+      DiagnosticsLog.info('$tag stage=search ok=false');
+      return const SpotifyCanvasResult.none(
+        'Could not find this track on Spotify',
+      );
+    }
     final uri = 'spotify:track:${match.id}';
-    final url = await _canvasViaQuery(uri) ?? await _canvasViaProtobuf(uri);
-    if (url == null) return null;
-    return SpotifyCanvasClip(url: url, trackId: match.id);
+    var url = await _canvasViaQuery(uri);
+    final viaQuery = url != null;
+    url ??= await _canvasViaProtobuf(uri);
+    DiagnosticsLog.info(
+      '$tag stage=canvas track=${match.id} found=${url != null} '
+      'route=${viaQuery ? 'query' : (url != null ? 'protobuf' : '-')}',
+    );
+    if (url == null) {
+      return const SpotifyCanvasResult.none('This track has no Spotify Canvas');
+    }
+    return SpotifyCanvasResult.found(
+      SpotifyCanvasClip(url: url, trackId: match.id),
+    );
   }
 
   Future<_SpotifyTrackHit?> _searchTrack(
@@ -480,7 +518,10 @@ class SpotifyApi {
           validateStatus: (_) => true,
         ),
       );
-      if ((res.statusCode ?? 0) ~/ 100 != 2) return null;
+      if ((res.statusCode ?? 0) ~/ 100 != 2) {
+        DiagnosticsLog.info('spotify canvas-query http=${res.statusCode}');
+        return null;
+      }
       final body = jsonDecode(res.data ?? '{}');
       if (body is! Map) return null;
       final data = body['data'];
@@ -498,7 +539,8 @@ class SpotifyApi {
         return url;
       }
       return null;
-    } catch (_) {
+    } catch (e) {
+      DiagnosticsLog.info('spotify canvas-query error=${e.runtimeType}');
       return null;
     }
   }
@@ -528,7 +570,10 @@ class SpotifyApi {
           validateStatus: (_) => true,
         ),
       );
-      if ((res.statusCode ?? 0) ~/ 100 != 2) return null;
+      if ((res.statusCode ?? 0) ~/ 100 != 2) {
+        DiagnosticsLog.info('spotify canvas-protobuf http=${res.statusCode}');
+        return null;
+      }
       final text = latin1.decode(res.data ?? const []);
       return RegExp(r'''https://[^\x00-\x20"']+\.mp4[^\x00-\x20"']*''')
           .firstMatch(text)

@@ -14,6 +14,7 @@ import '../../features/innertube/innertube_api.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/player/player_state.dart';
 import '../../features/search/shared_providers.dart';
+import '../../features/spotify/spotify_auth.dart';
 import '../components/buttons.dart';
 import '../theme/tokens.dart';
 
@@ -93,6 +94,7 @@ Future<String> buildDiagnosticsReport(WidgetRef ref) async {
   b.writeln('accounts and sources');
   b.writeln('  lastfm_signed_in: ${prefs.isAuthenticated}');
   b.writeln('  youtube_connected: ${yt.connected}');
+  b.writeln('  spotify_connected: ${ref.read(spotifyAuthProvider).connected}');
   b.writeln('  addon_hosts: ${prefs.addonUrls.length}');
   b.writeln('  lyrics_provider: ${prefs.lyricsProviderId}');
   b.writeln();

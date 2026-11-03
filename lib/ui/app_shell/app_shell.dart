@@ -62,7 +62,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _railExpanded = false;
   bool _queueOpen = false;
   bool _equalizerOpen = false;
-  // Canvas: docked on the LEFT (right of the rail), pushes the page.
+  // Canvas: docked on the RIGHT edge, pushes the page; queue/EQ overlay it.
   bool _canvasOpen = false;
   bool _miniOpen = false;
   bool _draggingFiles = false;
@@ -839,18 +839,17 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 // The expanded rail is the collapsed
                                 // rail grown wider: the page makes room
                                 // for it and it stays until toggled off.
-                                left: railW + (_canvasOpen ? cw : 0),
+                                left: railW,
                                 top: 0,
                                 bottom: 0,
                                 // Queue / equalizer overlay the page (they
                                 // do not push it); only Canvas docks.
-                                right: 0,
+                                right: _canvasOpen ? cw : 0,
                                 child: widget.child,
                               ),
-                              // Canvas — docks left of the page (beside
-                              // the rail) and pushes it, like the queue
-                              // does from the right. Painted under the
-                              // rail so it slides out from behind it.
+                              // Canvas — docks on the right edge and pushes
+                              // the page. Queue / equalizer are painted
+                              // after it, so they overlay it.
                               AnimatedPositioned(
                                 duration: waveMotion(
                                   context,
@@ -859,7 +858,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 curve: Curves.easeOutCubic,
                                 top: 0,
                                 bottom: 0,
-                                left: _canvasOpen ? railW : railW - cw - 12,
+                                right: _canvasOpen ? 0 : -(cw + 12),
                                 width: cw,
                                 child: ExcludeFocus(
                                   excluding: !_canvasOpen,

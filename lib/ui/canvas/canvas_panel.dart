@@ -75,6 +75,7 @@ class _WaveCanvasPanelState extends ConsumerState<WaveCanvasPanel> {
     final track = ref.watch(playbackServiceProvider.select((s) => s.current));
 
     CanvasPanelClip? clip;
+    var note = '';
     var loading = false;
     if (widget.open && track != null) {
       final async = ref.watch(canvasPanelClipProvider((
@@ -83,7 +84,8 @@ class _WaveCanvasPanelState extends ConsumerState<WaveCanvasPanel> {
         album: track.album,
         durationMs: track.duration.inMilliseconds,
       )));
-      clip = async.valueOrNull;
+      clip = async.valueOrNull?.clip;
+      note = async.valueOrNull?.note ?? '';
       loading = async.isLoading;
     }
     _sync(clip?.url ?? '');
@@ -109,6 +111,7 @@ class _WaveCanvasPanelState extends ConsumerState<WaveCanvasPanel> {
                 artworkUrl: track?.artworkUrl ?? '',
                 clip: clip,
                 loading: loading,
+                note: note,
                 open: widget.open,
                 onClose: widget.onClose,
               ),
@@ -126,6 +129,7 @@ class _Frame extends ConsumerWidget {
   final String artworkUrl;
   final CanvasPanelClip? clip;
   final bool loading;
+  final String note;
   final bool open;
   final VoidCallback onClose;
   const _Frame({
@@ -134,6 +138,7 @@ class _Frame extends ConsumerWidget {
     required this.artworkUrl,
     required this.clip,
     required this.loading,
+    required this.note,
     required this.open,
     required this.onClose,
   });
@@ -267,8 +272,7 @@ class _Frame extends ConsumerWidget {
                     if (clip == null && !loading) ...[
                       const SizedBox(height: 6),
                       Text(
-                        'No canvas for this track. Connect Spotify in '
-                        'Settings → Integrations for more.',
+                        note.isEmpty ? 'No canvas for this track.' : note,
                         style: WaveType.meta.copyWith(
                           color: _white54,
                           fontSize: 11,

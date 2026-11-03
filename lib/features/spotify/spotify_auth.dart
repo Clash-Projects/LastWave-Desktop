@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/network/dio_factory.dart';
 import '../../core/storage/prefs.dart';
 import '../../core/storage/secure_store.dart';
@@ -136,12 +137,19 @@ class SpotifyAuth extends ChangeNotifier {
     if (cookie == null) return SpotifySessionCheck.missing;
     try {
       final totp = await _totp(cookie);
-      if (totp == null) return SpotifySessionCheck.unreachable;
+      if (totp == null) {
+        DiagnosticsLog.info('spotify auth stage=otp-secret ok=false');
+        return SpotifySessionCheck.unreachable;
+      }
       var sawAnswer = false;
       for (final reason in const ['transport', 'init']) {
         final res = await _requestPersonal(cookie, totp, reason);
         if (res == null) continue;
         sawAnswer = true;
+        DiagnosticsLog.info(
+          'spotify auth reason=$reason anonymous=${res['isAnonymous']} '
+          'tokenLen=${(res['accessToken'] as String?)?.length ?? 0}',
+        );
         if (_usable(res)) {
           _storeToken(res);
           return SpotifySessionCheck.ok;
@@ -371,7 +379,12 @@ class SpotifyAuth extends ChangeNotifier {
           validateStatus: (_) => true,
         ),
       );
-      if ((res.statusCode ?? 0) ~/ 100 != 2) return null;
+      if ((res.statusCode ?? 0) ~/ 100 != 2) {
+        DiagnosticsLog.info(
+          'spotify auth reason=$reason http=${res.statusCode}',
+        );
+        return null;
+      }
       final body = jsonDecode(res.data ?? '{}');
       return body is Map ? Map<String, dynamic>.from(body) : null;
     } catch (_) {

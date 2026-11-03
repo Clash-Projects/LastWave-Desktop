@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 
+import '../../core/diagnostics/diagnostics_log.dart';
+
 /// What Spotify's web player is built on, read out of its own script.
 ///
 /// Port of LastWave-Native `SpotifyWebPlayer`. Two things live in the
@@ -51,8 +53,12 @@ class SpotifyWebPlayer {
 
   static Future<String?> _read(Dio dio) async {
     final page = await _get(dio, _playerPage);
-    if (page == null) return null;
+    if (page == null) {
+      DiagnosticsLog.info('spotify player page=unreadable');
+      return null;
+    }
     final bundles = scripts(page);
+    DiagnosticsLog.info('spotify player bundles=${bundles.length}');
     for (final bundle in bundles.take(_maxScripts)) {
       final body = await _get(dio, bundle);
       if (body == null) continue;
@@ -60,9 +66,14 @@ class SpotifyWebPlayer {
           secrets(body).isNotEmpty) {
         _script = body;
         _readAt = DateTime.now();
+        DiagnosticsLog.info(
+          'spotify player script ok secrets=${secrets(body).length} '
+          'canvasHash=${queryHash(body, canvasOperation) != null}',
+        );
         return body;
       }
     }
+    DiagnosticsLog.info('spotify player script=no-hashes-or-secrets');
     return null;
   }
 
@@ -103,8 +114,16 @@ class SpotifyWebPlayer {
     for (final m in _operation.allMatches(script)) {
       if (m.group(1) == operation) return m.group(2);
     }
+    for (final m in _operationNamed.allMatches(script)) {
+      if (m.group(1) == operation) return m.group(2);
+    }
     return null;
   }
+
+  /// Alternate declaration shape: `name:"x",operation:"query",sha256Hash:"…"`.
+  static final _operationNamed = RegExp(
+    r'''name:\s*["'](\w+)["']\s*,\s*operation:\s*["']query["']\s*,\s*sha256Hash:\s*["']([0-9a-f]{64})["']''',
+  );
 
   static final _operation = RegExp(
     r'''["'](\w+)["']\s*,\s*["']query["']\s*,\s*["']([0-9a-f]{64})["']''',

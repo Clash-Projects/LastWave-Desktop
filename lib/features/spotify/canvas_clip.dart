@@ -31,24 +31,48 @@ typedef CanvasPanelQuery = ({
   int durationMs,
 });
 
+/// The panel's answer: a clip, or a note saying why there is none.
+class CanvasPanelOutcome {
+  final CanvasPanelClip? clip;
+  final String note;
+  const CanvasPanelOutcome({this.clip, this.note = ''});
+}
+
 /// Spotify Canvas first (connected account + toggle on), then the
-/// motion-artwork providers the Now Playing cover already uses. Null
-/// when nothing has a clip for the track. Successful answers are kept;
-/// misses are re-asked next time so a transient failure never sticks.
+/// motion-artwork providers the Now Playing cover already uses. Hits are
+/// kept; misses are re-asked next time so a transient failure never sticks.
 final canvasPanelClipProvider = FutureProvider.autoDispose
-    .family<CanvasPanelClip?, CanvasPanelQuery>((ref, q) async {
+    .family<CanvasPanelOutcome, CanvasPanelQuery>((ref, q) async {
   final prefs = ref.watch(prefsProvider);
   final auth = ref.watch(spotifyAuthProvider);
+  var note = '';
 
-  if (prefs.spotifyCanvasEnabled && auth.connected) {
-    final clip = await ref.watch(spotifyApiProvider).canvas(
-          title: q.title,
-          artist: q.artist,
-          durationMs: q.durationMs,
+  if (!prefs.spotifyCanvasEnabled) {
+    note = 'Spotify Canvas is switched off in Settings';
+  } else {
+    // The stored cookie loads asynchronously at startup: wait for it
+    // instead of racing it (a lookup before it lands used to fall
+    // straight through to the non-Spotify providers and stay cached).
+    final hasCookie = await auth.spdc() != null;
+    if (!hasCookie) {
+      note = 'Connect Spotify in Settings → Integrations for Spotify Canvas';
+    } else {
+      final res = await ref.watch(spotifyApiProvider).canvas(
+            title: q.title,
+            artist: q.artist,
+            durationMs: q.durationMs,
+          );
+      if (res.clip != null) {
+        ref.keepAlive();
+        return CanvasPanelOutcome(
+          clip: CanvasPanelClip(
+            url: res.clip!.url,
+            source: 'Spotify',
+            vertical: true,
+          ),
         );
-    if (clip != null) {
-      ref.keepAlive();
-      return CanvasPanelClip(url: clip.url, source: 'Spotify', vertical: true);
+      }
+      note = res.reason;
     }
   }
 
@@ -64,15 +88,17 @@ final canvasPanelClipProvider = FutureProvider.autoDispose
   if (art != null && art.hasUrl) {
     ref.keepAlive();
     final tall = art.urlTall.isNotEmpty;
-    return CanvasPanelClip(
-      url: tall ? art.urlTall : art.url,
-      source: switch (art.source) {
-        CanvasSource.apple => 'Apple Music',
-        CanvasSource.tidal => 'Tidal',
-        CanvasSource.community => 'Community',
-      },
-      vertical: tall,
+    return CanvasPanelOutcome(
+      clip: CanvasPanelClip(
+        url: tall ? art.urlTall : art.url,
+        source: switch (art.source) {
+          CanvasSource.apple => 'Apple Music',
+          CanvasSource.tidal => 'Tidal',
+          CanvasSource.community => 'Community',
+        },
+        vertical: tall,
+      ),
     );
   }
-  return null;
+  return CanvasPanelOutcome(note: note);
 });

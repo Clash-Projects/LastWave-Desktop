@@ -40,8 +40,7 @@ class WavePlayerDock extends ConsumerWidget {
   final VoidCallback onToggleLyrics;
   final VoidCallback? onToggleEqualizer;
 
-  /// Canvas panel (9:16 looping video, docked on the left like the queue
-  /// is on the right). Takes the place the Output glyph used to have;
+  /// Canvas panel (9:16 looping video, docked on the right edge). Takes the place the Output glyph used to have;
   /// Output now lives inside the More menu.
   final VoidCallback? onToggleCanvas;
   final bool queueActive;
