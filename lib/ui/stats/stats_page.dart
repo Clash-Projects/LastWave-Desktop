@@ -261,9 +261,7 @@ class _TabButton extends StatelessWidget {
                 ? (dark
                     ? Colors.white.withValues(alpha: 0.15)
                     : Colors.white)
-                : (dark
-                    ? WaveColors.surface
-                    : WaveColors.lightSurface),
+                : waveSurface(context),
             borderRadius: WaveRadius.controlsRadius,
             border: Border.all(
               color: selected
@@ -347,7 +345,7 @@ class _PeriodPillSwitch extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(3.5),
       decoration: BoxDecoration(
-        color: dark ? WaveColors.surfaceRaised : WaveColors.lightOutlineSoft,
+        color: dark ? waveSurfaceRaised(context) : waveOutlineSoft(context),
         borderRadius: WaveRadius.floatingRadius,
         border: Border.all(
           color: waveDivider(context),
@@ -428,7 +426,7 @@ class _LastFmProfileHub extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: dark ? WaveColors.surfaceRaised : WaveColors.lightSurface,
+          color: dark ? waveSurfaceRaised(context) : waveSurface(context),
           borderRadius: WaveRadius.floatingRadius,
           border: Border.all(
             color: const Color(0xFFE0506A).withValues(alpha: 0.25),
@@ -501,7 +499,7 @@ class _LastFmProfileHub extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: dark ? WaveColors.surface : WaveColors.lightSurface,
+        color: waveSurface(context),
         borderRadius: WaveRadius.floatingRadius,
         border: Border.all(color: waveDivider(context), width: 0.8),
       ),
@@ -723,7 +721,7 @@ class _MetricTile extends StatelessWidget {
     final dark = waveIsDark(context);
 
     final accent = waveAccent(context);
-    final base = dark ? WaveColors.surface : WaveColors.lightSurface;
+    final base = waveSurface(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
@@ -1055,7 +1053,7 @@ class _StatsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
 
-    final base = dark ? WaveColors.surface : WaveColors.lightSurface;
+    final base = waveSurface(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       decoration: BoxDecoration(

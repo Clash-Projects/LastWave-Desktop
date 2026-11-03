@@ -585,8 +585,8 @@ class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: _hover
-                    ? (dark ? WaveColors.surfaceOverlay : WaveColors.lightOverlay)
-                    : (dark ? WaveColors.surface : WaveColors.lightSurface),
+                    ? waveSurfaceOverlay(context)
+                    : waveSurface(context),
                 borderRadius: BorderRadius.circular(WaveRadius.controls),
                 boxShadow: [
                   if (_hover)

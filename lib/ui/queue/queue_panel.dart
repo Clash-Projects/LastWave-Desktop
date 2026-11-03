@@ -217,13 +217,11 @@ class WaveQueueEmpty extends StatelessWidget {
               height: 52,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: dark
-                    ? WaveColors.surfaceOverlay
-                    : WaveColors.lightOverlay,
+                color: waveSurfaceOverlay(context),
                 border: Border.all(
                   color: dark
-                      ? WaveColors.outlineSoft
-                      : WaveColors.lightOutline,
+                      ? waveOutlineSoft(context)
+                      : waveOutline(context),
                 ),
               ),
               child: Icon(

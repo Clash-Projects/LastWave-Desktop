@@ -1023,8 +1023,8 @@ class _MosaicFallback extends StatelessWidget {
           colors: [
             tint.withValues(alpha: dark ? 0.85 : 0.7),
             dark
-                ? WaveColors.surfaceRaised
-                : WaveColors.lightOverlay,
+                ? waveSurfaceRaised(context)
+                : waveSurfaceOverlay(context),
           ],
         ),
       ),

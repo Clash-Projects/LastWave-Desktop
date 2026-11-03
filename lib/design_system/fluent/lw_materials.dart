@@ -153,8 +153,13 @@ class LwHaze extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final spec = lwHazeSpecs[level]!;
+    // Default fill follows the active palette (AMOLED / Custom); Pearl
+    // keeps its #F9F9F9 content tone.
+    final surfaces = waveSurfaces(context);
     final resolvedBase = base ??
-        (dark ? LwColors.surfaceLayer1 : LwColors.lightSurfaceLayer1);
+        (surfaces.isCustom || dark
+            ? surfaces.surface
+            : LwColors.lightSurfaceLayer1);
     final reduceT =
         MediaQuery.maybeOf(context)?.highContrast ?? false;
     final useBlur = enableBlur &&

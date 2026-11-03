@@ -12,7 +12,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../../app/window.dart';
 import '../../app/auth_gate.dart';
 import '../../core/app_info.dart';
 import '../../core/audio/stream_models.dart';
@@ -860,6 +859,17 @@ class _EqualizerSettingsSummary extends ConsumerWidget {
   }
 }
 
+const _accentPresets = <Color>[
+  Color(0xFFF5F4F0),
+  Color(0xFF4CC2FF),
+  Color(0xFFE03030),
+  Color(0xFF7C4DFF),
+  Color(0xFF2196C6),
+  Color(0xFF6B9E6B),
+  Color(0xFFE0A030),
+  Color(0xFFE0507A),
+];
+
 class _Appearance extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Appearance({required this.onUpdate});
@@ -873,42 +883,38 @@ class _Appearance extends ConsumerWidget {
         _Group(
           id: 'appearance.theme',
           title: 'Theme',
-          subtitle: 'Midnight charcoal or pearl light',
+          subtitle: 'Midnight, Pearl, or your own colours',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Expanded(
-                    child: ToggleButton(
-                      checked: !theme.isLight,
-                      onChanged: (_) async {
-                        await ref
+                  for (final (mode, label) in const [
+                    ('dark', 'Midnight'),
+                    ('light', 'Pearl'),
+                    ('custom', 'Custom'),
+                  ]) ...[
+                    if (mode != 'dark') const SizedBox(width: 8),
+                    Expanded(
+                      child: ToggleButton(
+                        checked: switch (mode) {
+                          'light' => theme.isLight,
+                          'custom' => theme.isCustom,
+                          _ => !theme.isLight && !theme.isCustom,
+                        },
+                        onChanged: (_) => ref
                             .read(themeControllerProvider.notifier)
-                            .setThemeMode(false);
-                        await applyWindowMaterial(
-                          isLight: false,
-                          amoled: prefs.amoled,
-                        );
-                      },
-                      child: const Text('Midnight'),
+                            .setThemeMode(mode),
+                        child: Text(label),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ToggleButton(
-                      checked: theme.isLight,
-                      onChanged: (_) async {
-                        await ref
-                            .read(themeControllerProvider.notifier)
-                            .setThemeMode(true);
-                        await applyWindowMaterial(isLight: true);
-                      },
-                      child: const Text('Pearl'),
-                    ),
-                  ),
+                  ],
                 ],
               ),
+              if (theme.isCustom) ...[
+                const SizedBox(height: 12),
+                _CustomThemeEditor(base: theme.customBase),
+              ],
               const SizedBox(height: 12),
               const Text('Accent source', style: WaveType.trackTitle),
               const SizedBox(height: 6),
@@ -934,17 +940,9 @@ class _Appearance extends ConsumerWidget {
               const SizedBox(height: 6),
               Wrap(
                 spacing: 8,
+                runSpacing: 8,
                 children: [
-                  for (final c in [
-                    const Color(0xFFF5F4F0),
-                    const Color(0xFF4CC2FF),
-                    const Color(0xFFE03030),
-                    const Color(0xFF7C4DFF),
-                    const Color(0xFF2196C6),
-                    const Color(0xFF6B9E6B),
-                    const Color(0xFFE0A030),
-                    const Color(0xFFE0507A),
-                  ])
+                  for (final c in _accentPresets)
                     MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
@@ -978,6 +976,17 @@ class _Appearance extends ConsumerWidget {
                         ),
                       ),
                     ),
+                  _PickColorSwatch(
+                    tooltip: 'Pick any accent colour',
+                    current: theme.accent,
+                    selected: !_accentPresets.any(
+                        (c) => c.toARGB32() == theme.accent.toARGB32()),
+                    onPicked: (c) => onUpdate((p) async {
+                      await p.setAccentColor(c.toARGB32());
+                      await p.setAccentSource(AccentSource.custom.id);
+                    }),
+                    dialogTitle: 'Accent colour',
+                  ),
                 ],
               ),
             ],
@@ -1032,7 +1041,7 @@ class _Appearance extends ConsumerWidget {
             children: [
               _SwitchRow(
                 value: prefs.amoled,
-                enabled: !theme.isLight,
+                enabled: !theme.isLight && !theme.isCustom,
                 onChanged: (v) => onUpdate((p) => p.setAmoled(v)),
                 title: 'AMOLED black',
                 subtitle: 'Pure-black surfaces · Midnight only',
@@ -1047,6 +1056,323 @@ class _Appearance extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Custom theme: preset base tones, any colour through the picker, and a
+/// live preview of the generated surfaces.
+class _CustomThemeEditor extends ConsumerWidget {
+  final Color base;
+  const _CustomThemeEditor({required this.base});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(themeControllerProvider.notifier);
+    final argb = base.toARGB32();
+    final isPreset =
+        WaveSurfaces.customPresets.any((p) => p.$2.toARGB32() == argb);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Base colour', style: WaveType.trackTitle),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final (name, color) in WaveSurfaces.customPresets)
+              _ColorSwatchButton(
+                color: color,
+                selected: color.toARGB32() == argb,
+                tooltip: name,
+                onTap: () => controller.setCustomBase(color),
+              ),
+            _PickColorSwatch(
+              tooltip: 'Pick any base colour',
+              current: base,
+              selected: !isPreset,
+              dialogTitle: 'Theme base colour',
+              onPicked: controller.setCustomBase,
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _ThemePreview(surfaces: WaveSurfaces.fromCustomBase(base),
+            light: WaveSurfaces.isLightBase(base)),
+        const SizedBox(height: 6),
+        Text(
+          'Dark colours give light text, light colours give dark text. '
+          'Very bright or vivid picks are toned down so text stays readable.',
+          style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
+        ),
+      ],
+    );
+  }
+}
+
+/// A 28px colour dot: selected ring + check, same metrics as the accent
+/// swatches.
+class _ColorSwatchButton extends StatelessWidget {
+  final Color color;
+  final bool selected;
+  final String tooltip;
+  final VoidCallback onTap;
+  final Widget? child;
+
+  const _ColorSwatchButton({
+    required this.color,
+    required this.selected,
+    required this.tooltip,
+    required this.onTap,
+    this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LWTooltip(
+      message: tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color,
+              border: Border.all(
+                color: selected ? waveAccent(context) : waveDivider(context),
+                width: 2,
+              ),
+            ),
+            child: child ??
+                (selected
+                    ? Icon(
+                        FluentIcons.check_mark,
+                        size: 14,
+                        color: onAccentFor(color),
+                      )
+                    : null),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Last swatch in a row: opens the system-style colour picker. Shows the
+/// current colour when it isn't one of the presets.
+class _PickColorSwatch extends StatelessWidget {
+  final String tooltip;
+  final Color current;
+  final bool selected;
+  final String dialogTitle;
+  final ValueChanged<Color> onPicked;
+
+  const _PickColorSwatch({
+    required this.tooltip,
+    required this.current,
+    required this.dialogTitle,
+    required this.onPicked,
+    this.selected = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ColorSwatchButton(
+      color: selected ? current : waveSurfaceOverlay(context),
+      selected: selected,
+      tooltip: tooltip,
+      onTap: () async {
+        final picked = await showWaveColorPicker(
+          context,
+          title: dialogTitle,
+          initial: current,
+        );
+        if (picked != null) onPicked(picked);
+      },
+      child: selected
+          ? null
+          : Icon(
+              WaveIcons.theme,
+              size: 14,
+              color: waveTextSecondary(context),
+            ),
+    );
+  }
+}
+
+/// Opens the Fluent colour picker (spectrum ring + hex) in a dialog.
+/// Returns null when cancelled. Alpha is fixed at opaque.
+Future<Color?> showWaveColorPicker(
+  BuildContext context, {
+  required String title,
+  required Color initial,
+}) {
+  var picked = initial.withValues(alpha: 1);
+  return showDialog<Color>(
+    context: context,
+    barrierDismissible: true,
+    builder: (dialogContext) => ContentDialog(
+      constraints: const BoxConstraints(maxWidth: 380),
+      title: Text(title),
+      content: SingleChildScrollView(
+        child: StatefulBuilder(
+          builder: (context, setState) => ColorPicker(
+            color: picked,
+            onChanged: (c) => setState(() => picked = c.withValues(alpha: 1)),
+            isAlphaEnabled: false,
+            isAlphaSliderVisible: false,
+            isAlphaTextInputVisible: false,
+            isMoreButtonVisible: false,
+            isColorChannelTextInputVisible: false,
+          ),
+        ),
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(picked),
+          child: const Text('Apply'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Miniature of the generated theme: rail, page, card, raised and hover
+/// tiles, dock, with real text tokens on top.
+class _ThemePreview extends StatelessWidget {
+  final WaveSurfaces surfaces;
+  final bool light;
+  const _ThemePreview({required this.surfaces, required this.light});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = light ? WaveColors.lightTextPrimary : WaveColors.textPrimary;
+    final text2 =
+        light ? WaveColors.lightTextSecondary : WaveColors.textSecondary;
+    final accent = waveAccent(context);
+    Widget tile(Color fill, String label) => Expanded(
+          child: Container(
+            height: 28,
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: fill,
+              borderRadius: WaveRadius.controlsRadius,
+            ),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: WaveType.meta.copyWith(color: text2),
+            ),
+          ),
+        );
+    return ClipRRect(
+      borderRadius: WaveRadius.artworkRadius,
+      child: Container(
+        height: 132,
+        decoration: BoxDecoration(
+          color: surfaces.background,
+          border: Border.all(color: surfaces.outlineSoft),
+          borderRadius: WaveRadius.artworkRadius,
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    width: 36,
+                    decoration: BoxDecoration(
+                      color: surfaces.railTranslucent,
+                      border: Border(
+                        right: BorderSide(color: surfaces.outlineSoft),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 10),
+                        Icon(WaveIcons.home, size: 14, color: accent),
+                        const SizedBox(height: 12),
+                        Icon(WaveIcons.search, size: 14, color: text2),
+                        const SizedBox(height: 12),
+                        Icon(WaveIcons.liked, size: 14, color: text2),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: surfaces.surface,
+                          border: Border.all(color: surfaces.outlineSoft),
+                          borderRadius: WaveRadius.controlsRadius,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Now playing',
+                              style: WaveType.trackTitle.copyWith(color: text),
+                            ),
+                            const Spacer(),
+                            Row(
+                              children: [
+                                tile(surfaces.surfaceRaised, 'Raised'),
+                                const SizedBox(width: 8),
+                                tile(surfaces.surfaceOverlay, 'Hover'),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              height: 26,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: surfaces.dockTranslucent,
+                border: Border(top: BorderSide(color: surfaces.outlineSoft)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration:
+                        BoxDecoration(color: accent, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      height: 3,
+                      decoration: BoxDecoration(
+                        color: text2.withValues(alpha: 0.35),
+                        borderRadius: WaveRadius.tinyRadius,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

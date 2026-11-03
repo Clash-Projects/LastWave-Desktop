@@ -246,15 +246,12 @@ class _ArtistCellState extends State<_ArtistCell> {
                               horizontal: 7, vertical: 2),
                       decoration: BoxDecoration(
                         color: dark
-                            ? WaveColors.surfaceRaised
-                            : WaveColors.lightSurface,
+                            ? waveSurfaceRaised(context)
+                            : waveSurface(context),
                         borderRadius:
                             BorderRadius.circular(999),
                         border: Border.all(
-                            color: dark
-                                ? WaveColors.outline
-                                : WaveColors
-                                    .lightOutline),
+                            color: waveOutline(context)),
                       ),
                       child: Text('${widget.rank}',
                           style: WaveType.meta.copyWith(

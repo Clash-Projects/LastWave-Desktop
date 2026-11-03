@@ -138,7 +138,6 @@ class _WidePodcastCardState extends State<_WidePodcastCard> {
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
@@ -160,9 +159,7 @@ class _WidePodcastCardState extends State<_WidePodcastCard> {
                     fit: StackFit.expand,
                     children: [
                       ColoredBox(
-                        color: dark
-                            ? WaveColors.surface
-                            : WaveColors.lightSurface,
+                        color: waveSurface(context),
                       ),
                       if (widget.artworkUrl.isNotEmpty)
                         CachedNetworkImage(

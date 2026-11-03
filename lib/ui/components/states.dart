@@ -94,8 +94,8 @@ class WaveEmpty extends StatelessWidget {
                   ),
                   border: Border.all(
                     color: dark
-                        ? WaveColors.outlineSoft
-                        : WaveColors.lightOutline,
+                        ? waveOutlineSoft(context)
+                        : waveOutline(context),
                   ),
                 ),
                 child: Icon(

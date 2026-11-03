@@ -51,7 +51,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
       width: double.infinity,
       height: double.infinity,
       decoration: BoxDecoration(
-        color: dark ? waveSurface(context) : WaveColors.lightSurface,
+        color: waveSurface(context),
         border: widget.embedded
             ? Border.all(
                 color: waveDivider(context).withValues(alpha: dark ? 0.35 : 0.6),
@@ -280,7 +280,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
             borderRadius: BorderRadius.circular(WaveRadius.menu),
             color: active
                 ? (dark ? const Color(0xFF1F1B14) : const Color(0xFFFFF9ED))
-                : (dark ? waveSurfaceRaised(context) : WaveColors.lightOverlay),
+                : (dark ? waveSurfaceRaised(context) : waveSurfaceOverlay(context)),
             border: Border.all(
               color: active
                   ? (dark
@@ -425,7 +425,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
                   : const Color(0xFFFFF3D6))
               : (dark
                   ? waveSurfaceRaised(context)
-                  : WaveColors.lightOverlay),
+                  : waveSurfaceOverlay(context)),
           border: Border.all(
             color: isSelected
                 ? (dark ? const Color(0xFFF5A623) : const Color(0xFFE5B760))
@@ -548,7 +548,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
                         : (dark ? Colors.white : Colors.black))
                     : (dark
                         ? waveSurfaceRaised(context)
-                        : WaveColors.lightOverlay),
+                        : waveSurfaceOverlay(context)),
                 border: Border.all(
                   color: isSelected
                       ? Colors.transparent
@@ -600,7 +600,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
       decoration: BoxDecoration(
-        color: dark ? waveSurfaceRaised(context) : WaveColors.lightOverlay,
+        color: dark ? waveSurfaceRaised(context) : waveSurfaceOverlay(context),
         borderRadius: BorderRadius.circular(WaveRadius.menu),
         border: Border.all(
           color: waveDivider(context).withValues(alpha: dark ? 0.3 : 0.5),

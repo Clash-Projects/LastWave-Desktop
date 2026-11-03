@@ -213,7 +213,7 @@ class WaveGlass extends StatelessWidget {
     // Haze fill rides the surface ladder, so AMOLED collapses it with the
     // rest of the chrome (it used to be a fixed #121212 / #F4F4F4, which
     // sat *above* the AMOLED base instead of lifting from it).
-    final base = dark ? waveSurface(context) : WaveColors.lightBackground;
+    final base = dark ? waveSurface(context) : waveBackground(context);
     // "Extra translucency" thins the fill and widens the filter; only
     // meaningful while blurring — without a backdrop there is nothing to
     // let through, so the opaque fallback keeps its density.

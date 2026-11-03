@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show Color;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -60,9 +61,13 @@ Future<void> _setupAcrylic() async {
 /// changes. AMOLED collapses the window background to pure black so the
 /// OS-painted frame (visible during resize / before the first Flutter
 /// frame) matches the black scaffold instead of flashing graphite.
+///
+/// [background] is the Custom theme's page colour, so the OS frame matches
+/// a tinted scaffold too.
 Future<void> applyWindowMaterial({
   required bool isLight,
   bool amoled = false,
+  Color? background,
 }) async {
   try {
     await Window.setEffect(
@@ -70,9 +75,12 @@ Future<void> applyWindowMaterial({
       dark: !isLight,
     );
     await windowManager.setBackgroundColor(
-      isLight
-          ? WaveColors.lightBackground
-          : (amoled ? WaveColors.amoledBackground : WaveColors.background),
+      background ??
+          (isLight
+              ? WaveColors.lightBackground
+              : (amoled
+                  ? WaveColors.amoledBackground
+                  : WaveColors.background)),
     );
   } catch (_) {}
 }

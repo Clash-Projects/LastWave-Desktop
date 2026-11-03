@@ -257,10 +257,10 @@ class _UpdateDialogState extends ConsumerState<UpdateDialog> {
               constraints: const BoxConstraints(maxHeight: 240),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: dark ? WaveColors.surface : WaveColors.lightSurface,
+                color: waveSurface(context),
                 borderRadius: BorderRadius.circular(WaveRadius.controls),
                 border: Border.all(
-                  color: dark ? WaveColors.outline : WaveColors.lightOutline,
+                  color: waveOutline(context),
                 ),
               ),
               child: Scrollbar(

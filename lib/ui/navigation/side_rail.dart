@@ -64,7 +64,6 @@ class _WaveSideRailState extends State<WaveSideRail> {
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
     final width =
         expanded ? WaveDensity.railExpanded : WaveDensity.railCollapsed;
     // Haze Level 1 — subtle tonal navigation material, never a solid slab.
@@ -83,9 +82,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
       level: LwHazeLevel.l1,
       enableBlur: false,
       fillAlpha: 1.0,
-      base: (dark
-              ? waveRailTranslucent(context)
-              : WaveColors.lightNavBackground)
+      base: waveRailTranslucent(context)
           .withValues(alpha: 1.0),
       border: Border(
         right: BorderSide(color: waveDivider(context)),

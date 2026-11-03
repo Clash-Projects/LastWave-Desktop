@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 /// CANONICAL — all agents must import this, do NOT use LwColors/LwRadius.
@@ -78,6 +80,11 @@ class WaveColors {
   static const amoledPanelTranslucent = Color(0xE6000000);
   static const amoledDockTranslucent = Color(0xF2000000);
   static const amoledRailTranslucent = Color(0xE6000000);
+
+  /// Fourth step of the AMOLED ladder (0A → 11 → 1A). Hover tiles and
+  /// skeletons used the graphite `#262626` here and showed as grey
+  /// patches on the black page.
+  static const amoledSurfaceOverlay = Color(0xFF1A1A1A);
 }
 
 /// Resolved base-surface palette for the active dark theme.
@@ -92,9 +99,24 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
   final Color background;
   final Color surface;
   final Color surfaceRaised;
+
+  /// Fourth step: hover tiles, skeletons, pressed fills on cards.
+  final Color surfaceOverlay;
   final Color panelTranslucent;
   final Color dockTranslucent;
   final Color railTranslucent;
+
+  /// Control outlines (inputs, chips, focus-less borders).
+  final Color outline;
+
+  /// Hairlines: dividers and panel edges.
+  final Color outlineSoft;
+
+  /// True for a palette generated from the user's Custom theme colour. The
+  /// helpers below then read every surface from here in BOTH brightnesses
+  /// (a light custom base would otherwise fall back to the pearl
+  /// constants).
+  final bool isCustom;
 
   const WaveSurfaces({
     required this.background,
@@ -103,6 +125,10 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
     required this.panelTranslucent,
     required this.dockTranslucent,
     required this.railTranslucent,
+    this.surfaceOverlay = WaveColors.surfaceOverlay,
+    this.outline = WaveColors.outline,
+    this.outlineSoft = WaveColors.outlineSoft,
+    this.isCustom = false,
   });
 
   /// Default graphite Midnight palette.
@@ -120,27 +146,132 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
     background: WaveColors.amoledBackground,
     surface: WaveColors.amoledSurface,
     surfaceRaised: WaveColors.amoledSurfaceRaised,
+    surfaceOverlay: WaveColors.amoledSurfaceOverlay,
     panelTranslucent: WaveColors.amoledPanelTranslucent,
     dockTranslucent: WaveColors.amoledDockTranslucent,
     railTranslucent: WaveColors.amoledRailTranslucent,
   );
+
+  /// Preset bases offered by the Custom theme picker (any colour works).
+  static const customPresets = <(String, Color)>[
+    ('Ocean', Color(0xFF1A2A44)),
+    ('Forest', Color(0xFF13261C)),
+    ('Plum', Color(0xFF2A1838)),
+    ('Wine', Color(0xFF3A1622)),
+    ('Espresso', Color(0xFF2B2018)),
+    ('Slate', Color(0xFF1E242C)),
+    ('Teal', Color(0xFF0B3D3A)),
+    ('Sand', Color(0xFFEFE7DA)),
+    ('Mint', Color(0xFFE4F1E9)),
+    ('Lavender', Color(0xFFECE6F6)),
+    ('Sky', Color(0xFFE3ECF7)),
+  ];
+
+  /// Whether [base] produces a light Custom theme (dark text). Mid tones
+  /// resolve to dark: the generator clamps the page to a readable value.
+  static bool isLightBase(Color base) => base.computeLuminance() > 0.35;
+
+  /// A full surface ladder from one user colour.
+  ///
+  /// The hue is kept; saturation and lightness are clamped, and the steps
+  /// mirror the graphite ladder (0E → 16 → 1E → 26): each one a little
+  /// lighter and a little less saturated, so raised layers never turn neon
+  /// on vivid bases. Light bases mirror the pearl layout: cards lighter
+  /// than the page, the rail and hover tiles slightly darker.
+  ///
+  /// HSL lightness doesn't track perceived brightness (a vivid green is
+  /// far brighter than a blue at the same value), so the page is then
+  /// nudged darker (or lighter) until secondary text keeps WCAG AA (4.5:1)
+  /// on the brightest (or darkest) step. Primary text then clears ~10:1.
+  factory WaveSurfaces.fromCustomBase(Color base) {
+    final hsl = HSLColor.fromColor(base.withValues(alpha: 1));
+    Color tone(double lightness, double saturation) => hsl
+        .withLightness(lightness.clamp(0.0, 1.0))
+        .withSaturation(saturation.clamp(0.0, 1.0))
+        .toColor();
+    if (isLightBase(base)) {
+      final sat = hsl.saturation.clamp(0.0, 0.45);
+      var l = hsl.lightness.clamp(0.88, 0.96);
+      for (var i = 0;
+          i < 40 &&
+              _contrast(WaveColors.lightTextSecondary, tone(l - 0.04, sat)) <
+                  4.5;
+          i++) {
+        l += 0.005;
+      }
+      final card = tone(math.min(l + 0.035, 0.99), sat);
+      return WaveSurfaces(
+        background: tone(l, sat),
+        surface: card,
+        surfaceRaised: card,
+        surfaceOverlay: tone(l - 0.04, sat),
+        panelTranslucent: card,
+        dockTranslucent: card,
+        railTranslucent: tone(l - 0.025, sat),
+        outline: tone(l - 0.10, sat * 0.7),
+        outlineSoft: tone(l - 0.06, sat * 0.7),
+        isCustom: true,
+      );
+    }
+    final sat = hsl.saturation.clamp(0.0, 0.55);
+    var l = hsl.lightness.clamp(0.04, 0.16);
+    for (var i = 0;
+        i < 40 &&
+            l > 0 &&
+            _contrast(WaveColors.textSecondary, tone(l + 0.105, sat * 0.8)) <
+                4.5;
+        i++) {
+      l -= 0.005;
+    }
+    final background = tone(l, sat);
+    final surface = tone(l + 0.035, sat * 0.9);
+    return WaveSurfaces(
+      background: background,
+      surface: surface,
+      surfaceRaised: tone(l + 0.07, sat * 0.85),
+      surfaceOverlay: tone(l + 0.105, sat * 0.8),
+      // Same alphas as the graphite translucents (E6 / F2 / E6).
+      panelTranslucent: surface.withValues(alpha: 0.90),
+      dockTranslucent:
+          Color.lerp(background, surface, 0.5)!.withValues(alpha: 0.95),
+      railTranslucent: background.withValues(alpha: 0.90),
+      outline: tone(l + 0.10, sat * 0.6),
+      outlineSoft: tone(l + 0.06, sat * 0.6),
+      isCustom: true,
+    );
+  }
+
+  /// WCAG contrast ratio between two opaque colours.
+  static double _contrast(Color a, Color b) {
+    final la = a.computeLuminance();
+    final lb = b.computeLuminance();
+    return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+  }
 
   @override
   WaveSurfaces copyWith({
     Color? background,
     Color? surface,
     Color? surfaceRaised,
+    Color? surfaceOverlay,
     Color? panelTranslucent,
     Color? dockTranslucent,
     Color? railTranslucent,
+    Color? outline,
+    Color? outlineSoft,
+    bool? isCustom,
   }) {
     return WaveSurfaces(
       background: background ?? this.background,
       surface: surface ?? this.surface,
       surfaceRaised: surfaceRaised ?? this.surfaceRaised,
+      surfaceOverlay: surfaceOverlay ?? this.surfaceOverlay,
       panelTranslucent: panelTranslucent ?? this.panelTranslucent,
       dockTranslucent: dockTranslucent ?? this.dockTranslucent,
       railTranslucent: railTranslucent ?? this.railTranslucent,
+      outline: outline ?? this.outline,
+      outlineSoft: outlineSoft ?? this.outlineSoft,
+      isCustom: isCustom ?? this.isCustom,
     );
   }
 
@@ -151,12 +282,16 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
       background: Color.lerp(background, other.background, t)!,
       surface: Color.lerp(surface, other.surface, t)!,
       surfaceRaised: Color.lerp(surfaceRaised, other.surfaceRaised, t)!,
+      surfaceOverlay: Color.lerp(surfaceOverlay, other.surfaceOverlay, t)!,
       panelTranslucent:
           Color.lerp(panelTranslucent, other.panelTranslucent, t)!,
       dockTranslucent:
           Color.lerp(dockTranslucent, other.dockTranslucent, t)!,
       railTranslucent:
           Color.lerp(railTranslucent, other.railTranslucent, t)!,
+      outline: Color.lerp(outline, other.outline, t)!,
+      outlineSoft: Color.lerp(outlineSoft, other.outlineSoft, t)!,
+      isCustom: t < 0.5 ? isCustom : other.isCustom,
     );
   }
 
@@ -167,13 +302,26 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
           other.background == background &&
           other.surface == surface &&
           other.surfaceRaised == surfaceRaised &&
+          other.surfaceOverlay == surfaceOverlay &&
           other.panelTranslucent == panelTranslucent &&
           other.dockTranslucent == dockTranslucent &&
-          other.railTranslucent == railTranslucent);
+          other.railTranslucent == railTranslucent &&
+          other.outline == outline &&
+          other.outlineSoft == outlineSoft &&
+          other.isCustom == isCustom);
 
   @override
-  int get hashCode => Object.hash(background, surface, surfaceRaised,
-      panelTranslucent, dockTranslucent, railTranslucent);
+  int get hashCode => Object.hash(
+      background,
+      surface,
+      surfaceRaised,
+      surfaceOverlay,
+      panelTranslucent,
+      dockTranslucent,
+      railTranslucent,
+      outline,
+      outlineSoft,
+      isCustom);
 }
 
 /// Spacing scale (px): 4 / 8 / 12 / 16 / 20 / 24 / 32 / 40.
@@ -429,50 +577,70 @@ Color waveTextTertiary(BuildContext context) => waveIsDark(context)
     ? WaveColors.textTertiary
     : WaveColors.lightTextTertiary;
 
-/// Active dark base-surface palette (graphite or AMOLED). Falls back to
-/// graphite when no theme extension is published (e.g. a widget rendered
-/// outside [FluentApp] in a test).
+/// Active base-surface palette: graphite, AMOLED, or the user's Custom
+/// theme. Falls back to graphite when no theme extension is published
+/// (e.g. a widget rendered outside [FluentApp] in a test).
 WaveSurfaces waveSurfaces(BuildContext context) =>
     FluentTheme.of(context).extension<WaveSurfaces>() ??
     WaveSurfaces.graphite;
 
-/// Page/scaffold background. AMOLED-aware.
-Color waveBackground(BuildContext context) => waveIsDark(context)
-    ? waveSurfaces(context).background
-    : WaveColors.lightBackground;
+/// Resolves one surface role. A Custom palette answers in both
+/// brightnesses; otherwise dark reads the published palette (graphite or
+/// AMOLED) and light uses the pearl constant.
+Color _surfaceRole(
+  BuildContext context,
+  Color Function(WaveSurfaces s) pick,
+  Color pearl,
+) {
+  final s = waveSurfaces(context);
+  if (s.isCustom || waveIsDark(context)) return pick(s);
+  return pearl;
+}
 
-Color waveSurface(BuildContext context) => waveIsDark(context)
-    ? waveSurfaces(context).surface
-    : WaveColors.lightSurface;
+/// Page/scaffold background. AMOLED- and Custom-aware.
+Color waveBackground(BuildContext context) =>
+    _surfaceRole(context, (s) => s.background, WaveColors.lightBackground);
 
-Color waveSurfaceRaised(BuildContext context) => waveIsDark(context)
-    ? waveSurfaces(context).surfaceRaised
-    : WaveColors.lightSurfaceRaised;
+Color waveSurface(BuildContext context) =>
+    _surfaceRole(context, (s) => s.surface, WaveColors.lightSurface);
 
-Color wavePanelTranslucent(BuildContext context) => waveIsDark(context)
-    ? waveSurfaces(context).panelTranslucent
-    : WaveColors.lightSurface;
+Color waveSurfaceRaised(BuildContext context) => _surfaceRole(
+    context, (s) => s.surfaceRaised, WaveColors.lightSurfaceRaised);
 
-Color waveDockTranslucent(BuildContext context) => waveIsDark(context)
-    ? waveSurfaces(context).dockTranslucent
-    : WaveColors.lightSurface;
+/// Fourth surface step: hover tiles, skeletons, inset wells.
+Color waveSurfaceOverlay(BuildContext context) =>
+    _surfaceRole(context, (s) => s.surfaceOverlay, WaveColors.lightOverlay);
 
-Color waveRailTranslucent(BuildContext context) => waveIsDark(context)
-    ? waveSurfaces(context).railTranslucent
-    : WaveColors.lightNavBackground;
+Color wavePanelTranslucent(BuildContext context) =>
+    _surfaceRole(context, (s) => s.panelTranslucent, WaveColors.lightSurface);
+
+Color waveDockTranslucent(BuildContext context) =>
+    _surfaceRole(context, (s) => s.dockTranslucent, WaveColors.lightSurface);
+
+Color waveRailTranslucent(BuildContext context) => _surfaceRole(
+    context, (s) => s.railTranslucent, WaveColors.lightNavBackground);
+
+/// Control outline (inputs, chips, bordered tiles).
+Color waveOutline(BuildContext context) =>
+    _surfaceRole(context, (s) => s.outline, WaveColors.lightOutline);
+
+/// Softer outline for quiet edges.
+Color waveOutlineSoft(BuildContext context) =>
+    _surfaceRole(context, (s) => s.outlineSoft, WaveColors.lightOutlineSoft);
 
 /// Hairline stroke: dividers, panel edges, control outlines.
 ///
 /// Light mode paints black at 10% instead of a fixed grey. The pearl page
 /// is `#F3F3F3` and its cards are white, so any single grey could only
-/// ever read on one of the two — `#EDEBE9` read on neither (6/255 against
-/// the page: title bar, rail, dock and every section rule had no edge at
-/// all in light mode). An alpha stroke lands at `#DBDBDB` on the page and
-/// `#E6E6E6` on a card, which is what one hairline has to look like in
-/// both.
-Color waveDivider(BuildContext context) => waveIsDark(context)
-    ? WaveColors.outlineSoft
-    : Colors.black.withValues(alpha: 0.10);
+/// ever read on one of the two. A Custom palette uses its own hue-matched
+/// hairline, so dividers don't show as neutral grey lines on a tinted page.
+Color waveDivider(BuildContext context) {
+  final s = waveSurfaces(context);
+  if (s.isCustom) return s.outlineSoft;
+  return waveIsDark(context)
+      ? s.outlineSoft
+      : Colors.black.withValues(alpha: 0.10);
+}
 
 /// Elevation ladder for surfaces that float over the page.
 ///

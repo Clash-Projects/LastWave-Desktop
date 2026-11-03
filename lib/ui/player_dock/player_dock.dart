@@ -84,7 +84,7 @@ class WavePlayerDock extends ConsumerWidget {
     final targetBase = () {
       final baseColor = dark
           ? waveDockTranslucent(context)
-          : WaveColors.lightSurface.withValues(alpha: 0.97);
+          : waveSurface(context).withValues(alpha: 0.97);
       if (dockTint != null && dark) {
         return Color.lerp(baseColor, dockTint, 0.05) ?? baseColor;
       }
@@ -523,9 +523,7 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
                     ? waveHoverWash(context)
                     : Colors.transparent,
                 border: Border.all(
-                  color: dark
-                      ? WaveColors.outline
-                      : WaveColors.lightOutline,
+                  color: waveOutline(context),
                 ),
                 borderRadius:
                     BorderRadius.circular(WaveRadius.controls),

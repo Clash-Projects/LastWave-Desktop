@@ -320,10 +320,17 @@ class Prefs {
   bool get amoled => _sp.getBool('lw_amoled') ?? false;
   Future<void> setAmoled(bool v) => _sp.setBool('lw_amoled', v);
 
-  /// 'dark' (midnight observatory) or 'light' (pearl white).
+  /// 'dark' (midnight observatory), 'light' (pearl white) or 'custom'
+  /// (surfaces generated from [customThemeBase]).
   String get themeMode => _sp.getString('lw_theme_mode') ?? 'dark';
   Future<void> setThemeMode(String v) => _sp.setString('lw_theme_mode', v);
   bool get isLight => themeMode == 'light';
+  bool get isCustomTheme => themeMode == 'custom';
+
+  /// Base colour (ARGB) of the Custom theme. Default: the Ocean preset.
+  int get customThemeBase => _sp.getInt('lw_custom_theme_base') ?? 0xFF1A2A44;
+  Future<void> setCustomThemeBase(int v) =>
+      _sp.setInt('lw_custom_theme_base', v);
 
   String get accentMode => _sp.getString('lw_accent_mode') ?? 'manual';
   Future<void> setAccentMode(String v) => _sp.setString('lw_accent_mode', v);

@@ -478,7 +478,6 @@ class _WaveQuickTileState extends ConsumerState<WaveQuickTile> {
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
     final accent = waveAccent(context);
     final tile = MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -506,9 +505,7 @@ class _WaveQuickTileState extends ConsumerState<WaveQuickTile> {
                   ? accent.withValues(alpha: 0.14)
                   : _hover
                       ? waveHoverWash(context)
-                      : (dark
-                          ? WaveColors.surface
-                          : WaveColors.lightSurface),
+                      : waveSurface(context),
               borderRadius: WaveRadius.artworkRadius,
               border: Border.all(
                 color: widget.playing

@@ -354,9 +354,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
         constraints: const BoxConstraints(maxWidth: 440),
         style: ContentDialogThemeData(
           decoration: BoxDecoration(
-            color: dark
-                ? WaveColors.surfaceRaised
-                : WaveColors.lightSurfaceRaised,
+            color: waveSurfaceRaised(context),
             borderRadius:
                 const BorderRadius.all(Radius.circular(WaveRadius.floating)),
             border: Border.all(

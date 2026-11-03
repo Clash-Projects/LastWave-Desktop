@@ -169,10 +169,13 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
   @override
   Widget build(BuildContext context) {
     ref.listen(
-        themeControllerProvider
-            .select((t) => (t.isLight, t.amoled)),
-        (_, mode) =>
-            applyWindowMaterial(isLight: mode.$1, amoled: mode.$2));
+        themeControllerProvider.select(
+            (t) => (t.effectiveLight, t.amoled, t.customSurfaces?.background)),
+        (_, mode) => applyWindowMaterial(
+              isLight: mode.$1,
+              amoled: mode.$2,
+              background: mode.$3,
+            ));
     // Live auth state drives the gate (login, logout, guest entry,
     // session expiry). Guests count as inside.
     ref.listen(
@@ -188,14 +191,20 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     // custom pick there.
     final accent = ref.watch(accentResolutionProvider).color;
 
+    // Custom theme: one generated palette, published as the dark or the
+    // light theme depending on how bright its base is.
+    final custom = theme.customSurfaces;
+    final customLight = custom != null && theme.effectiveLight;
     final darkTheme = buildWaveFluentTheme(
       accent: accent,
       isLight: false,
       amoled: theme.amoled,
+      custom: customLight ? null : custom,
     );
     final lightTheme = buildWaveFluentTheme(
       accent: accent,
       isLight: true,
+      custom: customLight ? custom : null,
     );
 
     return WaveHazeScope(
@@ -217,7 +226,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           theme: lightTheme,
           darkTheme: darkTheme,
           themeMode:
-              theme.isLight ? ThemeMode.light : ThemeMode.dark,
+              theme.effectiveLight ? ThemeMode.light : ThemeMode.dark,
           routerConfig: _router,
           // ONE Fluent scrollbar treatment everywhere: thin, fades when
           // idle, no browser-style horizontal bars under carousels.

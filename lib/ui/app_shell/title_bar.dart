@@ -60,7 +60,7 @@ class WaveTitleBar extends ConsumerWidget {
       enableBlur: false,
       base: dark
           ? waveBackground(context).withValues(alpha: 0.85)
-          : WaveColors.lightBackground.withValues(alpha: 0.9),
+          : waveBackground(context).withValues(alpha: 0.9),
       border: Border(
         bottom: BorderSide(color: waveDivider(context)),
       ),
@@ -160,8 +160,8 @@ class WaveTitleBar extends ConsumerWidget {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: dark
-                            ? WaveColors.surfaceRaised
-                            : WaveColors.lightOverlay,
+                            ? waveSurfaceRaised(context)
+                            : waveSurfaceOverlay(context),
                         border:
                             Border.all(color: waveDivider(context)),
                       ),
@@ -367,8 +367,8 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                             horizontal: 5, vertical: 2),
                         decoration: BoxDecoration(
                           color: dark
-                              ? WaveColors.surfaceRaised
-                              : WaveColors.lightOverlay,
+                              ? waveSurfaceRaised(context)
+                              : waveSurfaceOverlay(context),
                           borderRadius: WaveRadius.tinyRadius,
                           border: Border.all(
                             color: waveDivider(context).withValues(alpha: 0.5),

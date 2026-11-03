@@ -1958,12 +1958,11 @@ class _ReturnToCurrentPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
     final accent = waveAccent(context);
 
     return WaveHaze(
       level: LwHazeLevel.l2,
-      base: (dark ? WaveColors.surfaceRaised : WaveColors.lightSurfaceRaised)
+      base: waveSurfaceRaised(context)
           .withValues(alpha: 0.85),
       borderRadius: WaveRadius.heroRadius,
       border: Border.all(color: waveDivider(context)),

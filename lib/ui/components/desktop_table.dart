@@ -961,9 +961,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                             ),
                             decoration: BoxDecoration(
                               border: Border.all(
-                                color: dark
-                                    ? WaveColors.outline
-                                    : WaveColors.lightOutline,
+                                color: waveOutline(context),
                               ),
                               borderRadius: WaveRadius.controlsRadius,
                             ),

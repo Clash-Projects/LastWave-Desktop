@@ -567,8 +567,8 @@ class WaveChip extends StatelessWidget {
           color: highlight
               ? accent.withValues(alpha: 0.45)
               : (dark
-                  ? WaveColors.outlineSoft
-                  : WaveColors.lightOutline),
+                  ? waveOutlineSoft(context)
+                  : waveOutline(context)),
         ),
       ),
       child: Text(

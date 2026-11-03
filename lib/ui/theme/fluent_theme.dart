@@ -70,26 +70,33 @@ const _waveTooltipTheme = TooltipThemeData(
   waitDuration: WaveState.tooltipDelay, // 400ms.
 );
 
+/// [custom] is the user's Custom theme palette
+/// ([WaveSurfaces.fromCustomBase]). When set it replaces the graphite /
+/// AMOLED / pearl surfaces; [isLight] must match
+/// [WaveSurfaces.isLightBase] for its base so the text tokens contrast.
 FluentThemeData buildWaveFluentTheme({
   required Color accent,
   required bool isLight,
   bool amoled = false,
+  WaveSurfaces? custom,
 }) {
   final safeAccent =
       accent.a == 0 ? WaveColors.defaultAccent : accent;
   final accentColor = _accentFrom(safeAccent);
   final buttonTheme = _waveButtonTheme();
   // AMOLED only ever collapses the *dark* base — light ignores it.
-  final surfaces =
-      (!isLight && amoled) ? WaveSurfaces.amoled : WaveSurfaces.graphite;
+  final surfaces = custom ??
+      ((!isLight && amoled) ? WaveSurfaces.amoled : WaveSurfaces.graphite);
   if (isLight) {
+    final page = custom?.background ?? WaveColors.lightBackground;
+    final card = custom?.surface ?? WaveColors.lightSurface;
     return FluentThemeData(
       brightness: Brightness.light,
       accentColor: accentColor,
-      scaffoldBackgroundColor: WaveColors.lightBackground,
-      micaBackgroundColor: WaveColors.lightBackground,
-      cardColor: WaveColors.lightSurface,
-      menuColor: WaveColors.lightSurface,
+      scaffoldBackgroundColor: page,
+      micaBackgroundColor: page,
+      cardColor: card,
+      menuColor: card,
       activeColor: WaveColors.lightTextPrimary,
       inactiveColor: WaveColors.lightTextSecondary,
       selectionColor: safeAccent.withValues(alpha: 0.25),
@@ -98,10 +105,9 @@ FluentThemeData buildWaveFluentTheme({
         glowFactor: 2.0,
       ),
       buttonTheme: buttonTheme,
-      dialogTheme:
-          _waveDialogTheme(surface: WaveColors.lightSurface),
+      dialogTheme: _waveDialogTheme(surface: card),
       tooltipTheme: _waveTooltipTheme,
-      extensions: const [WaveSurfaces.graphite],
+      extensions: [custom ?? WaveSurfaces.graphite],
     );
   }
   return FluentThemeData(
