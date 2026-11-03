@@ -138,6 +138,15 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'haze blur acrylic mica glass transparency intensity solid',
   ),
   SettingsSearchEntry(
+    id: 'appearance.ambient',
+    section: 'appearance',
+    title: 'Now Playing ambient',
+    subtitle: 'Background behind the cover and lyrics',
+    keywords:
+        'ambient apple music winui background visualizer blur aura stage '
+        'now playing lyrics colours colors',
+  ),
+  SettingsSearchEntry(
     id: 'appearance.surfaces',
     section: 'appearance',
     title: 'Surfaces',

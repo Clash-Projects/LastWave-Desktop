@@ -448,6 +448,13 @@ class Prefs {
   Future<void> setVisualizerEnabled(bool v) =>
       _sp.setBool('lw_visualizer_enabled', v);
 
+  /// Now Playing ambient style: 'apple' (vivid artwork colours, always on
+  /// a dark stage with white text, the same in every theme) or 'winui'
+  /// (the calm tonal stage that follows the app theme).
+  String get ambientStyle => _sp.getString('lw_ambient_style') ?? 'apple';
+  Future<void> setAmbientStyle(String v) =>
+      _sp.setString('lw_ambient_style', v);
+
   bool get cdMode => _sp.getBool('lw_cd_mode') ?? false;
 
   Future<void> setCdMode(bool v) => _sp.setBool('lw_cd_mode', v);

@@ -23,6 +23,7 @@ import '../components/image_aspect.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
 import '../queue/queue_panel.dart';
+import '../theme/fluent_theme.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -118,8 +119,30 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     setState(() => _controlsIdle = true);
   }
 
+  // Dark theme for the Apple Music stage, memoized on the accent so page
+  // rebuilds don't hand FluentTheme a new data object each time.
+  FluentThemeData? _stageTheme;
+  Color? _stageAccent;
+
+  /// Apple Music ambient: the page always renders on the dark stage with
+  /// white text and controls, whatever the app theme (Pearl, Custom…), the
+  /// way Apple Music's lyrics view does. WinUI keeps following the theme.
   @override
   Widget build(BuildContext context) {
+    final apple = ref.watch(ambientStyleProvider) == AmbientStyle.apple;
+    if (!apple) return _buildPage(context);
+    final accent = waveAccent(context);
+    if (_stageTheme == null || _stageAccent != accent) {
+      _stageAccent = accent;
+      _stageTheme = buildWaveFluentTheme(accent: accent, isLight: false);
+    }
+    return FluentTheme(
+      data: _stageTheme!,
+      child: Builder(builder: _buildPage),
+    );
+  }
+
+  Widget _buildPage(BuildContext context) {
     final current = ref.watch(
       playbackServiceProvider.select((s) => s.current),
     );
@@ -1416,18 +1439,19 @@ class _OutsetClipper extends CustomClipper<Rect> {
   bool shouldReclip(covariant _OutsetClipper old) => old.outset != outset;
 }
 
-class _NowAmbient extends StatelessWidget {
+class _NowAmbient extends ConsumerWidget {
   final String artworkUrl;
 
   const _NowAmbient({required this.artworkUrl});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (artworkUrl.isEmpty) return const SizedBox.shrink();
     return WaveAmbientMesh(
       artworkUrl: artworkUrl,
       isFullBleed: true,
       cinematic: true,
+      apple: ref.watch(ambientStyleProvider) == AmbientStyle.apple,
     );
   }
 }

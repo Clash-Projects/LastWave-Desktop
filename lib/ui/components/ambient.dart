@@ -39,6 +39,35 @@ class VisualizerEnabledNotifier extends StateNotifier<bool> {
   }
 }
 
+/// Now Playing ambient style. See [Prefs.ambientStyle].
+enum AmbientStyle {
+  apple('apple', 'Apple Music'),
+  winui('winui', 'WinUI');
+
+  final String id;
+  final String label;
+  const AmbientStyle(this.id, this.label);
+
+  static AmbientStyle fromId(String id) =>
+      id == winui.id ? winui : apple;
+}
+
+final ambientStyleProvider =
+    StateNotifierProvider<AmbientStyleNotifier, AmbientStyle>((ref) {
+  return AmbientStyleNotifier(ref.watch(prefsProvider));
+});
+
+class AmbientStyleNotifier extends StateNotifier<AmbientStyle> {
+  final Prefs _prefs;
+  AmbientStyleNotifier(this._prefs)
+      : super(AmbientStyle.fromId(_prefs.ambientStyle));
+
+  void set(AmbientStyle style) {
+    state = style;
+    _prefs.setAmbientStyle(style.id);
+  }
+}
+
 /// Multi-tone palette extracted from album artwork for dynamic ambient effects.
 class ArtworkPalette {
   final Color primary;
@@ -139,6 +168,37 @@ class _StageScrim extends StatelessWidget {
       ),
       // Painted after the decoration above, so the noise dithers the scrim's
       // contours rather than being darkened by them. Still under page content.
+      child: const CustomPaint(
+        painter: _DitherPainter(),
+        child: SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+/// Scrim for the Apple Music stage: always black, never the theme
+/// background, so the stage looks the same in Midnight, Pearl, AMOLED and
+/// Custom and always carries white text. Light at the top so the colours
+/// stay vivid, deeper toward the bottom (controls, dock). [boost] adds
+/// depth for pale covers, as in [_StageScrim].
+class _AppleScrim extends StatelessWidget {
+  final double boost;
+  const _AppleScrim({this.boost = 0});
+
+  @override
+  Widget build(BuildContext context) {
+    final b = boost.clamp(0.0, 1.0);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.black.withValues(alpha: 0.06 + b * 0.30),
+            Colors.black.withValues(alpha: 0.22 + b * 0.32),
+          ],
+        ),
+      ),
       child: const CustomPaint(
         painter: _DitherPainter(),
         child: SizedBox.expand(),
@@ -915,6 +975,11 @@ class WaveAmbientMesh extends ConsumerWidget {
   final double opacity;
   final bool cinematic;
 
+  /// Apple Music stage: vivid multi-colour aura and a fixed dark scrim,
+  /// identical in every app theme (the caller renders white text on it).
+  /// Only meaningful with [cinematic].
+  final bool apple;
+
   const WaveAmbientMesh({
     super.key,
     required this.artworkUrl,
@@ -922,6 +987,7 @@ class WaveAmbientMesh extends ConsumerWidget {
     this.height = 360,
     this.opacity = 1.0,
     this.cinematic = false,
+    this.apple = false,
   });
 
   @override
@@ -968,10 +1034,12 @@ class WaveAmbientMesh extends ConsumerWidget {
                 ),
               ),
               Positioned.fill(
-                child: _StageScrim(
-                  isDark: isDark,
-                  boost: _scrimBoost(palette),
-                ),
+                child: apple && cinematic
+                    ? _AppleScrim(boost: _scrimBoost(palette))
+                    : _StageScrim(
+                        isDark: isDark,
+                        boost: _scrimBoost(palette),
+                      ),
               ),
             ],
           ),
@@ -986,6 +1054,7 @@ class WaveAmbientMesh extends ConsumerWidget {
           _AppleArtworkAura(
             artworkUrl: artworkUrl,
             palette: palette,
+            apple: apple,
           ),
           // Contrast guarantee (shared _StageScrim): the aura
           // paints the cover's real colors at high opacity, so a
@@ -994,10 +1063,12 @@ class WaveAmbientMesh extends ConsumerWidget {
           // non-cinematic mesh painter.
           Positioned.fill(
             child: IgnorePointer(
-              child: _StageScrim(
-                isDark: isDark,
-                boost: _scrimBoost(palette),
-              ),
+              child: apple
+                  ? _AppleScrim(boost: _scrimBoost(palette))
+                  : _StageScrim(
+                      isDark: isDark,
+                      boost: _scrimBoost(palette),
+                    ),
             ),
           ),
         ],
@@ -1039,10 +1110,12 @@ class WaveAmbientMesh extends ConsumerWidget {
 class _AppleArtworkAura extends ConsumerWidget {
   final String artworkUrl;
   final ArtworkPalette palette;
+  final bool apple;
 
   const _AppleArtworkAura({
     required this.artworkUrl,
     required this.palette,
+    this.apple = false,
   });
 
   @override
@@ -1054,6 +1127,7 @@ class _AppleArtworkAura extends ConsumerWidget {
       data: (textures) => _AuraLayers(
         textures: textures,
         palette: palette,
+        apple: apple,
       ),
     );
   }
@@ -1069,10 +1143,12 @@ class _AppleArtworkAura extends ConsumerWidget {
 class _AuraLayers extends StatefulWidget {
   final _AuraTextures textures;
   final ArtworkPalette palette;
+  final bool apple;
 
   const _AuraLayers({
     required this.textures,
     required this.palette,
+    this.apple = false,
   });
 
   @override
@@ -1158,6 +1234,7 @@ class _AuraLayersState extends State<_AuraLayers>
                     palette: widget.palette,
                     canvasSize: half,
                     phase: _phase,
+                    apple: widget.apple,
                   ),
                 ),
               ),
@@ -1175,11 +1252,15 @@ class _AuraPainter extends CustomPainter {
   final Size canvasSize;
   final double phase;
 
+  /// Apple Music stage ([_paintApple]) instead of the calm tonal one.
+  final bool apple;
+
   _AuraPainter({
     required this.textures,
     required this.palette,
     required this.canvasSize,
     required this.phase,
+    this.apple = false,
   });
 
   /// Alpha plus saturation in one matrix (1 = as baked, <1 = more muted).
@@ -1249,9 +1330,87 @@ class _AuraPainter extends CustomPainter {
     canvas.drawRect(rect, paint);
   }
 
+  /// Apple Music stage: the cover's own colours as large soft fields that
+  /// drift past each other, mid-dark everywhere (no fall-off to black), so
+  /// white text reads anywhere on the page.
+  ///
+  /// A full-saturation wash of the blurred cover sets the colour
+  /// distribution; four feathered sprites of the same texture, each turned
+  /// to a different angle, bring different regions of the cover (sky, skin,
+  /// foliage…) to different corners and orbit slowly. Then a uniform dim
+  /// and a soft vignette. Same cost as the tonal stage: 5 drawImageRects at
+  /// half resolution, no per-frame filters or layers.
+  void _paintApple(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final rect = Offset.zero & size;
+    final maxDim = math.max(w, h);
+
+    final ground =
+        Color.lerp(const Color(0xFF05070B), palette.darkMuted, 0.65) ??
+            palette.darkMuted;
+    canvas.drawRect(rect, Paint()..color = ground);
+
+    _drawRotatedTexture(
+      canvas,
+      textures.base,
+      center: Offset(w * 0.50, h * 0.50),
+      diameter: maxDim * 1.7,
+      angle: phase * 0.08,
+      alpha: 0.92,
+      saturation: 1.15,
+    );
+
+    // (x, y, spin rate, phase offset): spread so each corner gets its own
+    // part of the cover.
+    const sprites = <(double, double, double, double)>[
+      (0.18, 0.22, 0.30, 0.0),
+      (0.84, 0.28, -0.24, 2.1),
+      (0.62, 0.90, 0.18, 4.2),
+      (0.30, 0.80, -0.16, 1.3),
+    ];
+    for (final (x, y, spin, k) in sprites) {
+      _drawRotatedTexture(
+        canvas,
+        textures.sprite,
+        center: Offset(
+          w * (x + 0.05 * math.cos(phase * 0.50 + k)),
+          h * (y + 0.05 * math.sin(phase * 0.43 + k)),
+        ),
+        diameter: maxDim * 1.05,
+        angle: phase * spin + k,
+        alpha: 0.80,
+        saturation: 1.25,
+      );
+    }
+
+    // Uniform dim: keeps the colours but brings the whole stage into the
+    // range white text needs. Pale covers get more from [_AppleScrim].
+    canvas.drawRect(rect, Paint()..color = const Color(0x4D000000));
+
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const RadialGradient(
+          center: Alignment.center,
+          radius: 1.05,
+          colors: [
+            Color(0x00000000),
+            Color(0x00000000),
+            Color(0x47000000),
+          ],
+          stops: [0.0, 0.55, 1.0],
+        ).createShader(rect),
+    );
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
+    if (apple) {
+      _paintApple(canvas, size);
+      return;
+    }
     final w = size.width;
     final h = size.height;
     final rect = Offset.zero & size;
@@ -1339,7 +1498,8 @@ class _AuraPainter extends CustomPainter {
     return old.textures != textures ||
         old.palette != palette ||
         old.canvasSize != canvasSize ||
-        old.phase != phase;
+        old.phase != phase ||
+        old.apple != apple;
   }
 }
 

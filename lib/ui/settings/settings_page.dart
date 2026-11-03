@@ -23,6 +23,7 @@ import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/innertube/yt_session_keeper.dart';
 import '../../features/innertube/yt_web_login.dart';
+import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
 import 'yt_profile_chooser.dart';
@@ -1028,6 +1029,42 @@ class _Appearance extends ConsumerWidget {
                       ),
                     ),
                 ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'appearance.ambient',
+          title: 'Now Playing ambient',
+          subtitle: 'Background behind the cover and lyrics',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  for (final style in AmbientStyle.values) ...[
+                    if (style != AmbientStyle.values.first)
+                      const SizedBox(width: 8),
+                    Expanded(
+                      child: ToggleButton(
+                        checked: ref.watch(ambientStyleProvider) == style,
+                        onChanged: (_) =>
+                            ref.read(ambientStyleProvider.notifier).set(style),
+                        child: Text(style.label),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                ref.watch(ambientStyleProvider) == AmbientStyle.apple
+                    ? 'Vivid colours from the artwork on a dark stage with '
+                        'white text. Looks the same in every theme.'
+                    : 'A calm tone from the artwork that follows your '
+                        'theme (light in Pearl).',
+                style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
               ),
             ],
           ),
