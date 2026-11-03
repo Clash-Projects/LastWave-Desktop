@@ -1688,13 +1688,6 @@ class AddonApi implements LosslessSource {
     TraceCrumb.write('resolve stage=match $label pool=${pool.length} '
         'ranked=${ranked.length} kept=${matches.length} '
         'at_ms=${totalSw.elapsedMilliseconds}');
-    // Which catalog rows won, so a wrong-song report can be traced to a gate.
-    for (final m in orderedMatches.take(3)) {
-      TraceCrumb.write('resolve stage=pick $label id=${m.id} '
-          'title="${m.title}" artist="${m.artist}" album="${m.album}" '
-          'dur=${m.durationSeconds}s want_dur=${expectedDurationSeconds}s '
-          'want_album="$album"');
-    }
     var fetchAttempts = 0;
     final fetchSw = Stopwatch()..start();
     // All mint attempts of this resolve share one budget; each request
