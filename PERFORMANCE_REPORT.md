@@ -187,15 +187,23 @@ while the picker is open (Linux). No error (B6).
 
 ## 8. How to get real numbers
 
-See **`perf/HOW_TO_MEASURE.md`**. It covers:
+Run the on-device benchmark in profile mode:
 
-- `flutter drive --profile -d <platform>` with
-  `integration_test/perf_benchmark_test.dart` (karaoke on screen 30 s,
-  fling and slow scroll through Liked, optionally sorted, 20 navigation
-  cycles, and 30 s of idle playback with lyrics hidden).
-- avg/p90/p99 build and raster times and missed frames, written to
-  `build/*.json`, plus a `TimelineSummary` of the karaoke trace.
-- 3 runs on each branch, CPU % from the OS task manager, and the comparison.
+```bash
+flutter drive --profile -d windows \
+  --driver=test_driver/perf_driver.dart \
+  --target=integration_test/perf_benchmark_test.dart \
+  --dart-define=PERF_VIDEO_ID=<videoId> \
+  --dart-define=PERF_TITLE="<title>" \
+  --dart-define=PERF_ARTIST="<artist>"
+```
+
+It covers karaoke on screen for 30 s, fling and slow scroll through Liked
+(add `--dart-define=PERF_SORT_TITLE=true` for the sorted path), 20
+navigation cycles, and 30 s of idle playback with lyrics hidden. It writes
+avg/p90/p99 build and raster times and missed frames to `build/*.json`, plus
+a `TimelineSummary` of the karaoke trace. Compare the median of 3 runs
+against `e2cb2ee`, and read CPU % from the OS task manager.
 
 **Notes on the harness:**
 

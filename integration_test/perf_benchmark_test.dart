@@ -9,7 +9,7 @@
 //     --dart-define=PERF_TITLE="<its title>" \
 //     --dart-define=PERF_ARTIST="<its artist>"
 //
-// See perf/HOW_TO_MEASURE.md for the full A/B procedure.
+// Run 3 times per build being compared; results land in build/*.json.
 //
 // Preconditions: the profile under test is past /welcome (signed in or guest)
 // and, ideally, has a few hundred Liked songs so the scroll scenario has a
