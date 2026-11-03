@@ -354,9 +354,15 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
 
   PcmFormat? _sourceOf(ResolvedStream? stream) {
     if (stream == null) return null;
+    // Opus is always decoded at 48 kHz, whatever rate the container
+    // advertises (YouTube reports 44.1 kHz for the same stream). Using the
+    // advertised rate made the path claim a 44.1 kHz source while the DAC
+    // was (correctly) opened at 48 kHz, so the badge and the device panel
+    // disagreed and Bit-Perfect looked broken.
+    final opus = stream.audioCodec.toLowerCase().contains('opus');
     return pcmFromStream(
       bitDepth: stream.bitDepth,
-      samplingRateKhz: stream.samplingRateKhz,
+      samplingRateKhz: opus ? 48.0 : stream.samplingRateKhz,
     );
   }
 

@@ -4747,6 +4747,20 @@ class InnerTubeMusicApi {
   /// Deliberately does NOT poison the match cache: tier 1/2 hits stay
   /// session-local (queue adoption + stream cache), so cover-art and
   /// download paths never inherit a loose match as a strict one.
+  /// Why a client refused, for the diagnostics log: the exception's
+  /// message (e.g. "Sign in to confirm you're not a bot", "returned no
+  /// usable audio URL") instead of just its type, with URLs removed so the
+  /// log never carries a signed link.
+  static String _safeErrorDetail(Object e) {
+    final text = e
+        .toString()
+        .replaceAll(RegExp(r'https?://\S+'), '<url>')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final msg = text.isEmpty ? e.runtimeType.toString() : text;
+    return msg.length > 160 ? '${msg.substring(0, 160)}…' : msg;
+  }
+
   Future<YouTubeMusicTrack?> findBestEffortMatchOrNull(
     String title,
     String artist, {
@@ -5265,7 +5279,7 @@ class InnerTubeMusicApi {
           'client-resolve-failed',
           videoId: videoId,
           client: client.key,
-          detail: e.runtimeType.toString(),
+          detail: _safeErrorDetail(e),
         );
         if (e is ConfirmedUnplayableMediaException) {
           return null;

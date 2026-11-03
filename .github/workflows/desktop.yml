@@ -142,6 +142,14 @@ jobs:
               patchelf --set-rpath '$ORIGIN/..' "$elf" 2>/dev/null || true
             fi
           done
+          # The injected bundle (and any other .so in the helper tree) is a
+          # plain shared object, not an executable, so the -perm -111 pass
+          # above skipped it: its dependencies (libwebkit2gtk, JSC, ...)
+          # then failed to resolve ("libwebkit2gtkinjectedbundle.so: cannot
+          # open shared object file"). Point them at usr/lib too.
+          find "$WEBKIT_DST" -type f -name '*.so*' -print0 | while IFS= read -r -d '' so; do
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/..:$ORIGIN/../..' "$so" 2>/dev/null || true
+          done
           echo "--- vendored webkit helpers:"
           ls -la "$WEBKIT_DST"
           # GIO TLS modules: the gtk plugin copies libgio but not the
@@ -159,6 +167,21 @@ jobs:
           cp -a "$GIO_SRC"/. "$GIO_DST/"
           find "$GIO_DST" -name '*.so' -print0 | while IFS= read -r -d '' so; do
             patchelf --set-rpath '$ORIGIN/../..' "$so" 2>/dev/null || true
+          done
+          # Never ship the libproxy GIO module: it loads the HOST's
+          # libproxy backend, which on newer distros (Fedora 44: glib 2.88)
+          # needs glib symbols (g_once_init_leave_pointer) the bundled,
+          # older glib does not have -> "Failed to load module
+          # libgiolibproxy.so". Direct connections are used instead.
+          rm -f "$GIO_DST"/libgiolibproxy.so
+          # Same class of clash: the bundled OpenSSL 3.0 / nghttp2 shadow
+          # the host's through LD_LIBRARY_PATH and break the HOST's libcurl
+          # ("version OPENSSL_3.2.0 not found (required by libcurl.so.4)",
+          # "undefined symbol nghttp2_option_set_no_rfc9113_..."). TLS and
+          # HTTP/2 libraries are ABI-stable and present on every distro
+          # that ships OpenSSL 3, so use the host's, never a bundled copy.
+          for pat in 'libssl.so*' 'libcrypto.so*' 'libnghttp2.so*' 'libcurl.so*'; do
+            find AppDir/usr/lib -maxdepth 1 -name "$pat" -print -delete
           done
           echo "--- vendored GIO modules:"
           ls -la "$GIO_DST"
@@ -205,6 +228,13 @@ jobs:
           if [ -d "$HERE/usr/lib/gio/modules" ]; then
             export GIO_MODULE_DIR="$HERE/usr/lib/gio/modules"
           fi
+          # Host GTK modules (canberra, PackageKit) are built against the
+          # host GTK, not the bundled one: loading them only prints
+          # "Failed to load module" and can crash. WebKit's dmabuf
+          # renderer fails to set up its compositor on several Mesa
+          # stacks ("Failed to setup compositor shaders").
+          unset GTK_MODULES
+          export WEBKIT_DISABLE_DMABUF_RENDERER=1
 
           # Handle legacy OpenGL (< 3.0 / missing glBlitFramebuffer) or explicit flags
           USE_SOFTWARE=0

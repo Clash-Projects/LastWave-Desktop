@@ -453,6 +453,15 @@ class _IdleIdentity extends StatelessWidget {
 ///
 /// Badge stays tiny (LOSSLESS / HI-RES / AAC / OPUS). Click opens
 /// format · sample rate · bit depth · codec · stream/download prefs.
+/// The rate the decoder really produces: Opus is always 48 kHz even though
+/// the stream advertises 44.1.
+String _sourceRateLabel(ResolvedStream s) {
+  final opus = s.audioCodec.toLowerCase().contains('opus');
+  final khz = opus ? 48.0 : s.samplingRateKhz;
+  return '${khz == khz.roundToDouble() ? khz.toInt() : khz} kHz'
+      '${opus ? ' (Opus decodes at 48 kHz)' : ''}';
+}
+
 class _QualityFlyout extends ConsumerStatefulWidget {
   final ResolvedStream stream;
   const _QualityFlyout({required this.stream});
@@ -473,6 +482,7 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final s = widget.stream;
+    final outputPath = ref.watch(audioOutputProvider).path;
     return FlyoutTarget(
       controller: _flyout,
       child: LWTooltip(
@@ -500,9 +510,22 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
                     const WaveMenuSeparator(),
                     WaveMenuAction(
                       leading: const Icon(WaveIcons.music, size: 15),
-                      label: 'Sample rate · ${s.samplingRateKhz} kHz',
+                      label: 'Sample rate · ${_sourceRateLabel(s)}',
                       onPressed: () {},
                     ),
+                    if (outputPath.output != null)
+                      WaveMenuAction(
+                        leading: const Icon(WaveIcons.speaker, size: 15),
+                        label: 'Output · ${outputPath.output}'
+                            '${outputPath.resampling ? ' (resampled)' : ''}',
+                        onPressed: () {},
+                      ),
+                    if (outputPath.output != null && outputPath.resampling)
+                      WaveMenuAction(
+                        leading: const Icon(WaveIcons.gauge, size: 15),
+                        label: 'Device rate differs from the source',
+                        onPressed: () {},
+                      ),
                     WaveMenuAction(
                       leading: const Icon(WaveIcons.mixes, size: 15),
                       label: (s.qualityBadge == 'ATMOS' ||
