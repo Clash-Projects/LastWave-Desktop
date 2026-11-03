@@ -24,9 +24,26 @@ class AutomixAnalyzer {
     required this.serialize,
     required this.log,
     String? cacheDir,
+    this.wanted,
+    this.decoder,
   }) : cacheDir = cacheDir ??
             '${Directory.systemTemp.path}${Platform.pathSeparator}lastwave'
-                '${Platform.pathSeparator}automix';
+                '${Platform.pathSeparator}automix' {
+    _checkCrashMarker();
+  }
+
+  /// Whether a queued job is still worth running when its turn comes
+  /// (the listener may have skipped ahead). Null = always.
+  final bool Function(String key)? wanted;
+
+  /// Test hook replacing the libmpv decode.
+  final Future<Int16List?> Function(AnalysisSide side, String url,
+      Map<String, String> headers, Duration duration)? decoder;
+
+  /// After this many decode failures in a row the analyzer turns itself
+  /// off for the session (AutoMix then mixes without analysis).
+  static const int maxConsecutiveFailures = 4;
+  int _consecutiveFailures = 0;
 
   /// Runs one native mpv call in the app-wide mpv order (Windows libmpv
   /// heap safety — see PlaybackService._serializedMpv).
@@ -70,6 +87,7 @@ class AutomixAnalyzer {
     final hit = _mem[key];
     if (hit != null) return Future.value(hit);
     if (_disabled || _failed.contains(key)) return Future.value(null);
+    if (url.isEmpty) return Future.value(null);
     final pending = _inflight[key];
     if (pending != null) return pending;
     if (side == AnalysisSide.tail && duration <= Duration.zero) {
@@ -81,20 +99,40 @@ class AutomixAnalyzer {
     // compete with the playing deck for bandwidth or CPU.
     _queue = _queue.then((_) async {
       TrackAnalysis? result;
+      var skipped = false;
       try {
-        result = await _fromDisk(key) ??
-            await _decodeAndAnalyse(key, side, url, headers, duration);
+        result = await _fromDisk(key);
+        if (result == null) {
+          if (_disabled || !(wanted?.call(key) ?? true)) {
+            // Skipped ahead / turned off while queued: drop the job but do
+            // not mark it failed, so it can be asked for again later.
+            skipped = true;
+          } else {
+            result = await _decodeAndAnalyse(key, side, url, headers, duration);
+            if (result == null) {
+              _consecutiveFailures++;
+              if (_consecutiveFailures >= maxConsecutiveFailures) {
+                _disabled = true;
+                log('automix analysis off for this session after '
+                    '$_consecutiveFailures failed decodes');
+              }
+            } else {
+              _consecutiveFailures = 0;
+            }
+          }
+        }
       } catch (e) {
         log('automix analysis error key=$key err=${e.runtimeType}');
+        result = null;
       }
       if (result != null) {
         _mem[key] = result;
         if (_mem.length > 64) _mem.remove(_mem.keys.first);
-      } else {
+      } else if (!skipped) {
         _failed.add(key);
       }
       _inflight.remove(key);
-      completer.complete(result);
+      if (!completer.isCompleted) completer.complete(result);
     });
     return completer.future;
   }
@@ -102,14 +140,32 @@ class AutomixAnalyzer {
   Future<TrackAnalysis?> _decodeAndAnalyse(String key, AnalysisSide side,
       String url, Map<String, String> headers, Duration duration) async {
     final sw = Stopwatch()..start();
-    final pcm = await _decode(side, url, headers, duration);
+    final Int16List? pcm;
+    final hook = decoder;
+    if (hook != null) {
+      pcm = await hook(side, url, headers, duration);
+    } else {
+      // Crash marker around the native decode: if the process dies in
+      // here, the next launch finds it and skips analysis (see
+      // _checkCrashMarker) instead of crashing the same way again.
+      await _setCrashMarker(true);
+      try {
+        pcm = await _decode(side, url, headers, duration);
+      } finally {
+        await _setCrashMarker(false);
+      }
+    }
     if (pcm == null) return null;
     final decodeMs = sw.elapsedMilliseconds;
     final offset = side == AnalysisSide.tail
         ? _tailStart(duration).inMilliseconds / 1000.0
         : 0.0;
-    final analysis =
-        await compute(analyzePcmWindow, PcmWindow(pcm, sampleRate, offset));
+    final analysis = sanitizeAnalysis(
+        await compute(analyzePcmWindow, PcmWindow(pcm, sampleRate, offset)));
+    if (analysis == null) {
+      log('automix analysis rejected key=$key (implausible values)');
+      return null;
+    }
     log('automix analysed key=$key side=${side.name} '
         'bpm=${analysis.bpm.toStringAsFixed(1)} '
         'conf=${analysis.confidence.toStringAsFixed(2)} '
@@ -139,6 +195,7 @@ class AutomixAnalyzer {
     StreamSubscription<String>? errSub;
     final done = Completer<bool>();
     try {
+      log('analysis deck create');
       deck = await serialize(() async {
         MediaKit.ensureInitialized();
         final p = Player(
@@ -192,6 +249,7 @@ class AutomixAnalyzer {
       final media = side == AnalysisSide.head
           ? Media(playUrl, httpHeaders: headers, end: window)
           : Media(playUrl, httpHeaders: headers, start: _tailStart(duration));
+      log('analysis deck open side=${side.name}');
       await serialize(() => p.open(media, play: true));
       final ok = await done.future.timeout(_jobTimeout, onTimeout: () => false);
       if (!ok) return null;
@@ -203,6 +261,7 @@ class AutomixAnalyzer {
       final p = deck;
       if (p != null) {
         // Disposing destroys the mpv core, which closes the PCM file.
+        log('analysis deck dispose');
         try {
           await serialize(() async {
             try {
@@ -241,8 +300,15 @@ class AutomixAnalyzer {
       if (!await f.exists()) return null;
       final j = jsonDecode(await f.readAsString());
       if (j is! Map<String, Object?> || j['key'] != key) return null;
-      return TrackAnalysis.fromJson(
-          (j['a'] as Map).cast<String, Object?>());
+      final a = sanitizeAnalysis(
+          TrackAnalysis.fromJson((j['a'] as Map).cast<String, Object?>()));
+      if (a == null) {
+        // Corrupt / older file: drop it so it is rebuilt.
+        try {
+          await f.delete();
+        } catch (_) {}
+      }
+      return a;
     } catch (_) {
       return null;
     }
@@ -260,6 +326,37 @@ class AutomixAnalyzer {
   /// create the analysis deck).
   void disable() => _disabled = true;
 
+  bool get disabled => _disabled;
+
+  String get _markerPath =>
+      '$cacheDir${Platform.pathSeparator}decode-in-progress';
+
+  void _checkCrashMarker() {
+    if (decoder != null) return;
+    try {
+      final f = File(_markerPath);
+      if (f.existsSync()) {
+        _disabled = true;
+        f.deleteSync();
+        log('automix analysis off for this session: the previous run '
+            'ended during an analysis decode');
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _setCrashMarker(bool on) async {
+    try {
+      final f = File(_markerPath);
+      if (on) {
+        await Directory(cacheDir).create(recursive: true);
+        await f.writeAsString('${DateTime.now().toIso8601String()} pid=$pid',
+            flush: true);
+      } else if (await f.exists()) {
+        await f.delete();
+      }
+    } catch (_) {}
+  }
+
   /// FNV-1a 32 over the key plus its length; the JSON also stores the
   /// full key, so a collision just reads as a miss.
   static String _fnv(String s) {
@@ -270,4 +367,33 @@ class AutomixAnalyzer {
     }
     return '${h.toRadixString(16)}-${s.length}';
   }
+}
+
+/// Rejects analyses with values no real track produces (NaN, a negative
+/// window, an absurd tempo, an unsorted grid) — from a bad decode or a
+/// corrupt cache file — and returns the rest unchanged.
+TrackAnalysis? sanitizeAnalysis(TrackAnalysis? a) {
+  if (a == null) return null;
+  bool ok(double v) => v.isFinite;
+  if (!ok(a.windowStart) || !ok(a.windowEnd) || a.windowEnd <= a.windowStart) {
+    return null;
+  }
+  if (!ok(a.audibleStart) || !ok(a.contentEnd)) return null;
+  if (a.audibleStart < a.windowStart - 0.5 ||
+      a.contentEnd > a.windowEnd + 0.5 ||
+      a.contentEnd < a.audibleStart) {
+    return null;
+  }
+  if (!ok(a.confidence) || a.confidence < 0 || a.confidence > 1) return null;
+  if (!ok(a.bpm) || a.bpm < 0 || a.bpm > 260) return null;
+  if (a.bpm > 0 && a.bpm < 40) return null;
+  for (var i = 1; i < a.beats.length; i++) {
+    if (!ok(a.beats[i]) || a.beats[i] <= a.beats[i - 1]) return null;
+  }
+  for (var i = 1; i < a.downbeats.length; i++) {
+    if (!ok(a.downbeats[i]) || a.downbeats[i] <= a.downbeats[i - 1]) {
+      return null;
+    }
+  }
+  return a;
 }
