@@ -7,9 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import '../../core/network/dio_factory.dart';
+import '../../core/storage/app_database.dart';
 import '../innertube/innertube_api.dart';
+import '../search/shared_providers.dart';
 import 'lyrics_models.dart';
 import 'lyrics_providers.dart';
+import 'lyrics_snapshot.dart';
 
 final _diacriticsRegex = RegExp(r'\p{M}+', unicode: true);
 
@@ -351,17 +354,50 @@ class LyricsRepository {
     ['better_lyrics_portato', 'bini_lyrics', 'kugou'],
   ];
 
+  /// Optional disk layer: results that win the provider race are written
+  /// through to `snapshot_cache` (group `lyrics`) and read back on a memory
+  /// miss, so a restart or a track evicted from the 50-entry memory LRU
+  /// does not re-run the multi-provider race.
+  final AppDatabase? _db;
+
   LyricsRepository([
     Dio? dio,
     this.preferredHeadStart = const Duration(seconds: 4),
     this.raceTotal = const Duration(seconds: 12),
     InnerTubeMusicApi? tube,
+    AppDatabase? db,
   ])  : _dio = dio ?? DioFactory.create(),
-        _tube = tube;
+        _tube = tube,
+        _db = db;
+
+  LyricsResult? _readDisk(String key) {
+    final db = _db;
+    if (db == null) return null;
+    try {
+      final row = db.cacheGet('$lyricsCacheKeyPrefix$key');
+      if (row == null) return null;
+      if (DateTime.now().difference(row.savedAt) > lyricsCacheMaxAge) {
+        return null;
+      }
+      return decodeLyrics(row.value);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _writeDisk(String key, LyricsResult value) {
+    final db = _db;
+    if (db == null) return;
+    try {
+      db.cachePut('$lyricsCacheKeyPrefix$key', 'lyrics', encodeLyrics(value));
+    } catch (_) {}
+  }
 
   void _store(String key, LyricsResult value, {String queryTitle = ''}) {
     if (value.isEmpty) return;
-    final existing = _cache[key];
+    // The stored copy may only exist on disk (fresh launch): it must still
+    // win against a worse late arrival.
+    final existing = _cache[key] ?? _readDisk(key);
     if (existing != null && !existing.isEmpty) {
       if (isBetterCandidate(existing, value, queryTitle: queryTitle)) {
         return;
@@ -373,13 +409,17 @@ class LyricsRepository {
     while (_cache.length > _maxCacheEntries) {
       _cache.remove(_cache.keys.first);
     }
+    _writeDisk(key, value);
   }
 
   LyricsResult? _lookup(String key) {
-    final hit = _cache.remove(key);
+    final hit = _cache.remove(key) ?? _readDisk(key);
     if (hit == null) return null;
     // Refresh recency.
     _cache[key] = hit;
+    while (_cache.length > _maxCacheEntries) {
+      _cache.remove(_cache.keys.first);
+    }
     return hit;
   }
 
@@ -1419,10 +1459,17 @@ class LyricsRepository {
 }
 
 final lyricsRepositoryProvider = Provider<LyricsRepository>((ref) {
+  // The database provider throws until main() overrides it; a repository
+  // without a disk layer is still a working repository (tests, previews).
+  AppDatabase? db;
+  try {
+    db = ref.watch(databaseProvider);
+  } catch (_) {}
   return LyricsRepository(
     null,
     const Duration(seconds: 4),
     const Duration(seconds: 12),
     ref.watch(innerTubeProvider),
+    db,
   );
 });
