@@ -105,14 +105,23 @@ class SpotifyApi {
       '21ea11a6ac75a5f3e01fd365d29c18e0a4a8b7dc09f89bbb5d73910190c6acaf';
   static const _knownLikedHash =
       '087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240';
+
+  /// Native's primary search: `searchTracks` with this fixed hash (proven in
+  /// LastWave-Native; not read from the player, which no longer declares it).
+  static const _searchTracksHash =
+      'bc1ca2fcd0ba1013a0fc88e6cc4f190af501851e3dafd3e1ef85840297694428';
   static const _knownSearchHash =
       'f78953bf9207d73493c27284103f5aeb6e728876d5793851bf79bc706127ff70';
 
-  Future<String> _hash(String operation, String known,
-      {bool force = false}) async {
+  Future<String> _hash(
+    String operation,
+    String known, {
+    bool force = false,
+  }) async {
     final script = await SpotifyWebPlayer.script(_dio, force: force);
-    final live =
-        script == null ? null : SpotifyWebPlayer.queryHash(script, operation);
+    final live = script == null
+        ? null
+        : SpotifyWebPlayer.queryHash(script, operation);
     return live ?? known;
   }
 
@@ -162,9 +171,7 @@ class SpotifyApi {
       final body = jsonDecode(res.data ?? '{}');
       return body is Map ? Map<String, dynamic>.from(body) : null;
     } catch (e) {
-      DiagnosticsLog.info(
-        'spotify query op=$operation error=${e.runtimeType}',
-      );
+      DiagnosticsLog.info('spotify query op=$operation error=${e.runtimeType}');
       return null;
     }
   }
@@ -174,26 +181,24 @@ class SpotifyApi {
   /// The account's playlists (Liked Songs first when it has any).
   Future<List<SpotifyPlaylistSummary>> userPlaylists() async {
     final hash = await _hash(
-        SpotifyWebPlayer.libraryOperation, _knownLibraryHash);
+      SpotifyWebPlayer.libraryOperation,
+      _knownLibraryHash,
+    );
     final out = <SpotifyPlaylistSummary>[];
     var offset = 0;
     for (var page = 0; page < 6; page++) {
-      final root = await _query(
-        'libraryV3',
-        {
-          'filters': ['Playlists'],
-          'order': null,
-          'textFilter': null,
-          'features': <String>[],
-          'limit': 50,
-          'offset': offset,
-          'flatten': false,
-          'expandedFolders': <String>[],
-          'folderUri': null,
-          'includeFoldersWhenFlattening': true,
-        },
-        hash,
-      );
+      final root = await _query('libraryV3', {
+        'filters': ['Playlists'],
+        'order': null,
+        'textFilter': null,
+        'features': <String>[],
+        'limit': 50,
+        'offset': offset,
+        'flatten': false,
+        'expandedFolders': <String>[],
+        'folderUri': null,
+        'includeFoldersWhenFlattening': true,
+      }, hash);
       final lib = _at(root, ['data', 'me', 'libraryV3']);
       if (lib is! Map) break;
       final items = lib['items'];
@@ -207,16 +212,19 @@ class SpotifyApi {
         final uri = data['uri']?.toString() ?? '';
         final id = uri.replaceFirst('spotify:playlist:', '');
         if (id.isEmpty || !uri.startsWith('spotify:playlist:')) continue;
-        out.add(SpotifyPlaylistSummary(
-          id: id,
-          name: data['name']?.toString() ?? 'Spotify playlist',
-          description: data['description']?.toString() ?? '',
-          artworkUrl: _firstImage(data['images']),
-          trackCount: _int(_at(data, ['content', 'totalCount'])) ??
-              _int(_at(data, ['tracks', 'total'])) ??
-              0,
-          owner: _text(_at(data, ['ownerV2', 'data', 'name'])),
-        ));
+        out.add(
+          SpotifyPlaylistSummary(
+            id: id,
+            name: data['name']?.toString() ?? 'Spotify playlist',
+            description: data['description']?.toString() ?? '',
+            artworkUrl: _firstImage(data['images']),
+            trackCount:
+                _int(_at(data, ['content', 'totalCount'])) ??
+                _int(_at(data, ['tracks', 'total'])) ??
+                0,
+            owner: _text(_at(data, ['ownerV2', 'data', 'name'])),
+          ),
+        );
       }
       final total = _int(lib['totalCount']) ?? 0;
       offset += items.length;
@@ -232,7 +240,9 @@ class SpotifyApi {
 
   Future<SpotifyPlaylistContent?> _playlist(String id) async {
     final hash = await _hash(
-        SpotifyWebPlayer.fetchPlaylistOperation, _knownPlaylistHash);
+      SpotifyWebPlayer.fetchPlaylistOperation,
+      _knownPlaylistHash,
+    );
     final rows = <SpotifyTrackRow>[];
     var title = 'Spotify playlist';
     var owner = '';
@@ -240,16 +250,12 @@ class SpotifyApi {
     var offset = 0;
     var total = 1 << 30;
     for (var page = 0; offset < total && page < 30; page++) {
-      final root = await _query(
-        'fetchPlaylist',
-        {
-          'uri': 'spotify:playlist:$id',
-          'offset': offset,
-          'limit': 100,
-          'enableWatchFeedEntrypoint': false,
-        },
-        hash,
-      );
+      final root = await _query('fetchPlaylist', {
+        'uri': 'spotify:playlist:$id',
+        'offset': offset,
+        'limit': 100,
+        'enableWatchFeedEntrypoint': false,
+      }, hash);
       final pl = _at(root, ['data', 'playlistV2']);
       if (pl is! Map) {
         if (page == 0) return null;
@@ -285,11 +291,10 @@ class SpotifyApi {
     var offset = 0;
     var total = 1 << 30;
     for (var page = 0; offset < total && page < 40; page++) {
-      final root = await _query(
-        'fetchLibraryTracks',
-        {'offset': offset, 'limit': 50},
-        hash,
-      );
+      final root = await _query('fetchLibraryTracks', {
+        'offset': offset,
+        'limit': 50,
+      }, hash);
       final tracks = _at(root, ['data', 'me', 'library', 'tracks']);
       if (tracks is! Map) {
         if (page == 0) return null;
@@ -321,12 +326,15 @@ class SpotifyApi {
     final names = <String>[
       if (artists is List)
         for (final a in artists)
-          _clean(_text(_at(a, ['profile', 'name'])).isNotEmpty
-              ? _text(_at(a, ['profile', 'name']))
-              : _text(a is Map ? a['name'] : null)),
+          _clean(
+            _text(_at(a, ['profile', 'name'])).isNotEmpty
+                ? _text(_at(a, ['profile', 'name']))
+                : _text(a is Map ? a['name'] : null),
+          ),
     ].where((s) => s.isNotEmpty).toList();
     final album = data['albumOfTrack'] ?? data['album'];
-    final ms = _int(_at(data, ['trackDuration', 'totalMilliseconds'])) ??
+    final ms =
+        _int(_at(data, ['trackDuration', 'totalMilliseconds'])) ??
         _int(_at(data, ['duration', 'totalMilliseconds'])) ??
         _int(data['duration_ms']) ??
         0;
@@ -336,8 +344,8 @@ class SpotifyApi {
       album: album is Map ? _clean(_text(album['name'])) : '',
       artworkUrl: album is Map
           ? (_firstSource(_at(album, ['coverArt', 'sources'])).isNotEmpty
-              ? _firstSource(_at(album, ['coverArt', 'sources']))
-              : _firstImage(album['images']))
+                ? _firstSource(_at(album, ['coverArt', 'sources']))
+                : _firstImage(album['images']))
           : '',
       durationSeconds: ms ~/ 1000,
     );
@@ -399,17 +407,18 @@ class SpotifyApi {
     // Every search operation the player currently declares, newest name
     // first; the player renames them whenever it is rebuilt.
     final ops = <(String, String)>[
+      ('searchTracks', _searchTracksHash),
       for (final name in const [
         'searchDesktop',
         'searchTracks',
         SpotifyWebPlayer.searchOperation,
       ])
-        if (script != null && SpotifyWebPlayer.queryHash(script, name) != null)
+        if (name != 'searchTracks' &&
+            script != null &&
+            SpotifyWebPlayer.queryHash(script, name) != null)
           (name, SpotifyWebPlayer.queryHash(script, name)!),
+      (SpotifyWebPlayer.searchOperation, _knownSearchHash),
     ];
-    if (ops.isEmpty) {
-      ops.add((SpotifyWebPlayer.searchOperation, _knownSearchHash));
-    }
     DiagnosticsLog.info(
       'spotify search ops=${ops.map((o) => o.$1).join(",")} '
       'scriptRead=${script != null}',
@@ -417,18 +426,29 @@ class SpotifyApi {
 
     for (final q in queries) {
       for (final (op, hash) in ops) {
-        final vars = <String, Object?>{
-          'searchTerm': q,
-          'term': q,
-          'offset': 0,
-          'limit': 10,
-          'numberOfTopResults': 5,
-          'includeAudiobooks': false,
-          'includePreReleases': false,
-          'includeAuthors': false,
-          'includeArtistHasConcertsField': false,
-        };
-        for (final endpoint in const [_v1, _v2]) {
+        final vars = op == 'searchTracks'
+            // Exactly what LastWave-Native sends.
+            ? <String, Object?>{
+                'searchTerm': q,
+                'offset': 0,
+                'limit': 5,
+                'numberOfTopResults': 5,
+                'includeAudiobooks': false,
+                'includePreReleases': false,
+              }
+            : <String, Object?>{
+                'searchTerm': q,
+                'term': q,
+                'offset': 0,
+                'limit': 10,
+                'numberOfTopResults': 5,
+                'includeAudiobooks': false,
+                'includePreReleases': false,
+                'includeAuthors': false,
+                'includeArtistHasConcertsField': false,
+              };
+        for (final endpoint
+            in op == 'searchTracks' ? const [_v1] : const [_v1, _v2]) {
           final root = endpoint == _v1
               ? await _query(op, vars, hash)
               : await _post(op, vars, hash);
@@ -599,7 +619,8 @@ class SpotifyApi {
       id: id,
       name: data['name']?.toString() ?? '',
       artists: names.join(', '),
-      durationMs: _int(_at(data, ['duration', 'totalMilliseconds'])) ??
+      durationMs:
+          _int(_at(data, ['duration', 'totalMilliseconds'])) ??
           _int(_at(data, ['trackDuration', 'totalMilliseconds'])) ??
           _int(data['duration_ms']) ??
           0,
@@ -616,11 +637,17 @@ class SpotifyApi {
     int durationMs,
   ) {
     final ok = hits
-        .where((h) =>
-            canvasTitlesMatch(title, h.name) &&
-            (h.artists.isEmpty ||
-                canvasArtistsMatch(artist, h.artists,
-                    wantTitle: title, gotTitle: h.name)))
+        .where(
+          (h) =>
+              canvasTitlesMatch(title, h.name) &&
+              (h.artists.isEmpty ||
+                  canvasArtistsMatch(
+                    artist,
+                    h.artists,
+                    wantTitle: title,
+                    gotTitle: h.name,
+                  )),
+        )
         .toList();
     if (ok.isEmpty) return null;
     if (durationMs > 0) {
@@ -636,8 +663,11 @@ class SpotifyApi {
   Future<String?> _canvasViaQuery(String trackUri, {bool retry = false}) async {
     final headers = await _authHeaders();
     if (headers == null) return null;
-    final hash = await _hash(SpotifyWebPlayer.canvasOperation, _knownCanvasHash,
-        force: retry);
+    final hash = await _hash(
+      SpotifyWebPlayer.canvasOperation,
+      _knownCanvasHash,
+      force: retry,
+    );
     try {
       final res = await _dio.post<String>(
         _v2,
@@ -663,10 +693,14 @@ class SpotifyApi {
       final data = body['data'];
       if (data is! Map) {
         final errors = body['errors'];
-        final stale = errors is List &&
-            errors.any((e) =>
-                e.toString().toLowerCase().contains('persistedquerynotfound'));
-        if (stale && !retry) return await _canvasViaQuery(trackUri, retry: true);
+        final stale =
+            errors is List &&
+            errors.any(
+              (e) =>
+                  e.toString().toLowerCase().contains('persistedquerynotfound'),
+            );
+        if (stale && !retry)
+          return await _canvasViaQuery(trackUri, retry: true);
         return null;
       }
       final url = _text(_at(data, ['trackUnion', 'canvas', 'url']));
@@ -688,9 +722,11 @@ class SpotifyApi {
     if (headers == null) return null;
     final uri = utf8.encode(trackUri);
     final inner = <int>[0x0a, ..._varint(uri.length), ...uri];
-    final body = Uint8List.fromList(
-      <int>[0x0a, ..._varint(inner.length), ...inner],
-    );
+    final body = Uint8List.fromList(<int>[
+      0x0a,
+      ..._varint(inner.length),
+      ...inner,
+    ]);
     try {
       final res = await _dio.post<List<int>>(
         _canvazEndpoint,
@@ -787,8 +823,9 @@ final spotifyApiProvider = Provider<SpotifyApi>(
 );
 
 /// Account playlists (Liked Songs first). Empty when not connected.
-final spotifyPlaylistsProvider =
-    FutureProvider<List<SpotifyPlaylistSummary>>((ref) async {
+final spotifyPlaylistsProvider = FutureProvider<List<SpotifyPlaylistSummary>>((
+  ref,
+) async {
   final auth = ref.watch(spotifyAuthProvider);
   if (!auth.connected) return const [];
   final api = ref.watch(spotifyApiProvider);
@@ -807,9 +844,9 @@ final spotifyPlaylistsProvider =
 
 final spotifyPlaylistContentProvider =
     FutureProvider.family<SpotifyPlaylistContent?, String>((ref, id) async {
-  if (!ref.watch(spotifyAuthProvider).connected) return null;
-  return ref.watch(spotifyApiProvider).playlist(id);
-});
+      if (!ref.watch(spotifyAuthProvider).connected) return null;
+      return ref.watch(spotifyApiProvider).playlist(id);
+    });
 
 /// Whether Spotify canvases are used (Settings → Integrations).
 final spotifyCanvasEnabledProvider = Provider<bool>(
