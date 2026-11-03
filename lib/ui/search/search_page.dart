@@ -20,6 +20,7 @@ import '../../features/home/home_providers.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/podcasts/podcast_models.dart';
 import '../../features/podcasts/podcast_repository.dart';
+import '../../features/feed/genre_browse.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../components/desktop_table.dart';
@@ -654,22 +655,6 @@ class _BrowseCategories extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feed = ref.watch(feedProvider).valueOrNull;
-    // Distinct cover pool across every shelf; each tile slowly cycles
-    // through it, so the grid keeps changing over time.
-    final pool = <String>{
-      if (feed != null)
-        for (final list in [
-          feed.charts,
-          feed.quickPicks,
-          feed.heavyRotation,
-          feed.freshFinds,
-          feed.jumpBackIn,
-          feed.becauseYouListened,
-        ])
-          for (final t in list)
-            if (t.artworkUrl.isNotEmpty) t.artworkUrl,
-    }.toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -697,9 +682,12 @@ class _BrowseCategories extends ConsumerWidget {
                   child: _BrowseTile(
                     name: _browseCategories[i].name,
                     tint: _browseCategories[i].tint,
-                    pool: pool,
+                    query: _browseCategories[i].query,
                     startIndex: i * 3,
-                    onTap: () => onOpen(_browseCategories[i].query),
+                    onTap: () => context.go(
+                      '/genre/${Uri.encodeComponent(_browseCategories[i].query)}'
+                      '?name=${Uri.encodeComponent(_browseCategories[i].name)}',
+                    ),
                   ),
                 ),
             ],
@@ -710,24 +698,28 @@ class _BrowseCategories extends ConsumerWidget {
   }
 }
 
-class _BrowseTile extends StatefulWidget {
+class _BrowseTile extends ConsumerStatefulWidget {
   final String name;
   final Color tint;
-  final List<String> pool;
+  final String query;
   final int startIndex;
   final VoidCallback onTap;
   const _BrowseTile({
     required this.name,
     required this.tint,
-    required this.pool,
+    required this.query,
     required this.startIndex,
     required this.onTap,
   });
   @override
-  State<_BrowseTile> createState() => _BrowseTileState();
+  ConsumerState<_BrowseTile> createState() => _BrowseTileState();
 }
 
-class _BrowseTileState extends State<_BrowseTile> {
+class _BrowseTileState extends ConsumerState<_BrowseTile> {
+  // Covers come from THIS genre's own songs, requested a little after the
+  // page opens (staggered) so 15 searches do not fire at once.
+  bool _load = false;
+  List<String> _pool = const [];
   bool _hover = false;
   int _step = 0;
   Timer? _timer;
@@ -736,14 +728,17 @@ class _BrowseTileState extends State<_BrowseTile> {
   @override
   void initState() {
     super.initState();
+    Timer(Duration(milliseconds: 200 + (widget.startIndex ~/ 3) * 250), () {
+      if (mounted) setState(() => _load = true);
+    });
     // Staggered start so tiles change one after another, not together.
-    _start = Timer(Duration(milliseconds: 1200 + (widget.startIndex % 15) * 700),
+    _start = Timer(Duration(milliseconds: 4000 + (widget.startIndex % 15) * 700),
         () {
       if (!mounted) return;
       _timer = Timer.periodic(const Duration(seconds: 10), (_) {
-        if (mounted && widget.pool.length > 1) setState(() => _step++);
+        if (mounted && _pool.length > 1) setState(() => _step++);
       });
-      if (widget.pool.length > 1) setState(() => _step++);
+      if (_pool.length > 1) setState(() => _step++);
     });
   }
 
@@ -754,12 +749,19 @@ class _BrowseTileState extends State<_BrowseTile> {
     super.dispose();
   }
 
-  String get _url => widget.pool.isEmpty
-      ? ''
-      : widget.pool[(widget.startIndex + _step * 5) % widget.pool.length];
+  String get _url =>
+      _pool.isEmpty ? '' : _pool[(_step * 3) % _pool.length];
 
   @override
   Widget build(BuildContext context) {
+    if (_load) {
+      final tracks =
+          ref.watch(genreTracksProvider(widget.query)).valueOrNull ?? const [];
+      _pool = {
+        for (final t in tracks)
+          if (t.artworkUrl.isNotEmpty) t.artworkUrl,
+      }.toList(growable: false);
+    }
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
