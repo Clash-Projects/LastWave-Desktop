@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -35,7 +36,7 @@ enum SpotifySessionCheck {
 /// it for a token before reporting success.
 class SpotifyAuth extends ChangeNotifier {
   SpotifyAuth(this._store, this._prefs, {Dio? dio})
-      : _dio = dio ?? DioFactory.create();
+    : _dio = dio ?? DioFactory.create();
 
   final SecureStore _store;
   final Prefs _prefs;
@@ -46,7 +47,8 @@ class SpotifyAuth extends ChangeNotifier {
   static const _origin = 'https://open.spotify.com';
   static const _appVersion = '1.2.62.476.g2ad6e7f3';
   static const _clientId = 'd8a5ed958d274c2e8ee717e6a4b0971d';
-  static const _clientTokenUrl = 'https://clienttoken.spotify.com/v1/clienttoken';
+  static const _clientTokenUrl =
+      'https://clienttoken.spotify.com/v1/clienttoken';
   static const _serverTimeUrl = '$_origin/api/server-time';
   static const _sessionTokenUrl = '$_origin/api/token';
   static const _secretsDictUrl =
@@ -258,7 +260,8 @@ class SpotifyAuth extends ChangeNotifier {
       if (token is String && token.isNotEmpty) {
         final ttl = granted['expires_after_seconds'];
         _client = token;
-        _clientExp = DateTime.now().millisecondsSinceEpoch +
+        _clientExp =
+            DateTime.now().millisecondsSinceEpoch +
             ((ttl is num ? ttl.toInt() : 7200) * 1000);
         return token;
       }
@@ -313,7 +316,8 @@ class SpotifyAuth extends ChangeNotifier {
     final bytes = ByteData(8)..setUint64(0, counter, Endian.big);
     final mac = Hmac(sha1, key).convert(bytes.buffer.asUint8List()).bytes;
     final offset = mac.last & 0x0f;
-    final binary = ((mac[offset] & 0x7f) << 24) |
+    final binary =
+        ((mac[offset] & 0x7f) << 24) |
         ((mac[offset + 1] & 0xff) << 16) |
         ((mac[offset + 2] & 0xff) << 8) |
         (mac[offset + 3] & 0xff);
@@ -353,21 +357,22 @@ class SpotifyAuth extends ChangeNotifier {
   }
 
   Map<String, String> _webHeaders(String cookie) => {
-        'User-Agent': SpotifyWebPlayer.userAgent,
-        'Accept': 'application/json',
-        'Cookie': 'sp_dc=$cookie',
-        'App-platform': 'WebPlayer',
-        'Spotify-App-Version': _appVersion,
-        'Origin': _origin,
-        'Referer': '$_origin/',
-      };
+    'User-Agent': SpotifyWebPlayer.userAgent,
+    'Accept': 'application/json',
+    'Cookie': 'sp_dc=$cookie',
+    'App-platform': 'WebPlayer',
+    'Spotify-App-Version': _appVersion,
+    'Origin': _origin,
+    'Referer': '$_origin/',
+  };
 
   Future<Map<String, dynamic>?> _requestPersonal(
     String cookie,
     _Totp totp,
     String reason,
   ) async {
-    final url = '$_sessionTokenUrl?reason=$reason&productType=web-player'
+    final url =
+        '$_sessionTokenUrl?reason=$reason&productType=web-player'
         '&totp=${totp.otpClient}&totpServer=${totp.otpServer}'
         '&totpVer=${totp.version}';
     try {

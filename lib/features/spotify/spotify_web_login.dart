@@ -120,8 +120,9 @@ class SpotifyWebLogin {
   /// names/values, which silently breaks exact matching — strip it.
   static Future<String?> _spDc(Webview window) async {
     try {
-      final jar =
-          await window.getAllCookies().timeout(const Duration(seconds: 5));
+      final jar = await window.getAllCookies().timeout(
+        const Duration(seconds: 5),
+      );
       for (final c in jar) {
         final name = _strip(c.name.toString());
         final domain = _strip(c.domain.toString()).toLowerCase();

@@ -5,7 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/artwork/animated_artwork_service.dart'
-    show canvasArtistsMatch, canvasTitlesMatch, cleanCanvasQuery;
+    show normalizeCanvasMatch;
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/storage/prefs.dart';
 import 'spotify_auth.dart';
@@ -125,7 +125,7 @@ class SpotifyApi {
     return live ?? known;
   }
 
-  Future<Map<String, String>?> _authHeaders() async {
+  Future<Map<String, String>?> _authHeaders({bool appPlatform = false}) async {
     final personal = await _auth.personalToken();
     if (personal == null) return null;
     final client = await _auth.clientToken();
@@ -133,7 +133,7 @@ class SpotifyApi {
       'Authorization': 'Bearer $personal',
       'Client-Token': ?client,
       'User-Agent': SpotifyWebPlayer.userAgent,
-      'App-platform': 'WebPlayer',
+      if (appPlatform) 'App-platform': 'WebPlayer',
       'Accept': 'application/json',
     };
   }
@@ -375,12 +375,13 @@ class SpotifyApi {
       );
     }
     final uri = 'spotify:track:${match.id}';
-    var url = await _canvasViaQuery(uri);
-    final viaQuery = url != null;
-    url ??= await _canvasViaProtobuf(uri);
+    // Native order: the protobuf route first, the web-player query second.
+    var url = await _canvasViaProtobuf(uri);
+    final viaQuery = url == null;
+    url ??= await _canvasViaQuery(uri);
     DiagnosticsLog.info(
       '$tag stage=canvas track=${match.id} found=${url != null} '
-      'route=${viaQuery ? 'query' : (url != null ? 'protobuf' : '-')}',
+      'route=${url == null ? '-' : (viaQuery ? 'query' : 'protobuf')}',
     );
     if (url == null) {
       return const SpotifyCanvasResult.none('This track has no Spotify Canvas');
@@ -395,13 +396,14 @@ class SpotifyApi {
     String artist,
     int durationMs,
   ) async {
-    final cleanTitle = cleanCanvasQuery(title);
+    // Native: CLEAN_TITLE_REGEX title + primary artist, then the raw pair.
+    final cleanTitle = title.replaceAll(_cleanTitle, '').trim();
     final primary = artist.split(RegExp(r'\s*(?:,|&|feat\.?|ft\.?)\s*')).first;
-    final queries = <String>{
-      '$cleanTitle $primary'.trim(),
-      '$title $artist'.trim(),
-      cleanTitle,
-    }.where((q) => q.isNotEmpty);
+    final first = '$cleanTitle $primary'.trim();
+    final queries = <String>[
+      if (first.isNotEmpty) first,
+      if ('$title $artist' != first) '$title $artist',
+    ];
 
     final script = await SpotifyWebPlayer.script(_dio);
     // Every search operation the player currently declares, newest name
@@ -424,8 +426,8 @@ class SpotifyApi {
       'scriptRead=${script != null}',
     );
 
-    for (final q in queries) {
-      for (final (op, hash) in ops) {
+    for (final (op, hash) in ops) {
+      for (final q in queries) {
         final vars = op == 'searchTracks'
             // Exactly what LastWave-Native sends.
             ? <String, Object?>{
@@ -467,11 +469,11 @@ class SpotifyApi {
     // Web API search as the fallback.
     final headers = await _authHeaders();
     if (headers == null) return null;
-    for (final q in queries) {
+    for (final q in ['$title $artist']) {
       try {
         final res = await _dio.get<String>(
           'https://api.spotify.com/v1/search',
-          queryParameters: {'type': 'track', 'q': q, 'limit': 10},
+          queryParameters: {'type': 'track', 'q': q, 'limit': 5},
           options: Options(
             responseType: ResponseType.plain,
             headers: headers,
@@ -627,41 +629,46 @@ class SpotifyApi {
     );
   }
 
-  /// A canvas for the wrong song is worse than no canvas: the hit must
-  /// match the playing track's title and credited artists, and the
-  /// closest running time wins when both sides know one.
+  /// Native `pickBestTrack`: the closest running time when it is known,
+  /// otherwise the first title match, otherwise the first result.
   _SpotifyTrackHit? _pick(
     List<_SpotifyTrackHit> hits,
     String title,
     String artist,
     int durationMs,
   ) {
-    final ok = hits
-        .where(
-          (h) =>
-              canvasTitlesMatch(title, h.name) &&
-              (h.artists.isEmpty ||
-                  canvasArtistsMatch(
-                    artist,
-                    h.artists,
-                    wantTitle: title,
-                    gotTitle: h.name,
-                  )),
-        )
-        .toList();
-    if (ok.isEmpty) return null;
+    if (hits.isEmpty) return null;
     if (durationMs > 0) {
-      ok.sort((a, b) {
-        int d(_SpotifyTrackHit h) =>
-            h.durationMs > 0 ? (h.durationMs - durationMs).abs() : 1 << 30;
-        return d(a).compareTo(d(b));
-      });
+      var best = hits.first;
+      var bestD = 1 << 30;
+      for (final h in hits) {
+        final d = h.durationMs > 0
+            ? (h.durationMs - durationMs).abs()
+            : 1 << 30;
+        if (d < bestD) {
+          bestD = d;
+          best = h;
+        }
+      }
+      return best;
     }
-    return ok.first;
+    final want = normalizeCanvasMatch(title);
+    for (final h in hits) {
+      if (h.name.toLowerCase() == title.toLowerCase() ||
+          normalizeCanvasMatch(h.name) == want) {
+        return h;
+      }
+    }
+    return hits.first;
   }
 
+  static final _cleanTitle = RegExp(
+    r'\s*[\(\[](?:feat\.?|ft\.?|official|video|audio|remastered|lyric|lyrics|hd|4k)[^\)\]]*[\)\]]',
+    caseSensitive: false,
+  );
+
   Future<String?> _canvasViaQuery(String trackUri, {bool retry = false}) async {
-    final headers = await _authHeaders();
+    final headers = await _authHeaders(appPlatform: true);
     if (headers == null) return null;
     final hash = await _hash(
       SpotifyWebPlayer.canvasOperation,

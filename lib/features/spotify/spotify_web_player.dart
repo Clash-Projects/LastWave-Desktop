@@ -99,9 +99,8 @@ class SpotifyWebPlayer {
   }
 
   /// The player's script bundles, as linked from the player's page.
-  static List<String> scripts(String html) => {
-        for (final m in _bundle.allMatches(html)) m.group(0)!,
-      }.toList();
+  static List<String> scripts(String html) =>
+      {for (final m in _bundle.allMatches(html)) m.group(0)!}.toList();
 
   static final _bundle = RegExp(
     r'https://open\.spotifycdn\.com/cdn/build/web-player/'
