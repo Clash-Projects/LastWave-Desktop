@@ -425,6 +425,60 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     _updateTickerState();
   }
 
+  // Memo for [_effectiveResultFor]: the provider result it was derived
+  // from (by identity) plus the title/artist the credit strip ran with.
+  LyricsResult? _effectiveSource;
+  String _effectiveTitle = '';
+  String _effectiveArtist = '';
+  LyricsResult? _effectiveMemo;
+
+  /// Plain-text expansion + credit strip of [result], computed once per
+  /// provider emission instead of on every rebuild (toolbar auto-hide,
+  /// follow toggles, select mode…). Both steps are pure, so the memo is
+  /// the same value a fresh call would return — but it is also the SAME
+  /// OBJECT, so `_currentResult != effectiveResult` and
+  /// `_AppleLineLyricsView.didUpdateWidget` no longer see "new lyrics" on
+  /// unrelated rebuilds whenever the strip creates a new [LyricsResult]
+  /// (plain-text lyrics always; synced ones when the strip finds a line).
+  /// That spurious reset dropped the follow-scroll state, so the next
+  /// line change jumped instead of animating.
+  LyricsResult _effectiveResultFor(LyricsResult result) {
+    final memo = _effectiveMemo;
+    final title = widget.track.title;
+    final artist = widget.track.artist;
+    if (memo != null &&
+        identical(_effectiveSource, result) &&
+        _effectiveTitle == title &&
+        _effectiveArtist == artist) {
+      return memo;
+    }
+    final rawEffective = (result.lines.isEmpty && result.plainLyrics.isNotEmpty)
+        ? LyricsResult(
+            lines: result.plainLyrics
+                .split('\n')
+                .map((l) => l.trim())
+                .where((l) => l.isNotEmpty)
+                .map((l) => LyricLine(timeMs: 0, text: l))
+                .toList(),
+            isSynced: false,
+            isWordSynced: false,
+            plainLyrics: result.plainLyrics,
+            isInstrumental: result.isInstrumental,
+            source: result.source,
+          )
+        : result;
+    final effective = stripLyricCreditLines(
+      rawEffective,
+      title: title,
+      artist: artist,
+    );
+    _effectiveSource = result;
+    _effectiveTitle = title;
+    _effectiveArtist = artist;
+    _effectiveMemo = effective;
+    return effective;
+  }
+
   @override
   Widget build(BuildContext context) {
     // NOTE: position/isPlaying/speed are subscribed in initState
@@ -471,26 +525,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         ),
       ),
       data: (result) {
-        final rawEffective = (result.lines.isEmpty && result.plainLyrics.isNotEmpty)
-            ? LyricsResult(
-                lines: result.plainLyrics
-                    .split('\n')
-                    .map((l) => l.trim())
-                    .where((l) => l.isNotEmpty)
-                    .map((l) => LyricLine(timeMs: 0, text: l))
-                    .toList(),
-                isSynced: false,
-                isWordSynced: false,
-                plainLyrics: result.plainLyrics,
-                isInstrumental: result.isInstrumental,
-                source: result.source,
-              )
-            : result;
-        final effectiveResult = stripLyricCreditLines(
-          rawEffective,
-          title: widget.track.title,
-          artist: widget.track.artist,
-        );
+        final effectiveResult = _effectiveResultFor(result);
 
         // Header controls (the source switcher + close) must survive the
         // no-lyrics states. Switching source can legitimately land on a
