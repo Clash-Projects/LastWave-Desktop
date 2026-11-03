@@ -38,7 +38,6 @@ class HeadphoneProfile {
         'equalizer=f=${band.hz.toStringAsFixed(0)}'
         ':t=q:w=${band.q.toStringAsFixed(2)}'
         ':g=${band.gainDb.toStringAsFixed(1)}',
-      if (preampDb.abs() >= 0.05) 'volume=${preampDb.toStringAsFixed(1)}dB',
     ];
     return 'lavfi=[${parts.join(',')}]';
   }

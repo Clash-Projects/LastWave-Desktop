@@ -163,6 +163,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// 10-band (and Studio Clarity) graph only. Headphone correction is
   /// merged in [_currentAudioFilter] so neither replaces the other.
   String _eqFilter = '';
+  // Set when mpv rejected the EQ / headphone graph (missing FFmpeg filter):
+  // processing stays off for the rest of the session.
+  bool _processingDisabled = false;
   String _hpFilter = '';
   String _currentAudioFilter = '';
   String _currentAudioDevice = 'auto';
@@ -1474,7 +1477,31 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           '${text.length > 120 ? text.substring(0, 120) : text}');
     }
     final mixing = _crossfading || _standbyArmed || _mixSweepBusy;
-    if (!mixing) return;
+    if (!mixing) {
+      // A rejected EQ / headphone graph leaves the track with NO audio
+      // (mpv ends the file). Drop processing for the session and reopen
+      // the song where it was, instead of failing every track.
+      if (_currentAudioFilter.isNotEmpty && !_processingDisabled) {
+        _processingDisabled = true;
+        _crumb('processing filter rejected -> disabled, reopening');
+        _rebuildProcessingFilter();
+        final idx = state.currentIndex;
+        final pos = state.position;
+        final key = state.current?.queueKey;
+        unawaited(runGuardedAsync('filter-recover', () async {
+          try {
+            await _applyRateAndPitch();
+          } catch (_) {}
+          if (key != null && pos > const Duration(seconds: 3)) {
+            _resumeKey = key;
+            _resumeAt = pos;
+          }
+          await _resolveAndOpen(idx, forceRefresh: false);
+        }));
+        _notifyProcessing();
+      }
+      return;
+    }
     _sweepSupported = false;
     if (_mixSweepFailed) return;
     _mixSweepFailed = true;
@@ -2083,7 +2110,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   void _rebuildProcessingFilter() {
     _hpFilter = HeadphoneProfiles.byId(_prefs.headphoneProfile).lavfiFilter;
-    _currentAudioFilter = mergeEqualizerAndHeadphone(_eqFilter, _hpFilter);
+    _currentAudioFilter = _processingDisabled
+        ? ''
+        : mergeEqualizerAndHeadphone(_eqFilter, _hpFilter);
   }
 
   /// EQ + headphone correction, plus scaletempo when pitch is not 1.

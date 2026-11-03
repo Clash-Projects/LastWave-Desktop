@@ -149,12 +149,14 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
     for (final g in gains) {
       if (g > maxBoost) maxBoost = g;
     }
-    if (maxBoost > 0.05) {
-      filters.add('volume=volume=-${maxBoost.toStringAsFixed(1)}dB');
-    }
+    // Pre-amp WITHOUT the `volume` filter: the libmpv bundled on some
+    // builds ships an FFmpeg without it, and one unknown filter fails the
+    // whole graph (no audio at all). Shifting every band down by the
+    // largest boost gives the same headroom using `equalizer` alone.
+    final shift = maxBoost > 0.05 ? maxBoost : 0.0;
     for (int i = 0; i < eqBandFreqsHz.length; i++) {
       final freq = eqBandFreqsHz[i];
-      final gain = gains[i];
+      final gain = gains[i] - shift;
       if (gain.abs() < 0.05) continue; // skip flat bands
       filters.add('equalizer=f=$freq:t=o:w=1:g=${gain.toStringAsFixed(1)}');
     }
