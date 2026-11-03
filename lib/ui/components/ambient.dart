@@ -11,7 +11,6 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:palette_generator/palette_generator.dart';
 
-import '../../core/diagnostics/memory_probe.dart';
 import '../../core/storage/prefs.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -542,15 +541,6 @@ Future<ArtworkPalette> _extractPalette(_PaletteJob job) async {
 
 final _paletteLruCache = <String, ArtworkPalette>{};
 
-/// Cumulative LRU misses. Diagnostic only (see [_PalettePool.debugGauge]).
-int _paletteMisses = 0;
-
-/// Cumulative extraction failures + the last error's type. Distinguishes
-/// "the quantizer is broken" from "the 192px decode never arrives" —
-/// both used to end in the same silent fallback.
-int _paletteFailures = 0;
-String _paletteLastError = '';
-
 /// How long a resolved palette provider stays alive with no listeners.
 ///
 /// The palette cache itself is bounded ([_paletteLruCache], 500 entries),
@@ -756,21 +746,6 @@ class _PaletteTask {
 class _PalettePool {
   static const int _maxWorkers = 4;
 
-  _PalettePool() {
-    MemoryProbe.register('palette', () => debugGauge);
-  }
-
-  /// `misses` is cumulative and only rises on an LRU miss, so a curve
-  /// that tracks RSS growth means per-artwork retention (elements or
-  /// decoded pixels), not the pool. `spawns` counts how many times a
-  /// worker had to fall back to the one-shot `compute()` path — it must
-  /// stay at 0 once a worker is warm.
-  String get debugGauge => 'lru=${_paletteLruCache.length} '
-      'misses=$_paletteMisses failed=$_paletteFailures '
-      'err=${_paletteLastError.isEmpty ? '-' : _paletteLastError} '
-      'workers=${_workers.length} spawns=${_PaletteWorker._fallbacks} '
-      'queued=${_queue.length} running=$_running';
-
   final List<_PaletteWorker> _workers = [];
   final List<_PaletteTask> _queue = [];
   int _running = 0;
@@ -829,7 +804,6 @@ final artworkPaletteProvider =
   if (url.isEmpty) return ArtworkPalette.fallback;
   final cached = _paletteLruCache[url];
   if (cached != null) return cached;
-  _paletteMisses++;
   _keepPaletteAlive(ref);
   ui.Image? image;
   try {
@@ -850,11 +824,7 @@ final artworkPaletteProvider =
     }
     _paletteLruCache[url] = palette;
     return palette;
-  } catch (e) {
-    // Type only — CachedNetworkImageProvider errors embed the URL and the
-    // residency log must never carry one.
-    _paletteFailures++;
-    _paletteLastError = e.runtimeType.toString();
+  } catch (_) {
     return ArtworkPalette.fallback;
   } finally {
     image?.dispose();

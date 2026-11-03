@@ -6,7 +6,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
-import '../diagnostics/memory_probe.dart';
 import '../network/dio_factory.dart';
 import '../storage/app_database.dart';
 import '../../features/innertube/innertube_api.dart';
@@ -633,16 +632,7 @@ class AnimatedArtworkService {
   final List<void Function()> _queue = [];
 
   AnimatedArtworkService({Dio? dio, this._db, this.albumLookup})
-      : _dio = dio ?? DioFactory.create() {
-    MemoryProbe.register('motion', () => debugGauge);
-  }
-
-  /// Motion-art plumbing residency: memory cache (bounded), in-flight
-  /// lookups (a memo that never clears would pin album queries) and the
-  /// two-deep concurrency queue.
-  String get debugGauge =>
-      'cache=${_memory.length} inflight=${_inflight.length} '
-      'queue=${_queue.length} active=$_active';
+      : _dio = dio ?? DioFactory.create();
 
   String _trackKeyId(String artist, String title) {
     final p = OfficialArtworkService.normalizeForSearch(

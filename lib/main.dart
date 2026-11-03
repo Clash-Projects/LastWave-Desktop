@@ -12,7 +12,6 @@ import 'app/window.dart';
 import 'core/artwork/artwork_resolver.dart';
 import 'core/artwork/official_artwork_service.dart';
 import 'core/diagnostics/diagnostics_log.dart';
-import 'core/diagnostics/memory_probe.dart';
 import 'core/error/fatal_crumbs.dart';
 import 'core/platform/allocator_tuning.dart';
 import 'core/storage/app_database.dart';
@@ -50,17 +49,7 @@ Future<void> main(List<String> args) async {
   PaintingBinding.instance.imageCache.maximumSize = 500;
   PaintingBinding.instance.imageCache.maximumSizeBytes =
       64 << 20; // 64 MiB
-  // Debug-only residency printer: [mem] rss=… img[…imgs/…MiB live=…] with
-  // a one-line gauge per cache owner (art/motion/yt/player/palette). Off
-  // in release builds. See lib/core/diagnostics/memory_probe.dart.
-  //
-  // Started *after* the title-bar early-return on purpose: the hidden
-  // poToken WebView window re-enters `main()`, so starting the probe up
-  // here gave that second isolate its own baseline and its own 30s
-  // `[mem]` stream interleaved with the real one (its own `_baselineRss`
-  // and `_last` statics), which made every log ambiguous.
   if (runWebViewTitleBarWidget(args)) return;
-  MemoryProbe.start();
   // libmpv is deliberately NOT dlopened here. MediaKit.ensureInitialized()
   // just dlopens a multi-MB .so (media_kit's NativeLibrary) — pure
   // first-frame latency — and nothing on the first frame needs it: the
