@@ -1759,8 +1759,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (startShuffled) {
       shuffle = true;
       queue = List.of(tracks)..shuffle();
-      index = queue.indexWhere(
-          (t) => t.mediaId == tracks[startIndex].mediaId);
+      // tracks[index], not tracks[startIndex]: index is the clamped
+      // value, so an out-of-range start no longer throws a RangeError.
+      final start = tracks[index];
+      index = queue.indexWhere((t) => t.mediaId == start.mediaId);
       if (index < 0) index = 0;
     }
     _endlessRadio = endlessRadio;
