@@ -15,6 +15,7 @@ import '../ui/collections/history_page.dart';
 import '../ui/collections/liked_page.dart';
 import '../ui/collections/playlist_detail_page.dart';
 import '../ui/collections/playlists_page.dart';
+import '../ui/collections/genre_detail_page.dart';
 import '../ui/collections/spotify_playlist_detail_page.dart';
 import '../ui/collections/yt_playlist_detail_page.dart';
 import '../ui/collections/yt_shelf_page.dart';
@@ -309,6 +310,15 @@ GoRouter buildRouter({required AuthGate gate}) {
                         '',
                     artworkUrl:
                         s.uri.queryParameters['art'] ?? '',
+                  ),
+                ),
+              ),
+              GoRoute(
+                path: '/genre/:query',
+                pageBuilder: (c, s) => _anchoredPage(
+                  WaveGenreDetailPage(
+                    query: s.pathParameters['query'] ?? '',
+                    title: s.uri.queryParameters['name'] ?? '',
                   ),
                 ),
               ),
