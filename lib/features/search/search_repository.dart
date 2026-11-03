@@ -75,11 +75,46 @@ class SearchRepository {
   final AppDatabase _db;
   final String Function() _apiKey;
 
-  SearchRepository(this._api, this._tube, this._db, this._apiKey);
+  SearchRepository(this._api, this._tube, this._db, this._apiKey,
+      {DateTime Function()? clock})
+      : _now = clock ?? DateTime.now;
 
-  Future<List<SearchSuggestion>> getSuggestions(String query) async {
+  final DateTime Function() _now;
+
+  /// Session memo for repeat queries. The result providers are autoDispose
+  /// (one per keystroke prefix), so without this every return to a query
+  /// searches again. Holds the in-flight future too, so two widgets asking
+  /// for the same query share one request. Failures and empty answers are
+  /// dropped so a retry really retries.
+  final _memo = <String, ({DateTime at, Future<Object?> value})>{};
+  static const _memoTtl = Duration(minutes: 10);
+  static const _memoCap = 80;
+
+  Future<T> _memoized<T>(String key, Future<T> Function() fetch) {
+    final hit = _memo.remove(key);
+    if (hit != null && _now().difference(hit.at) < _memoTtl) {
+      _memo[key] = hit; // re-insert: most recently used goes last
+      return hit.value as Future<T>;
+    }
+    final future = fetch();
+    _memo[key] = (at: _now(), value: future);
+    if (_memo.length > _memoCap) _memo.remove(_memo.keys.first);
+    future.then((v) {
+      final empty = v == null || (v is Iterable && v.isEmpty);
+      if (empty && identical(_memo[key]?.value, future)) _memo.remove(key);
+    }, onError: (Object _) {
+      if (identical(_memo[key]?.value, future)) _memo.remove(key);
+    });
+    return future;
+  }
+
+  Future<List<SearchSuggestion>> getSuggestions(String query) {
     final q = query.trim();
-    if (q.length < 2) return const [];
+    if (q.length < 2) return Future.value(const []);
+    return _memoized('sug|${q.toLowerCase()}', () => _getSuggestions(q));
+  }
+
+  Future<List<SearchSuggestion>> _getSuggestions(String q) async {
     final pair = await Future.wait([
       _tube.searchArtists(q, limit: 5),
       _tube.searchSongs(q, limit: 8),
@@ -152,10 +187,14 @@ class SearchRepository {
     return out;
   }
 
-  Future<List<SearchResultItem>> search(
-      SearchTab tab, String query) async {
+  Future<List<SearchResultItem>> search(SearchTab tab, String query) {
     final q = query.trim();
-    if (q.isEmpty) return const [];
+    if (q.isEmpty) return Future.value(const []);
+    return _memoized(
+        '${tab.name}|${q.toLowerCase()}', () => _search(tab, q));
+  }
+
+  Future<List<SearchResultItem>> _search(SearchTab tab, String q) async {
     switch (tab) {
       case SearchTab.tracks:
         final tracks = await _tube.searchSongs(q, limit: 60);
@@ -340,9 +379,13 @@ class SearchRepository {
 
   /// Best catalog hit for a recent query — artist if the name matches,
   /// otherwise the top song. Used by the empty Search page cards.
-  Future<SearchResultItem?> previewForQuery(String query) async {
+  Future<SearchResultItem?> previewForQuery(String query) {
     final q = query.trim();
-    if (q.isEmpty) return null;
+    if (q.isEmpty) return Future.value(null);
+    return _memoized('prev|${q.toLowerCase()}', () => _previewForQuery(q));
+  }
+
+  Future<SearchResultItem?> _previewForQuery(String q) async {
     final pair = await Future.wait([
       _tube.searchArtists(q, limit: 3),
       _tube.searchSongs(q, limit: 3),
