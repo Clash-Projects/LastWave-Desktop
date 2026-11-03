@@ -1563,29 +1563,13 @@ class _SpotifyCard extends ConsumerWidget {
                 child: const Text('Disconnect'),
               )
             else ...[
-              WaveButton(
-                onPressed: () => spotifyConnectWithWebView(context, ref),
-                child: const Text('In-app window'),
-              ),
-              const SizedBox(width: 8),
               WaveFilledButton(
-                onPressed: () => spotifyConnectViaBrowser(context, ref),
-                child: const Text('Sign in with browser'),
+                onPressed: () => spotifyConnectWithCookie(context, ref),
+                child: const Text('Login with cookies'),
               ),
             ],
           ],
         ),
-        if (!auth.connected) ...[
-          const SizedBox(height: 6),
-          Text(
-            'Google and Facebook refuse to sign in inside embedded windows, '
-            'and Spotify\'s captcha often fails there, so "Sign in with '
-            'browser" (your own browser + paste the sp_dc cookie) is the '
-            'dependable route. The in-app window works for plain email '
-            'logins when Spotify does not ask for a captcha.',
-            style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
-          ),
-        ],
         const SizedBox(height: 8),
         _SwitchRow(
           value: prefs.spotifyCanvasEnabled,

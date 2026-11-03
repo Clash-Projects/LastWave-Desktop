@@ -76,24 +76,12 @@ Future<void> spotifyConnectWithCookie(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            '1. Sign in at open.spotify.com in your browser (Google, '
-            'Facebook, Apple or email all work there).\n'
+            '1. Sign in at open.spotify.com in your own browser.\n'
             '2. Press F12 → Application (Firefox: Storage) → Cookies → '
             'https://open.spotify.com.\n'
             '3. Copy the Value of the "sp_dc" cookie and paste it below.',
             style: WaveType.meta.copyWith(
               color: waveTextSecondary(dialogContext),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: WaveButton(
-              onPressed: () => launchUrl(
-                Uri.parse('https://open.spotify.com/'),
-                mode: LaunchMode.externalApplication,
-              ),
-              child: const Text('Open open.spotify.com'),
             ),
           ),
           const SizedBox(height: 10),

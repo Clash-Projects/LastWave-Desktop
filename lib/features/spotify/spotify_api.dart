@@ -392,65 +392,180 @@ class SpotifyApi {
     final queries = <String>{
       '$cleanTitle $primary'.trim(),
       '$title $artist'.trim(),
+      cleanTitle,
     }.where((q) => q.isNotEmpty);
 
-    final hash =
-        await _hash(SpotifyWebPlayer.searchOperation, _knownSearchHash);
-    for (final q in queries) {
-      final root = await _query(
+    final script = await SpotifyWebPlayer.script(_dio);
+    // Every search operation the player currently declares, newest name
+    // first; the player renames them whenever it is rebuilt.
+    final ops = <(String, String)>[
+      for (final name in const [
+        'searchDesktop',
+        'searchTracks',
         SpotifyWebPlayer.searchOperation,
-        {'term': q, 'offset': 0, 'limit': 5, 'numberOfTopResults': 5},
-        hash,
-      );
-      final items = _at(root, ['data', 'searchV2', 'tracksV2', 'items']);
-      final hits = <_SpotifyTrackHit>[
-        if (items is List)
-          for (final it in items)
-            ?_hit(_at(it, ['item', 'data'])),
-      ];
-      final best = _pick(hits, title, artist, durationMs);
-      if (best != null) return best;
+      ])
+        if (script != null && SpotifyWebPlayer.queryHash(script, name) != null)
+          (name, SpotifyWebPlayer.queryHash(script, name)!),
+    ];
+    if (ops.isEmpty) {
+      ops.add((SpotifyWebPlayer.searchOperation, _knownSearchHash));
+    }
+    DiagnosticsLog.info(
+      'spotify search ops=${ops.map((o) => o.$1).join(",")} '
+      'scriptRead=${script != null}',
+    );
+
+    for (final q in queries) {
+      for (final (op, hash) in ops) {
+        final vars = <String, Object?>{
+          'searchTerm': q,
+          'term': q,
+          'offset': 0,
+          'limit': 10,
+          'numberOfTopResults': 5,
+          'includeAudiobooks': false,
+          'includePreReleases': false,
+          'includeAuthors': false,
+          'includeArtistHasConcertsField': false,
+        };
+        for (final endpoint in const [_v1, _v2]) {
+          final root = endpoint == _v1
+              ? await _query(op, vars, hash)
+              : await _post(op, vars, hash);
+          if (root == null) continue;
+          final hits = _collectTracks(root);
+          DiagnosticsLog.info(
+            'spotify search op=$op ${endpoint == _v1 ? 'v1' : 'v2'} '
+            'tracks=${hits.length}${hits.isEmpty ? _errorsOf(root) : ''}',
+          );
+          final best = _pick(hits, title, artist, durationMs);
+          if (best != null) return best;
+        }
+      }
     }
 
     // Web API search as the fallback.
     final headers = await _authHeaders();
     if (headers == null) return null;
+    for (final q in queries) {
+      try {
+        final res = await _dio.get<String>(
+          'https://api.spotify.com/v1/search',
+          queryParameters: {'type': 'track', 'q': q, 'limit': 10},
+          options: Options(
+            responseType: ResponseType.plain,
+            headers: headers,
+            validateStatus: (_) => true,
+          ),
+        );
+        if ((res.statusCode ?? 0) ~/ 100 != 2) {
+          DiagnosticsLog.info('spotify search webapi http=${res.statusCode}');
+          continue;
+        }
+        final body = jsonDecode(res.data ?? '{}');
+        final items = _at(body, ['tracks', 'items']);
+        final hits = <_SpotifyTrackHit>[
+          if (items is List)
+            for (final it in items)
+              if (it is Map && it['id'] is String)
+                _SpotifyTrackHit(
+                  id: it['id'] as String,
+                  name: it['name']?.toString() ?? '',
+                  artists: [
+                    if (it['artists'] is List)
+                      for (final a in it['artists'] as List)
+                        if (a is Map) a['name']?.toString() ?? '',
+                  ].where((s) => s.isNotEmpty).join(', '),
+                  durationMs: _int(it['duration_ms']) ?? 0,
+                ),
+        ];
+        DiagnosticsLog.info('spotify search webapi tracks=${hits.length}');
+        final best = _pick(hits, title, artist, durationMs);
+        if (best != null) return best;
+      } catch (e) {
+        DiagnosticsLog.info('spotify search webapi error=${e.runtimeType}');
+      }
+    }
+    return null;
+  }
+
+  /// POST form of a persisted query (Pathfinder v2).
+  Future<Map<String, dynamic>?> _post(
+    String operation,
+    Map<String, Object?> variables,
+    String hash,
+  ) async {
+    final headers = await _authHeaders();
+    if (headers == null) return null;
     try {
-      final res = await _dio.get<String>(
-        'https://api.spotify.com/v1/search',
-        queryParameters: {
-          'type': 'track',
-          'q': '$cleanTitle $primary',
-          'limit': 5,
-        },
+      final res = await _dio.post<String>(
+        _v2,
+        data: jsonEncode({
+          'operationName': operation,
+          'variables': variables,
+          'extensions': {
+            'persistedQuery': {'version': 1, 'sha256Hash': hash},
+          },
+        }),
         options: Options(
           responseType: ResponseType.plain,
-          headers: headers,
+          headers: {...headers, 'Content-Type': 'application/json'},
           validateStatus: (_) => true,
         ),
       );
-      if ((res.statusCode ?? 0) ~/ 100 != 2) return null;
+      if ((res.statusCode ?? 0) ~/ 100 != 2) {
+        DiagnosticsLog.info(
+          'spotify post op=$operation http=${res.statusCode}',
+        );
+        return null;
+      }
       final body = jsonDecode(res.data ?? '{}');
-      final items = _at(body, ['tracks', 'items']);
-      final hits = <_SpotifyTrackHit>[
-        if (items is List)
-          for (final it in items)
-            if (it is Map && it['id'] is String)
-              _SpotifyTrackHit(
-                id: it['id'] as String,
-                name: it['name']?.toString() ?? '',
-                artists: [
-                  if (it['artists'] is List)
-                    for (final a in it['artists'] as List)
-                      if (a is Map) a['name']?.toString() ?? '',
-                ].where((s) => s.isNotEmpty).join(', '),
-                durationMs: _int(it['duration_ms']) ?? 0,
-              ),
-      ];
-      return _pick(hits, title, artist, durationMs);
-    } catch (_) {
+      return body is Map ? Map<String, dynamic>.from(body) : null;
+    } catch (e) {
+      DiagnosticsLog.info('spotify post op=$operation error=${e.runtimeType}');
       return null;
     }
+  }
+
+  /// First GraphQL error message, for the log (no tokens in these).
+  String _errorsOf(Map<String, dynamic> root) {
+    final errors = root['errors'];
+    if (errors is List && errors.isNotEmpty) {
+      final first = errors.first;
+      final msg = first is Map ? first['message']?.toString() : '$first';
+      return ' error="${(msg ?? '').replaceAll('\n', ' ')}"';
+    }
+    return '';
+  }
+
+  /// Every track object anywhere in an answer, whatever the operation
+  /// wraps them in: `{uri: spotify:track:…, name, artists, duration}`.
+  List<_SpotifyTrackHit> _collectTracks(Object? root) {
+    final out = <_SpotifyTrackHit>[];
+    final seen = <String>{};
+    void walk(Object? n, int depth) {
+      if (depth > 14) return;
+      if (n is Map) {
+        final uri = n['uri'];
+        if (uri is String &&
+            uri.startsWith('spotify:track:') &&
+            n['name'] is String) {
+          final id = uri.substring('spotify:track:'.length);
+          final hit = _hit(n);
+          if (hit != null && seen.add(id)) out.add(hit);
+        }
+        for (final v in n.values) {
+          walk(v, depth + 1);
+        }
+      } else if (n is List) {
+        for (final v in n) {
+          walk(v, depth + 1);
+        }
+      }
+    }
+
+    walk(root, 0);
+    return out;
   }
 
   _SpotifyTrackHit? _hit(Object? data) {
@@ -459,15 +574,35 @@ class SpotifyApi {
         ? data['id'].toString()
         : (data['uri']?.toString() ?? '').replaceFirst('spotify:track:', '');
     if (id.isEmpty) return null;
-    final artists = _at(data, ['artists', 'items']);
+    final artists = _at(data, ['artists', 'items']) ?? data['artists'];
+    final names = <String>[
+      if (artists is List)
+        for (final a in artists)
+          if (_text(_at(a, ['profile', 'name'])).isNotEmpty)
+            _text(_at(a, ['profile', 'name']))
+          else if (a is Map && a['name'] is String)
+            a['name'] as String,
+    ];
+    if (names.isEmpty) {
+      final first = _at(data, ['firstArtist', 'items']);
+      final other = _at(data, ['otherArtists', 'items']);
+      for (final l in [first, other]) {
+        if (l is List) {
+          for (final a in l) {
+            final n = _text(_at(a, ['profile', 'name']));
+            if (n.isNotEmpty) names.add(n);
+          }
+        }
+      }
+    }
     return _SpotifyTrackHit(
       id: id,
       name: data['name']?.toString() ?? '',
-      artists: [
-        if (artists is List)
-          for (final a in artists) _text(_at(a, ['profile', 'name'])),
-      ].where((s) => s.isNotEmpty).join(', '),
-      durationMs: _int(_at(data, ['duration', 'totalMilliseconds'])) ?? 0,
+      artists: names.join(', '),
+      durationMs: _int(_at(data, ['duration', 'totalMilliseconds'])) ??
+          _int(_at(data, ['trackDuration', 'totalMilliseconds'])) ??
+          _int(data['duration_ms']) ??
+          0,
     );
   }
 
@@ -483,8 +618,9 @@ class SpotifyApi {
     final ok = hits
         .where((h) =>
             canvasTitlesMatch(title, h.name) &&
-            canvasArtistsMatch(artist, h.artists,
-                wantTitle: title, gotTitle: h.name))
+            (h.artists.isEmpty ||
+                canvasArtistsMatch(artist, h.artists,
+                    wantTitle: title, gotTitle: h.name)))
         .toList();
     if (ok.isEmpty) return null;
     if (durationMs > 0) {
