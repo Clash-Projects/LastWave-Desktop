@@ -369,6 +369,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     if (!mounted) return;
     final snap = ref.read(playbackServiceProvider);
     if (snap.current == null) return;
+    // No duration yet (restored session / stream still opening): the
+    // clamp below would pin every step to 0:00 and restart the track.
+    // Same guard as the dock timeline's own ←/→ handler.
+    if (snap.duration <= Duration.zero) return;
     final target = snap.position + Duration(seconds: delta);
     final clamped = target.isNegative
         ? Duration.zero
