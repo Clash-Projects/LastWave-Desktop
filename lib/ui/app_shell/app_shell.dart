@@ -392,18 +392,21 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       Future<void> toggle(HotKey _) async {
         if (!mounted) return;
         if (await _windowFocused()) return;
+        if (!mounted) return;
         await ref.read(playbackServiceProvider.notifier).toggle();
       }
 
       Future<void> next(HotKey _) async {
         if (!mounted) return;
         if (await _windowFocused()) return;
+        if (!mounted) return;
         await ref.read(playbackServiceProvider.notifier).next();
       }
 
       Future<void> prev(HotKey _) async {
         if (!mounted) return;
         if (await _windowFocused()) return;
+        if (!mounted) return;
         await ref.read(playbackServiceProvider.notifier).previous();
       }
 
