@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'animated_artwork_service.dart';
+import '../diagnostics/trace_crumb.dart';
 
 /// App-scoped muted motion-art player.
 ///
@@ -23,6 +23,10 @@ import 'animated_artwork_service.dart';
 /// and debounces rapid skips into a single open. There is deliberately no
 /// mid-session teardown: destroying the texture while frames are in flight
 /// is what aborted the engine.
+/// Whether the artwork player presents through the H/W (ANGLE/D3D11) texture
+/// path. Off by default everywhere; see the note at its use.
+const bool _artworkHardwarePresent = bool.fromEnvironment('LW_ARTWORK_HW');
+
 class AnimatedArtworkSession extends ChangeNotifier {
   Player? _player;
   VideoController? _controller;
@@ -98,6 +102,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
   /// Video widget is in the tree. Combined with [_ready] this fades the still.
   void showSurface() {
     if (_visible) return;
+    TraceCrumb.write('art surface-show');
     _visible = true;
     if (_ready) _notify();
   }
@@ -108,6 +113,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
   /// after the video unmounts and the tile sits black forever.
   void hideSurface() {
     if (!_visible) return;
+    TraceCrumb.write('art surface-hide');
     _visible = false;
     _notify();
   }
@@ -230,6 +236,8 @@ class AnimatedArtworkSession extends ChangeNotifier {
         unawaited(CanvasDiskCache.instance.warm(url));
       }
 
+      TraceCrumb.write(
+          'art open ${cachedFile != null ? 'disk' : 'net'}');
       await player.open(
         Media(
           playTarget,
@@ -316,6 +324,8 @@ class AnimatedArtworkSession extends ChangeNotifier {
       if (gen != _generation || _ready || _disposed) return;
       _cancelReadyWatchers();
       _ready = true;
+      TraceCrumb.write(
+          'art first-frame ${player.state.width}x${player.state.height}');
       if (kDebugMode) {
         debugPrint(
           '[motion] ready ${player.state.width}x${player.state.height} $_openedUrl',
@@ -399,6 +409,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
     // Defensive + idempotent: media_kit's libmpv dlopen normally comes from
     // PlaybackService.ensurePlayer, but this session owns its own Player()
     // and must not depend on that having run first.
+    TraceCrumb.write('art player-create');
     MediaKit.ensureInitialized();
     final player = Player(
       configuration: const PlayerConfiguration(
@@ -410,6 +421,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
         bufferSize: 16 * 1024 * 1024,
       ),
     );
+    TraceCrumb.write('art controller-create');
     _player = player;
     _controller = VideoController(
       player,
@@ -426,8 +438,18 @@ class AnimatedArtworkSession extends ChangeNotifier {
         // Mesa/RADV at 120Hz. The sw path uploads pixel buffers in
         // Flutter's own context — no second context, no fence stalls.
         // Decode stays software either way (hwdec pin below).
-        // Windows/macOS keep H/W (D3D11-copy/METAL are healthy there).
-        enableHardwareAcceleration: !Platform.isLinux,
+        //
+        // Windows too, since 2026-11-04: with H/W presentation the process
+        // died with a fail-fast (0xC0000409) inside flutter_windows.dll
+        // ~150ms after the clip opened, before its first frame — right as
+        // media_kit's ANGLE/D3D11 surface resized from the pre-allocated
+        // 384x384 to the clip's native size. The crumb trail
+        // (`art open disk` then nothing) and the Windows Application Error
+        // event pin it there. These clips are ~650px, software-decoded, so
+        // the pixel-buffer path costs a few MB/s of CPU copies and removes
+        // the D3D11 interop entirely. `--dart-define=LW_ARTWORK_HW=1`
+        // restores the H/W path for comparison.
+        enableHardwareAcceleration: _artworkHardwarePresent,
         // Software decode only: media_kit defaults hwdec=auto, which on
         // Linux+Mesa tries VA-API dmabuf interop with vo=libmpv and
         // yields zero frames (still never fades; Windows D3D11-copy is
@@ -436,9 +458,14 @@ class AnimatedArtworkSession extends ChangeNotifier {
       ),
     );
     _bindLoopWatchdogs(player);
+    TraceCrumb.write('art texture-wait');
+    var textureTimedOut = false;
     try {
       await _controller!.platform.future.timeout(const Duration(seconds: 6));
-    } catch (_) {}
+    } catch (_) {
+      textureTimedOut = true;
+    }
+    TraceCrumb.write('art texture-${textureTimedOut ? 'timeout' : 'ready'}');
     // Texture exists (or the wait gave up): only now may a Video mount.
     if (_controller != null) {
       _controllerReady = true;
