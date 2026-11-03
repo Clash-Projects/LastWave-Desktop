@@ -815,15 +815,11 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                           final railW = collapsed
                               ? WaveDensity.railCollapsed
                               : WaveDensity.railExpanded;
-                          final rightW = _queueOpen
-                              ? qw
-                              : (_equalizerOpen ? ew : 0.0);
                           // Exact 9:16 from the content height; the page
                           // keeps its minimum width.
                           final cw = canvasPanelWidth(
                             height: constraints.maxHeight,
-                            available:
-                                constraints.maxWidth - railW - rightW,
+                            available: constraints.maxWidth - railW,
                           );
 
                           return Stack(
@@ -846,7 +842,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 left: railW + (_canvasOpen ? cw : 0),
                                 top: 0,
                                 bottom: 0,
-                                right: rightW,
+                                // Queue / equalizer overlay the page (they
+                                // do not push it); only Canvas docks.
+                                right: 0,
                                 child: widget.child,
                               ),
                               // Canvas — docks left of the page (beside

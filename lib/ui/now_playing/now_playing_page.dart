@@ -22,7 +22,6 @@ import '../components/artwork.dart';
 import '../components/image_aspect.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
-import '../queue/queue_panel.dart';
 import '../theme/fluent_theme.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -36,7 +35,7 @@ import '../theme/wave_icons.dart';
 ///   persistent bottom player dock — the single control surface.
 /// - Cinematic Centering: Smoothly animates the artwork and controls to center
 ///   when lyrics are toggled off.
-/// - Top Actions: Lyrics toggle, Queue drawer toggle, Visualizer toggle, Close button.
+/// - Top Actions: Lyrics toggle, Visualizer toggle, Close button.
 /// - Inactivity Auto-Hide: Fades controls and hides cursor after 3.5s of idle mouse.
 class WaveNowPlayingPage extends ConsumerStatefulWidget {
   const WaveNowPlayingPage({super.key});
@@ -49,7 +48,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   bool _lyricsVisible = true;
   // Focus mode: lyrics only, artwork column collapsed, lyrics centered.
   bool _focusMode = false;
-  bool _queueVisible = false;
   bool _controlsIdle = false;
   Timer? _idleTimer;
   DateTime _lastHoverAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -59,16 +57,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   // visualizer toggle (the only thing that renders a clip), so flipping
   // the toggle on must re-arm for the current track.
   String _prefetchedMotionKey = '';
-  // Memoized in-page queue drawer: without this every page build
-  // reconstructs the full row list (menus, tooltips, flyout targets).
-  // Same instance across builds => element update short-circuits.
-  // No changing params (reads providers internally, stable onClose).
-  Widget? _queueDrawerCache;
-
-  void _closeQueueDrawer() {
-    if (_queueVisible) setState(() => _queueVisible = false);
-  }
-
   @override
   void initState() {
     super.initState();
@@ -222,14 +210,10 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_queueVisible) {
-            setState(() => _queueVisible = false);
+          if (context.canPop()) {
+            context.pop();
           } else {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/home');
-            }
+            context.go('/home');
           }
         },
       },
@@ -262,9 +246,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
               left: 0,
               top: 0,
               bottom: 0,
-              // The queue docks beside the cover + lyrics, which re-fit
-              // to the remaining width, instead of covering them.
-              right: _queueVisible ? 360 : 0,
+              right: 0,
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth > 860;
@@ -282,7 +264,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                             child: _TopActionsBar(
                               lyricsVisible: _lyricsVisible,
                               focusMode: _focusMode,
-                              queueVisible: _queueVisible,
                               visualizerEnabled: visualizerEnabled,
                               onToggleLyrics: () {
                                 _resetIdleTimer();
@@ -297,10 +278,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                                   _focusMode = !_focusMode;
                                   if (_focusMode) _lyricsVisible = true;
                                 });
-                              },
-                              onToggleQueue: () {
-                                _resetIdleTimer();
-                                setState(() => _queueVisible = !_queueVisible);
                               },
                               onToggleVisualizer: () {
                                 _resetIdleTimer();
@@ -337,29 +314,6 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
               ),
             ),
 
-            // Contextual Queue drawer smoothly sliding from right.
-            // Offstage when shut: skips paint/raster of the 8 image rows
-            // while closed (scroll offset preserved, no remount).
-            AnimatedPositioned(
-              duration: waveMotion(context, WaveMotion.normal),
-              curve: Curves.easeOutCubic,
-              top: 0,
-              bottom: 0,
-              right: _queueVisible ? 0 : -380,
-              width: 360,
-              child: ExcludeFocus(
-                excluding: !_queueVisible,
-                child: IgnorePointer(
-                  ignoring: !_queueVisible,
-                  child: Offstage(
-                    offstage: !_queueVisible,
-                    child: _queueDrawerCache ??= WaveQueuePanel(
-                      onClose: _closeQueueDrawer,
-                    ),
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -370,22 +324,18 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
 class _TopActionsBar extends StatelessWidget {
   final bool lyricsVisible;
   final bool focusMode;
-  final bool queueVisible;
   final bool visualizerEnabled;
   final VoidCallback onToggleLyrics;
   final VoidCallback onToggleFocus;
-  final VoidCallback onToggleQueue;
   final VoidCallback onToggleVisualizer;
   final VoidCallback onClose;
 
   const _TopActionsBar({
     required this.lyricsVisible,
     required this.focusMode,
-    required this.queueVisible,
     required this.visualizerEnabled,
     required this.onToggleLyrics,
     required this.onToggleFocus,
-    required this.onToggleQueue,
     required this.onToggleVisualizer,
     required this.onClose,
   });
@@ -433,14 +383,6 @@ class _TopActionsBar extends StatelessWidget {
                         : WaveIcons.expand,
                     active: focusMode,
                     onTap: onToggleFocus,
-                  ),
-                ),
-                LWTooltip(
-                  message: queueVisible ? 'Hide queue' : 'Show queue',
-                  child: _FsIconButton(
-                    icon: WaveIcons.queue,
-                    active: queueVisible,
-                    onTap: onToggleQueue,
                   ),
                 ),
                 LWTooltip(
