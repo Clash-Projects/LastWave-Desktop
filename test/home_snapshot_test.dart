@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/storage/app_database.dart';
 import 'package:lastwave_desktop/features/feed/feed_repository.dart';
 import 'package:lastwave_desktop/features/home/home_snapshot.dart';
+import 'package:lastwave_desktop/features/home/home_providers.dart';
+import 'package:lastwave_desktop/features/lastfm/home_repository.dart';
 import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
 import 'package:lastwave_desktop/features/search/shared_providers.dart';
 
@@ -81,6 +83,81 @@ void main() {
       expect(feedSnapshotCodec.decode('not json'), isNull);
       expect(feedSnapshotCodec.decode('{"v":99}'), isNull);
       expect(shelvesSnapshotCodec.decode('[]'), isNull);
+    });
+  });
+
+  group('other Home sections', () {
+    test('new releases round-trip', () {
+      const albums = [
+        YouTubeMusicEntity(
+          kind: YouTubeEntityKind.album,
+          name: 'Album',
+          artist: 'Band',
+          browseId: 'MPRE1',
+          artworkUrl: 'https://img/a.jpg',
+        ),
+      ];
+      final back = entitiesSnapshotCodec
+          .decode(entitiesSnapshotCodec.encode(albums))!;
+      expect(back.single.name, 'Album');
+      expect(back.single.browseId, 'MPRE1');
+      expect(entitiesSnapshotCodec.isEmpty(const []), isTrue);
+    });
+
+    test('personal mix round-trips and "no mix" is never persisted', () {
+      final mix = (
+        seed: GeneratedTrack(name: 'Seed', artist: 'A', videoId: 's1'),
+        tracks: [GeneratedTrack(name: 'T1', artist: 'A', videoId: 'v1')],
+      );
+      final back = personalMixSnapshotCodec
+          .decode(personalMixSnapshotCodec.encode(mix))!;
+      expect(back.seed.videoId, 's1');
+      expect(back.tracks.single.name, 'T1');
+      expect(personalMixSnapshotCodec.isEmpty(noPersonalMix), isTrue);
+      expect(personalMixSnapshotCodec.isEmpty(mix), isFalse);
+    });
+
+    test('friends activity round-trips, timestamp included', () {
+      final list = [
+        FriendActivity(
+          friend: 'amy',
+          avatarUrl: 'https://img/amy.jpg',
+          track: const HomeTrack(
+            name: 'Song',
+            artist: 'Band',
+            artworkUrl: 'https://img/s.jpg',
+            timestampMillis: 1730000000000,
+            playCount: 3,
+          ),
+        ),
+      ];
+      final back = friendsActivityCodec
+          .decode(friendsActivityCodec.encode(list))!
+          .single;
+      expect(back.friend, 'amy');
+      expect(back.track.timestampMillis, 1730000000000);
+      expect(back.track.playCount, 3);
+    });
+
+    test('keys: albums public vs per-channel, mix and friends need an account', () {
+      expect(
+        homeNewAlbumsSnapshotKey(
+            connected: false, profileEmail: '', activePageId: ''),
+        'home_albums_v1|public',
+      );
+      expect(
+        homeNewAlbumsSnapshotKey(
+            connected: true, profileEmail: 'A.c', activePageId: '1'),
+        isNot(homeNewAlbumsSnapshotKey(
+            connected: true, profileEmail: 'a.c', activePageId: '2')),
+      );
+      expect(
+        homePersonalMixSnapshotKey(
+            connected: false, profileEmail: '', activePageId: ''),
+        isNull,
+      );
+      expect(homeFriendsSnapshotKey(''), isNull);
+      expect(homeFriendsSnapshotKey('Bob'), homeFriendsSnapshotKey('bob'));
     });
   });
 

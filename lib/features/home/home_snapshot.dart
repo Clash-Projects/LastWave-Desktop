@@ -327,3 +327,82 @@ T? readSnapshot<T>(
   if (value == null || codec.isEmpty(value)) return null;
   return value;
 }
+
+// -- New releases, personal mix ------------------------------------------------
+
+/// Cache key for the new-releases shelf. It is the authenticated browse
+/// ("server-personalized" when signed in), so it is scoped to the YouTube
+/// identity; signed out it is the public shelf.
+String homeNewAlbumsSnapshotKey({
+  required bool connected,
+  required String profileEmail,
+  required String activePageId,
+}) =>
+    connected
+        ? 'home_albums_v1|${profileEmail.trim().toLowerCase()}|$activePageId'
+        : 'home_albums_v1|public';
+
+/// Cache key for the personal mix; null when signed out (no mix exists).
+String? homePersonalMixSnapshotKey({
+  required bool connected,
+  required String profileEmail,
+  required String activePageId,
+}) =>
+    connected
+        ? 'home_mix_v1|${profileEmail.trim().toLowerCase()}|$activePageId'
+        : null;
+
+/// Cache key for the friends strip; null without a Last.fm user.
+String? homeFriendsSnapshotKey(String username) {
+  final u = username.trim().toLowerCase();
+  return u.isEmpty ? null : 'home_friends_v1|$u';
+}
+
+final entitiesSnapshotCodec = SnapshotCodec<List<YouTubeMusicEntity>>(
+  encode: (list) => jsonEncode({
+    'v': _version,
+    'items': list.map(_entityToJson).toList(),
+  }),
+  decode: (raw) {
+    try {
+      final j = jsonDecode(raw);
+      if (j is! Map || j['v'] != _version) return null;
+      return _listOf(j['items'], _entityFromJson);
+    } catch (_) {
+      return null;
+    }
+  },
+  isEmpty: (list) => list.isEmpty,
+);
+
+typedef PersonalMixData = ({GeneratedTrack seed, List<GeneratedTrack> tracks});
+
+/// Stand-in for "no mix": [swrLoad] needs a non-null value, the provider
+/// maps this back to null.
+const PersonalMixData noPersonalMix = (
+  seed: GeneratedTrack(name: '', artist: ''),
+  tracks: <GeneratedTrack>[],
+);
+
+final personalMixSnapshotCodec = SnapshotCodec<PersonalMixData>(
+  encode: (m) => jsonEncode({
+    'v': _version,
+    'seed': _trackToJson(m.seed),
+    'tracks': m.tracks.map(_trackToJson).toList(),
+  }),
+  decode: (raw) {
+    try {
+      final j = jsonDecode(raw);
+      if (j is! Map || j['v'] != _version) return null;
+      final seed = j['seed'];
+      if (seed is! Map) return null;
+      return (
+        seed: _trackFromJson(seed.cast<String, dynamic>()),
+        tracks: _tracksFrom(j['tracks']),
+      );
+    } catch (_) {
+      return null;
+    }
+  },
+  isEmpty: (m) => m.tracks.isEmpty,
+);

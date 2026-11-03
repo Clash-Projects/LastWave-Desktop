@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -24,19 +25,42 @@ final feedProvider = FutureProvider<FeedData>((ref) {
   );
 });
 
+/// New-release albums. Stale-while-revalidate like the feed; scoped to the
+/// YouTube identity because the signed-in browse is personalized.
 final newAlbumsProvider =
     FutureProvider<List<YouTubeMusicEntity>>((ref) {
-  return ref
-      .watch(feedRepositoryProvider)
-      .fetchNewReleaseAlbums(limit: 60);
+  final repo = ref.watch(feedRepositoryProvider);
+  final conn = ref.watch(ytConnectionProvider);
+  return swrLoad<List<YouTubeMusicEntity>>(
+    ref,
+    key: homeNewAlbumsSnapshotKey(
+      connected: conn.connected,
+      profileEmail: conn.profileEmail,
+      activePageId: conn.activePageId,
+    ),
+    codec: entitiesSnapshotCodec,
+    fetch: () => repo.fetchNewReleaseAlbums(limit: 60),
+  );
 });
 
 /// YouTube Music personal mix (seed + radio list), or null when
 /// signed out / empty / stalled. Independent loading so it never
 /// blocks the Last.fm feed; the home hero falls back when null.
-final personalMixProvider = FutureProvider<
-    ({GeneratedTrack seed, List<GeneratedTrack> tracks})?>((ref) {
-  return ref.watch(feedRepositoryProvider).fetchPersonalMix();
+/// Stale-while-revalidate over a per-channel snapshot.
+final personalMixProvider = FutureProvider<PersonalMixData?>((ref) async {
+  final repo = ref.watch(feedRepositoryProvider);
+  final conn = ref.watch(ytConnectionProvider);
+  final mix = await swrLoad<PersonalMixData>(
+    ref,
+    key: homePersonalMixSnapshotKey(
+      connected: conn.connected,
+      profileEmail: conn.profileEmail,
+      activePageId: conn.activePageId,
+    ),
+    codec: personalMixSnapshotCodec,
+    fetch: () async => await repo.fetchPersonalMix() ?? noPersonalMix,
+  );
+  return mix.tracks.isEmpty ? null : mix;
 });
 
 /// One friend's latest scrobble for the Friends Listening strip.
@@ -56,8 +80,18 @@ class FriendActivity {
 /// signed out, friendless, or stalled — the Home section hides
 /// itself instead of rendering placeholder data.
 final friendsActivityProvider =
-    FutureProvider<List<FriendActivity>>((ref) async {
+    FutureProvider<List<FriendActivity>>((ref) {
   final home = ref.watch(homeRepositoryProvider);
+  return swrLoad<List<FriendActivity>>(
+    ref,
+    key: homeFriendsSnapshotKey(ref.read(prefsProvider).username),
+    codec: friendsActivityCodec,
+    fetch: () => _fetchFriendsActivity(home),
+  );
+});
+
+Future<List<FriendActivity>> _fetchFriendsActivity(
+    HomeRepository home) async {
   late final List<FriendEntry> friends;
   try {
     friends = await home
@@ -83,4 +117,46 @@ final friendsActivityProvider =
     }
   }));
   return acts.whereType<FriendActivity>().toList();
-});
+}
+
+final friendsActivityCodec = SnapshotCodec<List<FriendActivity>>(
+  encode: (list) => jsonEncode({
+    'v': 1,
+    'items': [
+      for (final a in list)
+        {
+          'f': a.friend,
+          'av': a.avatarUrl,
+          'n': a.track.name,
+          'a': a.track.artist,
+          'art': a.track.artworkUrl,
+          if (a.track.timestampMillis != null) 't': a.track.timestampMillis,
+          'pc': a.track.playCount,
+        },
+    ],
+  }),
+  decode: (raw) {
+    try {
+      final j = jsonDecode(raw);
+      if (j is! Map || j['v'] != 1) return null;
+      return [
+        for (final e in (j['items'] as List? ?? const []))
+          if (e is Map)
+            FriendActivity(
+              friend: e['f']?.toString() ?? '',
+              avatarUrl: e['av']?.toString() ?? '',
+              track: HomeTrack(
+                name: e['n']?.toString() ?? '',
+                artist: e['a']?.toString() ?? '',
+                artworkUrl: e['art']?.toString() ?? '',
+                timestampMillis: (e['t'] as num?)?.toInt(),
+                playCount: (e['pc'] as num?)?.toInt() ?? 0,
+              ),
+            ),
+      ];
+    } catch (_) {
+      return null;
+    }
+  },
+  isEmpty: (list) => list.isEmpty,
+);
