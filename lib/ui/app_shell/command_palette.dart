@@ -107,6 +107,10 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
   @override
   void dispose() {
     _debounce?.cancel();
+    // showWaveCommandPalette creates this controller for the dialog alone
+    // and never disposed it. Children unmount first, so the TextBox has
+    // already detached its listeners by the time this runs.
+    widget.controller.dispose();
     super.dispose();
   }
 
