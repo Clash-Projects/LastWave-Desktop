@@ -123,14 +123,38 @@ class _WaveArtworkState extends State<WaveArtwork> {
     _checkSynchronousArtwork();
   }
 
-  void _checkSynchronousArtwork() {
-    if (_kind == ArtworkKind.artist) return;
+  /// The image this tile settled on last time, known synchronously:
+  /// official store art or a fallback resolved earlier this session.
+  /// Artist circles included — they used to skip this, so every revisit
+  /// painted the original photo first and then swapped to the press photo.
+  OfficialArtworkResult? _peekDisplay() {
     final title = widget.title.isNotEmpty ? widget.title : widget.label;
     final artist = widget.artist;
-    if (title.isEmpty) return;
-    final hit = _kind == ArtworkKind.album
-        ? OfficialArtworkService.instance.peekAlbum(album: title, artist: artist)
-        : OfficialArtworkService.instance.peekTrack(title: title, artist: artist);
+    final service = OfficialArtworkService.instance;
+    switch (_kind) {
+      case ArtworkKind.artist:
+        final name = artist.isNotEmpty ? artist : title;
+        if (name.isEmpty) return null;
+        return service.peekDisplayArtist(name);
+      case ArtworkKind.album:
+        if (title.isEmpty) return null;
+        return service.peekDisplayAlbum(album: title, artist: artist);
+      case ArtworkKind.track:
+        if (title.isEmpty) return null;
+        return service.peekDisplayTrack(title: title, artist: artist);
+    }
+  }
+
+  void _checkSynchronousArtwork() {
+    // Identity avatars (account photo, friends) never take a store image:
+    // a user named like an artist would get that artist's photo.
+    if (!widget.upgrade) return;
+    if (_fileArtworkPath(widget.url) != null) return;
+    if (_kind == ArtworkKind.artist &&
+        OfficialArtworkService.isOfficialArtistPhoto(_primaryUrl)) {
+      return;
+    }
+    final hit = _peekDisplay();
     if (hit != null && hit.artworkUrl.isNotEmpty) {
       _resolvedUrl = hit.artworkUrl;
       _resolveFailed = false;
@@ -138,24 +162,44 @@ class _WaveArtworkState extends State<WaveArtwork> {
     }
   }
 
+  /// URLs a tile has shown successfully this session (insertion-ordered,
+  /// capped). Coming back to a page re-mounts its tiles; if the decoded
+  /// image was evicted from memory it reloads from disk, which takes a
+  /// frame or two. For these URLs that reload is painted as a quiet
+  /// surface tone with no fade, instead of the coloured initials tile
+  /// fading into the cover, which read as the artwork resetting.
+  static final Set<String> _shownUrls = <String>{};
+  static const int _shownUrlsCap = 3000;
+
+  String? _shownUrl;
+  DateTime _shownSince = DateTime.now();
+  final Set<String> _failedUrls = <String>{};
+
+  /// Records [_shownUrl] as seen if it stayed on screen long enough to
+  /// have loaded and never errored here.
+  void _commitShown() {
+    final url = _shownUrl;
+    if (url == null || url.isEmpty || _failedUrls.contains(url)) return;
+    if (DateTime.now().difference(_shownSince).inMilliseconds < 400) return;
+    _shownUrls.remove(url);
+    _shownUrls.add(url);
+    if (_shownUrls.length > _shownUrlsCap) {
+      _shownUrls.remove(_shownUrls.first);
+    }
+  }
+
   @override
   void dispose() {
+    _commitShown();
     OfficialArtworkService.instance.removeListener(_onArtworkCache);
     super.dispose();
   }
 
   /// Playback / another tile found a studio cover — swap this one too.
   void _onArtworkCache() {
-    if (!mounted) return;
-    final title = widget.title.isNotEmpty ? widget.title : widget.label;
-    final artist = widget.artist;
-    if (title.isEmpty) return;
-    final hit = _kind == ArtworkKind.artist
-        ? OfficialArtworkService.instance
-            .peekArtist(artist.isNotEmpty ? artist : title)
-        : _kind == ArtworkKind.album
-        ? OfficialArtworkService.instance.peekAlbum(album: title, artist: artist)
-        : OfficialArtworkService.instance.peekTrack(title: title, artist: artist);
+    if (!mounted || !widget.upgrade) return;
+    if (_fileArtworkPath(widget.url) != null) return;
+    final hit = _peekDisplay();
     if (hit == null || hit.artworkUrl.isEmpty) return;
     if (_resolvedUrl == hit.artworkUrl) return;
     setState(() {
@@ -471,6 +515,8 @@ class _WaveArtworkState extends State<WaveArtwork> {
     final errorKey = '$gen|$index|$attempt';
     if (_handledError == errorKey) return;
     _handledError = errorKey;
+    _failedUrls.add(_chain[index]);
+    _shownUrls.remove(_chain[index]);
     await ArtworkResolver.evict(_chain[index]);
     if (!mounted || gen != _gen || index != _chainIndex ||
         attempt != _attempt) {
@@ -611,6 +657,13 @@ class _WaveArtworkState extends State<WaveArtwork> {
     final int diskCache = targetPhysical <= 320 ? 512 : 1024;
     final isSmall = widget.size <= 56;
     final isResolved = _resolvedUrl != null;
+    if (currentUrl != _shownUrl) {
+      _commitShown();
+      _shownUrl = currentUrl;
+      _shownSince = DateTime.now();
+    }
+    final seenBefore = _shownUrls.contains(currentUrl);
+    final noFade = isSmall || isResolved || seenBefore;
     final image = RepaintBoundary(
       child: CachedNetworkImage(
         key: ValueKey('artwork|$_attempt'),
@@ -623,10 +676,16 @@ class _WaveArtworkState extends State<WaveArtwork> {
         maxHeightDiskCache: diskCache,
         fit: BoxFit.cover,
         useOldImageOnUrlChange: true,
-        fadeInDuration: (isSmall || isResolved) ? Duration.zero : WaveMotion.fast,
-        fadeOutDuration: (isSmall || isResolved) ? Duration.zero : WaveMotion.fast,
+        fadeInDuration: noFade ? Duration.zero : WaveMotion.fast,
+        fadeOutDuration: noFade ? Duration.zero : WaveMotion.fast,
         placeholderFadeInDuration: Duration.zero,
-        placeholder: (context, _) => _fallback(context, dark),
+        placeholder: (context, _) => seenBefore
+            ? SizedBox(
+                width: widget.size,
+                height: widget.size,
+                child: ColoredBox(color: waveSurfaceOverlay(context)),
+              )
+            : _fallback(context, dark),
         errorWidget: (context, _, _) {
           WidgetsBinding.instance.addPostFrameCallback(
               (_) => _onError(gen, index, attempt));

@@ -262,6 +262,11 @@ class SearchRepository {
     return out;
   }
 
+  /// Exact Last.fm profile lookup (`user.getinfo`): name, real name and
+  /// avatar. Null when the user doesn't exist or the call fails.
+  Future<SearchResultItem?> lookupUser(String username) =>
+      _lookupUser(username);
+
   Future<SearchResultItem?> _lookupUser(String username) async {
     try {
       final json = await _api.get({

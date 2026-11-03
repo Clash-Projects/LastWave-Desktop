@@ -71,6 +71,16 @@ final _lastFmFriendsProvider = FutureProvider<List<FriendEntry>>((ref) {
   return ref.watch(homeRepositoryProvider).fetchFriends();
 });
 
+/// Avatar for a friend added here (stored by name only, so it has none).
+/// Not autoDispose: looked up once per session and kept, so the Friends
+/// tab shows the same pictures instantly on every return.
+final _friendAvatarProvider =
+    FutureProvider.family<String, String>((ref, name) async {
+  final user =
+      await ref.watch(searchRepositoryProvider).lookupUser(name);
+  return user?.artworkUrl ?? '';
+});
+
 final _friendSearchProvider = FutureProvider.autoDispose
     .family<List<SearchResultItem>, String>((ref, q) {
   if (q.trim().length < 2) return const [];
@@ -182,7 +192,13 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
                     _PersonRow(
                       name: f.name,
                       subtitle: f.realName,
-                      avatarUrl: f.avatarUrl,
+                      avatarUrl: f.avatarUrl.isNotEmpty
+                          ? f.avatarUrl
+                          : ref
+                                  .watch(_friendAvatarProvider(
+                                      f.name.toLowerCase()))
+                                  .valueOrNull ??
+                              '',
                       added: true,
                       // Only friends added here can be removed; Last.fm's own
                       // list is managed on Last.fm.

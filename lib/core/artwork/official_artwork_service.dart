@@ -39,6 +39,50 @@ class OfficialArtworkService {
   final Map<String, OfficialArtworkResult> _cache = {};
   final Map<String, Future<OfficialArtworkResult?>> _inFlight = {};
 
+  /// Display-only memory of the non-official fallbacks (YouTube Music
+  /// cover / portrait) by the same cache key. Never written to SQLite and
+  /// never returned by [peekTrack] & co, so a later store hit still wins;
+  /// without it every revisit re-ran the lookup and the tile visibly
+  /// swapped from its original image to the fallback again.
+  final Map<String, OfficialArtworkResult> _fallbackCache = {};
+
+  void _rememberFallback(String key, OfficialArtworkResult result) {
+    final changed = _fallbackCache[key]?.artworkUrl != result.artworkUrl;
+    _fallbackCache.remove(key);
+    _fallbackCache[key] = result;
+    if (_fallbackCache.length > 500) {
+      _fallbackCache.remove(_fallbackCache.keys.first);
+    }
+    if (changed) _notify();
+  }
+
+  /// What a tile should show for this track right now: the official cover,
+  /// else a fallback resolved earlier this session. Synchronous, for the
+  /// first frame of a re-mounted tile.
+  OfficialArtworkResult? peekDisplayTrack({
+    required String title,
+    required String artist,
+  }) =>
+      peekTrack(title: title, artist: artist) ??
+      _fallbackCache[_trackCacheKey(artist, title)];
+
+  /// Album counterpart of [peekDisplayTrack].
+  OfficialArtworkResult? peekDisplayAlbum({
+    required String album,
+    required String artist,
+  }) =>
+      peekAlbum(album: album, artist: artist) ??
+      _fallbackCache[_albumCacheKey(artist, album)];
+
+  /// Artist counterpart of [peekDisplayTrack].
+  OfficialArtworkResult? peekDisplayArtist(String artist) {
+    final official = peekArtist(artist);
+    if (official != null) return official;
+    final clean = normalizeForSearch(primaryArtistName(artist));
+    if (clean.isEmpty) return null;
+    return _fallbackCache['artist4|$clean'];
+  }
+
   // Concurrency gate: a 30-row list view can trigger a burst of store
   // lookups at once; cap parallel network resolutions and queue the rest
   // so we never hammer the iTunes/Deezer search APIs. Artist lookups are
@@ -186,7 +230,8 @@ class OfficialArtworkService {
   /// Residency of the artwork plumbing: the result cache (bounded), the
   /// in-flight map, the listener list (a leak here would pin whole
   /// widget trees) and the concurrency queue.
-  String get debugGauge => 'cache=${_cache.length} inflight=${_inFlight.length} '
+  String get debugGauge => 'cache=${_cache.length} '
+      'fallback=${_fallbackCache.length} inflight=${_inFlight.length} '
       'listeners=${_listeners.length} queue=${_requestQueue.length} '
       'active=$_activeRequests';
 
@@ -416,11 +461,16 @@ class OfficialArtworkService {
     if (res != null || !allowFallback) return res;
     final fallback = trackCoverFallback;
     if (fallback == null) return null;
+    final key = _trackCacheKey(artist, title);
+    final known = _fallbackCache[key];
+    if (known != null) return known;
     try {
       final url = await fallback(title, artist);
       if (url.isEmpty) return null;
-      return OfficialArtworkResult(
+      final result = OfficialArtworkResult(
           artworkUrl: url, artist: artist, title: title);
+      _rememberFallback(key, result);
+      return result;
     } catch (_) {
       return null;
     }
@@ -455,10 +505,15 @@ class OfficialArtworkService {
     if (res != null || !allowFallback) return res;
     final fallback = albumCoverFallback;
     if (fallback == null) return null;
+    final key = _albumCacheKey(artist, album);
+    final known = _fallbackCache[key];
+    if (known != null) return known;
     try {
       final url = await fallback(album, artist);
       if (url.isEmpty) return null;
-      return OfficialArtworkResult(artworkUrl: url, artist: artist);
+      final result = OfficialArtworkResult(artworkUrl: url, artist: artist);
+      _rememberFallback(key, result);
+      return result;
     } catch (_) {
       return null;
     }
@@ -489,10 +544,15 @@ class OfficialArtworkService {
     if (res != null) return res;
     final fallback = artistPhotoFallback;
     if (fallback == null) return null;
+    final key = 'artist4|$clean';
+    final known = _fallbackCache[key];
+    if (known != null) return known;
     try {
       final url = await fallback(primary);
       if (url.isEmpty) return null;
-      return OfficialArtworkResult(artworkUrl: url, artist: primary);
+      final result = OfficialArtworkResult(artworkUrl: url, artist: primary);
+      _rememberFallback(key, result);
+      return result;
     } catch (_) {
       return null;
     }
