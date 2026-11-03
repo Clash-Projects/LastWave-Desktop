@@ -73,6 +73,57 @@ class BeatMixPlanner {
     required double maxOverlap,
     bool allowTempo = true,
   }) {
+    try {
+      final p = _plan(
+        outgoingTail: outgoingTail,
+        incomingHead: incomingHead,
+        outgoingDuration: outgoingDuration,
+        incomingDuration: incomingDuration,
+        maxOverlap: maxOverlap,
+        allowTempo: allowTempo,
+      );
+      return p != null &&
+              isSafePlan(p,
+                  outgoingDuration: outgoingDuration, maxOverlap: maxOverlap)
+          ? p
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Last line of defence: whatever the analysis said, a plan the engine
+  /// runs must be finite, inside both tracks, no longer than allowed, and
+  /// within the tempo limit.
+  static bool isSafePlan(BeatMixPlan p,
+      {required double outgoingDuration, required double maxOverlap}) {
+    bool f(double v) => v.isFinite;
+    if (!f(p.mixOutStart) ||
+        !f(p.overlap) ||
+        !f(p.incomingCue) ||
+        !f(p.incomingStartAt) ||
+        !f(p.rate)) {
+      return false;
+    }
+    if (p.overlap < 3 || p.overlap > maxOverlap + 0.01) return false;
+    if ((p.rate - 1).abs() > maxRateChange + 1e-6) return false;
+    if (!p.beatMatched && p.rate != 1.0) return false;
+    if (p.triggerAt < 0 || p.mixOutStart < 0) return false;
+    if (p.mixOutEnd > outgoingDuration + 0.5) return false;
+    if (p.incomingCue < 0 || p.incomingStartAt < 0) return false;
+    if (p.incomingStartAt > p.incomingCue + 1e-6) return false;
+    if (p.incomingCue - p.incomingStartAt > preroll + 1e-6) return false;
+    return true;
+  }
+
+  static BeatMixPlan? _plan({
+    required TrackAnalysis outgoingTail,
+    required TrackAnalysis incomingHead,
+    required double outgoingDuration,
+    required double incomingDuration,
+    required double maxOverlap,
+    required bool allowTempo,
+  }) {
     if (maxOverlap < 4) return null;
     final out = outgoingTail;
     final inc = incomingHead;

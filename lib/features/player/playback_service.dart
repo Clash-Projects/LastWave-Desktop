@@ -19,6 +19,7 @@ import 'timed_mix.dart';
 import 'mix_planner.dart';
 import '../automix/automix_analyzer.dart';
 import '../automix/beat_mix_planner.dart';
+import '../automix/mix_guard.dart';
 import '../downloads/download_manager.dart';
 import '../addons/addon_api.dart';
 import '../innertube/innertube_api.dart';
@@ -202,7 +203,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   bool get _preferSmallestYoutube =>
       _prefs.losslessQuality == AudioQualityTiers.dataSaver;
 
-  bool get _overlapEnabled => _timedMixEnabled || _prefs.crossfadeEnabled;
+  bool get _overlapEnabled =>
+      (_timedMixEnabled || _prefs.crossfadeEnabled) &&
+      _mixFaults.overlapAllowed;
 
   Duration _overlapLength() {
     if (_timedMixEnabled) {
@@ -309,8 +312,23 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   // -- Beat-aware AutoMix -------------------------------------------------
   /// Hidden decode deck + analysis cache (tempo, beats, audible bounds).
-  late final AutomixAnalyzer _analyzer =
-      AutomixAnalyzer(serialize: _serializedMpv, log: _crumb);
+  late final AutomixAnalyzer _analyzer = AutomixAnalyzer(
+      serialize: _serializedMpv, log: _crumb, wanted: _analysisWanted);
+
+  /// Only the playing track's tail and the next track's head are worth
+  /// decoding; anything else in the queue is stale (the listener skipped).
+  bool _analysisWanted(String key) {
+    final cur = state.current;
+    final cs = state.stream;
+    if (cur != null && cs != null && key == _tailKey(cur, cs, state.duration)) {
+      return true;
+    }
+    final ni = _nextIndex();
+    if (ni == null || !_queueIndexValid(ni)) return false;
+    final next = state.queue[ni];
+    final ns = _nextStreamFor(next);
+    return ns != null && key == _headKey(next, ns);
+  }
   BeatMixPlan? _beatPlan;
   String _beatPlanKey = '';
 
@@ -319,8 +337,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   Timer? _rateRampTimer;
   BeatLock? _beatLock;
 
-  /// Volume-stream events before this instant are fade echoes.
-  DateTime _volumeEchoUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  /// Session fault counter: steps down to plain fades, then to gapless,
+  /// if the mixer keeps needing repairs on this machine.
+  final MixFaultBudget _mixFaults = MixFaultBudget();
+  Timer? _mixWatchdog;
+  DateTime? _mixStartedAt;
+
+  /// The DAC's own volume is in charge (mpv stays at 100).
+  bool _hardwareVolume = false;
+
+  /// Repairs seen on the previous watchdog pass. A repair is applied only
+  /// when it shows up twice in a row, so an in-flight change (a speed tap,
+  /// a volume drag) is never "fixed" and never counted as a fault.
+  Set<MixRepair> _pendingRepairs = {};
   DateTime _beatMixWallStart = DateTime.fromMillisecondsSinceEpoch(0);
   String _nextStreamMemoKey = '';
   ResolvedStream? _nextStreamMemo;
@@ -405,6 +434,29 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       'seeds=${_radioSeeds.length} prefetching=${_prefetchInflight.length} '
       'watchtime=${_watchtimeUrls.length} subs=${_subs.length}';
 
+  /// Tests run the real decks on mpv's `null` output (real-time clock, no
+  /// sound card). Never set in the app.
+  @visibleForTesting
+  static String? debugAudioOutput;
+
+  Future<void> _applyDebugAudioOutput(Player p) async {
+    final ao = debugAudioOutput;
+    if (ao == null) return;
+    try {
+      await (p.platform as dynamic).setProperty('ao', ao);
+    } catch (_) {}
+  }
+
+  /// Mixer state for tests: faults so far, both decks' mpv volume.
+  @visibleForTesting
+  ({int faults, double primaryVolume, double? standbyVolume, bool mixing})
+      get debugMixState => (
+            faults: _mixFaults.faults,
+            primaryVolume: _player?.state.volume ?? -1,
+            standbyVolume: _standbyPlayer?.state.volume,
+            mixing: _crossfading,
+          );
+
   Future<void> ensurePlayer() async {
     if (_player != null) return;
     // One persistent audio-only libmpv instance with on-disk demuxer cache
@@ -428,6 +480,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       ),
     );
     final created = _player!;
+    await _applyDebugAudioOutput(created);
     try {
       final platform = created.platform;
       if (platform != null) {
@@ -491,6 +544,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {}
     final p = _player!;
     _bindPlayerStreams(p);
+    _startMixWatchdog();
     await restoreSession();
     _rebuildProcessingFilter();
     if (!exclusiveApplied) {
@@ -563,16 +617,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       }),
       p.stream.volume.listen((v) {
         runGuarded('player.volume', () {
-          if (_lockSoftwareVolume) return;
-          // Mix fades drive the deck volume 25x a second. Those echoes are
-          // not the listener's volume: taking them as such left the volume
-          // at ~0 after one mix, and the next mix faded songs to silence.
-          if (_crossfading ||
-              _standbyArmed ||
-              DateTime.now().isBefore(_volumeEchoUntil)) {
-            return;
-          }
-          state = state.copyWith(volume: (v / 100).clamp(0.0, 1.0));
+          // Deliberately NOT copied into state.volume. Every volume change
+          // the listener makes goes through setVolume(), so state.volume is
+          // the single source of truth; mpv's value also moves with mix
+          // fades and DAC volume locks, and copying it back once left the
+          // app at ~0% after a mix (the next mix then faded to silence).
+          // The watchdog puts the deck back if the two ever disagree.
         });
       }),
       p.stream.completed.listen((done) {
@@ -643,6 +693,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       ),
     );
     _standbyPlayer = sb;
+    await _applyDebugAudioOutput(sb);
     try {
       final platform = sb.platform as dynamic;
       if (platform != null) {
@@ -698,19 +749,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _armedBeatPlan = null;
     final restoreChain = _crossfading || _standbyArmed || ramping;
     if (_crossfading || _standbyArmed) {
-      _volumeEchoUntil = DateTime.now().add(const Duration(seconds: 2));
-      if (_crossfading) {
-        // The fade owned the volume; hand the listener's level back.
-        state = state.copyWith(volume: _crossfadeTargetVolume);
-      }
       try {
         _standbyPlayer?.stop();
         _standbyPlayer?.setVolume(0);
       } catch (_) {}
       try {
-        _player?.setVolume(state.volume * 100);
+        _player?.setVolume(_fullDeckVolume);
       } catch (_) {}
     }
+    _mixStartedAt = null;
     _crossfading = false;
     _standbyArmed = false;
     _standbyReady = false;
@@ -1030,7 +1077,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (cur == null || cs == null || ns == null) return null;
     final tk = _tailKey(cur, cs, state.duration);
     final hk = _headKey(next, ns);
-    final allowTempo = (state.pitch - 1.0).abs() <= 0.005;
+    final allowTempo =
+        (state.pitch - 1.0).abs() <= 0.005 && _mixFaults.beatMixAllowed;
     final key = '$tk>$hk|${maxOverlap.inSeconds}|$allowTempo';
     if (key == _beatPlanKey) return _beatPlan;
     final tail = _analyzer.cached(tk);
@@ -1092,7 +1140,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     if (_standbyArmed && !_standbyReady && pos >= bp.mixOutStart + 2) {
       _mixGaveUpFor = next.queueKey;
-      _crumb('automix gave up key=${next.queueKey} (deck not ready)');
+      _mixFault('gave up key=${next.queueKey} (deck not ready)');
       cancelCrossfade();
     }
     return true;
@@ -1106,7 +1154,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (_crossfading || !_standbyArmed || _standbyPlayer == null) return;
     final sb = _standbyPlayer!;
     _crossfading = true;
-    _crossfadeTargetVolume = state.volume;
+    _mixStartedAt = DateTime.now();
+    _crossfadeTargetVolume = _fullDeckVolume / 100;
     _mixSweepFailed = false;
     _lastMixSweep = DateTime.fromMillisecondsSinceEpoch(0);
     _beatMixWallStart = DateTime.now();
@@ -1129,13 +1178,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     var spectralStarted = false;
     var clockBusy = false;
+    var lastOutPos = -1.0;
+    var lastInPos = -1.0;
+    var outMovedAt = DateTime.now();
+    var inMovedAt = DateTime.now();
     final maxWall = Duration(
         milliseconds: (((plan.mixOutEnd - plan.triggerAt) / speed + 6) * 1000)
             .round());
 
     _crossfadeTimer?.cancel();
-    _crossfadeTimer =
-        Timer.periodic(const Duration(milliseconds: 25), (timer) {
+    _crossfadeTimer = Timer.periodic(const Duration(milliseconds: 25),
+        (timer) => _guardedTick(timer, 'beat mix', () {
       if (!_crossfading) {
         timer.cancel();
         return;
@@ -1145,6 +1198,36 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       final outPos = _secs(out.state.position);
       final progress =
           ((outPos - plan.mixOutStart) / plan.overlap).clamp(0.0, 1.0);
+
+      // Stall guard: a deck whose clock stops (network stall, decoder
+      // hiccup) must not hold the mix hostage.
+      final tickNow = DateTime.now();
+      final inPosNow = _secs(sb.state.position);
+      if (outPos != lastOutPos) {
+        lastOutPos = outPos;
+        outMovedAt = tickNow;
+      }
+      if (inPosNow != lastInPos) {
+        lastInPos = inPosNow;
+        inMovedAt = tickNow;
+      }
+      const stall = Duration(seconds: 3);
+      if (tickNow.difference(inMovedAt) > stall) {
+        // Incoming deck is stuck: back out; the outgoing song plays on
+        // and the normal track change happens at its end.
+        timer.cancel();
+        _mixFault('incoming deck stalled at ${inPosNow.toStringAsFixed(1)}s');
+        _mixGaveUpFor = _standbyTrack?.queueKey ?? '';
+        cancelCrossfade();
+        return;
+      }
+      if (tickNow.difference(outMovedAt) > stall) {
+        // Outgoing deck is stuck: the incoming one is fine, take it now.
+        timer.cancel();
+        _mixFault('outgoing deck stalled at ${outPos.toStringAsFixed(1)}s');
+        _completeCrossfade();
+        return;
+      }
       final master = (_crossfadeTargetVolume * 100).clamp(0.0, 100.0);
       final (og, ig) = plan.beatMatched
           ? MixPlanner.djGains(progress)
@@ -1197,7 +1280,123 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         timer.cancel();
         _completeCrossfade();
       }
+    }));
+  }
+
+  /// Runs one mixer timer tick; an exception ends the mix cleanly instead
+  /// of leaving the decks half-faded with the timer still firing.
+  void _guardedTick(Timer timer, String what, void Function() body) {
+    try {
+      body();
+    } catch (e) {
+      timer.cancel();
+      _mixFault('$what tick threw ${e.runtimeType}');
+      _abortMixSafely();
+    }
+  }
+
+  /// Full level for a deck: the listener's volume, or 100 while a DAC's
+  /// hardware volume is in charge.
+  double get _fullDeckVolume =>
+      (((_lockSoftwareVolume || _hardwareVolume) ? 1.0 : state.volume)
+              .clamp(0.0, 1.0)) *
+          100;
+
+  /// mpv speed the primary deck should have outside a mix.
+  double get _expectedDeckRate {
+    final pitch = state.pitch.clamp(0.5, 1.5).toDouble();
+    if ((pitch - 1.0).abs() > 0.005) return pitch;
+    return state.speed <= 0 ? 1.0 : state.speed;
+  }
+
+  void _mixFault(String why) {
+    _crumb('automix fault #${_mixFaults.faults + 1}: $why');
+    final change = _mixFaults.record();
+    if (change != null) _crumb('automix safety: $change');
+  }
+
+  /// Last-resort reset after an unexpected error in mixer code: whatever
+  /// state the flags were in, end with one audible deck at full level.
+  void _abortMixSafely() {
+    try {
+      cancelCrossfade();
+    } catch (_) {}
+    _crossfadeTimer?.cancel();
+    _crossfadeTimer = null;
+    _crossfading = false;
+    _standbyArmed = false;
+    _standbyReady = false;
+    _armedBeatPlan = null;
+    _mixStartedAt = null;
+    try {
+      _standbyPlayer?.setVolume(0);
+      _player?.setVolume(_fullDeckVolume);
+    } catch (_) {}
+  }
+
+  /// Once a second: compare the decks with what they should be and fix
+  /// any drift (see mix_guard.dart). Runs whether or not AutoMix is on,
+  /// so a leftover from any mix path gets cleaned up.
+  void _startMixWatchdog() {
+    _mixWatchdog?.cancel();
+    _mixWatchdog = Timer.periodic(const Duration(seconds: 1), (_) {
+      try {
+        _runMixWatchdog();
+      } catch (_) {}
     });
+  }
+
+  void _runMixWatchdog() {
+    final p = _player;
+    if (p == null) return;
+    final sb = _standbyPlayer;
+    final started = _mixStartedAt;
+    final repairs = checkMix(MixGuardInput(
+      mixing: _crossfading,
+      armed: _standbyArmed,
+      ramping: _rateRampTimer != null,
+      fullVolume: _fullDeckVolume,
+      expectedRate: _expectedDeckRate,
+      primary: DeckReading(
+          volume: p.state.volume, playing: p.state.playing, rate: p.state.rate),
+      standby: sb == null
+          ? null
+          : DeckReading(
+              volume: sb.state.volume,
+              playing: sb.state.playing,
+              rate: sb.state.rate),
+      mixAge:
+          started == null ? Duration.zero : DateTime.now().difference(started),
+      resolving: _resolving,
+    ));
+    final confirmed = repairs
+        .where((r) =>
+            r == MixRepair.abortStuckMix || _pendingRepairs.contains(r))
+        .toList();
+    _pendingRepairs = repairs.toSet();
+    for (final r in confirmed) {
+      _pendingRepairs.remove(r);
+      _mixFault('watchdog ${r.name}');
+      switch (r) {
+        case MixRepair.abortStuckMix:
+          if (_standbyReady && _standbyTrack != null) {
+            _completeCrossfade();
+          } else {
+            _abortMixSafely();
+          }
+        case MixRepair.silenceStandby:
+          try {
+            sb?.setVolume(0);
+            if (!_standbyArmed) sb?.stop();
+          } catch (_) {}
+        case MixRepair.restorePrimaryVolume:
+          try {
+            p.setVolume(_fullDeckVolume);
+          } catch (_) {}
+        case MixRepair.restoreRate:
+          if (!exclusiveApplied) unawaited(_applyRateAndPitchTo(p));
+      }
+    }
   }
 
   /// mpv's own playback clock (`time-pos`), read now. Falls back to the
@@ -1292,7 +1491,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _crossfading = true;
     _crossfadeDuration = fadeDuration;
     _crossfadeStartTime = DateTime.now();
-    _crossfadeTargetVolume = state.volume;
+    _mixStartedAt = DateTime.now();
+    _crossfadeTargetVolume = _fullDeckVolume / 100;
     _mixSweepFailed = false;
     _lastMixSweep = DateTime.fromMillisecondsSinceEpoch(0);
     final spectral = sweep &&
@@ -1313,8 +1513,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
 
     _crossfadeTimer?.cancel();
-    _crossfadeTimer =
-        Timer.periodic(const Duration(milliseconds: 25), (timer) {
+    _crossfadeTimer = Timer.periodic(const Duration(milliseconds: 25),
+        (timer) => _guardedTick(timer, 'crossfade', () {
       if (!_crossfading) {
         timer.cancel();
         return;
@@ -1350,7 +1550,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         timer.cancel();
         _completeCrossfade();
       }
-    });
+    }));
   }
 
   /// Low-pass on the way out, high-pass opening on the way in.
@@ -1381,7 +1581,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   void _completeCrossfade() {
+    try {
+      _completeCrossfadeUnsafe();
+    } catch (e) {
+      _mixFault('hand-off threw ${e.runtimeType}');
+      _abortMixSafely();
+    }
+  }
+
+  void _completeCrossfadeUnsafe() {
     if (!_crossfading) return;
+    _mixStartedAt = null;
     _crossfadeTimer?.cancel();
     _crossfadeTimer = null;
 
@@ -1412,9 +1622,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           'beat=${beatPlan.beatMatched} '
           'phase_err_ms=${(meanErr * 1000).round()}');
     }
-    _volumeEchoUntil = DateTime.now().add(const Duration(seconds: 2));
     try {
-      sb.setVolume((_crossfadeTargetVolume * 100).clamp(0.0, 100.0));
+      sb.setVolume(_fullDeckVolume);
       if (beatPlan != null && beatPlan.beatMatched) {
         // Drop the sweep now; tempo glides home over a few bars.
         unawaited(_setAf(sb, _playbackAf()).catchError((_) {}));
@@ -1461,7 +1670,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       isBuffering: false,
       position: livePos > Duration.zero ? livePos : Duration.zero,
       duration: trackDur,
-      volume: _crossfadeTargetVolume,
       clearError: true,
     );
 
@@ -1484,6 +1692,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// so no texture callbacks fire after the Flutter view is destroyed
   /// (release-only `flutter_windows+1e220` crash on close).
   Future<void> disposePlayer() async {
+    _mixWatchdog?.cancel();
+    _mixWatchdog = null;
     // Flush any past-threshold window before tearing down (manual pause/
     // app close would otherwise leave it only as “Scrobbling now”).
     cancelCrossfade();
@@ -1728,15 +1938,16 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   Future<void> setVolume(double volume, {bool software = true}) async {
     final v = volume.clamp(0.0, 1.0);
     state = state.copyWith(volume: v);
+    _hardwareVolume = !software;
     if (!software || _lockSoftwareVolume) {
       await _player?.setVolume(100);
       return;
     }
     if (_crossfading) {
-      _crossfadeTargetVolume = v;
+      _crossfadeTargetVolume = _fullDeckVolume / 100;
       return;
     }
-    await _player?.setVolume(v * 100);
+    await _player?.setVolume(_fullDeckVolume);
   }
 
   /// Apply WASAPI exclusive / device to the existing libmpv player.
