@@ -258,7 +258,11 @@ final swrStateProvider = Provider<SwrState>((ref) => SwrState());
 /// - Otherwise: [fetch], persisted when non-empty.
 ///
 /// [group] picks the cap in `snapshot_cache`; [maxAge] bounds how old a
-/// snapshot may be and still be shown.
+/// snapshot may be and still be shown. [everyBuild] is for `autoDispose`
+/// per-item pages (an album, a playlist): they forget everything on leave,
+/// so every visit paints the saved copy, not only the first of the session.
+/// Values whose encoding exceeds [maxChars] are not persisted, so one huge
+/// playlist cannot crowd out the rest of its group.
 Future<T> swrLoad<T extends Object>(
   Ref ref, {
   required String? key,
@@ -266,6 +270,8 @@ Future<T> swrLoad<T extends Object>(
   required Future<T> Function() fetch,
   String group = homeCacheGroup,
   Duration maxAge = homeSnapshotMaxAge,
+  bool everyBuild = false,
+  int maxChars = 1500000,
   DateTime Function()? clock,
 }) async {
   if (key == null) return fetch();
@@ -280,11 +286,13 @@ Future<T> swrLoad<T extends Object>(
   void persist(T value) {
     if (codec.isEmpty(value)) return;
     try {
-      db.cachePut(key, group, codec.encode(value), now: now());
+      final encoded = codec.encode(value);
+      if (encoded.length > maxChars) return;
+      db.cachePut(key, group, encoded, now: now());
     } catch (_) {}
   }
 
-  if (state.served.add(key)) {
+  if (state.served.add(key) || everyBuild) {
     final cached = readSnapshot(db, key, codec, now(), maxAge);
     if (cached != null) {
       var disposed = false;
@@ -405,4 +413,122 @@ final personalMixSnapshotCodec = SnapshotCodec<PersonalMixData>(
     }
   },
   isEmpty: (m) => m.tracks.isEmpty,
+);
+
+// -- Library: track lists, playlists, albums -----------------------------------
+
+Map<String, dynamic> generatedTrackToJson(GeneratedTrack t) => _trackToJson(t);
+GeneratedTrack generatedTrackFromJson(Map<String, dynamic> j) =>
+    _trackFromJson(j);
+
+/// The part of a cache key that scopes data to a YouTube login + channel.
+String ytIdentityKey(YtConnection c) =>
+    '${c.profileEmail.trim().toLowerCase()}|${c.activePageId}';
+
+/// Cache key for an account-scoped library list (`liked`, `history`,
+/// `playlists`); null when signed out.
+String? libraryCacheKey(String what, YtConnection c) =>
+    c.connected ? 'lib_${what}_v1|${ytIdentityKey(c)}' : null;
+
+/// One playlist's tracks. Scoped to the identity: private playlists differ
+/// per account, and a shared key would show one account's list to another.
+String? playlistCacheKey(String id, YtConnection c) =>
+    id.isEmpty ? null : 'playlist_v1|${ytIdentityKey(c)}|$id';
+
+/// Albums are public pages: one copy for everybody.
+String? albumCacheKey(String browseId) =>
+    browseId.isEmpty ? null : 'album_v1|$browseId';
+
+const cacheGroupLibrary = 'library';
+const cacheGroupPlaylist = 'playlist';
+const cacheGroupAlbum = 'album';
+
+/// Library lists change when you like or sync; a week-old copy is still the
+/// right thing to paint while the real one loads.
+const libraryCacheMaxAge = Duration(days: 30);
+
+final ytTracksSnapshotCodec = SnapshotCodec<List<YouTubeMusicTrack>>(
+  encode: (list) => jsonEncode({
+    'v': _version,
+    'items': list.map(_ytTrackToJson).toList(),
+  }),
+  decode: (raw) {
+    try {
+      final j = jsonDecode(raw);
+      if (j is! Map || j['v'] != _version) return null;
+      return _listOf(j['items'], _ytTrackFromJson);
+    } catch (_) {
+      return null;
+    }
+  },
+  isEmpty: (list) => list.isEmpty,
+);
+
+final ytPlaylistSummariesSnapshotCodec =
+    SnapshotCodec<List<YouTubePlaylistSummary>>(
+  encode: (list) => jsonEncode({
+    'v': _version,
+    'items': [
+      for (final p in list)
+        {
+          'id': p.id,
+          't': p.title,
+          'a': p.author,
+          'c': p.trackCountText,
+          'art': p.artworkUrl,
+        },
+    ],
+  }),
+  decode: (raw) {
+    try {
+      final j = jsonDecode(raw);
+      if (j is! Map || j['v'] != _version) return null;
+      return _listOf(
+        j['items'],
+        (m) => YouTubePlaylistSummary(
+          id: m['id']?.toString() ?? '',
+          title: m['t']?.toString() ?? '',
+          author: m['a']?.toString() ?? '',
+          trackCountText: m['c']?.toString() ?? '',
+          artworkUrl: m['art']?.toString() ?? '',
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  },
+  isEmpty: (list) => list.isEmpty,
+);
+
+/// Stand-in for "playlist unavailable" ([swrLoad] needs a non-null value;
+/// the provider maps it back to null).
+const noPlaylistResult = YouTubePlaylistResult(id: '', title: '');
+
+final ytPlaylistResultSnapshotCodec = SnapshotCodec<YouTubePlaylistResult>(
+  encode: (p) => jsonEncode({
+    'v': _version,
+    'id': p.id,
+    't': p.title,
+    'a': p.author,
+    'art': p.artworkUrl,
+    'n': p.trackCount,
+    'tracks': p.tracks.map(_ytTrackToJson).toList(),
+  }),
+  decode: (raw) {
+    try {
+      final j = jsonDecode(raw);
+      if (j is! Map || j['v'] != _version) return null;
+      return YouTubePlaylistResult(
+        id: j['id']?.toString() ?? '',
+        title: j['t']?.toString() ?? '',
+        author: j['a']?.toString() ?? '',
+        artworkUrl: j['art']?.toString() ?? '',
+        trackCount: (j['n'] as num?)?.toInt() ?? 0,
+        tracks: _listOf(j['tracks'], _ytTrackFromJson),
+      );
+    } catch (_) {
+      return null;
+    }
+  },
+  isEmpty: (p) => p.tracks.isEmpty,
 );

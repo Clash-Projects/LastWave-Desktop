@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +11,7 @@ import '../../../core/storage/prefs.dart';
 import '../../../features/addons/addon_api.dart';
 import '../../../features/downloads/download_manager.dart';
 import '../../../features/feed/feed_repository.dart';
+import '../../../features/home/home_snapshot.dart';
 import '../../../features/library/playlists.dart';
 import '../../../features/innertube/innertube_api.dart';
 import '../../../features/player/playback_service.dart';
@@ -24,9 +27,24 @@ import '../navigation/flight.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 
+/// Albums are public and rarely change, and the page is `autoDispose`, so
+/// every visit paints the saved copy and refreshes behind it.
 final _albumDetailProvider = FutureProvider.autoDispose
-    .family<_AlbumDetail, String>((ref, browseId) async {
+    .family<_AlbumDetail, String>((ref, browseId) {
   final tube = ref.watch(innerTubeProvider);
+  return swrLoad<_AlbumDetail>(
+    ref,
+    key: albumCacheKey(browseId),
+    codec: _albumCodec,
+    group: cacheGroupAlbum,
+    maxAge: libraryCacheMaxAge,
+    everyBuild: true,
+    fetch: () => _fetchAlbum(tube, browseId),
+  );
+});
+
+Future<_AlbumDetail> _fetchAlbum(
+    InnerTubeMusicApi tube, String browseId) async {
   final album = await tube.browseAlbum(browseId, limit: 50);
   final songs = album?.tracks ?? const <YouTubeMusicTrack>[];
   if (album == null || songs.isEmpty) {
@@ -56,7 +74,7 @@ final _albumDetailProvider = FutureProvider.autoDispose
             durationSeconds: t.durationSeconds))
         .toList(),
   );
-});
+}
 
 class _AlbumDetail {
   final String title;
@@ -69,6 +87,34 @@ class _AlbumDetail {
       required this.artwork,
       required this.tracks});
 }
+
+final _albumCodec = SnapshotCodec<_AlbumDetail>(
+  encode: (a) => jsonEncode({
+    'v': 1,
+    't': a.title,
+    'a': a.artist,
+    'art': a.artwork,
+    'tracks': a.tracks.map(generatedTrackToJson).toList(),
+  }),
+  decode: (raw) {
+    try {
+      final j = jsonDecode(raw);
+      if (j is! Map || j['v'] != 1) return null;
+      return _AlbumDetail(
+        title: j['t']?.toString() ?? 'Album',
+        artist: j['a']?.toString() ?? '',
+        artwork: j['art']?.toString() ?? '',
+        tracks: [
+          for (final t in (j['tracks'] as List? ?? const []))
+            if (t is Map) generatedTrackFromJson(t.cast<String, dynamic>()),
+        ],
+      );
+    } catch (_) {
+      return null;
+    }
+  },
+  isEmpty: (a) => a.tracks.isEmpty,
+);
 
 /// Serious album layout: 200px art + ALBUM overline + 28px title +
 /// artist link + year•tracks•duration + quality badge + Play (primary) +
