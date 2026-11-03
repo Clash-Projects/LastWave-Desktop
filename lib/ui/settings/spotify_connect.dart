@@ -44,7 +44,23 @@ Future<void> spotifyConnectWithWebView(
   await _finish(context, ref, cookie);
 }
 
-/// Route #2 — paste the `sp_dc` cookie from the user's own browser.
+/// Route #2 (recommended) — sign in with the user's normal browser, where
+/// Google / Facebook / Apple logins and Spotify's captcha work, then paste
+/// the `sp_dc` cookie. Embedded browsers are refused by Google and often
+/// fail Spotify's captcha, so this is the dependable path.
+Future<void> spotifyConnectViaBrowser(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  await launchUrl(
+    Uri.parse('https://accounts.spotify.com/login'),
+    mode: LaunchMode.externalApplication,
+  );
+  if (!context.mounted) return;
+  await spotifyConnectWithCookie(context, ref);
+}
+
+/// Paste the `sp_dc` cookie from the user's own browser.
 Future<void> spotifyConnectWithCookie(
   BuildContext context,
   WidgetRef ref,
@@ -60,9 +76,11 @@ Future<void> spotifyConnectWithCookie(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Sign in at open.spotify.com in your browser, press F12 → '
-            'Application (Storage) → Cookies → open.spotify.com, and copy '
-            'the value of the "sp_dc" cookie. Paste it below.',
+            '1. Sign in at open.spotify.com in your browser (Google, '
+            'Facebook, Apple or email all work there).\n'
+            '2. Press F12 → Application (Firefox: Storage) → Cookies → '
+            'https://open.spotify.com.\n'
+            '3. Copy the Value of the "sp_dc" cookie and paste it below.',
             style: WaveType.meta.copyWith(
               color: waveTextSecondary(dialogContext),
             ),
