@@ -58,9 +58,13 @@ class WaveHomeLayoutPage extends ConsumerWidget {
                   key: ValueKey(id),
                   leading: ReorderableDragStartListener(
                     index: index,
-                    child: const Padding(
-                      padding: EdgeInsets.all(6),
-                      child: Icon(FluentIcons.gripper_dots_vertical, size: 16),
+                    child: const MouseRegion(
+                      cursor: SystemMouseCursors.move,
+                      child: Padding(
+                        padding: EdgeInsets.all(6),
+                        child:
+                            Icon(FluentIcons.gripper_dots_vertical, size: 16),
+                      ),
                     ),
                   ),
                   title: Text(
