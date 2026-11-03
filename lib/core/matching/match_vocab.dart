@@ -31,7 +31,53 @@ class MatchVocab {
     'symphonic', 'part', 'pt', 'chapter', 'atmos', 'dolby', 'spatial',
     'tribute', 'chopped', 'screwed', 'boosted', '8d', 'session',
     'unreleased',
+    // Dubbed / translated releases are a different recording too (Native's
+    // VERSION_WORDS carries `dub` and every LANGUAGE_TOKENS entry).
+    'dub', 'dubbed',
+    ...languageTokens,
   };
+
+  /// Language names that appear in titles/albums of per-language releases
+  /// (one soundtrack released in Telugu / Hindi / Tamil under the same
+  /// title and artist). Port of Native's `LANGUAGE_TOKENS`.
+  static const Set<String> languageTokens = {
+    'telugu', 'tamil', 'hindi', 'kannada', 'malayalam', 'punjabi',
+    'marathi', 'gujarati', 'bengali', 'bhojpuri', 'odia', 'oriya',
+    'assamese', 'urdu', 'sanskrit', 'english', 'spanish', 'french',
+    'german', 'italian', 'portuguese', 'japanese', 'korean', 'chinese',
+    'arabic', 'turkish',
+  };
+
+  static final _scripts = <String, RegExp>{
+    'telugu': RegExp(r'[\u0C00-\u0C7F]'),
+    'tamil': RegExp(r'[\u0B80-\u0BFF]'),
+    'kannada': RegExp(r'[\u0C80-\u0CFF]'),
+    'malayalam': RegExp(r'[\u0D00-\u0D7F]'),
+    'punjabi': RegExp(r'[\u0A00-\u0A7F]'),
+    'bengali': RegExp(r'[\u0980-\u09FF]'),
+    'gujarati': RegExp(r'[\u0A80-\u0AFF]'),
+    'hindi': RegExp(r'[\u0900-\u097F]'),
+  };
+
+  /// Languages a title/album names, by script and by language word.
+  /// Port of Native's `extractLanguages`.
+  static Set<String> languagesOf(String raw) {
+    if (raw.trim().isEmpty) return const {};
+    final out = <String>{};
+    _scripts.forEach((lang, re) {
+      if (re.hasMatch(raw)) out.add(lang);
+    });
+    final words = raw
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .split(RegExp(r'\s+'));
+    for (final w in words) {
+      if (languageTokens.contains(w)) out.add(w);
+      if (w == 'panjabi') out.add('punjabi');
+      if (w == 'bangla') out.add('bengali');
+    }
+    return out;
+  }
 
   /// Label filler that never distinguishes recordings: parental tags,
   /// upload/packaging labels and the bare feat keywords left over after

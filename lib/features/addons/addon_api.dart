@@ -488,6 +488,31 @@ class AddonApi implements LosslessSource {
     return feat.union(residual).union(versionToks).difference(artistTokens);
   }
 
+  /// Same song, same artist, different language (a soundtrack released in
+  /// Telugu / Hindi / Tamil under one title). Port of Native's
+  /// `gateAmbiguousLanguage`: when the request names a language only
+  /// candidates in it (or naming none) stay; when it names none, the
+  /// language-marked releases lose to an unmarked original. Never returns
+  /// fewer than it was given if that would leave nothing.
+  static List<AddonTrack> gateLanguage(
+    List<AddonTrack> candidates, {
+    required String title,
+    String album = '',
+  }) {
+    if (candidates.length < 2) return candidates;
+    final want = MatchVocab.languagesOf('$title $album');
+    Set<String> langs(AddonTrack c) =>
+        MatchVocab.languagesOf('${c.title} ${c.album}');
+    if (want.isNotEmpty) {
+      final matching = candidates
+          .where((c) => langs(c).intersection(want).isNotEmpty)
+          .toList();
+      return matching.isNotEmpty ? matching : candidates;
+    }
+    final clean = candidates.where((c) => langs(c).isEmpty).toList();
+    return clean.isNotEmpty ? clean : candidates;
+  }
+
   /// Whether [candidateTitle] is the requested recording (not just the
   /// same song): it must add no feat credit or version billing beyond
   /// the request, in ANY bilingual form (either script alone may carry
@@ -1573,11 +1598,15 @@ class AddonApi implements LosslessSource {
           expectedDurationSeconds: expectedDurationSeconds,
         ).toList();
 
-    List<AddonTrack> faithfulOf(List<AddonTrack> ranked) => ranked
-        .where((c) => isFaithfulVersion(c.title,
-            title: title, artist: artist, allowAtmos: isAtmosPreferred))
-        .take(isAtmosPreferred ? 4 : 3)
-        .toList();
+    List<AddonTrack> faithfulOf(List<AddonTrack> ranked) {
+      final faithful = ranked
+          .where((c) => isFaithfulVersion(c.title,
+              title: title, artist: artist, allowAtmos: isAtmosPreferred))
+          .toList();
+      return gateLanguage(faithful, title: title, album: album)
+          .take(isAtmosPreferred ? 4 : 3)
+          .toList();
+    }
 
     queriesOk += await searchAll(queries.take(1));
     var ranked = rankedPool();
