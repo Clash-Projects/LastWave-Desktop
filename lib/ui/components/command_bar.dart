@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip, WaveButton, WaveGhostButton, WavePrimaryButton;
 import 'menus.dart';
+import '../theme/wave_icons.dart';
 
 /// WinUI-inspired command surface for music collections.
 ///
@@ -54,7 +55,7 @@ class WaveCommandBar extends StatelessWidget {
         if (onShuffle != null)
           WaveGhostButton(
             label: 'Shuffle',
-            icon: FluentIcons.switcher_start_end,
+            icon: WaveIcons.shuffle,
             onPressed: onShuffle,
           ),
         if (onDownload != null)

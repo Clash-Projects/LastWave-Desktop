@@ -144,7 +144,7 @@ class _WavePlaylistsPageState
                 title: 'Playlists',
                 meta: '${all.length} playlists',
                 artworkUrl: heroCover,
-                fallbackIcon: FluentIcons.list_mirrored,
+                fallbackIcon: WaveIcons.playlists,
                 primaryActions: [
                   WavePrimaryButton(
                     label: 'New',
@@ -202,7 +202,7 @@ class _WavePlaylistsPageState
               const SizedBox(height: 18),
               if (shown.isEmpty && ytLists.isEmpty)
                 WaveEmpty(
-                  icon: FluentIcons.list_mirrored,
+                  icon: WaveIcons.playlists,
                   title: 'No playlists yet',
                   subtitle: _q.isEmpty
                       ? 'Create your first playlist to organise what you love.'

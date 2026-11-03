@@ -191,7 +191,7 @@ class WaveFilterBar extends StatelessWidget {
                   prefix: Padding(
                     padding: const EdgeInsets.only(left: 8),
                     child: Icon(
-                      FluentIcons.search,
+                      WaveIcons.search,
                       size: 15,
                       color: dark
                           ? WaveColors.textTertiary

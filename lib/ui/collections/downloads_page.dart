@@ -17,6 +17,7 @@ import '../components/states.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
 /// Downloads: Offline hero + 40px-artwork rows
 /// (art · title/artist · progress or quality chip · play · delete).
@@ -124,7 +125,7 @@ class _WaveDownloadsPageState extends ConsumerState<WaveDownloadsPage> {
                           placeholder: 'Search downloads',
                           prefix: const Padding(
                             padding: EdgeInsets.only(left: 10),
-                            child: Icon(FluentIcons.search, size: 14),
+                            child: Icon(WaveIcons.search, size: 14),
                           ),
                           onChanged: (v) => setState(() => _query = v),
                         ),
@@ -197,7 +198,7 @@ class _WaveDownloadsPageState extends ConsumerState<WaveDownloadsPage> {
         else if (entries.isEmpty)
           const SliverToBoxAdapter(
             child: WaveEmpty(
-              icon: FluentIcons.search,
+              icon: WaveIcons.search,
               title: 'No matches',
               subtitle: 'No downloads match your search.',
             ),

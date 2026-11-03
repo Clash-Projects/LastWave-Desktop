@@ -50,16 +50,17 @@ import 'diagnostics_actions.dart';
 import 'download_layout_settings.dart';
 import 'library_settings.dart';
 import 'settings_search.dart';
+import '../theme/wave_icons.dart';
 
 const _waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
   ('playback', 'Playback', FluentIcons.play),
   ('audio', 'Audio', FluentIcons.speakers),
   ('downloads', 'Downloads', FluentIcons.download),
-  ('library', 'Library', FluentIcons.library),
+  ('library', 'Library', WaveIcons.library),
   ('lyrics', 'Lyrics', FluentIcons.microphone),
   ('appearance', 'Appearance', FluentIcons.brush),
-  ('lastfm', 'Last.fm', FluentIcons.heart),
+  ('lastfm', 'Last.fm', WaveIcons.liked),
   ('integrations', 'Integrations', FluentIcons.link),
   ('sources', 'Sources', FluentIcons.cloud),
   ('experimental', 'Experimental', FluentIcons.bug),
@@ -1644,7 +1645,7 @@ class _CardActions extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             _YtAddOption(
-              icon: FluentIcons.people,
+              icon: WaveIcons.friends,
               title: 'Brand channel',
               subtitle:
                   'Add a channel on the current login (needs the '

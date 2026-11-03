@@ -20,6 +20,7 @@ import '../collections/playlist_dialogs.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip, WaveButton, WaveFilledButton;
+import '../theme/wave_icons.dart';
 
 /// Snappy flyout entrance shared by every DropDownButton/menu in the
 /// app. Same slide-from-edge language as fluent's default, compressed
@@ -163,7 +164,7 @@ List<WaveMenuEntry> waveTrackMenuItems({
     const WaveMenuSeparator(),
     WaveMenuAction(
       leading: Icon(
-        liked ? FluentIcons.heart_fill : FluentIcons.heart,
+        liked ? WaveIcons.likedFill : WaveIcons.liked,
         size: 15,
       ),
       label: liked ? 'Unlike' : 'Like',
@@ -191,7 +192,7 @@ List<WaveMenuEntry> waveTrackMenuItems({
   items.add(const WaveMenuSeparator());
   items.add(
     WaveMenuAction(
-      leading: const Icon(FluentIcons.album, size: 15),
+      leading: const Icon(WaveIcons.albums, size: 15),
       label: 'Go to album',
       onPressed: () => goToAlbumOfTrack(
         ref,
@@ -1096,13 +1097,13 @@ WaveMenuSubmenu waveAddToPlaylistEntry({
   final userPlaylists =
       playlists.where((p) => !p.isLikedSongs).toList();
   return WaveMenuSubmenu(
-    leading: const Icon(FluentIcons.list_mirrored, size: 15),
+    leading: const Icon(WaveIcons.playlists, size: 15),
     label: 'Add to playlist',
     items: () => [
       for (final p in userPlaylists)
         WaveMenuAction(
           leading: const Icon(
-            FluentIcons.list_mirrored,
+            WaveIcons.playlists,
             size: 15,
           ),
           label: p.title,
@@ -1161,7 +1162,7 @@ Future<void> showWaveAddToPlaylist(
                 title: Text(p.title),
                 subtitle: Text('${p.tracks.length} tracks'),
                 leading: const Icon(
-                  FluentIcons.list_mirrored,
+                  WaveIcons.playlists,
                   size: 15,
                 ),
                 selectionMode: ListTileSelectionMode.single,

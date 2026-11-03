@@ -26,8 +26,8 @@ enum StatsViewTab {
   overview('Overview', FluentIcons.b_i_dashboard),
   tracks('Top Tracks', FluentIcons.music_in_collection),
   artists('Top Artists', FluentIcons.microphone),
-  albums('Top Albums', FluentIcons.album),
-  history('History', FluentIcons.history),
+  albums('Top Albums', WaveIcons.albums),
+  history('History', WaveIcons.history),
   genres('Genres', WaveIcons.genres);
 
   final String label;
@@ -1276,7 +1276,7 @@ class _AlbumsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return _StatsCard(
       title: 'Top albums',
-      icon: FluentIcons.album,
+      icon: WaveIcons.albums,
       note: '${albums.length} albums',
       child: albums.isEmpty
           ? const _CardEmpty(
@@ -1313,7 +1313,7 @@ class _HistoryTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return _StatsCard(
       title: 'Recently played',
-      icon: FluentIcons.history,
+      icon: WaveIcons.history,
       note: '${recentPlays.length} plays',
       actionLabel: 'Full history →',
       onAction: () => context.go('/history'),

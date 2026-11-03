@@ -15,6 +15,7 @@ import '../components/artwork.dart';
 import '../navigation/wave_nav.dart';
 import '../search/search_page.dart';
 import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
 /// Keyboard-first command palette (Ctrl+K).
 ///
@@ -31,16 +32,16 @@ Future<void> showWaveCommandPalette(
 }) {
   final controller = TextEditingController();
   final routes = <(String path, String label, IconData icon)>[
-    (('/home'), 'Go to Home', FluentIcons.home),
-    (('/search'), 'Go to Search', FluentIcons.search),
-    (('/liked'), 'Go to Liked Songs', FluentIcons.heart),
+    (('/home'), 'Go to Home', WaveIcons.home),
+    (('/search'), 'Go to Search', WaveIcons.search),
+    (('/liked'), 'Go to Liked Songs', WaveIcons.liked),
     (('/albums'), 'Go to Albums', FluentIcons.music_note),
     (('/artists'), 'Go to Artists', FluentIcons.contact),
-    (('/playlists'), 'Go to Playlists', FluentIcons.list_mirrored),
+    (('/playlists'), 'Go to Playlists', WaveIcons.playlists),
     (('/podcasts'), 'Go to Podcasts', FluentIcons.headset),
     (('/mixes'), 'Open Mix Lab', FluentIcons.lightbulb),
     (('/downloads'), 'Go to Downloads', FluentIcons.download),
-    (('/history'), 'Go to History', FluentIcons.history),
+    (('/history'), 'Go to History', WaveIcons.history),
     (('/now'), 'Open Now Playing', FluentIcons.circle_fill),
     (('/settings'), 'Open Settings', FluentIcons.settings),
   ];
@@ -164,7 +165,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
         label: 'Search for “${_q.trim()}”',
         sub: 'Search',
         group: 'Search',
-        icon: FluentIcons.search,
+        icon: WaveIcons.search,
         action: () => widget.onSearch(_q.trim()),
       ));
     }
@@ -212,7 +213,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
           label: a.name,
           sub: a.artist.isNotEmpty ? a.artist : 'Album',
           group: 'Albums',
-          icon: FluentIcons.album,
+          icon: WaveIcons.albums,
           art: a.artworkUrl,
           action: () {
             if (a.entityId.isNotEmpty) {
@@ -257,7 +258,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
           label: 'Search “$h”',
           sub: 'Recent',
           group: 'Recent',
-          icon: FluentIcons.history,
+          icon: WaveIcons.history,
           action: () => widget.onSearch(h),
         ));
       }
@@ -386,7 +387,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
                 placeholder: 'Type a command or search…',
                 prefix: const Padding(
                   padding: EdgeInsets.only(left: 8),
-                  child: Icon(FluentIcons.search, size: 15),
+                  child: Icon(WaveIcons.search, size: 15),
                 ),
                 onChanged: _onChanged,
                 onSubmitted: (_) => _activate(results),

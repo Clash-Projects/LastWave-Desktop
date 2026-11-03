@@ -70,7 +70,7 @@ class _WaveYtPlaylistDetailPageState
       data: (res) {
         if (res == null || res.tracks.isEmpty) {
           return WaveEmpty(
-            icon: FluentIcons.list_mirrored,
+            icon: WaveIcons.playlists,
             title: 'Playlist unavailable',
             subtitle:
                 'It may be private, deleted, or offline.',
@@ -187,7 +187,7 @@ class _Body extends ConsumerWidget {
                             '${res.tracks.length} tracks${query.isNotEmpty ? ' · ${tracks.length} match' : ''}',
                         artworkUrl: cover,
                         fallbackIcon:
-                            FluentIcons.list_mirrored,
+                            WaveIcons.playlists,
                         primaryActions: [
                           if (tracks.isNotEmpty) ...[
                             WavePrimaryButton(
@@ -298,7 +298,7 @@ class _Body extends ConsumerWidget {
           if (tracks.isEmpty)
             const SliverToBoxAdapter(
               child: WaveEmpty(
-                icon: FluentIcons.list_mirrored,
+                icon: WaveIcons.playlists,
                 title: 'No matches',
                 subtitle: 'Try a different filter.',
               ),

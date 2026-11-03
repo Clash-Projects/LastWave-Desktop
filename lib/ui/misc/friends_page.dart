@@ -13,6 +13,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/states.dart';
 import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
 /// Friends you added yourself. Last.fm has no public "add friend" call, so
 /// these are kept on this device (kv_store) and shown next to the friends
@@ -142,7 +143,7 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
                 placeholder: 'Search users to add',
                 prefix: const Padding(
                   padding: EdgeInsets.only(left: 10),
-                  child: Icon(FluentIcons.search, size: 14),
+                  child: Icon(WaveIcons.search, size: 14),
                 ),
                 suffix: _controller.text.isEmpty
                     ? null
@@ -165,7 +166,7 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
                   )
                 else if (friends.isEmpty)
                   const WaveEmpty(
-                    icon: FluentIcons.people,
+                    icon: WaveIcons.friends,
                     title: 'No friends yet',
                     subtitle:
                         'Search for a user above and add them to see them here.',
@@ -225,7 +226,7 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
       data: (users) {
         if (users.isEmpty) {
           return const WaveEmpty(
-            icon: FluentIcons.search,
+            icon: WaveIcons.search,
             title: 'No users found',
             subtitle: 'Try the exact Last.fm username.',
           );

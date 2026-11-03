@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../components/inputs.dart';
 import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
 /// One jump target in Settings search.
 ///
@@ -345,7 +346,7 @@ class _SettingsSearchBoxState extends State<SettingsSearchBox> {
           placeholder: 'Search settings',
           prefix: const Padding(
             padding: EdgeInsets.only(left: 10),
-            child: Icon(FluentIcons.search, size: 13),
+            child: Icon(WaveIcons.search, size: 13),
           ),
           decoration: waveInputDecoration(),
           onChanged: (value) => setState(() => _query = value),

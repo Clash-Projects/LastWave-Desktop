@@ -449,7 +449,7 @@ class _WavePodcastsPageState extends ConsumerState<WavePodcastsPage> {
               placeholder: 'Search podcasts and episodes',
               prefix: const Padding(
                 padding: EdgeInsets.only(left: 10),
-                child: Icon(FluentIcons.search, size: 14),
+                child: Icon(WaveIcons.search, size: 14),
               ),
               suffix: _controller.text.isEmpty
                   ? null

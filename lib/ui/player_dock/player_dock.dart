@@ -331,7 +331,7 @@ class WavePlayerDock extends ConsumerWidget {
                           if (showJam)
                             _Glyph(
                               tooltip: 'Jam',
-                              icon: FluentIcons.people,
+                              icon: WaveIcons.friends,
                               active: GoRouterState.of(context).uri.path ==
                                   '/jam',
                               onTap: () => context.go('/jam'),
@@ -1567,7 +1567,7 @@ class _DockOverflow extends ConsumerWidget {
         // at narrow widths, nothing overflows the window.
         if (showJamItem)
           WaveMenuAction(
-            leading: const Icon(FluentIcons.people, size: 15),
+            leading: const Icon(WaveIcons.friends, size: 15),
             label: 'Jam',
             onPressed: () => context.go('/jam'),
           ),

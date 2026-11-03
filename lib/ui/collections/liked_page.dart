@@ -170,7 +170,7 @@ class _WaveLikedPageState
                         color: waveTextTertiary(context))),
                 const SizedBox(height: 8),
                 const WaveEmpty(
-                  icon: FluentIcons.heart,
+                  icon: WaveIcons.liked,
                   title: 'No liked songs yet',
                   subtitle:
                       'Tap the heart on any track to save it here.',
@@ -204,7 +204,7 @@ class _WaveLikedPageState
                     meta:
                         '$mergedTotal tracks${_q.isNotEmpty ? ' · ${asGenerated().length} match' : ''}',
                     artworkUrl: cover,
-                    fallbackIcon: FluentIcons.heart_fill,
+                    fallbackIcon: WaveIcons.likedFill,
                     primaryActions: [
                       if (asGenerated().isNotEmpty)
                         WavePrimaryButton(
@@ -272,7 +272,7 @@ class _WaveLikedPageState
         if (asGenerated().isEmpty)
           const SliverToBoxAdapter(
             child: WaveEmpty(
-              icon: FluentIcons.heart,
+              icon: WaveIcons.liked,
               title: 'No liked songs yet',
               subtitle:
                   'Tap the heart on any track to save it here.',

@@ -12,6 +12,7 @@ import '../components/states.dart';
 import '../components/track_row.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
 final _waveHistoryProvider =
     FutureProvider<List<HomeTrack>>((ref) {
@@ -122,7 +123,7 @@ class WaveHistoryPage extends ConsumerWidget {
             if (tracks.isEmpty)
               const SliverToBoxAdapter(
                 child: WaveEmpty(
-                  icon: FluentIcons.history,
+                  icon: WaveIcons.history,
                   title: 'No history yet',
                   subtitle:
                       'Scrobbled tracks will appear here once you connect Last.fm.',

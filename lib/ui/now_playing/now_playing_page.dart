@@ -425,7 +425,7 @@ class _TopActionsBar extends StatelessWidget {
                       ? 'Disable visualizer'
                       : 'Enable visualizer',
                   child: _FsIconButton(
-                    icon: WaveIcons.mixes,
+                    icon: WaveIcons.visualizer,
                     active: visualizerEnabled,
                     onTap: onToggleVisualizer,
                   ),

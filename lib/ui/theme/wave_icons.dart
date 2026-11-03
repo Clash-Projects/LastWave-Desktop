@@ -1,55 +1,60 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-/// Canonical LastWave icon set — ONE coherent Fluent family.
+/// Canonical LastWave icon set.
 ///
 /// All presentation code must use [WaveIcons] instead of importing
-/// `lucide_icons_flutter`, Material or Cupertino icons directly. The
-/// mapping below uses Segoe MDL2 / Fluent glyphs exclusively so stroke
-/// weight and geometry stay consistent across rail, command bars,
-/// tables, dock and dialogs.
+/// `lucide_icons_flutter`, Material or Cupertino icons directly.
 ///
-/// Notes on transport mapping (Segoe MDL2 has no dedicated shuffle
-/// glyph): shuffle → [FluentIcons.switcher_start_end] (crossed swap
-/// arrows, the closest Windows-native shuffle metaphor), previous →
-/// [FluentIcons.previous], next → [FluentIcons.next], repeat →
-/// [FluentIcons.repeat_all], repeat-one → [FluentIcons.repeat_one].
-/// Lyrics → [FluentIcons.microphone], queue → [FluentIcons.list_mirrored].
+/// Two Microsoft glyph fonts ship with fluent_ui and both are used here:
+/// - [WindowsIcons] (Segoe Fluent Icons, the Windows 11 set) for
+///   navigation and content. It has the real shuffle glyph, a right-handed
+///   magnifier, a vinyl-in-square album and a list-with-note playlist.
+///   These are the shapes people know from Windows 11 and Apple Music.
+/// - [FluentIcons] (the older Fabric MDL2 set) for transport
+///   (previous/next/play/pause/repeat), window chrome and the remaining
+///   utility glyphs, whose shapes already read correctly.
+/// Both fonts are drawn on the same 16px grid with a ~1px stroke, so they
+/// sit together without a weight jump.
+///
+/// Lyrics use the speech-bubble [WindowsIcons.message], not a music note,
+/// so the lyrics, visualizer and music toggles on Now Playing are
+/// distinguishable at a glance.
 class WaveIcons {
   WaveIcons._();
 
   // Navigation
-  static const IconData home = FluentIcons.home;
-  static const IconData discover = FluentIcons.globe;
+  static const IconData home = WindowsIcons.home;
+  static const IconData discover = WindowsIcons.globe;
   static const IconData stats = FluentIcons.bar_chart_vertical;
-  static const IconData search = FluentIcons.search;
-  static const IconData library = FluentIcons.library;
-  static const IconData liked = FluentIcons.heart;
-  static const IconData likedFill = FluentIcons.heart_fill;
-  static const IconData albums = FluentIcons.album;
-  static const IconData artists = FluentIcons.microphone;
-  static const IconData playlists = FluentIcons.list_mirrored;
-  static const IconData downloads = FluentIcons.download;
-  static const IconData friends = FluentIcons.people;
-  static const IconData settings = FluentIcons.settings;
-  static const IconData history = FluentIcons.history;
-  static const IconData mixes = FluentIcons.music_in_collection;
+  static const IconData search = WindowsIcons.search;
+  static const IconData library = WindowsIcons.library;
+  static const IconData liked = WindowsIcons.heart;
+  static const IconData likedFill = WindowsIcons.heart_fill;
+  static const IconData albums = WindowsIcons.music_album;
+  static const IconData artists = WindowsIcons.microphone;
+  static const IconData playlists = WindowsIcons.music_info;
+  static const IconData downloads = WindowsIcons.download;
+  static const IconData friends = WindowsIcons.people;
+  static const IconData settings = WindowsIcons.settings;
+  static const IconData history = WindowsIcons.history;
+  static const IconData mixes = WindowsIcons.audio;
   static const IconData podcasts = FluentIcons.headset;
-  static const IconData genres = FluentIcons.tag;
+  static const IconData genres = WindowsIcons.tag;
 
   // Transport
   static const IconData play = FluentIcons.play_solid;
   static const IconData pause = FluentIcons.pause;
   static const IconData previous = FluentIcons.previous;
   static const IconData next = FluentIcons.next;
-  static const IconData shuffle = FluentIcons.switcher_start_end;
+  static const IconData shuffle = WindowsIcons.shuffle;
   static const IconData repeat = FluentIcons.repeat_all;
   static const IconData repeatOne = FluentIcons.repeat_one;
 
   // Content
   static const IconData music = FluentIcons.music_note;
-  static const IconData musicCollection = FluentIcons.music_in_collection;
-  static const IconData lyrics = FluentIcons.music_note;
-  static const IconData queue = FluentIcons.list_mirrored;
+  static const IconData musicCollection = WindowsIcons.audio;
+  static const IconData lyrics = WindowsIcons.message;
+  static const IconData queue = WindowsIcons.bulleted_list;
   static const IconData radio = FluentIcons.radio_btn_on;
   static const IconData speaker = FluentIcons.speakers;
   static const IconData volume = FluentIcons.volume2;
@@ -60,7 +65,7 @@ class WaveIcons {
   static const IconData add = FluentIcons.add;
   static const IconData addTo = FluentIcons.add_to;
   static const IconData playNext = FluentIcons.add;
-  static const IconData downloadAction = FluentIcons.download;
+  static const IconData downloadAction = WindowsIcons.download;
   static const IconData pin = FluentIcons.pin;
   static const IconData edit = FluentIcons.edit;
   static const IconData delete = FluentIcons.delete;
@@ -83,6 +88,8 @@ class WaveIcons {
   static const IconData info = FluentIcons.info;
   static const IconData streamPath = FluentIcons.flow;
   static const IconData equalizer = FluentIcons.equalizer;
+  static const IconData visualizer = WindowsIcons.volume_bars;
+  static const IconData theme = WindowsIcons.color;
 
   // Community — DO NOT use these generic fallbacks for UI.
   // Use TelegramIcon / DiscordIcon from brand_icons.dart (official marks).

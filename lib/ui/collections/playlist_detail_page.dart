@@ -118,7 +118,7 @@ class _WavePlaylistDetailPageState
         playlists.where((p) => p.id == widget.id).firstOrNull;
     if (playlist == null) {
       return WaveEmpty(
-        icon: FluentIcons.list_mirrored,
+        icon: WaveIcons.playlists,
         title: 'Playlist not found',
         subtitle: 'It may have been deleted.',
         actionLabel: 'Back to playlists',
@@ -211,7 +211,7 @@ class _WavePlaylistDetailPageState
                         '${playlist.tracks.length} tracks${_q.isNotEmpty ? ' · ${tracks.length} match' : ''}',
                     artworkUrl: cover,
                     fallbackIcon:
-                        FluentIcons.list_mirrored,
+                        WaveIcons.playlists,
                     primaryActions: [
                       if (tracks.isNotEmpty) ...[
                         WavePrimaryButton(
@@ -384,7 +384,7 @@ class _WavePlaylistDetailPageState
         if (tracks.isEmpty)
           const SliverToBoxAdapter(
             child: WaveEmpty(
-              icon: FluentIcons.list_mirrored,
+              icon: WaveIcons.playlists,
               title: 'Empty playlist',
               subtitle: 'Add tracks from any menu.',
             ),

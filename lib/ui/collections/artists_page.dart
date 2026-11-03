@@ -11,6 +11,7 @@ import '../components/states.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
 final _waveArtistsProvider = FutureProvider<
     List<({String name, String artwork})>>((ref) async {
@@ -181,7 +182,7 @@ class _ArtistCellState extends State<_ArtistCell> {
               context, '/artist/${Uri.encodeComponent(widget.name)}'),
         ),
         WaveMenuAction(
-          leading: const Icon(FluentIcons.search, size: 13),
+          leading: const Icon(WaveIcons.search, size: 13),
           label: 'Search for artist',
           onPressed: () => context.go(
               '/search?q=${Uri.encodeComponent(widget.name)}'),
