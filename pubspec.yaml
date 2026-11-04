@@ -118,6 +118,7 @@ flutter:
   assets:
     - assets/po_token.html
     - assets/icons/
+    - assets/brand/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
