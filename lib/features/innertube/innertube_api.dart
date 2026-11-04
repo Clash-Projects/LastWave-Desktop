@@ -3118,7 +3118,39 @@ class InnerTubeMusicApi {
       authenticated: true,
     );
     final result = await _collectBrowseSongPages(root, limit);
+    if (result.tracks.isEmpty && browseId == 'FEmusic_charts') {
+      return _chartPlaylistTracks(root, limit);
+    }
     return result.tracks;
+  }
+
+  /// Signed-out `FEmusic_charts` has no song rows at all — only top
+  /// artists and carousels of chart *playlists* (the lone
+  /// musicShelfRenderer is the country picker). So the songs come from
+  /// the first chart playlist that yields any, which is what keeps a
+  /// fresh guest's Home from being empty.
+  Future<List<YouTubeMusicTrack>> _chartPlaylistTracks(
+    Map<String, dynamic> root,
+    int? limit,
+  ) async {
+    final items = <Map<String, dynamic>>[];
+    _collectObjects(root, 'musicTwoRowItemRenderer', items);
+    final ids = <String>[];
+    for (final item in items) {
+      final id = ((item['navigationEndpoint'] as Map?)?['browseEndpoint']
+              as Map?)?['browseId']
+          ?.toString();
+      if (id != null && id.startsWith('VL') && !ids.contains(id)) {
+        ids.add(id);
+      }
+    }
+    for (final id in ids.take(3)) {
+      try {
+        final tracks = await browseSongs(id, limit: limit);
+        if (tracks.isNotEmpty) return tracks;
+      } catch (_) {}
+    }
+    return const [];
   }
 
   /// Browse an album page: header metadata (title/artist/artwork/year)
