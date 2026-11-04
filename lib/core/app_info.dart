@@ -3,4 +3,4 @@
 ///
 /// Bump it with the release tag. (`pubspec.yaml` carries the build number
 /// the installers use; this is the human-readable one.)
-const String appVersion = '1.5.0';
+const String appVersion = '2.0.0';
