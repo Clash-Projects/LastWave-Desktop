@@ -99,7 +99,7 @@
 
         lastwave = pkgs.flutter.buildFlutterApplication {
           pname = "lastwave";
-          version = "2.0.0";
+          version = "2.0.1";
           src = ./.;
 
           autoPubspecLock = ./pubspec.lock;
