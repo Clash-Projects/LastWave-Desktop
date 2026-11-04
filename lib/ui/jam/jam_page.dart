@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/storage/prefs.dart';
 import '../../features/jam/jam_client.dart';
@@ -10,6 +11,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/inputs.dart';
 import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
 /// Collaborative listening room. Local playback keeps running if the
 /// server cannot be reached; the error is shown here.
@@ -166,6 +168,12 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
                   dot: true,
                 ),
               ],
+              const Spacer(),
+              WaveIconButton(
+                tooltip: 'Close',
+                icon: const Icon(WaveIcons.close, size: 14),
+                onPressed: () => context.go('/home'),
+              ),
             ],
           ),
           const SizedBox(height: 6),
