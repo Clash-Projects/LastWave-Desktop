@@ -184,6 +184,12 @@ class JamSnapshot {
   final String hostId;
   final String coHostId;
   final bool permanent;
+
+  /// Always-on rooms are 24/7 radio stations driven by the server.
+  final bool radio;
+
+  /// Station on auto radio (true) or run by a station admin (false).
+  final bool stationAuto;
   final String roomMode;
   final List<JamPerson> people;
   final List<JamChatLine> chat;
@@ -208,6 +214,9 @@ class JamSnapshot {
   /// True only for the main host, who may give and remove co-hosts.
   bool get isMainHost => userId.isNotEmpty && userId == hostId;
 
+  /// A listener on a live station: no playback control at all.
+  bool get isStationListener => phase == JamPhase.active && radio && !isHost;
+
   const JamSnapshot({
     this.phase = JamPhase.disconnected,
     this.error = '',
@@ -218,6 +227,8 @@ class JamSnapshot {
     this.hostId = '',
     this.coHostId = '',
     this.permanent = false,
+    this.radio = false,
+    this.stationAuto = true,
     this.roomMode = jamModeCollaborative,
     this.people = const [],
     this.chat = const [],
@@ -240,6 +251,8 @@ class JamSnapshot {
     String? hostId,
     String? coHostId,
     bool? permanent,
+    bool? radio,
+    bool? stationAuto,
     String? roomMode,
     List<JamPerson>? people,
     List<JamChatLine>? chat,
@@ -262,6 +275,8 @@ class JamSnapshot {
         hostId: hostId ?? this.hostId,
         coHostId: coHostId ?? this.coHostId,
         permanent: permanent ?? this.permanent,
+        radio: radio ?? this.radio,
+        stationAuto: stationAuto ?? this.stationAuto,
         roomMode: roomMode ?? this.roomMode,
         people: people ?? this.people,
         chat: chat ?? this.chat,
@@ -372,6 +387,10 @@ class JamController extends StateNotifier<JamSnapshot> {
 
   /// Main host only: make [userId] a co-host (a room has at most two hosts).
   void grantHost(String userId) => _send('grant_host', {'user_id': userId});
+
+  /// Station admin only: hand the station to someone else.
+  void transferAdmin(String userId) =>
+      _send('transfer_host', {'user_id': userId});
 
   /// Main host only: remove [userId]'s co-host role.
   void revokeHost(String userId) => _send('revoke_host', {'user_id': userId});
@@ -579,6 +598,8 @@ class JamController extends StateNotifier<JamSnapshot> {
             hostId: map['host_id']?.toString() ?? '',
             coHostId: map['cohost_id']?.toString() ?? '',
             permanent: map['permanent'] == true,
+            radio: map['radio'] == true,
+            stationAuto: map['station_auto'] != false,
             roomName: map['room_name']?.toString() ?? '',
             roomMode: map['room_mode']?.toString() ?? jamModeCollaborative,
             people: people,
@@ -619,6 +640,9 @@ class JamController extends StateNotifier<JamSnapshot> {
                   ? map['new_host_id'].toString()
                   : (map['user_id']?.toString() ?? '');
           _applyRoles(hostId, map['cohost_id']?.toString() ?? '');
+        case 'station_mode':
+          if (state.phase != JamPhase.active) return;
+          state = state.copyWith(stationAuto: map['auto'] == true);
         case 'cooldown':
           _startCooldown(_int(map['retry_at_ms']));
         case 'queue_updated':
