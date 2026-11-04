@@ -283,6 +283,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         searchController: _searchController,
         searchFocus: _searchFocus,
         onSearchSubmit: _submitSearch,
+        onGo: _go,
         onPalette: _openPalette,
         onToggleRail: () => setState(() => _railExpanded = !_railExpanded),
         canGoBack: canGoBack,
@@ -668,16 +669,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   }
 
   void _openPalette() {
-    final history = ref.read(searchRepositoryProvider).history();
-    showWaveCommandPalette(
-      context,
-      recentSearches: history.take(6).toList(),
-      onSearch: (q) {
-        ref.read(searchRepositoryProvider).pushHistory(q);
-        context.go('/search?q=${Uri.encodeComponent(q)}');
-      },
-      onGo: _go,
-    );
+    showWaveCommandPalette(context, onGo: _go);
   }
 
   /// Latest layout/route snapshot for the focus-independent Esc chain
@@ -988,12 +980,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 ),
                               // Contextual queue — slides smoothly from right.
                               AnimatedPositioned(
-                                onEnd: () {
-                                  if (_queueSettled == _queueOpen) {
-                                    setState(
-                                        () => _queueSettled = !_queueOpen);
-                                  }
-                                },
                                 duration: waveMotion(
                                   context,
                                   WaveMotion.normal,
@@ -1002,6 +988,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 top: 0,
                                 bottom: 0,
                                 right: _queueOpen ? 0 : -(qw + 12),
+                                onEnd: () {
+                                  if (_queueSettled == _queueOpen) {
+                                    setState(
+                                        () => _queueSettled = !_queueOpen);
+                                  }
+                                },
                                 width: qw,
                                 child: ExcludeFocus(
                                   excluding: !_queueOpen,
@@ -1024,12 +1016,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               ),
                               // Contextual Equalizer & Studio Master Clarity drawer — slides smoothly from right.
                               AnimatedPositioned(
-                                onEnd: () {
-                                  if (_equalizerSettled == _equalizerOpen) {
-                                    setState(() =>
-                                        _equalizerSettled = !_equalizerOpen);
-                                  }
-                                },
                                 duration: waveMotion(
                                   context,
                                   WaveMotion.normal,
@@ -1038,6 +1024,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 top: 0,
                                 bottom: 0,
                                 right: _equalizerOpen ? 0 : -(ew + 12),
+                                onEnd: () {
+                                  if (_equalizerSettled == _equalizerOpen) {
+                                    setState(() =>
+                                        _equalizerSettled = !_equalizerOpen);
+                                  }
+                                },
                                 width: ew,
                                 child: ExcludeFocus(
                                   excluding: !_equalizerOpen,

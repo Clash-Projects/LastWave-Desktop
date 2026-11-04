@@ -1,6 +1,5 @@
 import '../components/buttons.dart';
 import '../components/inputs.dart';
-import '../components/menus.dart';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -8,26 +7,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app/track_actions.dart' show playGenerated;
-import '../../features/feed/feed_repository.dart';
 import '../../features/search/search_repository.dart';
-import '../components/artwork.dart';
-import '../navigation/wave_nav.dart';
-import '../search/search_page.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
 /// Keyboard-first command palette (Ctrl+K).
 ///
-/// Shell placement + shortcuts (Ctrl+K open, Ctrl+F focus search, Esc
+/// Shell placement + shortcuts (Ctrl+K open, Esc
 /// close) are owned by Agent 2 in app_shell.dart — this file owns search
 /// behaviour only. [showWaveCommandPalette] keeps its signature so the
 /// shell never breaks: recent searches + route shortcuts + live Top
 /// Result / Songs / Albums / Artists mini-sections.
 Future<void> showWaveCommandPalette(
   BuildContext context, {
-  required List<String> recentSearches,
-  required ValueChanged<String> onSearch,
   required ValueChanged<String> onGo,
 }) {
   final controller = TextEditingController();
@@ -51,8 +43,6 @@ Future<void> showWaveCommandPalette(
     builder: (context) => _PaletteDialog(
       controller: controller,
       routes: routes,
-      recentSearches: recentSearches,
-      onSearch: onSearch,
       onGo: onGo,
     ),
   );
@@ -63,35 +53,23 @@ class _PaletteEntry {
   final String sub;
   final String group;
   final IconData icon;
-  final String art;
-  final bool circleArt;
   final VoidCallback action;
-
-  /// Right-click menu (songs only); null = no context menu.
-  final List<WaveMenuEntry> Function()? menu;
   const _PaletteEntry({
     required this.label,
     required this.sub,
     required this.group,
     required this.icon,
     required this.action,
-    this.art = '',
-    this.circleArt = false,
-    this.menu,
   });
 }
 
 class _PaletteDialog extends ConsumerStatefulWidget {
   final TextEditingController controller;
   final List<(String, String, IconData)> routes;
-  final List<String> recentSearches;
-  final ValueChanged<String> onSearch;
   final ValueChanged<String> onGo;
   const _PaletteDialog({
     required this.controller,
     required this.routes,
-    required this.recentSearches,
-    required this.onSearch,
     required this.onGo,
   });
 
@@ -101,13 +79,12 @@ class _PaletteDialog extends ConsumerStatefulWidget {
 
 class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
   String _q = '';
-  String _liveQ = '';
-  Timer? _debounce;
   int _selected = 0;
+  // Rides on whichever row is selected so arrow keys can scroll it into view.
+  final _selectedKey = GlobalKey();
 
   @override
   void dispose() {
-    _debounce?.cancel();
     // showWaveCommandPalette creates this controller for the dialog alone
     // and never disposed it. Children unmount first, so the TextBox has
     // already detached its listeners by the time this runs.
@@ -120,10 +97,6 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
       _q = v;
       _selected = 0;
     });
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 250), () {
-      if (mounted) setState(() => _liveQ = v.trim());
-    });
   }
 
   void _activate(List<_PaletteEntry> entries) {
@@ -133,12 +106,30 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
     entries[i].action();
   }
 
+  // The list is lazy, but the neighbour of the selected row is always inside
+  // its cache extent, so the selected row exists by the next frame.
+  void _revealSelected({required bool down}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _selectedKey.currentContext;
+      if (ctx == null || !ctx.mounted) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 90),
+        curve: Curves.easeOutCubic,
+        alignmentPolicy: down
+            ? ScrollPositionAlignmentPolicy.keepVisibleAtEnd
+            : ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+      );
+    });
+  }
+
   KeyEventResult _onKey(KeyEvent event, List<_PaletteEntry> entries) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
       if (entries.isNotEmpty) {
         setState(() => _selected =
             (_selected + 1).clamp(0, entries.length - 1));
+        _revealSelected(down: true);
       }
       return KeyEventResult.handled;
     }
@@ -146,6 +137,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
       if (entries.isNotEmpty) {
         setState(() => _selected =
             (_selected - 1).clamp(0, entries.length - 1));
+        _revealSelected(down: false);
       }
       return KeyEventResult.handled;
     }
@@ -160,87 +152,6 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
     final q = _q.trim().toLowerCase();
     final out = <_PaletteEntry>[];
 
-    if (_q.trim().isNotEmpty) {
-      out.add(_PaletteEntry(
-        label: 'Search for “${_q.trim()}”',
-        sub: 'Search',
-        group: 'Search',
-        icon: WaveIcons.search,
-        action: () => widget.onSearch(_q.trim()),
-      ));
-    }
-
-    // Live mini-sections (debounced repo queries, shared providers).
-    if (_liveQ.isNotEmpty) {
-      final songs =
-          ref.watch(waveSearchSongsProvider(_liveQ)).valueOrNull ??
-              const <SearchResultItem>[];
-      final albums =
-          ref.watch(waveSearchAlbumsProvider(_liveQ)).valueOrNull ??
-              const <SearchResultItem>[];
-      final artists =
-          ref.watch(waveSearchArtistsProvider(_liveQ)).valueOrNull ??
-              const <SearchResultItem>[];
-      if (songs.isNotEmpty || artists.isNotEmpty || albums.isNotEmpty) {
-        final top = songs.isNotEmpty
-            ? songs.first
-            : (artists.isNotEmpty ? artists.first : albums.first);
-        out.add(_PaletteEntry(
-          label: top.name,
-          sub:
-              'Top Result • ${searchTabLabel(top.tab)}${top.artist.isNotEmpty ? ' • ${top.artist}' : ''}',
-          group: 'Top Result',
-          icon: FluentIcons.trophy,
-          art: top.artworkUrl,
-          circleArt: top.tab == SearchTab.artists,
-          action: () => _openResult(top),
-          menu: top.tab == SearchTab.tracks ? () => _songMenu(top) : null,
-        ));
-      }
-      for (final s in songs.take(3)) {
-        out.add(_PaletteEntry(
-          label: s.name,
-          sub: s.artist.isNotEmpty ? s.artist : 'Song',
-          group: 'Songs',
-          icon: FluentIcons.music_note,
-          art: s.artworkUrl,
-          action: () => _playSong(s),
-          menu: () => _songMenu(s),
-        ));
-      }
-      for (final a in albums.take(2)) {
-        out.add(_PaletteEntry(
-          label: a.name,
-          sub: a.artist.isNotEmpty ? a.artist : 'Album',
-          group: 'Albums',
-          icon: WaveIcons.albums,
-          art: a.artworkUrl,
-          action: () {
-            if (a.entityId.isNotEmpty) {
-              widget.onGo(waveAlbumLocation(
-                browseId: a.entityId,
-                title: a.name,
-                artist: a.artist,
-                artworkUrl: a.artworkUrl,
-              ));
-            }
-          },
-        ));
-      }
-      for (final a in artists.take(2)) {
-        out.add(_PaletteEntry(
-          label: a.name,
-          sub: 'Artist',
-          group: 'Artists',
-          icon: FluentIcons.contact,
-          art: a.artworkUrl,
-          circleArt: true,
-          action: () => widget
-              .onGo('/artist/${Uri.encodeComponent(a.name)}'),
-        ));
-      }
-    }
-
     for (final r in widget.routes) {
       if (q.isEmpty || r.$2.toLowerCase().contains(q)) {
         out.add(_PaletteEntry(
@@ -252,69 +163,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
         ));
       }
     }
-    for (final h in widget.recentSearches) {
-      if (q.isEmpty || h.toLowerCase().contains(q)) {
-        out.add(_PaletteEntry(
-          label: 'Search “$h”',
-          sub: 'Recent',
-          group: 'Recent',
-          icon: WaveIcons.history,
-          action: () => widget.onSearch(h),
-        ));
-      }
-    }
     return out;
-  }
-
-  List<WaveMenuEntry> _songMenu(SearchResultItem s) => waveTrackMenuItems(
-        context: context,
-        ref: ref,
-        title: s.name,
-        artist: s.artist,
-        artworkUrl: s.artworkUrl,
-        videoId: s.videoId,
-        album: s.subtitle,
-        durationSeconds: s.durationSeconds,
-      );
-
-  void _playSong(SearchResultItem s) {
-    // Single track through the shared helper: autoplay-similar pref
-    // applies, so radio follows (a raw single-track playQueue would
-    // just stop).
-    playGenerated(
-      ref,
-      context,
-      GeneratedTrack(
-        name: s.name,
-        artist: s.artist,
-        album: s.subtitle,
-        artworkUrl: s.artworkUrl,
-        videoId: s.videoId,
-      ),
-      sourceLabel: 'Command palette',
-    );
-  }
-
-  void _openResult(SearchResultItem top) {
-    switch (top.tab) {
-      case SearchTab.tracks:
-        _playSong(top);
-      case SearchTab.artists:
-        widget.onGo('/artist/${Uri.encodeComponent(top.name)}');
-      case SearchTab.albums:
-        if (top.entityId.isNotEmpty) {
-          widget.onGo(waveAlbumLocation(
-            browseId: top.entityId,
-            title: top.name,
-            artist: top.artist,
-            artworkUrl: top.artworkUrl,
-          ));
-        }
-      case SearchTab.playlists:
-        widget.onSearch(top.name);
-      case SearchTab.users:
-        widget.onSearch(top.name);
-    }
   }
 
   @override
@@ -324,11 +173,6 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
     final sel = results.isEmpty
         ? 0
         : _selected.clamp(0, results.length - 1);
-    final liveLoading = _liveQ.isNotEmpty &&
-        (ref.watch(waveSearchSongsProvider(_liveQ)).isLoading ||
-            ref.watch(waveSearchAlbumsProvider(_liveQ)).isLoading ||
-            ref.watch(waveSearchArtistsProvider(_liveQ)).isLoading);
-
     // Group consecutive entries under mini-section headers. Rows are
     // built lazily (ListView.builder below) so open only pays for
     // visible items; each row is a light _PaletteRow with NO tooltip
@@ -382,7 +226,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
                 decoration: waveInputDecoration(),
                 controller: widget.controller,
                 autofocus: true,
-                placeholder: 'Type a command or search…',
+                placeholder: 'Type a command…',
                 prefix: const Padding(
                   padding: EdgeInsets.only(left: 8),
                   child: Icon(WaveIcons.search, size: 15),
@@ -397,25 +241,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
                 child: results.isEmpty
                     ? Padding(
                         padding: const EdgeInsets.all(16),
-                        child: liveLoading
-                            ? const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: ProgressRing(
-                                        strokeWidth: 2),
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text('Searching…'),
-                                ],
-                              )
-                            : Text(
-                                widget.controller.text.trim().isEmpty
-                                    ? 'No matches.'
-                                    : 'No matches — press Enter to search for "${widget.controller.text.trim()}".',
-                              ),
+                        child: const Text('No matching commands.'),
                       )
                     : ListView.builder(
                         physics: const ClampingScrollPhysics(),
@@ -437,6 +263,7 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
                           }
                           final row = item as _PaletteRowData;
                           return _PaletteRow(
+                            key: row.selected ? _selectedKey : null,
                             entry: row.entry,
                             selected: row.selected,
                             onTap: () {
@@ -482,6 +309,7 @@ class _PaletteRow extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   const _PaletteRow({
+    super.key,
     required this.entry,
     required this.selected,
     required this.onTap,
@@ -490,18 +318,8 @@ class _PaletteRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = entry;
-    final leading = r.art.isNotEmpty
-        ? (r.circleArt
-            ? WaveArtwork.circle(
-                url: r.art, size: 28, label: r.label)
-            : WaveArtwork(
-                url: r.art,
-                size: 28,
-                radius: WaveRadius.artwork,
-                label: r.label,
-              ))
-        : Icon(r.icon, size: 15);
-    final tile = ListTile.selectable(
+    final leading = Icon(r.icon, size: 15);
+    return ListTile.selectable(
       shape: RoundedRectangleBorder(
         borderRadius: WaveRadius.controlsRadius,
       ),
@@ -520,8 +338,6 @@ class _PaletteRow extends StatelessWidget {
       ),
       onPressed: onTap,
     );
-    final menu = r.menu;
-    return menu == null ? tile : WaveContextMenu(items: menu, child: tile);
   }
 }
 
