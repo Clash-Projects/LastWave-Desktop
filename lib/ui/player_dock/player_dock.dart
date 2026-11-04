@@ -89,8 +89,12 @@ class WavePlayerDock extends ConsumerWidget {
     final jamUntil = ref.watch(jamControllerProvider.select(
       (j) => j.phase == JamPhase.active ? j.cooldownUntilMs : 0,
     ));
-    final jamLocked = jamUntil > 0;
-    final jamUnlockAt = jamLocked ? jamClock(jamUntil) : '';
+    // Live stations: listeners can't pause, skip or seek at all.
+    final jamLive = ref.watch(jamControllerProvider.select(
+      (j) => j.isStationListener,
+    ));
+    final jamLocked = jamUntil > 0 || jamLive;
+    final jamUnlockAt = jamUntil > 0 ? jamClock(jamUntil) : '';
     final artworkUrl = player.current?.artworkUrl ?? '';
     final dockTint = ref.watch(artworkSeedProvider(artworkUrl)).valueOrNull;
 
@@ -269,9 +273,11 @@ class WavePlayerDock extends ConsumerWidget {
                                   onTap: notifier.toggleShuffle,
                                 ),
                                 _Glyph(
-                                  tooltip: jamLocked
-                                      ? 'Locked in Jam until $jamUnlockAt'
-                                      : 'Previous',
+                                  tooltip: jamLive
+                                      ? 'Live station'
+                                      : jamLocked
+                                          ? 'Locked in Jam until $jamUnlockAt'
+                                          : 'Previous',
                                   icon: WaveIcons.previous,
                                   large: true,
                                   onTap: current == null || jamLocked
@@ -284,13 +290,16 @@ class WavePlayerDock extends ConsumerWidget {
                                   // Resuming is always allowed; only pausing
                                   // is locked during the Jam cooldown.
                                   enabled: current != null &&
+                                      !jamLive &&
                                       !(jamLocked && player.isPlaying),
                                   onTap: notifier.toggle,
                                 ),
                                 _Glyph(
-                                  tooltip: jamLocked
-                                      ? 'Locked in Jam until $jamUnlockAt'
-                                      : 'Next',
+                                  tooltip: jamLive
+                                      ? 'Live station'
+                                      : jamLocked
+                                          ? 'Locked in Jam until $jamUnlockAt'
+                                          : 'Next',
                                   icon: WaveIcons.next,
                                   large: true,
                                   onTap: current == null || jamLocked
@@ -1039,6 +1048,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
     // No total means nothing to seek along: a step would clamp to zero and
     // yank a playing track back to the start.
     if (total <= Duration.zero) return;
+    if (ref.read(jamControllerProvider).isStationListener) return;
     final target = base + Duration(seconds: seconds);
     final clamped = target.isNegative
         ? Duration.zero
@@ -1048,6 +1058,9 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
 
   @override
   Widget build(BuildContext context) {
+    final jamLive = ref.watch(jamControllerProvider.select(
+      (j) => j.isStationListener,
+    ));
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
     final clock = ref.watch(playbackServiceProvider.select((s) => (
@@ -1144,8 +1157,8 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                               progress: clock.position,
                               buffered: clock.buffered,
                               total: clock.duration,
-                              showThumb: hasDuration,
-                              onSeek: notifier.seek,
+                              showThumb: hasDuration && !jamLive,
+                              onSeek: jamLive ? null : notifier.seek,
                               baseColor: (dark ? Colors.white : Colors.black)
                                   .withValues(alpha: 0.12),
                               bufferedColor: (dark ? Colors.white : Colors.black)
@@ -1160,7 +1173,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                               progress: clock.position,
                               buffered: clock.buffered,
                               total: clock.duration,
-                              onSeek: notifier.seek,
+                              onSeek: jamLive ? null : notifier.seek,
                               barHeight: 3,
                               thumbRadius: hasDuration ? 5 : 0,
                               thumbColor: dark ? Colors.white : Colors.black,
