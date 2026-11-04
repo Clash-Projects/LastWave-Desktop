@@ -435,20 +435,20 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
         alignment: Alignment.topLeft,
         child: SizedBox(
           width: width < 320 ? 320 : width,
-          child: Container(
+          child: _PanelIn(child: Container(
             key: _panelKey,
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
               color: dark
                   ? waveSurfaceRaised(overlayContext)
                   : waveSurfaceOverlay(overlayContext),
-              borderRadius: WaveRadius.floatingRadius,
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(color: waveDivider(overlayContext)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
+                  color: Colors.black.withValues(alpha: 0.28),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
@@ -461,6 +461,8 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                       borderRadius: WaveRadius.controlsRadius,
                     ),
                     selected: i == _selected,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     selectionMode: ListTileSelectionMode.single,
                     leading: SizedBox(
                       width: 28,
@@ -494,7 +496,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                   ),
               ],
             ),
-          ),
+          ),)
         ),
       ),
     );
@@ -521,10 +523,12 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
               skipTraversal: true,
               onKeyEvent: (_, e) => _onKey(e),
               child: TextBox(
-                decoration: waveInputDecoration(),
+                decoration: waveInputDecoration(radius: 8),
                 controller: widget.controller,
                 focusNode: widget.focus,
                 placeholder: 'Search',
+                style: WaveType.body.copyWith(fontSize: 13),
+                cursorHeight: 14,
                 onTapOutside: (e) {
                   if (_insidePanel(e.position)) return;
                   if (widget.focus.hasFocus) widget.focus.unfocus();
@@ -549,33 +553,22 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                           ),
                         ),
                       )
-                    : Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: IgnorePointer(
-                          child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: dark
-                                    ? waveSurfaceRaised(context)
-                                    : waveSurfaceOverlay(context),
-                                borderRadius: WaveRadius.tinyRadius,
-                                border: Border.all(
-                                  color: waveDivider(context)
-                                      .withValues(alpha: 0.5),
-                                ),
-                              ),
+                    : widget.focus.hasFocus
+                        ? null
+                        : Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: IgnorePointer(
                               child: Text(
                                 'Ctrl F',
                                 style: TextStyle(
-                                  fontSize: 9.5,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.w500,
-                                  color: tertiary,
+                                  letterSpacing: 0.2,
+                                  color: tertiary.withValues(alpha: 0.7),
                                 ),
                               ),
                             ),
-                        ),
-                      ),
+                          ),
                 onChanged: _onChanged,
                 onSubmitted: _submit,
               ),
@@ -583,6 +576,26 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Short fade + rise so the dropdown settles in instead of popping.
+class _PanelIn extends StatelessWidget {
+  final Widget child;
+  const _PanelIn({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(offset: Offset(0, (1 - t) * -4), child: child),
+      ),
+      child: child,
     );
   }
 }
