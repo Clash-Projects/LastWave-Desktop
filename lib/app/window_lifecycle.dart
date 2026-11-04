@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'accessibility.dart';
 import '../core/artwork/animated_artwork_session.dart';
 import '../core/diagnostics/diagnostics_log.dart';
 import '../core/network/network_monitor.dart';
@@ -138,7 +139,10 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   void onWindowMinimize() => _setWindowVisible(false);
 
   @override
-  void onWindowRestore() => _setWindowVisible(true);
+  void onWindowRestore() {
+    _setWindowVisible(true);
+    AppFocusMemory.instance.restore();
+  }
 
   @override
   void onWindowMaximize() => _setWindowVisible(true);
@@ -157,6 +161,11 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
       return;
     }
     if (hidden) _setWindowVisible(true);
+    // Coming back from another app (Alt+Tab, the Last.fm browser tab, a
+    // screen-reader command) must land keyboard focus on a real control so
+    // the screen reader has something to read and Tab starts where the user
+    // left off. Without this the window came back with nothing focused.
+    AppFocusMemory.instance.restore();
   }
 
   @override

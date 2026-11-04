@@ -241,10 +241,15 @@ class WavePressable extends StatefulWidget {
     this.pressedScale = 0.97,
     this.cursor = SystemMouseCursors.click,
     this.behavior = HitTestBehavior.opaque,
+    this.semanticLabel,
   });
 
   final Widget child;
   final VoidCallback? onTap;
+
+  /// What a screen reader calls this control. When null the text inside the
+  /// card (title, artist…) is merged into one button label instead.
+  final String? semanticLabel;
 
   /// Scale held while the pointer is down (the house dip is 0.97; a list row
   /// reads better at ~0.985 because it scales from its centre).
@@ -270,6 +275,44 @@ class _WavePressableState extends State<WavePressable> {
     // still rather than snapping it 3% smaller and back.
     final dip = widget.pressedScale;
     final reduce = waveReduceMotion(context);
+    final pressable = _pressable(context, live, dip, reduce);
+    if (!live) return pressable;
+    // A card is one control to a screen reader and the keyboard: one named
+    // button (its own text merged into the label) that Tab reaches and
+    // Enter / Space activates — not a pile of loose, unreachable text.
+    return MergeSemantics(
+      child: Semantics(
+        button: true,
+        label: widget.semanticLabel,
+        onTap: widget.onTap,
+        child: FocusableActionDetector(
+          onShowFocusHighlight: (v) => setState(() => _ring = v),
+          actions: {
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                widget.onTap?.call();
+                return null;
+              },
+            ),
+          },
+          child: DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              borderRadius: WaveRadius.controlsRadius,
+              border: _ring
+                  ? Border.all(color: waveAccent(context), width: 2)
+                  : null,
+            ),
+            child: pressable,
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _ring = false;
+
+  Widget _pressable(BuildContext context, bool live, double dip, bool reduce) {
     return MouseRegion(
       cursor: live ? widget.cursor : MouseCursor.defer,
       onExit: (_) {

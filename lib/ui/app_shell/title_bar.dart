@@ -14,7 +14,8 @@ import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart' show LWTooltip;
+import '../../app/accessibility.dart';
+import '../components/buttons.dart' show LWTooltip, WaveA11yButton;
 import '../components/inputs.dart';
 import '../components/menus.dart'
     show
@@ -144,7 +145,19 @@ class WaveTitleBar extends ConsumerWidget {
                 const _CommunityBtns(),
                 const SizedBox(width: 6),
                 // Profile / account — tiny, no giant buttons.
-                MouseRegion(
+                WaveA11yButton(
+                  label: auth.status == AuthStatus.signedIn
+                      ? 'Profile, ${auth.username}'
+                      : 'Connect Last.fm',
+                  onTap: () {
+                    ref.read(viewingProfileProvider.notifier).clear();
+                    context.go(
+                      auth.status == AuthStatus.signedIn
+                          ? '/profile'
+                          : '/welcome',
+                    );
+                  },
+                  child: MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
                   onTap: () {
@@ -185,7 +198,7 @@ class WaveTitleBar extends ConsumerWidget {
                       ),
                     ),
                   ),
-                )),
+                ))),
                 const SizedBox(width: 6),
                 _AppMenu(),
                 const SizedBox(width: 6),
@@ -376,6 +389,28 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
     return hits;
   }
 
+  String _announcedFor = '';
+
+  /// Tells a screen-reader user that suggestions arrived and how to reach
+  /// them: the dropdown is an overlay, so nothing else would announce it.
+  /// Spoken once per settled query, after the live results have loaded.
+  void _announceSuggestions() {
+    if (!widget.focus.hasFocus || _liveQ.isEmpty) return;
+    if (_liveQ != widget.controller.text.trim()) return;
+    final count = _shown.length - 1; // last row is "See all results"
+    final key = '$_liveQ|$count';
+    if (key == _announcedFor || count <= 0) return;
+    _announcedFor = key;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      AppAccessibility.announce(
+        context,
+        '$count suggestion${count == 1 ? '' : 's'}. '
+        'Use up and down arrows to browse, Enter to open.',
+      );
+    });
+  }
+
   void _activate(_Hit hit) {
     _portal.hide();
     widget.focus.unfocus();
@@ -387,17 +422,37 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
       return KeyEventResult.ignored;
     }
     final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.escape) {
+      if (_selected >= 0 || _portal.isShowing) {
+        setState(() => _selected = -1);
+        _portal.hide();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
     if (key != LogicalKeyboardKey.arrowDown &&
         key != LogicalKeyboardKey.arrowUp) {
       return KeyEventResult.ignored;
     }
     final hits = _shown;
     if (hits.isEmpty) return KeyEventResult.handled;
+    if (!_portal.isShowing) _portal.show();
     setState(() {
       _selected = key == LogicalKeyboardKey.arrowDown
           ? (_selected + 1).clamp(0, hits.length - 1)
           : (_selected - 1).clamp(-1, hits.length - 1);
     });
+    // The highlighted row lives in an overlay while keyboard focus stays in
+    // the text field, so a screen reader would never hear it move. Speak it.
+    if (_selected >= 0) {
+      final hit = hits[_selected];
+      AppAccessibility.announce(
+        context,
+        '${hit.label}, ${hit.sub}, ${_selected + 1} of ${hits.length}',
+      );
+    } else {
+      AppAccessibility.announce(context, 'Search field');
+    }
     return KeyEventResult.handled;
   }
 
@@ -508,6 +563,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
     final tertiary =
         dark ? WaveColors.textTertiary : WaveColors.lightTextTertiary;
     _shown = _hits();
+    _announceSuggestions();
     return CompositedTransformTarget(
       link: _link,
       child: OverlayPortal(
@@ -522,7 +578,11 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
               canRequestFocus: false,
               skipTraversal: true,
               onKeyEvent: (_, e) => _onKey(e),
-              child: TextBox(
+              child: Semantics(
+                label: 'Search songs, albums and artists',
+                hint: 'Type to see suggestions, Enter to search',
+                textField: true,
+                child: TextBox(
                 decoration: waveInputDecoration(radius: 8),
                 controller: widget.controller,
                 focusNode: widget.focus,
@@ -544,7 +604,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                           cursor: SystemMouseCursors.click,
                           child: IconButton(
                             icon: const Icon(FluentIcons.chrome_close,
-                                size: 10),
+                                size: 10, semanticLabel: 'Clear search'),
                             onPressed: () {
                               widget.controller.clear();
                               _onChanged('');
@@ -560,6 +620,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                             child: IgnorePointer(
                               child: Text(
                                 'Ctrl F',
+                                semanticsLabel: 'Shortcut Control F',
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w500,
@@ -571,6 +632,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                           ),
                 onChanged: _onChanged,
                 onSubmitted: _submit,
+              ),
               ),
             ),
           ),
@@ -619,7 +681,10 @@ class _BarBtnState extends State<_BarBtn> {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
-    return LWTooltip(
+    return WaveA11yButton(
+      label: widget.tooltip,
+      onTap: widget.onTap,
+      child: LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
@@ -672,6 +737,7 @@ class _BarBtnState extends State<_BarBtn> {
           ),
         ),
       ),
+    ),
     );
   }
 }
@@ -816,7 +882,10 @@ class _WinBtnState extends State<_WinBtn> {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
-    return LWTooltip(
+    return WaveA11yButton(
+      label: widget.tooltip,
+      onTap: widget.onTap,
+      child: LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
@@ -845,6 +914,7 @@ class _WinBtnState extends State<_WinBtn> {
           ),
         ),
       ),
+    ),
     );
   }
 }

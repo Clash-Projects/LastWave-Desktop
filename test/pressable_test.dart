@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/ui/components/buttons.dart';
 
@@ -28,7 +29,7 @@ MouseCursor _cursor(WidgetTester tester) => tester
       find.descendant(
         of: find.byType(WavePressable),
         matching: find.byType(MouseRegion),
-      ),
+      ).last, // the outer region is the focus detector's
     )
     .cursor;
 
@@ -79,5 +80,40 @@ void main() {
 
     await tester.pumpWidget(_host());
     expect(_cursor(tester), MouseCursor.defer);
+  });
+
+  testWidgets('is a named button a screen reader can activate', (tester) async {
+    final semantics = tester.ensureSemantics();
+    var taps = 0;
+    await tester.pumpWidget(FluentApp(
+      home: Center(
+        child: WavePressable(
+          onTap: () => taps++,
+          child: const Text('Blinding Lights'),
+        ),
+      ),
+    ));
+    expect(
+      tester.getSemantics(find.text('Blinding Lights')),
+      isSemantics(
+        label: 'Blinding Lights',
+        isButton: true,
+        isFocusable: true,
+        hasTapAction: true,
+      ),
+    );
+    tester.semantics.tap(find.semantics.byLabel(RegExp('Blinding Lights')));
+    expect(taps, 1);
+    semantics.dispose();
+  });
+
+  testWidgets('is reachable by Tab and activates on Enter', (tester) async {
+    var taps = 0;
+    await tester.pumpWidget(_host(onTap: () => taps++));
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(taps, 1);
   });
 }

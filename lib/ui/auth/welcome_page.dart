@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
+import '../../app/accessibility.dart';
 import '../components/buttons.dart';
 import '../components/inputs.dart';
 import 'lastfm_key_guide.dart';
@@ -48,6 +49,11 @@ class _WaveWelcomePageState
           .beginWebAuth();
       if (!mounted) return;
       setState(() => _handshake = handshake);
+      AppAccessibility.announce(
+        context,
+        'Opening Last.fm in your browser. Approve LastWave there, then '
+        'come back and press "I\'ve approved - finish sign-in".',
+      );
       final uri = Uri.parse(handshake.url);
       try {
         if (await canLaunchUrl(uri)) {
@@ -279,7 +285,10 @@ class _ChromeBtnState extends State<_ChromeBtn> {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
-    return LWTooltip(
+    return WaveA11yButton(
+      label: widget.tooltip,
+      onTap: widget.onTap,
+      child: LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
@@ -310,6 +319,7 @@ class _ChromeBtnState extends State<_ChromeBtn> {
           ),
         ),
       ),
+    ),
     );
   }
 }
@@ -431,14 +441,24 @@ class _AuthPanelState extends ConsumerState<_AuthPanel> {
           ),
           const SizedBox(height: 28),
           if (error != null) ...[
-            InfoBar(
-              title: const Text('Could not connect'),
-              content: Text(error),
-              severity: InfoBarSeverity.error,
+            Semantics(
+              liveRegion: true,
+              container: true,
+              label: 'Error: $error',
+              child: ExcludeSemantics(
+                child: InfoBar(
+                  title: const Text('Could not connect'),
+                  content: Text(error),
+                  severity: InfoBarSeverity.error,
+                ),
+              ),
             ),
             const SizedBox(height: 12),
           ],
           WaveFilledButton(
+            // Something must hold focus on first paint, or a screen
+            // reader opens on an empty window with nothing to read.
+            autofocus: handshake == null && !_wantsLastFm,
             onPressed: busy ? null : widget.onSkip,
             style: const ButtonStyle(
               padding: WidgetStatePropertyAll(
@@ -507,6 +527,9 @@ class _AuthPanelState extends ConsumerState<_AuthPanel> {
           if (handshake != null) ...[
             const SizedBox(height: 10),
             WaveButton(
+              // Mounts when the browser approval starts: focus lands here,
+              // so coming back from the browser reads the next step.
+              autofocus: true,
               onPressed: busy ? null : widget.onFinish,
               style: const ButtonStyle(
                 padding: WidgetStatePropertyAll(
@@ -533,6 +556,8 @@ class _AuthPanelState extends ConsumerState<_AuthPanel> {
             Text(
               'Approve LastWave in the browser tab that just opened, '
               'then finish sign-in here.',
+              semanticsLabel: 'Approve LastWave in the browser tab that '
+                  'just opened, then finish sign-in here.',
               style: WaveType.meta.copyWith(color: tertiary),
               textAlign: TextAlign.center,
             ),
@@ -545,7 +570,7 @@ class _AuthPanelState extends ConsumerState<_AuthPanel> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 28),
-          const _EqualizerRow(),
+          const ExcludeSemantics(child: _EqualizerRow()),
           const SizedBox(height: 24),
           Container(height: 1, color: waveDivider(context)),
           const SizedBox(height: 14),
@@ -636,9 +661,12 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
             const Icon(FluentIcons.check_mark, size: 14),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
+              child: Semantics(
+                liveRegion: true,
+                child: Text(
                 'Keys validated — connect with Last.fm below.',
                 style: WaveType.meta.copyWith(color: Colors.green),
+              ),
               ),
             ),
           ],
@@ -659,23 +687,36 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
           const SizedBox(height: 4),
           const LastFmKeyGuide(),
           const SizedBox(height: 8),
-          TextBox(
-            decoration: waveInputDecoration(),
-            controller: _key,
-            placeholder: 'API key',
+          Semantics(
+            label: 'Last.fm API key',
+            textField: true,
+            child: TextBox(
+              decoration: waveInputDecoration(),
+              controller: _key,
+              placeholder: 'API key',
+              autofocus: true,
+            ),
           ),
           const SizedBox(height: 8),
-          TextBox(
-            decoration: waveInputDecoration(),
-            controller: _secret,
-            placeholder: 'Shared secret',
-            obscureText: true,
+          Semantics(
+            label: 'Last.fm shared secret',
+            textField: true,
+            obscured: true,
+            child: TextBox(
+              decoration: waveInputDecoration(),
+              controller: _secret,
+              placeholder: 'Shared secret',
+              obscureText: true,
+            ),
           ),
           if (_error != null) ...[
             const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: WaveType.meta.copyWith(color: Colors.red),
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                _error!,
+                style: WaveType.meta.copyWith(color: Colors.red),
+              ),
             ),
           ],
           const SizedBox(height: 10),
@@ -727,6 +768,7 @@ class _WelcomeLogo extends StatelessWidget {
         width: 96,
         height: 96,
         filterQuality: FilterQuality.medium,
+        semanticLabel: 'LastWave logo',
       ),
     );
   }
