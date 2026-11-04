@@ -405,7 +405,6 @@ class WavePlayerDock extends ConsumerWidget {
                             showMiniItem: !showMini,
                             onExpand: onExpand,
                             onToggleMini: onToggleMini,
-                            onToggleEqualizer: onToggleEqualizer,
                           ),
                         ],
                       ),
@@ -1617,7 +1616,6 @@ class _DockOverflow extends ConsumerWidget {
   final bool showMiniItem;
   final VoidCallback onExpand;
   final VoidCallback onToggleMini;
-  final VoidCallback? onToggleEqualizer;
   const _DockOverflow({
     this.showJamItem = false,
     this.showQualityItem = false,
@@ -1626,7 +1624,6 @@ class _DockOverflow extends ConsumerWidget {
     this.showMiniItem = false,
     required this.onExpand,
     required this.onToggleMini,
-    this.onToggleEqualizer,
   });
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1691,13 +1688,6 @@ class _DockOverflow extends ConsumerWidget {
                 const Icon(WaveIcons.miniPlayer, size: 15),
             label: 'Mini player',
             onPressed: onToggleMini,
-          ),
-        if (onToggleEqualizer != null)
-          WaveMenuAction(
-            leading:
-                const Icon(WaveIcons.equalizer, size: 15),
-            label: 'Equalizer',
-            onPressed: onToggleEqualizer!,
           ),
         if (hasCollapsed) const WaveMenuSeparator(),
         WaveMenuAction(
