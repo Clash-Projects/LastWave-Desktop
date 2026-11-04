@@ -158,14 +158,22 @@ class _Frame extends ConsumerWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Still cover underneath: shows while the clip loads, and when
-          // the track has no canvas at all.
+          // Still cover: shows while the clip loads, and when the track has
+          // no canvas at all. It fades OUT as the clip fades in and is not
+          // painted at all while the clip plays: the video surface can carry
+          // translucent pixels (and a fade can be caught mid-way), which let
+          // the cover bleed through and mix with the canvas.
           if (artworkUrl.isNotEmpty)
-            CachedNetworkImage(
-              imageUrl: artworkUrl,
-              fit: BoxFit.cover,
-              fadeInDuration: Duration.zero,
-              errorWidget: (_, _, _) => const SizedBox.shrink(),
+            AnimatedOpacity(
+              opacity: ready ? 0 : 1,
+              duration: const Duration(milliseconds: 300),
+              // At opacity 0 the cover is not painted at all.
+              child: CachedNetworkImage(
+                imageUrl: artworkUrl,
+                fit: BoxFit.cover,
+                fadeInDuration: Duration.zero,
+                errorWidget: (_, _, _) => const SizedBox.shrink(),
+              ),
             ),
           if (clip == null)
             ColoredBox(color: Colors.black.withValues(alpha: 0.55)),
@@ -177,7 +185,9 @@ class _Frame extends ConsumerWidget {
                 child: Video(
                   controller: controller,
                   controls: NoVideoControls,
-                  fill: const Color(0x00000000),
+                  // Opaque backing: the canvas is the only picture while it
+                  // plays, nothing underneath may show through it.
+                  fill: const Color(0xFF000000),
                   fit: BoxFit.cover,
                   wakelock: false,
                   pauseUponEnteringBackgroundMode: false,
