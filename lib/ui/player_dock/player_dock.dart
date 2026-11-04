@@ -267,10 +267,12 @@ class WavePlayerDock extends ConsumerWidget {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 _Glyph(
-                                  tooltip: 'Shuffle',
+                                  tooltip: jamLive ? 'Live station' : 'Shuffle',
                                   icon: WaveIcons.shuffle,
-                                  active: player.shuffleEnabled,
-                                  onTap: notifier.toggleShuffle,
+                                  // Live rooms: off and dimmed (not just un-lit),
+                                  // since the host owns the queue order.
+                                  active: player.shuffleEnabled && !jamLive,
+                                  onTap: jamLive ? null : notifier.toggleShuffle,
                                 ),
                                 _Glyph(
                                   tooltip: jamLive
@@ -307,15 +309,16 @@ class WavePlayerDock extends ConsumerWidget {
                                       : notifier.next,
                                 ),
                                 _Glyph(
-                                  tooltip:
-                                      'Repeat ${player.repeatMode.name}',
+                                  tooltip: jamLive
+                                      ? 'Live station'
+                                      : 'Repeat ${player.repeatMode.name}',
                                   icon: player.repeatMode ==
                                           RepeatMode.one
                                       ? WaveIcons.repeatOne
                                       : WaveIcons.repeat,
-                                  active: player.repeatMode !=
-                                      RepeatMode.off,
-                                  onTap: notifier.cycleRepeat,
+                                  active: player.repeatMode != RepeatMode.off &&
+                                      !jamLive,
+                                  onTap: jamLive ? null : notifier.cycleRepeat,
                                 ),
                               ],
                             ),
@@ -1085,7 +1088,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
     // or a freshly-resolved stream sits at zero for a beat. Printing that as
     // "0:00" claimed a zero-length track and pinned the thumb to the start.
     final hasDuration = totalMs > 0;
-    final hoverLabel = _hoverRatio == null || !hasDuration
+    final hoverLabel = _hoverRatio == null || !hasDuration || jamLive
         ? null
         : _fmt(Duration(
             milliseconds: (_hoverRatio! * totalMs).round()));
@@ -1111,6 +1114,12 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                   HardwareKeyboard.instance.logicalKeysPressed
                       .contains(LogicalKeyboardKey.shiftRight);
               final step = shift ? 15 : 5;
+              // Live station: the arrows are claimed but never seek.
+              if (jamLive &&
+                  (e.logicalKey == LogicalKeyboardKey.arrowRight ||
+                      e.logicalKey == LogicalKeyboardKey.arrowLeft)) {
+                return KeyEventResult.handled;
+              }
               if (e.logicalKey == LogicalKeyboardKey.arrowRight) {
                 _seekBy(clock.position, clock.duration, step);
                 return KeyEventResult.handled;
@@ -1123,11 +1132,15 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
             },
             child: LWTooltip(
               message: hoverLabel ??
-                  (hasDuration ? 'Seek (←/→ ±5s)' : 'Waiting for the stream'),
+                  (jamLive
+                      ? 'Seeking is off in live rooms'
+                      : hasDuration ? 'Seek (←/→ ±5s)' : 'Waiting for the stream'),
               child: MouseRegion(
-                cursor: hasDuration
-                    ? SystemMouseCursors.click
-                    : SystemMouseCursors.basic,
+                cursor: jamLive
+                    ? SystemMouseCursors.forbidden
+                    : hasDuration
+                        ? SystemMouseCursors.click
+                        : SystemMouseCursors.basic,
                 onExit: (_) =>
                     setState(() => _hoverRatio = null),
                 onHover: (e) {
@@ -1151,7 +1164,10 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                     padding:
                         const EdgeInsets.symmetric(vertical: 7),
                     color: Colors.transparent,
-                    child: RepaintBoundary(
+                    child: Opacity(
+                      // Dimmed + thumbless: reads as disabled, not draggable.
+                      opacity: jamLive ? 0.45 : 1,
+                      child: RepaintBoundary(
                       child: wavy
                           ? _WaveTimeline(
                               progress: clock.position,
@@ -1175,7 +1191,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                               total: clock.duration,
                               onSeek: jamLive ? null : notifier.seek,
                               barHeight: 3,
-                              thumbRadius: hasDuration ? 5 : 0,
+                              thumbRadius: hasDuration && !jamLive ? 5 : 0,
                               thumbColor: dark ? Colors.white : Colors.black,
                               thumbGlowColor:
                                   accent.withValues(alpha: 0.25),
@@ -1189,6 +1205,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                                       .withValues(alpha: 0.12),
                               timeLabelLocation: avp.TimeLabelLocation.none,
                             ),
+                    ),
                     ),
                   ),
                 ),
