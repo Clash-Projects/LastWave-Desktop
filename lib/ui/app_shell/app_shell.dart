@@ -63,6 +63,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _railExpanded = false;
   bool _queueOpen = false;
   bool _equalizerOpen = false;
+  // True once a panel has finished sliding shut. Offstage waits for it so
+  // the slide-out is painted instead of vanishing on the first frame.
+  bool _queueSettled = true;
+  bool _equalizerSettled = true;
   // Canvas: docked on the RIGHT edge, pushes the page; queue/EQ overlay it.
   bool _canvasOpen = false;
   bool _miniOpen = false;
@@ -984,6 +988,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 ),
                               // Contextual queue — slides smoothly from right.
                               AnimatedPositioned(
+                                onEnd: () {
+                                  if (_queueSettled == _queueOpen) {
+                                    setState(
+                                        () => _queueSettled = !_queueOpen);
+                                  }
+                                },
                                 duration: waveMotion(
                                   context,
                                   WaveMotion.normal,
@@ -1005,7 +1015,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     // Layout still runs (cheap box
                                     // math); scroll offset is kept.
                                     child: Offstage(
-                                      offstage: !_queueOpen,
+                                      offstage: !_queueOpen && _queueSettled,
                                       child: _queuePanelCache ??=
                                           WaveQueuePanel(onClose: _closeQueue),
                                     ),
@@ -1014,6 +1024,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               ),
                               // Contextual Equalizer & Studio Master Clarity drawer — slides smoothly from right.
                               AnimatedPositioned(
+                                onEnd: () {
+                                  if (_equalizerSettled == _equalizerOpen) {
+                                    setState(() =>
+                                        _equalizerSettled = !_equalizerOpen);
+                                  }
+                                },
                                 duration: waveMotion(
                                   context,
                                   WaveMotion.normal,
@@ -1028,7 +1044,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                   child: IgnorePointer(
                                     ignoring: !_equalizerOpen,
                                     child: Offstage(
-                                      offstage: !_equalizerOpen,
+                                      offstage: !_equalizerOpen && _equalizerSettled,
                                       child: _equalizerPanelCache ??=
                                           WaveEqualizerPanel(
                                             onClose: _closeEqualizer,
