@@ -32,6 +32,7 @@ import '../../features/spotify/spotify_api.dart';
 import '../../features/spotify/spotify_auth.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
+import '../auth/lastfm_key_guide.dart';
 import '../../features/settings/accent.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/audio_output/output_controller.dart';
@@ -3605,6 +3606,8 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const LastFmKeyGuide(),
+          const SizedBox(height: 10),
           Row(
             children: [
               Icon(

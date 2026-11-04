@@ -10,10 +10,9 @@ import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../components/buttons.dart';
 import '../components/inputs.dart';
+import 'lastfm_key_guide.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
-
-const _lastFmApiAccountUrl = 'https://www.last.fm/api/account/create';
 
 const _githubUrl =
     'https://github.com/Clash-Projects/LastWave-Desktop';
@@ -614,15 +613,6 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
     }
   }
 
-  Future<void> _openApiAccount() async {
-    final uri = Uri.parse(_lastFmApiAccountUrl);
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (_) {}
-  }
-
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
@@ -666,10 +656,8 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
         children: [
           const Text('Last.fm API keys', style: WaveType.label),
           const SizedBox(height: 2),
-          WaveLink(
-            onPressed: _openApiAccount,
-            child: const Text('Get free keys at last.fm/api →'),
-          ),
+          const SizedBox(height: 4),
+          const LastFmKeyGuide(),
           const SizedBox(height: 8),
           TextBox(
             decoration: waveInputDecoration(),
