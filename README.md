@@ -179,7 +179,6 @@ LastWave Desktop is made possible thanks to these open-source projects:
 - **[media_kit](https://github.com/media-kit/media-kit)** — Audio playback engine powered by libmpv
 - **[Limusic](https://github.com/chenyandian/Limusic)** — InnerTube client registry & stream resolution fast path
 - **[LRCLIB](https://lrclib.net/)** — Real-time millisecond-synchronized lyrics database
-- **[SimpMusic](https://github.com/maxrave-dev/SimpMusic)** — Lyrics API integration & multi-source fallback
 - **[NewPipe](https://github.com/TeamNewPipe/NewPipeExtractor)** — Signature decipher patterns & extraction logic
 - **[fluent_ui](https://github.com/bdlukaa/fluent_ui)** — WinUI & Fluent design system for desktop
 

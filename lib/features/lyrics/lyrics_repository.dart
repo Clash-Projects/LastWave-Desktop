@@ -349,7 +349,7 @@ class LyricsRepository {
   Duration waveGap = const Duration(milliseconds: 1500);
 
   static const _raceWaves = <List<String>>[
-    ['lastwave', 'apple_music', 'lrclib', 'simp_music'],
+    ['lastwave', 'apple_music', 'lrclib'],
     ['lrc_red', 'better_lyrics', 'lyrics_plus', 'unison'],
     ['better_lyrics_portato', 'bini_lyrics', 'kugou'],
   ];
@@ -627,7 +627,6 @@ class LyricsRepository {
     List<Future<LyricsResult?>> launchWaves() => [
           for (var w = 0; w < _raceWaves.length; w++)
             for (final id in _raceWaves[w])
-              if (id != 'simp_music' || (videoId?.isNotEmpty ?? false))
                 if (id != 'lrclib' || !lrclibAttempted)
                   w == 0
                       ? attempt(id)
@@ -849,25 +848,6 @@ class LyricsRepository {
             title: title,
             artist: artist,
             durationSeconds: durationSeconds,
-          );
-        case 'simp_music':
-          final fetched = await fetchSimpMusic(
-            _dio,
-            videoId: videoId,
-            durationSeconds: durationSeconds,
-          );
-          final lines = fetched?.lines;
-          if (lines == null || lines.isEmpty) return null;
-          if (!lyricsPlausibleDuration(lines, durationSeconds)) return null;
-          final wordSynced = fetched!.wordSynced;
-          return LyricsResult(
-            lines: lines,
-            isSynced: true,
-            isWordSynced: wordSynced,
-            plainLyrics: lines.map((l) => l.text).join('\n'),
-            source: wordSynced
-                ? 'Video-Match (Word-Sync)'
-                : 'Video-Match (Line-Sync)',
           );
         case 'youtube_captions':
           if (videoId == null || videoId.isEmpty || _tube == null) return null;

@@ -56,11 +56,6 @@ enum LyricsProviderId {
     'Syllable-Sync',
     'Recording-matched syllable lyrics first',
   ),
-  simpMusic(
-    'simp_music',
-    'Video-Match',
-    'Matched on the playing video first',
-  ),
   musixmatch(
     'musixmatch',
     'Catalog',
@@ -145,9 +140,6 @@ String? lyricsSourceToProviderId(String source) {
   if (s.startsWith('kugou')) return LyricsProviderId.kugou.id;
   if (s.startsWith('syllable-sync') || s.startsWith('bini')) {
     return LyricsProviderId.biniLyrics.id;
-  }
-  if (s.startsWith('video-match') || s.startsWith('simp')) {
-    return LyricsProviderId.simpMusic.id;
   }
   if (s.startsWith('catalog') || s.startsWith('musixmatch')) {
     return LyricsProviderId.musixmatch.id;
@@ -1215,63 +1207,6 @@ Future<LyricsResult?> fetchMusixmatch(
       plainLyrics: lines.map((l) => l.text).join('\n'),
       source: 'Catalog (Line-Sync)',
     );
-  } catch (_) {
-    return null;
-  }
-}
-
-// -- SimpMusic (api-lyrics.simpmusic.org) --------------------------------------
-// Community database keyed on the playing video id, so the exact cut
-// that is playing is looked up instead of a same-name edit. Rich sync
-// is enhanced LRC with per-word stamps; plain LRC is the fallback.
-// Ported from native `SimpMusicLyricsApi`.
-
-/// Returns raw lines plus whether they carry real word timing (true
-/// only for the rich-sync path — plain LRC gains display syllables
-/// later, which must never count). The race wraps them with the
-/// `Video-Match` source label and plausibility gate.
-Future<({List<LyricLine> lines, bool wordSynced})?> fetchSimpMusic(
-  Dio dio, {
-  String? videoId,
-  int? durationSeconds,
-}) async {
-  if (videoId == null || videoId.trim().isEmpty) return null;
-  try {
-    final res = await dio.get<Map<String, dynamic>>(
-      'https://api-lyrics.simpmusic.org/v1/${videoId.trim()}',
-      options: Options(headers: {'Accept': 'application/json'}),
-    );
-    final data = res.data;
-    if (data == null || data['success'] != true) return null;
-    final tracks = data['data'];
-    if (tracks is! List) return null;
-    final seconds = durationSeconds != null && durationSeconds > 0
-        ? durationSeconds
-        : 0;
-    Map<String, dynamic>? pick;
-    var pickDelta = 1 << 30;
-    for (final item in tracks) {
-      final track =
-          item is Map<String, dynamic> ? item : Map<String, dynamic>.from(item as Map);
-      final trackSecs = (track['duration'] as num?)?.toInt() ?? 0;
-      if (seconds > 0 && (trackSecs - seconds).abs() > 10) continue;
-      final delta = (trackSecs - seconds).abs();
-      if (delta < pickDelta) {
-        pickDelta = delta;
-        pick = track;
-      }
-    }
-    if (pick == null) return null;
-    final rich = pick['richSyncLyrics']?.toString() ?? '';
-    if (rich.trim().isNotEmpty) {
-      final lines = parseEnhancedLrc(rich);
-      if (lines.isNotEmpty) return (lines: lines, wordSynced: true);
-    }
-    final synced = pick['syncedLyrics']?.toString() ?? '';
-    if (synced.trim().isEmpty) return null;
-    final lines = parseLrc(synced);
-    if (lines.isEmpty) return null;
-    return (lines: lines, wordSynced: false);
   } catch (_) {
     return null;
   }
