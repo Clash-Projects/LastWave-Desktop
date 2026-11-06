@@ -174,17 +174,14 @@ If LastWave has been useful to you, consider supporting its development.
 
 ## Acknowledgements
 
-LastWave is made possible thanks to these open-source projects:
+LastWave Desktop is made possible thanks to these open-source projects:
 
-- **[Metrolist](https://github.com/MetrolistGroup/Metrolist)** — InnerTubeX & stream resolving
-- **[SimpMusic](https://github.com/maxrave-dev/SimpMusic)** — Canvas extraction & design inspiration
-- **[InnerTune](https://github.com/z-huang/InnerTune)** — InnerTube extraction architecture
-- **[Decent USB Audio Driver](https://github.com/silva96/decent-usb-audio-driver)** — Bit-perfect direct USB DAC audio engine
-- **[AutoEQ](https://github.com/jaakkopasanen/AutoEq)** — Headphone & IEM frequency-response calibration targets
-- **[NewPipe](https://github.com/TeamNewPipe/NewPipeExtractor)** — Stream extraction & media URL resolving
-- **[SponsorBlock](https://sponsor.ajay.app/)** — Video segment detection for music video intro skit synchronization
+- **[media_kit](https://github.com/media-kit/media-kit)** — Audio playback engine powered by libmpv
+- **[Limusic](https://github.com/chenyandian/Limusic)** — InnerTube client registry & stream resolution fast path
 - **[LRCLIB](https://lrclib.net/)** — Real-time millisecond-synchronized lyrics database
-- **[Kyant](https://github.com/kyant0)** — Jetpack Compose backdrop refraction & shape shaders
+- **[SimpMusic](https://github.com/maxrave-dev/SimpMusic)** — Lyrics API integration & multi-source fallback
+- **[NewPipe](https://github.com/TeamNewPipe/NewPipeExtractor)** — Signature decipher patterns & extraction logic
+- **[fluent_ui](https://github.com/bdlukaa/fluent_ui)** — WinUI & Fluent design system for desktop
 
 ---
 
