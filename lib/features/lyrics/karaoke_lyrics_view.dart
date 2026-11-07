@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter_lyric/flutter_lyric.dart';
+import 'desktop_lyrics_painter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -130,7 +130,7 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
 
 class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     with SingleTickerProviderStateMixin {
-  late final LyricController _lyricController;
+  final ValueNotifier<bool> _isSelectingNotifier = ValueNotifier<bool>(false);
   bool _following = true;
   late final Ticker _ticker;
   final ValueNotifier<int> _interpolatedPositionMs = ValueNotifier<int>(0);
@@ -159,19 +159,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   @override
   void initState() {
     super.initState();
-    _lyricController = LyricController();
-    _lyricController.setOnTapLineCallback((duration) {
-      final seekTargetMs = duration.inMilliseconds + _offsetMs;
-      ref
-          .read(playbackServiceProvider.notifier)
-          .seek(Duration(milliseconds: math.max(0, seekTargetMs)));
-      _lyricController.stopSelection();
-      if (!_following) {
-        setState(() => _following = true);
-      }
-    });
-
-    _lyricController.isSelectingNotifier.addListener(_onSelectingChanged);
+    _isSelectingNotifier.addListener(_onSelectingChanged);
     _ticker = createTicker(_onTick);
     // Subscribe without rebuilding: each emission only re-syncs the
     // interpolation clock (same math the in-build block used to run).
@@ -195,7 +183,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   }
 
   void _onSelectingChanged() {
-    final selecting = _lyricController.isSelectingNotifier.value;
+    final selecting = _isSelectingNotifier.value;
     if (selecting && _following) {
       setState(() => _following = false);
     } else if (!selecting && !_following) {
@@ -213,8 +201,6 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     final tickerEnabled = TickerMode.valuesOf(context).enabled;
     return routeActive && tickerEnabled;
   }
-
-  int _lastTickMs = 0;
 
   int _getCurrentPositionMs() {
     if (_ticker.isActive) {
@@ -392,8 +378,8 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     _ticker.dispose();
     _interpolatedPositionMs.dispose();
     _activeLineIndex.dispose();
-    _lyricController.isSelectingNotifier.removeListener(_onSelectingChanged);
-    _lyricController.dispose();
+    _isSelectingNotifier.removeListener(_onSelectingChanged);
+    _isSelectingNotifier.dispose();
     super.dispose();
   }
 
@@ -401,20 +387,22 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     runGuarded('karaoke.tick', () {
       if (!_isEffectivelyActive || !_isPlaying) return;
       final now = DateTime.now();
-      final nowMs = now.millisecondsSinceEpoch;
-      // Cap tick rate to ~60Hz (min 16ms between ticks).
-      // On 120Hz/144Hz/240Hz monitors, this cuts CPU usage drastically
-      // while remaining completely smooth for text wipe animation.
-      if (nowMs - _lastTickMs < 16) return;
-      _lastTickMs = nowMs;
 
-      final elapsed = now.difference(_lastSyncTime).inMilliseconds;
-      final currentMs = _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
-      _interpolatedPositionMs.value = currentMs;
+      final elapsedMs =
+          (now.difference(_lastSyncTime).inMicroseconds / 1000.0) * _speed;
+      final estimatedMs = (_lastAudioMs + elapsedMs).round() - _offsetMs;
+
+      // Clamp drift to -50ms .. +300ms against live audio buffer
+      final clampedMs = estimatedMs.clamp(
+        _lastAudioMs - _offsetMs - 50,
+        _lastAudioMs - _offsetMs + 300,
+      );
+
+      _interpolatedPositionMs.value = clampedMs;
       if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
         final lineIndex = activeLyricLineIndex(
           _currentResult!.lines,
-          currentMs,
+          clampedMs,
         );
         if (_activeLineIndex.value != lineIndex) {
           _activeLineIndex.value = lineIndex;
@@ -601,7 +589,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                   onShareSong: () => _shareSong(effectiveResult),
                   onToggleFollowing: () {
                     if (!_following) {
-                      _lyricController.stopSelection();
+                      _isSelectingNotifier.value = false;
                       setState(() => _following = true);
                     } else {
                       setState(() => _following = false);
@@ -706,7 +694,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                         },
                         onToggleFollowing: () {
                           if (!_following) {
-                            _lyricController.stopSelection();
+                            _isSelectingNotifier.value = false;
                             setState(() => _following = true);
                           } else {
                             setState(() => _following = false);
@@ -739,15 +727,17 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                             selected: _selectedLines,
                             onToggleSelect: _toggleShareLine,
                             onUserScroll: () {
-                              if (_following)
+                              if (_following) {
                                 setState(() => _following = false);
+                              }
                             },
                             onResume: () {
                               setState(() => _following = true);
                             },
                             onSeekLineMs: (lineMs) {
-                              if (!effectiveResult.isSynced || lineMs <= 0)
+                              if (!effectiveResult.isSynced || lineMs <= 0) {
                                 return;
+                              }
                               final seekTargetMs = lineMs + _offsetMs;
                               ref
                                   .read(playbackServiceProvider.notifier)
@@ -2032,8 +2022,351 @@ class _ReturnToCurrentPill extends StatelessWidget {
   }
 }
 
+/// Pulsating 3-dot countdown indicator for instrumental solo breaks (>= 3.5s).
+class InstrumentalCountdownDots extends StatelessWidget {
+  final ValueListenable<int> positionListenable;
+  final int breakStartMs;
+  final int breakEndMs;
+
+  const InstrumentalCountdownDots({
+    super.key,
+    required this.positionListenable,
+    required this.breakStartMs,
+    required this.breakEndMs,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: positionListenable,
+      builder: (context, posMs, _) {
+        final totalDur = math.max(1, breakEndMs - breakStartMs);
+        final progress = ((posMs - breakStartMs) / totalDur).clamp(0.0, 1.0);
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20.0),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(3, (i) {
+                final threshold = (i + 1) / 4.0;
+                final isLit = progress >= threshold;
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 5.0),
+                  width: isLit ? 9.0 : 7.0,
+                  height: isLit ? 9.0 : 7.0,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: isLit ? 0.9 : 0.25),
+                    boxShadow: isLit
+                        ? [
+                            BoxShadow(
+                              color: Colors.white.withValues(alpha: 0.4),
+                              blurRadius: 6.0,
+                              spreadRadius: 1.0,
+                            ),
+                          ]
+                        : null,
+                  ),
+                );
+              }),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Stanza Block Layout Widget: Groups lines and subordinate background harmonies
+/// inside a cached RepaintBoundary with spatial duet staging.
+class DesktopStanzaWidget extends StatelessWidget {
+  final LyricStanza stanza;
+  final int activeLineTimeMs;
+  final ValueListenable<int> positionListenable;
+  final ParagraphLayoutCache layoutCache;
+  final TextStyle activeStyle;
+  final TextStyle activeUnsungStyle;
+  final TextStyle idleStyle;
+  final TextStyle backgroundStyle;
+  final bool selectMode;
+  final Set<int> selectedLines;
+  final ValueChanged<int> onToggleSelect;
+  final ValueChanged<int> onSeekLineMs;
+  final List<LyricLine> allLines;
+  final List<String?> translations;
+  final bool showTransliteration;
+  final bool isInstrumentalBreak;
+  final int breakStartMs;
+  final int breakEndMs;
+
+  const DesktopStanzaWidget({
+    super.key,
+    required this.stanza,
+    required this.activeLineTimeMs,
+    required this.positionListenable,
+    required this.layoutCache,
+    required this.activeStyle,
+    required this.activeUnsungStyle,
+    required this.idleStyle,
+    required this.backgroundStyle,
+    required this.selectMode,
+    required this.selectedLines,
+    required this.onToggleSelect,
+    required this.onSeekLineMs,
+    required this.allLines,
+    this.translations = const [],
+    this.showTransliteration = true,
+    this.isInstrumentalBreak = false,
+    this.breakStartMs = 0,
+    this.breakEndMs = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          vertical: DesktopLyricsTokens.lineSpacing / 2,
+          horizontal: DesktopLyricsTokens.inlinePadding,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (isInstrumentalBreak)
+              InstrumentalCountdownDots(
+                positionListenable: positionListenable,
+                breakStartMs: breakStartMs,
+                breakEndMs: breakEndMs,
+              ),
+            for (final group in stanza.groups)
+              _buildLineGroup(context, group),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLineGroup(BuildContext context, LyricLineGroup group) {
+    final isActive = group.leadLine.timeMs == activeLineTimeMs;
+    final leadIndex = allLines.indexOf(group.leadLine);
+    final isLeadSelected = leadIndex >= 0 && selectedLines.contains(leadIndex);
+
+    // Spatial Staging alignment mapping
+    final alignment = switch (group.role) {
+      VocalRole.duetRight => Alignment.centerRight,
+      VocalRole.unisonCenter => Alignment.center,
+      _ => Alignment.centerLeft,
+    };
+
+    final maxContainerWidth = MediaQuery.of(context).size.width * DesktopLyricsTokens.maxDuetWidthRatio;
+
+    return Align(
+      alignment: alignment,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: maxContainerWidth,
+        ),
+        child: Column(
+          crossAxisAlignment: switch (group.role) {
+            VocalRole.duetRight => CrossAxisAlignment.end,
+            VocalRole.unisonCenter => CrossAxisAlignment.center,
+            _ => CrossAxisAlignment.start,
+          },
+          children: [
+            // Lead Line
+            _buildTappableLine(
+              context: context,
+              index: leadIndex,
+              line: group.leadLine,
+              isSelected: isLeadSelected,
+              child: Column(
+                crossAxisAlignment: switch (group.role) {
+                  VocalRole.duetRight => CrossAxisAlignment.end,
+                  VocalRole.unisonCenter => CrossAxisAlignment.center,
+                  _ => CrossAxisAlignment.start,
+                },
+                children: [
+                  if (showTransliteration && group.leadLine.transliteration.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2.0),
+                      child: Text(
+                        group.leadLine.transliteration,
+                        style: idleStyle.copyWith(
+                          fontSize: idleStyle.fontSize! * 0.65,
+                          fontWeight: FontWeight.w500,
+                          color: idleStyle.color!.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                  _buildLeadLine(context, group.leadLine, isActive, maxContainerWidth),
+                  if (leadIndex >= 0 &&
+                      leadIndex < translations.length &&
+                      translations[leadIndex] != null &&
+                      translations[leadIndex]!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Text(
+                        translations[leadIndex]!,
+                        style: idleStyle.copyWith(
+                          fontSize: idleStyle.fontSize! * 0.70,
+                          fontWeight: FontWeight.normal,
+                          color: idleStyle.color!.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // Nested Sub-paragraph Background Harmonies (0.65x scale, 7.5px shift)
+            for (final bg in group.backgroundSublines)
+              _buildBackgroundSubline(context, bg, isActive, maxContainerWidth),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTappableLine({
+    required BuildContext context,
+    required int index,
+    required LyricLine line,
+    required bool isSelected,
+    required Widget child,
+  }) {
+    final tappable = selectMode || line.timeMs > 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3.0),
+      child: MouseRegion(
+        cursor: tappable ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: GestureDetector(
+          onTap: !tappable
+              ? null
+              : () {
+                  if (selectMode) {
+                    if (index >= 0) onToggleSelect(index);
+                  } else {
+                    onSeekLineMs(line.timeMs);
+                  }
+                },
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? waveAccent(context).withValues(alpha: 0.16)
+                  : const Color(0x00000000),
+              borderRadius: WaveRadius.artworkRadius,
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLeadLine(
+    BuildContext context,
+    LyricLine line,
+    bool isActive,
+    double maxWidth,
+  ) {
+    if (!isActive) {
+      return Text(
+        line.text,
+        style: idleStyle,
+        textAlign: switch (line.isRtl) {
+          true => TextAlign.right,
+          false => TextAlign.left,
+        },
+      );
+    }
+
+    final layout = layoutCache.getOrCreate(
+      line: line,
+      maxWidth: maxWidth,
+      activeStyle: activeStyle,
+      idleStyle: activeUnsungStyle,
+      isRtl: line.isRtl,
+    );
+
+    return CustomPaint(
+      size: Size(layout.width, layout.height),
+      painter: DesktopKaraokeLinePainter(
+        positionListenable: positionListenable,
+        line: line,
+        layout: layout,
+        highlightColor: Colors.white,
+        isRtl: line.isRtl,
+      ),
+    );
+  }
+
+  Widget _buildBackgroundSubline(
+    BuildContext context,
+    LyricLine bg,
+    bool isLeadActive,
+    double maxWidth,
+  ) {
+    final bgIndex = allLines.indexOf(bg);
+    final isBgSelected = bgIndex >= 0 && selectedLines.contains(bgIndex);
+    final isBgActive = bg.timeMs == activeLineTimeMs;
+
+    final subStyle = backgroundStyle.copyWith(
+      fontSize: (backgroundStyle.fontSize ?? 36.0) * DesktopLyricsTokens.backgroundVocalFontScale,
+      color: backgroundStyle.color!.withValues(alpha: isBgActive || isLeadActive ? 0.85 : 0.45),
+    );
+
+    return _buildTappableLine(
+      context: context,
+      index: bgIndex,
+      line: bg,
+      isSelected: isBgSelected,
+      child: Padding(
+        padding: const EdgeInsets.only(top: DesktopLyricsTokens.backgroundVocalStackShift),
+        child: isBgActive
+            ? CustomPaint(
+                size: Size(
+                  layoutCache
+                      .getOrCreate(
+                        line: bg,
+                        maxWidth: maxWidth,
+                        activeStyle: subStyle.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                        idleStyle: subStyle,
+                        isRtl: bg.isRtl,
+                      )
+                      .width,
+                  layoutCache
+                      .getOrCreate(
+                        line: bg,
+                        maxWidth: maxWidth,
+                        activeStyle: subStyle.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                        idleStyle: subStyle,
+                        isRtl: bg.isRtl,
+                      )
+                      .height,
+                ),
+                painter: DesktopKaraokeLinePainter(
+                  positionListenable: positionListenable,
+                  line: bg,
+                  layout: layoutCache.getOrCreate(
+                    line: bg,
+                    maxWidth: maxWidth,
+                    activeStyle: subStyle.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                    idleStyle: subStyle,
+                    isRtl: bg.isRtl,
+                  ),
+                  highlightColor: Colors.white,
+                  isRtl: bg.isRtl,
+                ),
+              )
+            : Text(bg.text, style: subStyle),
+      ),
+    );
+  }
+}
+
 /// Apple Music default lyrics: the whole current line is sharp and
-/// fully lit. Past and upcoming lines stay dim with a slight blur.
+/// fully lit via DesktopKaraokeLinePainter. Stanzas are grouped with
+/// nested background harmonies and spatial duet staging.
 class _AppleLineLyricsView extends StatefulWidget {
   final LyricsResult result;
   final List<String?> translations;
@@ -2073,7 +2406,9 @@ class _AppleLineLyricsView extends StatefulWidget {
 
 class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
+  final ParagraphLayoutCache _layoutCache = ParagraphLayoutCache();
   int _lastIndex = -1;
+  int _lastStanzaIndex = -1;
   bool _pinnedOpening = false;
 
   @override
@@ -2086,47 +2421,8 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   @override
   void dispose() {
     widget.activeLineListenable.removeListener(_onActiveLineChanged);
+    _layoutCache.clear();
     super.dispose();
-  }
-
-  String _translationAt(int i) =>
-      i < widget.translations.length ? (widget.translations[i] ?? '') : '';
-
-  /// Seeks on tap, or ticks the line for the share card in select mode.
-  Widget _tappableLine({
-    required int index,
-    required bool seekable,
-    required VoidCallback onSeek,
-    required Widget child,
-  }) {
-    final selected = widget.selected.contains(index);
-    final tappable = widget.selectMode || seekable;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: MouseRegion(
-        cursor: tappable ? SystemMouseCursors.click : SystemMouseCursors.basic,
-        child: GestureDetector(
-          onTap: !tappable
-              ? null
-              : () {
-                  if (widget.selectMode) {
-                    widget.onToggleSelect(index);
-                  } else {
-                    onSeek();
-                  }
-                },
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: selected
-                  ? waveAccent(context).withValues(alpha: 0.16)
-                  : const Color(0x00000000),
-              borderRadius: WaveRadius.artworkRadius,
-            ),
-            child: child,
-          ),
-        ),
-      ),
-    );
   }
 
   @override
@@ -2139,11 +2435,28 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     if (oldWidget.result != widget.result) {
       _pinnedOpening = false;
       _lastIndex = -1;
+      _lastStanzaIndex = -1;
+      _layoutCache.clear();
     }
     if (widget.following && !oldWidget.following) {
       final untimed =
           !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
-      _scrollTo(untimed ? 0 : widget.activeLineListenable.value);
+      if (untimed) {
+        _scrollToStanza(0);
+      } else {
+        final active = widget.activeLineListenable.value;
+        final stanzas = assembleStanzas(widget.result.lines);
+        final activeLine = (active >= 0 && active < widget.result.lines.length)
+            ? widget.result.lines[active]
+            : null;
+        final stanzaIdx = activeLine != null
+            ? stanzas.indexWhere((s) => s.groups.any(
+                (g) => g.leadLine.timeMs == activeLine.timeMs ||
+                       g.backgroundSublines.any((b) => b.timeMs == activeLine.timeMs),
+              ))
+            : 0;
+        _scrollToStanza(stanzaIdx >= 0 ? stanzaIdx : 0);
+      }
     }
   }
 
@@ -2153,20 +2466,35 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       if (active <= 0) {
         _pinOpeningToTop();
         _lastIndex = active;
+        _lastStanzaIndex = 0;
       } else if (active != _lastIndex) {
         final wasUninitialized = _lastIndex < 0;
         _lastIndex = active;
-        _scrollTo(active, animate: !wasUninitialized && active > 0);
+        final stanzas = assembleStanzas(widget.result.lines);
+        final activeLine = (active >= 0 && active < widget.result.lines.length)
+            ? widget.result.lines[active]
+            : null;
+        final stanzaIdx = activeLine != null
+            ? stanzas.indexWhere((s) => s.groups.any(
+                (g) => g.leadLine.timeMs == activeLine.timeMs ||
+                       g.backgroundSublines.any((b) => b.timeMs == activeLine.timeMs),
+              ))
+            : -1;
+        if (stanzaIdx >= 0 && stanzaIdx != _lastStanzaIndex) {
+          _lastStanzaIndex = stanzaIdx;
+          _scrollToStanza(stanzaIdx, animate: !wasUninitialized && active > 0);
+        }
       }
     } else {
       _lastIndex = active;
     }
   }
 
-  void _scrollTo(int index, {bool animate = true}) {
+  void _scrollToStanza(int index, {bool animate = true}) {
     if (!_scroll.isAttached) return;
     if (index < 0) index = 0;
-    final alignment = lyricFollowAlignment(index, compact: widget.compact);
+    // 18% upper-third golden ratio focal anchor
+    final alignment = lyricFollowAlignment(index, compact: widget.compact, targetAnchor: 0.18);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       runGuarded('karaoke.scroll', () {
         if (!_scroll.isAttached || !mounted) return;
@@ -2174,8 +2502,8 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           _scroll.scrollTo(
             index: index,
             alignment: alignment,
-            duration: waveMotion(context, WaveMotion.normal),
-            curve: Curves.easeOutCubic,
+            duration: waveMotion(context, const Duration(milliseconds: 450)),
+            curve: const Cubic(0.41, 0.0, 0.12, 0.99), // Apple Music Spring scroll curve
           );
         } else {
           _scroll.jumpTo(index: index, alignment: alignment);
@@ -2187,7 +2515,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   void _pinOpeningToTop() {
     if (_pinnedOpening || !_scroll.isAttached) return;
     _pinnedOpening = true;
-    _scrollTo(0, animate: false);
+    _scrollToStanza(0, animate: false);
   }
 
   @override
@@ -2200,6 +2528,59 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       widget.compact ? 12 : 28,
       widget.compact ? 80 : 120,
     );
+
+    final dark = waveIsDark(context);
+    final baseFontSize =
+        widget.fontSize ?? (widget.compact ? 28.0 : DesktopLyricsTokens.fontSizeBase);
+    final tracking = -0.3;
+
+    final activeTextColor = dark
+        ? const Color(0xFFF6F4EF)
+        : const Color(0xFF18181B);
+    final idleTextColor = (dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B))
+        .withValues(alpha: DesktopLyricsTokens.inactiveOpacity);
+
+    final activeStyle = TextStyle(
+      fontSize: baseFontSize,
+      fontWeight: FontWeight.w700,
+      color: activeTextColor,
+      height: DesktopLyricsTokens.lineHeight,
+      letterSpacing: tracking,
+      shadows: [
+        Shadow(
+          color: activeTextColor.withValues(alpha: dark ? 0.28 : 0.14),
+          blurRadius: 16,
+          offset: const Offset(0, 1),
+        ),
+      ],
+    );
+
+    final activeUnsungStyle = TextStyle(
+      fontSize: baseFontSize,
+      fontWeight: FontWeight.w700,
+      color: activeTextColor.withValues(alpha: DesktopLyricsTokens.inactiveOpacity),
+      height: DesktopLyricsTokens.lineHeight,
+      letterSpacing: tracking,
+      shadows: const [],
+    );
+
+    final idleStyle = TextStyle(
+      fontSize: baseFontSize * DesktopLyricsTokens.inactiveScale,
+      fontWeight: FontWeight.w600,
+      color: idleTextColor,
+      height: DesktopLyricsTokens.lineHeight,
+      letterSpacing: tracking,
+    );
+
+    final backgroundStyle = TextStyle(
+      fontSize: baseFontSize,
+      fontWeight: FontWeight.w500,
+      color: idleTextColor,
+      height: DesktopLyricsTokens.lineHeight,
+      letterSpacing: tracking,
+    );
+
+    final stanzas = assembleStanzas(widget.result.lines);
 
     if (untimed) {
       return ShaderMask(
@@ -2222,26 +2603,25 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           child: ListView.builder(
             physics: const ClampingScrollPhysics(),
             padding: padding,
-            itemCount: widget.result.lines.length,
+            itemCount: stanzas.length,
             itemBuilder: (context, i) {
-              final line = widget.result.lines[i];
-              final canSeek = widget.result.isSynced && line.timeMs > 0;
-              return _tappableLine(
-                index: i,
-                seekable: canSeek,
-                onSeek: () => widget.onSeekLineMs(line.timeMs),
-                child: WaveKaraokeLyricLine(
-                  line: line,
-                  positionMs: 0,
-                  isActive: false,
-                  isPast: false,
-                  compact: widget.compact,
-                  fontSize: widget.fontSize,
-                  showTransliteration: widget.showTransliteration,
-                  translation: _translationAt(i),
-                  karaoke: false,
-                  softenIdle: false,
-                ),
+              final stanza = stanzas[i];
+              return DesktopStanzaWidget(
+                stanza: stanza,
+                activeLineTimeMs: -1,
+                positionListenable: widget.positionListenable,
+                layoutCache: _layoutCache,
+                activeStyle: activeStyle,
+                activeUnsungStyle: activeUnsungStyle,
+                idleStyle: idleStyle,
+                backgroundStyle: backgroundStyle,
+                selectMode: widget.selectMode,
+                selectedLines: widget.selected,
+                onToggleSelect: widget.onToggleSelect,
+                onSeekLineMs: widget.onSeekLineMs,
+                allLines: widget.result.lines,
+                translations: widget.translations,
+                showTransliteration: widget.showTransliteration,
               );
             },
           ),
@@ -2250,6 +2630,15 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     }
 
     final initialActive = widget.activeLineListenable.value;
+    final activeLine = (initialActive >= 0 && initialActive < widget.result.lines.length)
+        ? widget.result.lines[initialActive]
+        : null;
+    final initialStanzaIdx = activeLine != null
+        ? stanzas.indexWhere((s) => s.groups.any(
+            (g) => g.leadLine.timeMs == activeLine.timeMs ||
+                   g.backgroundSublines.any((b) => b.timeMs == activeLine.timeMs),
+          ))
+        : 0;
 
     final list = NotificationListener<ScrollNotification>(
       onNotification: (n) {
@@ -2260,89 +2649,50 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       },
       child: ValueListenableBuilder<int>(
         valueListenable: widget.activeLineListenable,
-        builder: (context, active, _) {
+        builder: (context, activeIdx, _) {
+          final currentActiveLine = (activeIdx >= 0 && activeIdx < widget.result.lines.length)
+              ? widget.result.lines[activeIdx]
+              : null;
+          final activeTimeMs = currentActiveLine?.timeMs ?? -1;
+
           return ScrollablePositionedList.builder(
             itemScrollController: _scroll,
-            initialScrollIndex: initialActive > 0 ? initialActive : 0,
+            initialScrollIndex: initialStanzaIdx > 0 ? initialStanzaIdx : 0,
             initialAlignment: lyricFollowAlignment(
-              initialActive > 0 ? initialActive : 0,
+              initialStanzaIdx > 0 ? initialStanzaIdx : 0,
               compact: widget.compact,
+              targetAnchor: 0.18,
             ),
-            itemCount: widget.result.lines.length,
+            itemCount: stanzas.length,
             padding: padding,
             itemBuilder: (context, i) {
-              final line = widget.result.lines[i];
-              final isActive = i == active;
+              final stanza = stanzas[i];
+              final prevStanza = i > 0 ? stanzas[i - 1] : null;
+              final int prevEndMs = prevStanza != null
+                  ? (prevStanza.timeMs + math.max<int>(prevStanza.durationMs, 1000))
+                  : 0;
+              final int gapMs = stanza.timeMs - prevEndMs;
+              final hasBreak = gapMs >= 3500;
 
-              // Apple Music-style progressive depth-of-field blur and gentle
-              // distance-based opacity attenuation when following:
-              // - Active line is sharp (blurSigma = 0.0, opacity = 1.0)
-              // - Upcoming lines progressively increase in Gaussian blur with
-              //   distance from the active line while staying visible across
-              //   the full viewport.
-              // - Past lines above the active line receive a stronger defocus.
-              double lineOpacity = 1.0;
-              double blurSigma = 0.0;
-              if (widget.following && !isActive) {
-                final refIndex = active >= 0 ? active : 0;
-                final dist = (i - refIndex).abs();
-                final isPastLine = active >= 0 && i < active;
-                if (isPastLine) {
-                  if (dist == 1) {
-                    lineOpacity = 0.85;
-                    blurSigma = 2.6;
-                  } else if (dist == 2) {
-                    lineOpacity = 0.72;
-                    blurSigma = 4.2;
-                  } else {
-                    lineOpacity = 0.60;
-                    blurSigma = 5.8;
-                  }
-                } else {
-                  if (dist == 0) {
-                    lineOpacity = 0.96;
-                    blurSigma = 0.0;
-                  } else if (dist == 1) {
-                    lineOpacity = 0.94;
-                    blurSigma = 0.7;
-                  } else if (dist == 2) {
-                    lineOpacity = 0.86;
-                    blurSigma = 1.6;
-                  } else if (dist == 3) {
-                    lineOpacity = 0.78;
-                    blurSigma = 2.8;
-                  } else if (dist == 4) {
-                    lineOpacity = 0.68;
-                    blurSigma = 4.4;
-                  } else {
-                    lineOpacity = 0.58;
-                    blurSigma = 6.0;
-                  }
-                }
-              }
-
-              return _tappableLine(
-                index: i,
-                seekable: true,
-                onSeek: () => widget.onSeekLineMs(line.timeMs),
-                child: WaveKaraokeLyricLine(
-                  line: line,
-                  positionMs: 0,
-                  positionListenable: isActive
-                      ? widget.positionListenable
-                      : null,
-                  isActive: isActive,
-                  isPast: active >= 0 && i < active,
-                  compact: widget.compact,
-                  fontSize: widget.fontSize,
-                  showTransliteration: widget.showTransliteration,
-                  translation: _translationAt(i),
-                  karaoke: widget.result.isWordSynced,
-                  softenIdle: true,
-                  // Every line stays sharp and lit while ticking lines.
-                  lineOpacity: widget.selectMode ? 1.0 : lineOpacity,
-                  blurSigma: widget.selectMode ? 0.0 : blurSigma,
-                ),
+              return DesktopStanzaWidget(
+                stanza: stanza,
+                activeLineTimeMs: activeTimeMs,
+                positionListenable: widget.positionListenable,
+                layoutCache: _layoutCache,
+                activeStyle: activeStyle,
+                activeUnsungStyle: activeUnsungStyle,
+                idleStyle: idleStyle,
+                backgroundStyle: backgroundStyle,
+                selectMode: widget.selectMode,
+                selectedLines: widget.selected,
+                onToggleSelect: widget.onToggleSelect,
+                onSeekLineMs: widget.onSeekLineMs,
+                allLines: widget.result.lines,
+                translations: widget.translations,
+                showTransliteration: widget.showTransliteration,
+                isInstrumentalBreak: hasBreak,
+                breakStartMs: prevEndMs,
+                breakEndMs: stanza.timeMs,
               );
             },
           );
@@ -2365,8 +2715,6 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
         ).createShader(bounds);
       },
       blendMode: BlendMode.dstIn,
-      // The app-wide scrollbar flashes on every programmatic follow-scroll;
-      // lyrics are tap/wheel/drag driven, so it carries no information here.
       child: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: list,
