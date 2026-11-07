@@ -20,6 +20,7 @@ import 'lyrics_models.dart' as lm;
 /// Converts LastWave [lm.LyricsResult] into flutter_lyric [fl.LyricModel],
 /// inserting standalone Apple Music 3-dot instrumental lines ('•  •  •')
 /// into the lyrics flow for intros and breaks >= 4000ms.
+@Deprecated('Use desktop_lyrics_painter.dart GPU engine instead.')
 fl.LyricModel convertToFlutterLyricModel(
   lm.LyricsResult result, {
   bool showTransliteration = true,
