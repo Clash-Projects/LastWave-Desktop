@@ -1319,10 +1319,18 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
       _cachedIdleStyle = widget.idleStyle;
       _cachedScaler = scaler;
       _idlePainter?.dispose();
+      final fade = _groupFade(widget.idleStyle, text);
+      final effectiveIdleStyle = fade.alpha < 1.0
+          ? fade.style.copyWith(
+              color: (fade.style.color ?? const Color(0xFFFFFFFF)).withValues(
+                alpha: (fade.style.color?.a ?? 1.0) * fade.alpha,
+              ),
+            )
+          : fade.style;
       _idlePainter = TextPainter(
         text: TextSpan(
           text: text,
-          style: _groupFade(widget.idleStyle, text).style,
+          style: effectiveIdleStyle,
         ),
         textDirection: textDirection,
         textScaler: scaler,
@@ -1410,7 +1418,6 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
             syllable: widget.syllable,
             initialPosMs: widget.initialPosMs,
             idlePainter: _idlePainter!,
-            idleAlpha: _groupFade(widget.idleStyle, text).alpha,
             activePainter: _activePainter!,
             featherPainters: _featherPainters,
             isRtl: widget.isRtl,
@@ -1430,7 +1437,6 @@ class _KaraokeSyllablePainter extends CustomPainter {
   final LyricSyllable syllable;
   final int initialPosMs;
   final TextPainter idlePainter;
-  final double idleAlpha;
   final TextPainter activePainter;
   final List<TextPainter> featherPainters;
   final bool isRtl;
@@ -1440,7 +1446,6 @@ class _KaraokeSyllablePainter extends CustomPainter {
     required this.syllable,
     required this.initialPosMs,
     required this.idlePainter,
-    required this.idleAlpha,
     required this.activePainter,
     required this.featherPainters,
     required this.isRtl,
@@ -1451,17 +1456,8 @@ class _KaraokeSyllablePainter extends CustomPainter {
     final pos = positionListenable?.value ?? initialPosMs;
     final progress = calculateSyllableProgress(syllable, pos);
 
-    // 1. Draw base idle text (faded as one group: see [_groupFade]).
-    if (idleAlpha < 1.0) {
-      canvas.saveLayer(
-        Offset.zero & size,
-        Paint()..color = Color.fromRGBO(0, 0, 0, idleAlpha),
-      );
-      idlePainter.paint(canvas, Offset.zero);
-      canvas.restore();
-    } else {
-      idlePainter.paint(canvas, Offset.zero);
-    }
+    // 1. Draw base idle text (alpha pre-baked into painter to avoid saveLayer GPU buffer overhead).
+    idlePainter.paint(canvas, Offset.zero);
 
     if (progress <= 0.0) return;
 
@@ -1506,7 +1502,6 @@ class _KaraokeSyllablePainter extends CustomPainter {
     return oldDelegate.positionListenable != positionListenable ||
         oldDelegate.syllable != syllable ||
         oldDelegate.idlePainter != idlePainter ||
-        oldDelegate.idleAlpha != idleAlpha ||
         oldDelegate.activePainter != activePainter ||
         oldDelegate.featherPainters != featherPainters ||
         oldDelegate.isRtl != isRtl;
@@ -2408,6 +2403,27 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
   int _lastIndex = -1;
   bool _pinnedOpening = false;
+  Rect? _lastBounds;
+  ui.Shader? _cachedMaskShader;
+
+  ui.Shader _getMaskShader(Rect bounds) {
+    if (_lastBounds == bounds && _cachedMaskShader != null) {
+      return _cachedMaskShader!;
+    }
+    _lastBounds = bounds;
+    _cachedMaskShader = const LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.transparent,
+        Colors.black,
+        Colors.black,
+        Colors.transparent,
+      ],
+      stops: [0.0, 0.08, 0.88, 1.0],
+    ).createShader(bounds);
+    return _cachedMaskShader!;
+  }
 
   @override
   void initState() {
@@ -2714,19 +2730,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     );
 
     final maskedList = ShaderMask(
-      shaderCallback: (Rect bounds) {
-        return const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.transparent,
-            Colors.black,
-            Colors.black,
-            Colors.transparent,
-          ],
-          stops: [0.0, 0.08, 0.88, 1.0],
-        ).createShader(bounds);
-      },
+      shaderCallback: _getMaskShader,
       blendMode: BlendMode.dstIn,
       child: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),

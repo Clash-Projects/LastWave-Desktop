@@ -415,10 +415,9 @@ class AnimatedArtworkSession extends ChangeNotifier {
       configuration: const PlayerConfiguration(
         muted: true,
         title: 'LastWave Artwork',
-        // 16 MiB holds an entire Apple fMP4, Tidal 1280x1280 MP4, or
-        // Community Canvas loop in the demuxer back-buffer so `loop-file=inf`
-        // seeks back to 0 purely in memory without re-downloading.
-        bufferSize: 16 * 1024 * 1024,
+        // 4 MiB easily holds multiple loops of Apple fMP4, Tidal 1280x1280 MP4,
+        // or Community Canvas loops (~500KB-2MB) while avoiding 16-32 MiB RSS bloat.
+        bufferSize: 4 * 1024 * 1024,
       ),
     );
     TraceCrumb.write('art controller-create');
@@ -570,10 +569,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('cache', 'yes');
       } catch (_) {}
       try {
-        await dyn.setProperty('demuxer-max-bytes', '${16 * 1024 * 1024}');
+        await dyn.setProperty('demuxer-max-bytes', '${4 * 1024 * 1024}');
       } catch (_) {}
       try {
-        await dyn.setProperty('demuxer-max-back-bytes', '${16 * 1024 * 1024}');
+        await dyn.setProperty('demuxer-max-back-bytes', '${4 * 1024 * 1024}');
       } catch (_) {}
       try {
         await dyn.setProperty('loop-file', 'inf');

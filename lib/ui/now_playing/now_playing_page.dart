@@ -1459,11 +1459,15 @@ class _NowAmbient extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (artworkUrl.isEmpty) return const SizedBox.shrink();
-    return WaveAmbientMesh(
-      artworkUrl: artworkUrl,
-      isFullBleed: true,
-      cinematic: true,
-      apple: ref.watch(ambientStyleProvider) == AmbientStyle.apple,
+    final visible = ref.watch(windowVisibleProvider);
+    return TickerMode(
+      enabled: visible,
+      child: WaveAmbientMesh(
+        artworkUrl: artworkUrl,
+        isFullBleed: true,
+        cinematic: true,
+        apple: ref.watch(ambientStyleProvider) == AmbientStyle.apple,
+      ),
     );
   }
 }
