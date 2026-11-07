@@ -1128,7 +1128,7 @@ class _AuraLayers extends StatefulWidget {
 class _AuraLayersState extends State<_AuraLayers>
     with SingleTickerProviderStateMixin {
   Ticker? _ticker;
-  double _phase = 0.0;
+  final ValueNotifier<double> _phaseNotifier = ValueNotifier<double>(0.0);
   Duration _lastTick = Duration.zero;
 
   Size? _shaderSize;
@@ -1221,19 +1221,19 @@ class _AuraLayersState extends State<_AuraLayers>
   }
 
   void _onTick(Duration elapsed) {
-    // Throttle to ~30fps (33ms) since the blurred aura moves at a meditative
+    // Throttle to ~24fps (40ms) since the blurred aura moves at a meditative
     // pace (~45s per full revolution).
     if (_lastTick != Duration.zero &&
-        (elapsed - _lastTick).inMilliseconds < 33) {
+        (elapsed - _lastTick).inMilliseconds < 40) {
       return;
     }
     final dtMs = _lastTick == Duration.zero
-        ? 33
+        ? 40
         : (elapsed - _lastTick).inMilliseconds.clamp(1, 200);
     _lastTick = elapsed;
-    setState(() {
-      _phase = (_phase + (dtMs / 1000.0) * 0.14) % (math.pi * 200);
-    });
+    // Mutate ValueNotifier directly — ZERO setState() / widget rebuild overhead!
+    _phaseNotifier.value =
+        (_phaseNotifier.value + (dtMs / 1000.0) * 0.14) % (math.pi * 200);
   }
 
   @override
@@ -1245,6 +1245,7 @@ class _AuraLayersState extends State<_AuraLayers>
   @override
   void dispose() {
     _ticker?.dispose();
+    _phaseNotifier.dispose();
     super.dispose();
   }
 
@@ -1271,7 +1272,7 @@ class _AuraLayersState extends State<_AuraLayers>
                     textures: widget.textures,
                     palette: widget.palette,
                     canvasSize: half,
-                    phase: _phase,
+                    phaseNotifier: _phaseNotifier,
                     apple: widget.apple,
                     appleVignetteShader: _appleVignetteShader,
                     tonalBloomShader: _tonalBloomShader,
@@ -1292,7 +1293,7 @@ class _AuraPainter extends CustomPainter {
   final _AuraTextures textures;
   final ArtworkPalette palette;
   final Size canvasSize;
-  final double phase;
+  final ValueListenable<double> phaseNotifier;
   final bool apple;
   final ui.Shader? appleVignetteShader;
   final ui.Shader? tonalBloomShader;
@@ -1308,13 +1309,13 @@ class _AuraPainter extends CustomPainter {
     required this.textures,
     required this.palette,
     required this.canvasSize,
-    required this.phase,
+    required this.phaseNotifier,
     this.apple = false,
     this.appleVignetteShader,
     this.tonalBloomShader,
     this.tonalLinearShader,
     this.tonalVignetteShader,
-  });
+  }) : super(repaint: phaseNotifier);
 
   /// Alpha plus saturation in one matrix (1 = as baked, <1 = more muted).
   static ColorFilter _alphaFilter(double alpha, [double saturation = 1.0]) {
@@ -1394,7 +1395,7 @@ class _AuraPainter extends CustomPainter {
   /// foliage…) to different corners and orbit slowly. Then a uniform dim
   /// and a soft vignette. Same cost as the tonal stage: 5 drawImageRects at
   /// half resolution, no per-frame filters or layers.
-  void _paintApple(Canvas canvas, Size size) {
+  void _paintApple(Canvas canvas, Size size, double phase) {
     final w = size.width;
     final h = size.height;
     final rect = Offset.zero & size;
@@ -1458,8 +1459,9 @@ class _AuraPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
+    final phase = phaseNotifier.value;
     if (apple) {
-      _paintApple(canvas, size);
+      _paintApple(canvas, size, phase);
       return;
     }
     final w = size.width;
@@ -1546,7 +1548,7 @@ class _AuraPainter extends CustomPainter {
     return old.textures != textures ||
         old.palette != palette ||
         old.canvasSize != canvasSize ||
-        old.phase != phase ||
+        old.phaseNotifier != phaseNotifier ||
         old.apple != apple;
   }
 }

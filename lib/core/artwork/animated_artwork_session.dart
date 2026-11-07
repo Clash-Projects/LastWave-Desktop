@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import 'animated_artwork_service.dart';
 import '../diagnostics/trace_crumb.dart';
+import '../platform/allocator_tuning.dart';
 
 /// App-scoped muted motion-art player.
 ///
@@ -282,6 +283,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
           _serialized(() async {
             try {
               await _player?.pause();
+              trimProcessMemory();
             } catch (_) {}
           }),
         );
@@ -569,10 +571,17 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('cache', 'yes');
       } catch (_) {}
       try {
-        await dyn.setProperty('demuxer-max-bytes', '${4 * 1024 * 1024}');
+        await dyn.setProperty('demuxer-max-bytes', '${2 * 1024 * 1024}');
       } catch (_) {}
       try {
-        await dyn.setProperty('demuxer-max-back-bytes', '${4 * 1024 * 1024}');
+        await dyn.setProperty('demuxer-max-back-bytes', '${2 * 1024 * 1024}');
+      } catch (_) {}
+      try {
+        // Downscale decode to 480px and cap to 24fps via fast_bilinear filter:
+        // Artwork clips are displayed at ~400px. Decoding 1080p/1280p at 60fps
+        // in software on CPU copies ~280 MB/s of raw pixel buffer memory.
+        // Capping to 480px@24fps drops pixel throughput by ~90%, slashing CPU and RAM.
+        await dyn.setProperty('vf', 'scale=480:-2:flags=fast_bilinear,fps=24');
       } catch (_) {}
       try {
         await dyn.setProperty('loop-file', 'inf');

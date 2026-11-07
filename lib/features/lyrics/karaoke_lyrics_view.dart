@@ -390,9 +390,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       if (!_isEffectivelyActive || !_isPlaying) return;
       final now = DateTime.now();
       final nowMs = now.millisecondsSinceEpoch;
-      // Cap tick rate to ~60Hz (min 16ms between ticks) to prevent CPU spikes
-      // on 120Hz/144Hz/240Hz monitors while keeping text animation smooth.
-      if (nowMs - _lastTickMs < 16) return;
+      // Adaptive tick rate: 60Hz (~16ms) for word-synced lyrics with active syllable wipe,
+      // and 20Hz (~50ms) for line-synced lyrics to drastically save CPU cycles.
+      final minInterval = (_currentResult?.isWordSynced == true) ? 16 : 50;
+      if (nowMs - _lastTickMs < minInterval) return;
       _lastTickMs = nowMs;
 
       final elapsed = now.difference(_lastSyncTime).inMilliseconds;
