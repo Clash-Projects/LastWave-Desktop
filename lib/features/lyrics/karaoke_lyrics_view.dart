@@ -202,6 +202,8 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     return routeActive && tickerEnabled;
   }
 
+  int _lastTickMs = 0;
+
   int _getCurrentPositionMs() {
     if (_ticker.isActive) {
       return _interpolatedPositionMs.value;
@@ -387,22 +389,20 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     runGuarded('karaoke.tick', () {
       if (!_isEffectivelyActive || !_isPlaying) return;
       final now = DateTime.now();
+      final nowMs = now.millisecondsSinceEpoch;
+      // Cap tick rate to ~60Hz (min 16ms between ticks) to prevent CPU spikes
+      // on 120Hz/144Hz/240Hz monitors while keeping text animation smooth.
+      if (nowMs - _lastTickMs < 16) return;
+      _lastTickMs = nowMs;
 
-      final elapsedMs =
-          (now.difference(_lastSyncTime).inMicroseconds / 1000.0) * _speed;
-      final estimatedMs = (_lastAudioMs + elapsedMs).round() - _offsetMs;
+      final elapsed = now.difference(_lastSyncTime).inMilliseconds;
+      final currentMs = _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
+      _interpolatedPositionMs.value = currentMs;
 
-      // Clamp drift to -50ms .. +300ms against live audio buffer
-      final clampedMs = estimatedMs.clamp(
-        _lastAudioMs - _offsetMs - 50,
-        _lastAudioMs - _offsetMs + 300,
-      );
-
-      _interpolatedPositionMs.value = clampedMs;
       if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
         final lineIndex = activeLyricLineIndex(
           _currentResult!.lines,
-          clampedMs,
+          currentMs,
         );
         if (_activeLineIndex.value != lineIndex) {
           _activeLineIndex.value = lineIndex;
@@ -2406,9 +2406,7 @@ class _AppleLineLyricsView extends StatefulWidget {
 
 class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
-  final ParagraphLayoutCache _layoutCache = ParagraphLayoutCache();
   int _lastIndex = -1;
-  int _lastStanzaIndex = -1;
   bool _pinnedOpening = false;
 
   @override
@@ -2421,8 +2419,47 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   @override
   void dispose() {
     widget.activeLineListenable.removeListener(_onActiveLineChanged);
-    _layoutCache.clear();
     super.dispose();
+  }
+
+  String _translationAt(int i) =>
+      i < widget.translations.length ? (widget.translations[i] ?? '') : '';
+
+  /// Seeks on tap, or ticks the line for the share card in select mode.
+  Widget _tappableLine({
+    required int index,
+    required bool seekable,
+    required VoidCallback onSeek,
+    required Widget child,
+  }) {
+    final selected = widget.selected.contains(index);
+    final tappable = widget.selectMode || seekable;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: MouseRegion(
+        cursor: tappable ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: GestureDetector(
+          onTap: !tappable
+              ? null
+              : () {
+                  if (widget.selectMode) {
+                    widget.onToggleSelect(index);
+                  } else {
+                    onSeek();
+                  }
+                },
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: selected
+                  ? waveAccent(context).withValues(alpha: 0.16)
+                  : const Color(0x00000000),
+              borderRadius: WaveRadius.artworkRadius,
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -2435,28 +2472,11 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     if (oldWidget.result != widget.result) {
       _pinnedOpening = false;
       _lastIndex = -1;
-      _lastStanzaIndex = -1;
-      _layoutCache.clear();
     }
     if (widget.following && !oldWidget.following) {
       final untimed =
           !widget.result.isSynced || lyricsAreUntimed(widget.result.lines);
-      if (untimed) {
-        _scrollToStanza(0);
-      } else {
-        final active = widget.activeLineListenable.value;
-        final stanzas = assembleStanzas(widget.result.lines);
-        final activeLine = (active >= 0 && active < widget.result.lines.length)
-            ? widget.result.lines[active]
-            : null;
-        final stanzaIdx = activeLine != null
-            ? stanzas.indexWhere((s) => s.groups.any(
-                (g) => g.leadLine.timeMs == activeLine.timeMs ||
-                       g.backgroundSublines.any((b) => b.timeMs == activeLine.timeMs),
-              ))
-            : 0;
-        _scrollToStanza(stanzaIdx >= 0 ? stanzaIdx : 0);
-      }
+      _scrollTo(untimed ? 0 : widget.activeLineListenable.value);
     }
   }
 
@@ -2466,31 +2486,17 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       if (active <= 0) {
         _pinOpeningToTop();
         _lastIndex = active;
-        _lastStanzaIndex = 0;
       } else if (active != _lastIndex) {
         final wasUninitialized = _lastIndex < 0;
         _lastIndex = active;
-        final stanzas = assembleStanzas(widget.result.lines);
-        final activeLine = (active >= 0 && active < widget.result.lines.length)
-            ? widget.result.lines[active]
-            : null;
-        final stanzaIdx = activeLine != null
-            ? stanzas.indexWhere((s) => s.groups.any(
-                (g) => g.leadLine.timeMs == activeLine.timeMs ||
-                       g.backgroundSublines.any((b) => b.timeMs == activeLine.timeMs),
-              ))
-            : -1;
-        if (stanzaIdx >= 0 && stanzaIdx != _lastStanzaIndex) {
-          _lastStanzaIndex = stanzaIdx;
-          _scrollToStanza(stanzaIdx, animate: !wasUninitialized && active > 0);
-        }
+        _scrollTo(active, animate: !wasUninitialized && active > 0);
       }
     } else {
       _lastIndex = active;
     }
   }
 
-  void _scrollToStanza(int index, {bool animate = true}) {
+  void _scrollTo(int index, {bool animate = true}) {
     if (!_scroll.isAttached) return;
     if (index < 0) index = 0;
     // 18% upper-third golden ratio focal anchor
@@ -2502,7 +2508,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           _scroll.scrollTo(
             index: index,
             alignment: alignment,
-            duration: waveMotion(context, const Duration(milliseconds: 450)),
+            duration: waveMotion(context, const Duration(milliseconds: 400)),
             curve: const Cubic(0.41, 0.0, 0.12, 0.99), // Apple Music Spring scroll curve
           );
         } else {
@@ -2515,7 +2521,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   void _pinOpeningToTop() {
     if (_pinnedOpening || !_scroll.isAttached) return;
     _pinnedOpening = true;
-    _scrollToStanza(0, animate: false);
+    _scrollTo(0, animate: false);
   }
 
   @override
@@ -2529,58 +2535,8 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       widget.compact ? 80 : 120,
     );
 
-    final dark = waveIsDark(context);
     final baseFontSize =
         widget.fontSize ?? (widget.compact ? 28.0 : DesktopLyricsTokens.fontSizeBase);
-    final tracking = -0.3;
-
-    final activeTextColor = dark
-        ? const Color(0xFFF6F4EF)
-        : const Color(0xFF18181B);
-    final idleTextColor = (dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B))
-        .withValues(alpha: DesktopLyricsTokens.inactiveOpacity);
-
-    final activeStyle = TextStyle(
-      fontSize: baseFontSize,
-      fontWeight: FontWeight.w700,
-      color: activeTextColor,
-      height: DesktopLyricsTokens.lineHeight,
-      letterSpacing: tracking,
-      shadows: [
-        Shadow(
-          color: activeTextColor.withValues(alpha: dark ? 0.28 : 0.14),
-          blurRadius: 16,
-          offset: const Offset(0, 1),
-        ),
-      ],
-    );
-
-    final activeUnsungStyle = TextStyle(
-      fontSize: baseFontSize,
-      fontWeight: FontWeight.w700,
-      color: activeTextColor.withValues(alpha: DesktopLyricsTokens.inactiveOpacity),
-      height: DesktopLyricsTokens.lineHeight,
-      letterSpacing: tracking,
-      shadows: const [],
-    );
-
-    final idleStyle = TextStyle(
-      fontSize: baseFontSize * DesktopLyricsTokens.inactiveScale,
-      fontWeight: FontWeight.w600,
-      color: idleTextColor,
-      height: DesktopLyricsTokens.lineHeight,
-      letterSpacing: tracking,
-    );
-
-    final backgroundStyle = TextStyle(
-      fontSize: baseFontSize,
-      fontWeight: FontWeight.w500,
-      color: idleTextColor,
-      height: DesktopLyricsTokens.lineHeight,
-      letterSpacing: tracking,
-    );
-
-    final stanzas = assembleStanzas(widget.result.lines);
 
     if (untimed) {
       return ShaderMask(
@@ -2603,25 +2559,31 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           child: ListView.builder(
             physics: const ClampingScrollPhysics(),
             padding: padding,
-            itemCount: stanzas.length,
+            itemCount: widget.result.lines.length,
             itemBuilder: (context, i) {
-              final stanza = stanzas[i];
-              return DesktopStanzaWidget(
-                stanza: stanza,
-                activeLineTimeMs: -1,
-                positionListenable: widget.positionListenable,
-                layoutCache: _layoutCache,
-                activeStyle: activeStyle,
-                activeUnsungStyle: activeUnsungStyle,
-                idleStyle: idleStyle,
-                backgroundStyle: backgroundStyle,
-                selectMode: widget.selectMode,
-                selectedLines: widget.selected,
-                onToggleSelect: widget.onToggleSelect,
-                onSeekLineMs: widget.onSeekLineMs,
-                allLines: widget.result.lines,
-                translations: widget.translations,
-                showTransliteration: widget.showTransliteration,
+              final line = widget.result.lines[i];
+              final canSeek = widget.result.isSynced && line.timeMs > 0;
+              final isBackground = (line.syllables.isNotEmpty && line.syllables.every((s) => s.isBackground)) ||
+                  (line.text.trim().startsWith('(') && line.text.trim().endsWith(')'));
+              final lineFontSize = isBackground ? (baseFontSize * 0.65) : baseFontSize;
+
+              return _tappableLine(
+                index: i,
+                seekable: canSeek,
+                onSeek: () => widget.onSeekLineMs(line.timeMs),
+                child: WaveKaraokeLyricLine(
+                  line: line,
+                  positionMs: 0,
+                  isActive: false,
+                  isPast: false,
+                  compact: widget.compact,
+                  fontSize: lineFontSize,
+                  showTransliteration: widget.showTransliteration,
+                  translation: _translationAt(i),
+                  karaoke: false,
+                  softenIdle: false,
+                  blurSigma: 0.0,
+                ),
               );
             },
           ),
@@ -2630,15 +2592,6 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     }
 
     final initialActive = widget.activeLineListenable.value;
-    final activeLine = (initialActive >= 0 && initialActive < widget.result.lines.length)
-        ? widget.result.lines[initialActive]
-        : null;
-    final initialStanzaIdx = activeLine != null
-        ? stanzas.indexWhere((s) => s.groups.any(
-            (g) => g.leadLine.timeMs == activeLine.timeMs ||
-                   g.backgroundSublines.any((b) => b.timeMs == activeLine.timeMs),
-          ))
-        : 0;
 
     final list = NotificationListener<ScrollNotification>(
       onNotification: (n) {
@@ -2647,52 +2600,112 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
         }
         return false;
       },
-      child: ValueListenableBuilder<int>(
-        valueListenable: widget.activeLineListenable,
-        builder: (context, activeIdx, _) {
-          final currentActiveLine = (activeIdx >= 0 && activeIdx < widget.result.lines.length)
-              ? widget.result.lines[activeIdx]
-              : null;
-          final activeTimeMs = currentActiveLine?.timeMs ?? -1;
+      child: ScrollablePositionedList.builder(
+        itemScrollController: _scroll,
+        initialScrollIndex: initialActive > 0 ? initialActive : 0,
+        initialAlignment: lyricFollowAlignment(
+          initialActive > 0 ? initialActive : 0,
+          compact: widget.compact,
+          targetAnchor: 0.18,
+        ),
+        itemCount: widget.result.lines.length,
+        padding: padding,
+        itemBuilder: (context, i) {
+          final line = widget.result.lines[i];
 
-          return ScrollablePositionedList.builder(
-            itemScrollController: _scroll,
-            initialScrollIndex: initialStanzaIdx > 0 ? initialStanzaIdx : 0,
-            initialAlignment: lyricFollowAlignment(
-              initialStanzaIdx > 0 ? initialStanzaIdx : 0,
-              compact: widget.compact,
-              targetAnchor: 0.18,
-            ),
-            itemCount: stanzas.length,
-            padding: padding,
-            itemBuilder: (context, i) {
-              final stanza = stanzas[i];
-              final prevStanza = i > 0 ? stanzas[i - 1] : null;
-              final int prevEndMs = prevStanza != null
-                  ? (prevStanza.timeMs + math.max<int>(prevStanza.durationMs, 1000))
-                  : 0;
-              final int gapMs = stanza.timeMs - prevEndMs;
-              final hasBreak = gapMs >= 3500;
+          // Instrumental solo break detection (>= 3.5s gap before line i)
+          final prevLine = i > 0 ? widget.result.lines[i - 1] : null;
+          final int prevEndMs = prevLine != null
+              ? (prevLine.timeMs + math.max<int>(prevLine.durationMs, 1000))
+              : 0;
+          final int gapMs = line.timeMs - prevEndMs;
+          final isBreak = gapMs >= 3500;
 
-              return DesktopStanzaWidget(
-                stanza: stanza,
-                activeLineTimeMs: activeTimeMs,
-                positionListenable: widget.positionListenable,
-                layoutCache: _layoutCache,
-                activeStyle: activeStyle,
-                activeUnsungStyle: activeUnsungStyle,
-                idleStyle: idleStyle,
-                backgroundStyle: backgroundStyle,
-                selectMode: widget.selectMode,
-                selectedLines: widget.selected,
-                onToggleSelect: widget.onToggleSelect,
-                onSeekLineMs: widget.onSeekLineMs,
-                allLines: widget.result.lines,
-                translations: widget.translations,
+          // Spatial Duet opposing alignment:
+          // Singer 1 (Left 72%), Singer 2 (Right 72%), Unison / Chorus (Center)
+          final text = line.text.trim();
+          final isDuetRight = line.agent == 'v2' ||
+              text.startsWith('Vocalist 2:') ||
+              text.startsWith('Singer 2:') ||
+              text.contains('[v2]');
+          final isUnison = (line.agent != null && line.agent!.contains('both')) ||
+              text.startsWith('Both:') ||
+              text.startsWith('Chorus:') ||
+              text.contains('[all]');
+          final alignment = isDuetRight
+              ? Alignment.centerRight
+              : (isUnison ? Alignment.center : Alignment.centerLeft);
+
+          // Background harmony subordination (0.65x font scale)
+          final isBackground = (line.syllables.isNotEmpty && line.syllables.every((s) => s.isBackground)) ||
+              (text.startsWith('(') && text.endsWith(')'));
+          final lineFontSize = isBackground ? (baseFontSize * 0.65) : baseFontSize;
+
+          final maxLineWidth = isUnison
+              ? double.infinity
+              : MediaQuery.of(context).size.width * DesktopLyricsTokens.maxDuetWidthRatio;
+
+          return ValueListenableBuilder<int>(
+            valueListenable: widget.activeLineListenable,
+            builder: (context, active, _) {
+              final isActive = i == active;
+              final isPast = active >= 0 && i < active;
+
+              // Distance-based opacity attenuation (0 blur = zero GPU blur overhead!)
+              double lineOpacity = 1.0;
+              if (widget.following && !isActive && !widget.selectMode) {
+                final refIndex = active >= 0 ? active : 0;
+                final dist = (i - refIndex).abs();
+                if (dist == 1) {
+                  lineOpacity = isPast ? 0.45 : 0.55;
+                } else if (dist == 2) {
+                  lineOpacity = isPast ? 0.35 : 0.42;
+                } else {
+                  lineOpacity = DesktopLyricsTokens.inactiveOpacity; // 0.35
+                }
+              }
+
+              final lineWidget = WaveKaraokeLyricLine(
+                line: line,
+                positionMs: 0,
+                positionListenable: isActive ? widget.positionListenable : null,
+                isActive: isActive,
+                isPast: isPast,
+                compact: widget.compact,
+                fontSize: lineFontSize,
                 showTransliteration: widget.showTransliteration,
-                isInstrumentalBreak: hasBreak,
-                breakStartMs: prevEndMs,
-                breakEndMs: stanza.timeMs,
+                translation: _translationAt(i),
+                karaoke: widget.result.isWordSynced,
+                softenIdle: true,
+                lineOpacity: widget.selectMode ? 1.0 : lineOpacity,
+                blurSigma: 0.0, // HARD ZERO to eliminate GPU ImageFilter.blur lag & RAM spike!
+              );
+
+              return _tappableLine(
+                index: i,
+                seekable: true,
+                onSeek: () => widget.onSeekLineMs(line.timeMs),
+                child: Align(
+                  alignment: alignment,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxLineWidth),
+                    child: Column(
+                      crossAxisAlignment: isDuetRight
+                          ? CrossAxisAlignment.end
+                          : (isUnison ? CrossAxisAlignment.center : CrossAxisAlignment.start),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isBreak && isActive)
+                          InstrumentalCountdownDots(
+                            positionListenable: widget.positionListenable,
+                            breakStartMs: prevEndMs,
+                            breakEndMs: line.timeMs,
+                          ),
+                        lineWidget,
+                      ],
+                    ),
+                  ),
+                ),
               );
             },
           );
