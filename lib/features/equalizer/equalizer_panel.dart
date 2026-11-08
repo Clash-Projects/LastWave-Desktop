@@ -606,6 +606,18 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     EqualizerNotifier notifier,
   ) {
     final gains = eq.gainsDb;
+    final bands = <Widget>[
+      for (int i = 0; i < eqBandFreqsHz.length; i++)
+        _VerticalEqBand(
+          index: i,
+          freqHz: eqBandFreqsHz[i],
+          gainDb: gains[i],
+          enabled: eq.enabled,
+          dark: dark,
+          onChanged: (val) => notifier.setBandGain(i, val),
+          onReset: () => notifier.setBandGain(i, 0.0),
+        ),
+    ];
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
       decoration: BoxDecoration(
@@ -615,36 +627,27 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           color: waveDivider(context).withValues(alpha: dark ? 0.3 : 0.5),
         ),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // Ten vertical controls need real touch targets. On an iPhone or a
-          // narrow Split View window the rack scrolls horizontally instead
-          // of squeezing each slider into a mouse-sized strip.
-          final rackWidth = constraints.maxWidth < 520
-              ? 520.0
-              : constraints.maxWidth;
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: rackWidth,
-              child: Row(
-                children: [
-                  for (int i = 0; i < eqBandFreqsHz.length; i++)
-                    _VerticalEqBand(
-                      index: i,
-                      freqHz: eqBandFreqsHz[i],
-                      gainDb: gains[i],
-                      enabled: eq.enabled,
-                      dark: dark,
-                      onChanged: (val) => notifier.setBandGain(i, val),
-                      onReset: () => notifier.setBandGain(i, 0.0),
-                    ),
-                ],
-              ),
+      child: Platform.isIOS
+          ? LayoutBuilder(
+              builder: (context, constraints) {
+                // iPhone and narrow iPad windows keep a minimum width so
+                // every band has a useful finger target.
+                final rackWidth = constraints.maxWidth < 520
+                    ? 520.0
+                    : constraints.maxWidth;
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: rackWidth,
+                    child: Row(children: bands),
+                  ),
+                );
+              },
+            )
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: bands,
             ),
-          );
-        },
-      ),
     );
   }
 
@@ -654,34 +657,54 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     EqualizerState eq,
     EqualizerNotifier notifier,
   ) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    final flat = _QuickActionPill(
+      label: 'Flat (0 dB)',
+      onTap: notifier.reset,
+      dark: dark,
+    );
+    final bass = _QuickActionPill(
+      label: '+2 dB Bass',
+      onTap: () async {
+        for (int i = 0; i <= 2; i++) {
+          await notifier.setBandGain(
+              i, (eq.gainsDb[i] + 2.0).clamp(-eqMaxGainDb, eqMaxGainDb));
+        }
+      },
+      dark: dark,
+    );
+    final treble = _QuickActionPill(
+      label: '+2 dB Treble',
+      onTap: () async {
+        for (int i = 7; i <= 9; i++) {
+          await notifier.setBandGain(
+              i, (eq.gainsDb[i] + 2.0).clamp(-eqMaxGainDb, eqMaxGainDb));
+        }
+      },
+      dark: dark,
+    );
+
+    if (Platform.isIOS) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [flat, bass, treble],
+      );
+    }
+
+    return Row(
       children: [
-        _QuickActionPill(
-          label: 'Flat (0 dB)',
-          onTap: notifier.reset,
-          dark: dark,
-        ),
-        _QuickActionPill(
-          label: '+2 dB Bass',
-          onTap: () async {
-            for (int i = 0; i <= 2; i++) {
-              await notifier.setBandGain(
-                  i, (eq.gainsDb[i] + 2.0).clamp(-eqMaxGainDb, eqMaxGainDb));
-            }
-          },
-          dark: dark,
-        ),
-        _QuickActionPill(
-          label: '+2 dB Treble',
-          onTap: () async {
-            for (int i = 7; i <= 9; i++) {
-              await notifier.setBandGain(
-                  i, (eq.gainsDb[i] + 2.0).clamp(-eqMaxGainDb, eqMaxGainDb));
-            }
-          },
-          dark: dark,
+        flat,
+        const SizedBox(width: 6),
+        bass,
+        const SizedBox(width: 6),
+        treble,
+        const Spacer(),
+        Text(
+          'Double-click band to zero',
+          style: WaveType.meta.copyWith(
+            fontSize: 10,
+            color: waveTextSecondary(context).withValues(alpha: 0.7),
+          ),
         ),
       ],
     );
@@ -817,7 +840,7 @@ class _VerticalEqBand extends StatelessWidget {
               onTapDown: (d) => _handleDrag(d.localPosition),
               onDoubleTap: onReset,
               child: SizedBox(
-                width: 44,
+                width: Platform.isIOS ? 44 : 32,
                 height: kTrackHeight,
                 child: Stack(
                   alignment: Alignment.center,
