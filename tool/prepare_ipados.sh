@@ -166,20 +166,26 @@ import UniformTypeIdentifiers
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
-    let dropRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "LastWaveFileDropBridge")
-    dropRegistrar.register(
-      LastWaveFileDropViewFactory(messenger: dropRegistrar.messenger()),
-      withId: "com.lastwave/file-drop"
-    )
+    if let dropRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "LastWaveFileDropBridge") {
+      dropRegistrar.register(
+        LastWaveFileDropViewFactory(messenger: dropRegistrar.messenger()),
+        withId: "com.lastwave/file-drop"
+      )
+    } else {
+      NSLog("LastWave: unable to obtain the file-drop plugin registrar")
+    }
 
-    let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LastWaveAudioBridge")
+    guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LastWaveAudioBridge") else {
+      NSLog("LastWave: unable to obtain the audio plugin registrar")
+      return
+    }
     let channel = FlutterMethodChannel(
       name: "com.lastwave/audio",
       binaryMessenger: registrar.messenger()
     )
     audioChannel = channel
 
-    channel.setMethodCallHandler { [weak self] call, result in
+    channel.setMethodCallHandler { [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) in
       guard let self = self else {
         result(FlutterError(code: "unavailable", message: "LastWave audio bridge is unavailable.", details: nil))
         return
