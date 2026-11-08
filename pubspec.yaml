@@ -71,7 +71,9 @@ dependencies:
   flutter_acrylic: ^1.1.4
   super_sliver_list: ^0.4.1
   audio_video_progress_bar: ^2.0.3
-  desktop_drop: ^0.9.2
+  # Keep the legacy API used by the macOS shell; 0.9.x requires cross_file 0.4,
+  # which is incompatible with file_picker 12.x's cross_file 0.3 constraint.
+  desktop_drop: ^0.8.4
   lucide_icons_flutter: ^3.1.19
   unorm_dart: ^0.3.2
   xml: ^7.0.1
