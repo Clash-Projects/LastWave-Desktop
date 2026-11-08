@@ -195,6 +195,9 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     // light theme depending on how bright its base is.
     final custom = theme.customSurfaces;
     final customLight = custom != null && theme.effectiveLight;
+    final activeSurfaces = theme.effectiveLight
+        ? (customLight ? custom! : WaveSurfaces.graphite)
+        : (custom ?? (theme.amoled ? WaveSurfaces.amoled : WaveSurfaces.graphite));
     final darkTheme = buildWaveFluentTheme(
       accent: accent,
       isLight: false,
@@ -236,8 +239,10 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           // present — that blur sample on the open frame is the hitch
           // on every toolbar popup. The app is opaque dark anyway, so
           // solid flyouts read identically. (Own haze system untouched.)
-          builder: (context, child) =>
-              DisableAcrylic(child: child ?? const SizedBox.shrink()),
+          builder: (context, child) => WaveSurfacesScope(
+            surfaces: activeSurfaces,
+            child: DisableAcrylic(child: child ?? const SizedBox.shrink()),
+          ),
         ),
       ),
     );
