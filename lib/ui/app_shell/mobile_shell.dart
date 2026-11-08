@@ -199,21 +199,9 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                               ),
                             if (_showEqualizer && nowPlaying)
                               Positioned.fill(
-                                child: ColoredBox(
-                                  color: waveBackground(context),
-                                  child: Column(
-                                    children: [
-                                      _MobileOverlayHeader(
-                                        title: 'Equalizer',
-                                        onClose: _back,
-                                      ),
-                                      const Expanded(
-                                        child: WaveEqualizerPanel(
-                                          embedded: true,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                child: WaveEqualizerPanel(
+                                  embedded: true,
+                                  onClose: _back,
                                 ),
                               ),
                             if (_showQueue && nowPlaying)
