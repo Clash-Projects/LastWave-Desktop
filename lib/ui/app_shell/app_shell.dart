@@ -535,16 +535,19 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     if (clean == '/liked' || clean.startsWith('/liked/')) return 3;
     if (clean == '/albums' ||
         clean.startsWith('/albums/') ||
-        clean.startsWith('/album/'))
+        clean.startsWith('/album/')) {
       return 4;
+    }
     if (clean == '/artists' ||
         clean.startsWith('/artists/') ||
-        clean.startsWith('/artist/'))
+        clean.startsWith('/artist/')) {
       return 5;
+    }
     if (clean == '/playlists' ||
         clean.startsWith('/playlists/') ||
-        clean.startsWith('/ytplaylist/'))
+        clean.startsWith('/ytplaylist/')) {
       return 6;
+    }
     if (clean == '/podcasts' || clean.startsWith('/podcasts/')) return 7;
     if (clean == '/downloads' || clean.startsWith('/downloads/')) return 8;
     return null;
