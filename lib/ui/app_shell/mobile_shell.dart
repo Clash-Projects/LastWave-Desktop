@@ -176,9 +176,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                 if (tablet && !nowPlaying)
                   _TabletRail(
                     activePath: activePath,
-                    moreActive: moreActive,
                     onGo: _go,
-                    onMore: () => setState(() => _showMore = true),
                   ),
                 Expanded(
                   child: Column(
@@ -366,15 +364,11 @@ class _MobileOverlayHeader extends StatelessWidget {
 
 class _TabletRail extends StatelessWidget {
   final String activePath;
-  final bool moreActive;
   final void Function(String) onGo;
-  final VoidCallback onMore;
 
   const _TabletRail({
     required this.activePath,
-    required this.moreActive,
     required this.onGo,
-    required this.onMore,
   });
 
   @override
@@ -387,18 +381,7 @@ class _TabletRail extends StatelessWidget {
       ),
       child: Column(
         children: [
-          const SizedBox(height: 10),
-          Container(
-            width: 46,
-            height: 46,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: waveSurfaceRaised(context),
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: const Icon(WaveIcons.music, size: 24),
-          ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -413,13 +396,24 @@ class _TabletRail extends StatelessWidget {
               ],
             ),
           ),
-          _TouchIconButton(
-            icon: WaveIcons.more,
-            tooltip: 'More destinations',
-            selected: moreActive,
-            onPressed: onMore,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Divider(
+              style: DividerThemeData(
+                decoration: BoxDecoration(color: waveDivider(context)),
+              ),
+            ),
           ),
-          const SizedBox(height: 10),
+          for (final destination in const [
+            WaveDestination('/friends', 'Friends', WaveIcons.friends),
+            WaveDestination('/settings', 'Settings', WaveIcons.settings),
+          ])
+            _RailButton(
+              destination: destination,
+              selected: activePath == destination.path,
+              onTap: () => onGo(destination.path),
+            ),
+          const SizedBox(height: 6),
         ],
       ),
     );
@@ -440,7 +434,7 @@ class _RailButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       child: Tooltip(
         message: destination.label,
         child: GestureDetector(
@@ -448,8 +442,8 @@ class _RailButton extends StatelessWidget {
           onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 130),
-            width: 56,
-            height: 52,
+            width: 62,
+            height: 56,
             decoration: BoxDecoration(
               color: selected
                   ? waveAccent(context).withValues(alpha: 0.14)
@@ -461,12 +455,33 @@ class _RailButton extends StatelessWidget {
                     )
                   : null,
             ),
-            child: Icon(
-              destination.icon,
-              size: 22,
-              color: selected
-                  ? waveTextPrimary(context)
-                  : waveTextSecondary(context),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  destination.icon,
+                  size: 20,
+                  color: selected
+                      ? waveTextPrimary(context)
+                      : waveTextSecondary(context),
+                ),
+                const SizedBox(height: 3),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Text(
+                    destination.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: WaveType.meta.copyWith(
+                      fontSize: 9,
+                      color: selected
+                          ? waveTextPrimary(context)
+                          : waveTextSecondary(context),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
