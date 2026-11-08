@@ -287,7 +287,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                   // lyrics become a deliberate alternate view until there
                   // is enough room for a genuinely comfortable split.
                   final isWide = constraints.maxWidth >
-                      (Platform.isIOS ? 1180 : 860);
+                      (Platform.isIOS ? 1024 : 860);
 
                   // The body spans the whole page and the top action bar floats
                   // over it, so the lyrics toolbar can sit on the same row as the
