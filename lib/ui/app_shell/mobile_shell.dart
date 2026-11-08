@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 
-import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/equalizer/equalizer_panel.dart';
