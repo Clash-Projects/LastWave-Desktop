@@ -89,13 +89,13 @@ class WaveColors {
 
 /// Resolved base-surface palette for the active dark theme.
 ///
-/// Published through [FluentThemeData.extensions] by
-/// [buildWaveFluentTheme] so AMOLED black reaches the shell chrome
+/// Published through [WaveSurfacesScope] by the app theme builder so
+/// AMOLED black reaches the shell chrome
 /// (rail, dock, title bar, panels) without every widget branching on
 /// prefs. Read it through [waveBackground] / [waveRailTranslucent] / ….
 /// Light themes never consult this — they use the `light*` constants.
 @immutable
-class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
+class WaveSurfaces {
   final Color background;
   final Color surface;
   final Color surfaceRaised;
@@ -248,7 +248,6 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
     return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
   }
 
-  @override
   WaveSurfaces copyWith({
     Color? background,
     Color? surface,
@@ -275,8 +274,7 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
     );
   }
 
-  @override
-  WaveSurfaces lerp(ThemeExtension<WaveSurfaces>? other, double t) {
+  WaveSurfaces lerp(WaveSurfaces? other, double t) {
     if (other is! WaveSurfaces) return this;
     return WaveSurfaces(
       background: Color.lerp(background, other.background, t)!,
@@ -581,8 +579,27 @@ Color waveTextTertiary(BuildContext context) => waveIsDark(context)
 /// theme. Falls back to graphite when no theme extension is published
 /// (e.g. a widget rendered outside [FluentApp] in a test).
 WaveSurfaces waveSurfaces(BuildContext context) =>
-    FluentTheme.of(context).extension<WaveSurfaces>() ??
-    WaveSurfaces.graphite;
+    WaveSurfacesScope.maybeOf(context) ?? WaveSurfaces.graphite;
+
+/// Fluent UI does not expose Material ThemeExtension APIs. Keep the same
+/// app-wide surface palette in an inherited scope so every existing Wave
+/// surface helper retains AMOLED and Custom theme behavior.
+class WaveSurfacesScope extends InheritedWidget {
+  final WaveSurfaces surfaces;
+
+  const WaveSurfacesScope({
+    super.key,
+    required this.surfaces,
+    required super.child,
+  });
+
+  static WaveSurfaces? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<WaveSurfacesScope>()?.surfaces;
+
+  @override
+  bool updateShouldNotify(WaveSurfacesScope oldWidget) =>
+      surfaces != oldWidget.surfaces;
+}
 
 /// Resolves one surface role. A Custom palette answers in both
 /// brightnesses; otherwise dark reads the published palette (graphite or
