@@ -853,7 +853,9 @@ class _MobileMiniPlayer extends ConsumerWidget {
     final track = player.current;
     final durationMs = player.duration.inMilliseconds;
     final progressRatio = durationMs > 0
-        ? (player.position.inMilliseconds / durationMs).clamp(0.0, 1.0)
+        ? (player.position.inMilliseconds / durationMs)
+            .clamp(0.0, 1.0)
+            .toDouble()
         : 0.0;
 
     return Container(
