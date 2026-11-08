@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/audio/stream_models.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/player/player_state.dart';
+import '../../features/equalizer/equalizer_panel.dart';
 import '../components/artwork.dart';
 import '../navigation/destinations.dart';
 import '../theme/tokens.dart';
@@ -53,6 +55,7 @@ class WaveMobileShell extends ConsumerStatefulWidget {
 
 class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   bool _showMore = false;
+  bool _showEqualizer = false;
 
   String get _route => waveRoutePath(widget.location);
 
@@ -72,7 +75,10 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   }
 
   void _go(String path) {
-    setState(() => _showMore = false);
+    setState(() {
+      _showMore = false;
+      _showEqualizer = false;
+    });
     final branch = _branchForPath(path);
     final child = widget.child;
     if (branch != null && child is StatefulNavigationShell) {
@@ -106,6 +112,10 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   }
 
   void _back() {
+    if (_showEqualizer) {
+      setState(() => _showEqualizer = false);
+      return;
+    }
     setState(() => _showMore = false);
     if (context.canPop()) {
       context.pop();
@@ -116,13 +126,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
 
   @override
   Widget build(BuildContext context) {
-    final player = ref.watch(
-      playbackServiceProvider.select((state) => (
-        current: state.current,
-        isPlaying: state.isPlaying,
-        isBuffering: state.isBuffering,
-      )),
-    );
+    final PlayerSnapshot player = ref.watch(playbackServiceProvider);
     final playback = ref.read(playbackServiceProvider.notifier);
 
     return LayoutBuilder(
@@ -153,7 +157,12 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                   child: Column(
                     children: [
                       if (nowPlaying)
-                        _NowPlayingToolbar(onBack: _back)
+                        _NowPlayingToolbar(
+                          onBack: _back,
+                          onEqualizer: () =>
+                              setState(() => _showEqualizer = true),
+                          showingEqualizer: _showEqualizer,
+                        )
                       else
                         _MobileToolbar(
                           title: _title,
@@ -166,18 +175,33 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                       Expanded(
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 150),
-                          child: _showMore && !nowPlaying
-                              ? _MorePage(
-                                  key: const ValueKey('mobile-more'),
-                                  onGo: _go,
+                          child: _showEqualizer && nowPlaying
+                              ? const WaveEqualizerPanel(
+                                  key: ValueKey('mobile-equalizer'),
+                                  embedded: true,
                                 )
-                              : KeyedSubtree(
-                                  key: ValueKey(widget.location),
-                                  child: widget.child,
-                                ),
+                              : _showMore && !nowPlaying
+                                  ? _MorePage(
+                                      key: const ValueKey('mobile-more'),
+                                      onGo: _go,
+                                    )
+                                  : KeyedSubtree(
+                                      key: ValueKey(widget.location),
+                                      child: widget.child,
+                                    ),
                         ),
                       ),
-                      if (!nowPlaying)
+                      if (nowPlaying)
+                        _MobileTransportDock(
+                          snapshot: player,
+                          onSeek: playback.seek,
+                          onPrevious: playback.previous,
+                          onToggle: playback.toggle,
+                          onNext: playback.next,
+                          onShuffle: playback.toggleShuffle,
+                          onRepeat: playback.cycleRepeat,
+                        )
+                      else
                         _MobileMiniPlayer(
                           current: player.current,
                           isPlaying: player.isPlaying,
@@ -271,18 +295,39 @@ class _MobileToolbar extends StatelessWidget {
 
 class _NowPlayingToolbar extends StatelessWidget {
   final VoidCallback onBack;
-  const _NowPlayingToolbar({required this.onBack});
+  final VoidCallback onEqualizer;
+  final bool showingEqualizer;
+
+  const _NowPlayingToolbar({
+    required this.onBack,
+    required this.onEqualizer,
+    required this.showingEqualizer,
+  });
 
   @override
-  Widget build(BuildContext context) => SizedBox(
+  Widget build(BuildContext context) => Container(
         height: 52,
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: _TouchIconButton(
-            icon: WaveIcons.back,
-            tooltip: 'Back',
-            onPressed: onBack,
-          ),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            _TouchIconButton(
+              icon: WaveIcons.back,
+              tooltip: showingEqualizer ? 'Back to Now Playing' : 'Back',
+              onPressed: onBack,
+            ),
+            Expanded(
+              child: Text(
+                showingEqualizer ? 'Equalizer' : 'Now Playing',
+                style: WaveType.trackTitle,
+              ),
+            ),
+            if (!showingEqualizer)
+              _TouchIconButton(
+                icon: WaveIcons.equalizer,
+                tooltip: 'Equalizer',
+                onPressed: onEqualizer,
+              ),
+          ],
         ),
       );
 }
@@ -501,6 +546,130 @@ class _PhoneTabContent extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _MobileTransportDock extends StatefulWidget {
+  final PlayerSnapshot snapshot;
+  final Future<void> Function(Duration) onSeek;
+  final Future<void> Function() onPrevious;
+  final Future<void> Function() onToggle;
+  final Future<void> Function() onNext;
+  final Future<void> Function() onShuffle;
+  final Future<void> Function() onRepeat;
+
+  const _MobileTransportDock({
+    required this.snapshot,
+    required this.onSeek,
+    required this.onPrevious,
+    required this.onToggle,
+    required this.onNext,
+    required this.onShuffle,
+    required this.onRepeat,
+  });
+
+  @override
+  State<_MobileTransportDock> createState() => _MobileTransportDockState();
+}
+
+class _MobileTransportDockState extends State<_MobileTransportDock> {
+  double? _dragMilliseconds;
+
+  String _time(Duration value) {
+    final minutes = value.inMinutes;
+    final seconds = (value.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final durationMs = widget.snapshot.duration.inMilliseconds;
+    final maxMs = durationMs > 0 ? durationMs.toDouble() : 1.0;
+    final positionMs = (_dragMilliseconds ??
+            widget.snapshot.position.inMilliseconds.toDouble())
+        .clamp(0.0, maxMs);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 3, 12, 8),
+      decoration: BoxDecoration(
+        color: waveSurface(context),
+        border: Border(top: BorderSide(color: waveDivider(context))),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Text(_time(Duration(milliseconds: positionMs.round())),
+                  style: WaveType.meta),
+              Expanded(
+                child: Slider(
+                  value: positionMs,
+                  min: 0,
+                  max: maxMs,
+                  onChanged: durationMs <= 0
+                      ? null
+                      : (value) => setState(() => _dragMilliseconds = value),
+                  onChangeEnd: durationMs <= 0
+                      ? null
+                      : (value) {
+                          setState(() => _dragMilliseconds = null);
+                          widget.onSeek(Duration(milliseconds: value.round()));
+                        },
+                ),
+              ),
+              Text(_time(widget.snapshot.duration), style: WaveType.meta),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _TouchIconButton(
+                icon: WaveIcons.shuffle,
+                tooltip: 'Shuffle',
+                selected: widget.snapshot.shuffleEnabled,
+                onPressed: widget.onShuffle,
+              ),
+              _TouchIconButton(
+                icon: WaveIcons.previous,
+                tooltip: 'Previous track',
+                onPressed: widget.onPrevious,
+              ),
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: waveTextPrimary(context),
+                  shape: BoxShape.circle,
+                ),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.onToggle,
+                  child: Icon(
+                    widget.snapshot.isPlaying
+                        ? WaveIcons.pause
+                        : WaveIcons.play,
+                    color: waveBackground(context),
+                    size: 23,
+                  ),
+                ),
+              ),
+              _TouchIconButton(
+                icon: WaveIcons.next,
+                tooltip: 'Next track',
+                onPressed: widget.onNext,
+              ),
+              _TouchIconButton(
+                icon: WaveIcons.repeat,
+                tooltip: 'Repeat mode',
+                selected: widget.snapshot.repeatMode.name != 'off',
+                onPressed: widget.onRepeat,
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
