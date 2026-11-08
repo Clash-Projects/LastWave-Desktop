@@ -71,6 +71,20 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
 
   String get _route => waveRoutePath(widget.location);
 
+  @override
+  void didUpdateWidget(WaveMobileShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.location != widget.location &&
+        (_showMore || _showEqualizer || _showQueue)) {
+      // Route changes can also come from deep links, browser callbacks, or
+      // the Now Playing stage. Never leave a stale overlay covering the
+      // destination page.
+      _showMore = false;
+      _showEqualizer = false;
+      _showQueue = false;
+    }
+  }
+
   String get _title {
     if (_showMore) return 'More';
     for (final destination in [..._tabletDestinations, ..._moreDestinations]) {
