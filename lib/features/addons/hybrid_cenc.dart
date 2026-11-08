@@ -337,7 +337,6 @@ void processTraf(
   final tfhdFlags = (_u32(buf, tfhd.contentStart + 1) >> 8) & 0xFFFFFF;
   var off = tfhd.contentStart + 8;
   int? baseDataOffset;
-  var defaultDuration = 0;
   var defaultSize = 0;
 
   if ((tfhdFlags & 0x000001) != 0) {
