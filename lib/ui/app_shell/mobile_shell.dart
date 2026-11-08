@@ -183,9 +183,8 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                     children: [
                       if (!nowPlaying)
                         _MobileToolbar(
-                          title: _title,
+                          tabletLayout: tablet,
                           showBack: _route != '/home' && _route != '/search',
-                          showSearch: tablet && _route != '/search',
                           onBack: _back,
                           onSearch: () => _go('/search'),
                           onMore: () => setState(() => _showMore = !_showMore),
@@ -270,17 +269,15 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
 }
 
 class _MobileToolbar extends StatelessWidget {
-  final String title;
+  final bool tabletLayout;
   final bool showBack;
-  final bool showSearch;
   final VoidCallback onBack;
   final VoidCallback onSearch;
   final VoidCallback onMore;
 
   const _MobileToolbar({
-    required this.title,
+    required this.tabletLayout,
     required this.showBack,
-    required this.showSearch,
     required this.onBack,
     required this.onSearch,
     required this.onMore,
@@ -303,23 +300,53 @@ class _MobileToolbar extends StatelessWidget {
               tooltip: 'Back',
               onPressed: onBack,
             ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 6),
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: WaveType.pageTitle.copyWith(fontSize: 22),
+          if (tabletLayout)
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onSearch,
+                child: Container(
+                  height: 40,
+                  margin: const EdgeInsets.symmetric(vertical: 7),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: waveSurfaceRaised(context),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: waveDivider(context)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        WaveIcons.search,
+                        size: 17,
+                        color: waveTextSecondary(context),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Search',
+                        style: WaveType.body.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
+            )
+          else ...[
+            const Icon(WaveIcons.visualizer, size: 24),
+            const SizedBox(width: 8),
+            Text(
+              'LastWave',
+              style: WaveType.sectionTitle.copyWith(fontSize: 18),
             ),
-          ),
-          if (showSearch)
+            const Spacer(),
             _TouchIconButton(
               icon: WaveIcons.search,
               tooltip: 'Search',
               onPressed: onSearch,
             ),
+          ],
           _TouchIconButton(
             icon: WaveIcons.more,
             tooltip: 'More',
