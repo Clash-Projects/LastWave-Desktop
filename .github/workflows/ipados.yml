@@ -68,19 +68,16 @@ jobs:
       - name: Static analysis
         run: flutter analyze
 
-      - name: Run tests (non-blocking temporarily)
+      # Tests remain visible in CI but do not prevent an unsigned IPA build.
+      - name: Run Flutter tests (non-blocking)
         id: flutter_tests
         continue-on-error: true
         run: flutter test --reporter expanded
 
-      - name: Report test failures without blocking the IPA build
+      - name: Report test failures
         if: steps.flutter_tests.outcome == 'failure'
         run: |
-          echo "::warning title=Flutter tests failed::The test suite reported failures. The unsigned iPadOS build will continue; review the Run tests step logs."
-      - name: List available Apple devices
-        run: |
-          flutter devices
-          xcrun simctl list devices available
+          echo "::warning title=Flutter tests failed::Some tests failed. Continuing with the unsigned iPadOS build; see the Run Flutter tests step for details."
 
       - name: Build unsigned iOS release
         run: flutter build ios --release --no-codesign
