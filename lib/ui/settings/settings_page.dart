@@ -70,10 +70,9 @@ const _waveSettingsSections = [
   ('about', 'About', FluentIcons.info),
 ];
 
-/// Keep desktop-only prototypes out of the iOS settings navigation.
-List<(String, String, IconData)> get _settingsSections => Platform.isIOS
-    ? _waveSettingsSections.where((section) => section.$1 != 'experimental').toList()
-    : _waveSettingsSections;
+/// Experimental settings remain available on mobile when their controls
+/// operate on the app itself (for example, the waveform seek bar).
+List<(String, String, IconData)> get _settingsSections => _waveSettingsSections;
 
 /// Fluent settings: left nav list + right form.
 ///
@@ -122,7 +121,6 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
 
   /// Opens the card's section, scrolls to it and outlines it for a moment.
   void _jump(SettingsSearchEntry entry) {
-    if (Platform.isIOS && entry.section == 'experimental') return;
     final switching = _section != entry.section;
     setState(() {
       _section = entry.section;
@@ -3715,7 +3713,9 @@ class _Experimental extends ConsumerWidget {
     return _Group(
       id: 'experimental.main',
       title: 'Experimental',
-      subtitle: 'Opt-in desktop prototypes',
+      subtitle: Platform.isIOS
+          ? 'Optional visual experiments supported by LastWave'
+          : 'Opt-in visual prototypes',
       child: Column(
         children: [
           _SwitchRow(
