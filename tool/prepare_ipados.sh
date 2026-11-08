@@ -16,6 +16,7 @@ if [[ ! -d ios ]]; then
     --platforms=ios \
     --org com.lastwave \
     --project-name lastwave \
+    --no-pub \
     .
 fi
 
