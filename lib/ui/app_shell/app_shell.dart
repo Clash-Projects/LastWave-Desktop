@@ -34,6 +34,7 @@ import '../../core/storage/prefs.dart';
 import '../../features/updates/update_service.dart';
 import 'command_palette.dart';
 import 'title_bar.dart';
+import 'mobile_shell.dart';
 import 'wave_hotkeys.dart';
 
 /// Rebuilt desktop shell — THIS IS A MUSIC PLAYER.
@@ -304,14 +305,15 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     // Global hotkeys → playback. Re-registers the window.dart bindings
     // with Riverpod-aware handlers (HotKeyManager stores per-identifier
     // handlers, so re-register overwrites the no-op placeholders).
-    _wireHotkeys();
-    // Truly global in-app shortcuts: HardwareKeyboard fires before focus
-    // dispatch, so Space/arrows can't be eaten by the focused button or
-    // list (see wave_hotkeys.dart).
-    HardwareKeyboard.instance.addHandler(_onGlobalKey);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkUpdatesOnLaunch();
-    });
+    if (!Platform.isIOS) {
+      _wireHotkeys();
+      // Desktop-only keyboard and OS hotkey integration.
+      HardwareKeyboard.instance.addHandler(_onGlobalKey);
+      _globalKeysRegistered = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkUpdatesOnLaunch();
+      });
+    }
   }
 
   /// OS-level hotkeys are background-only: the in-app global handler (§
@@ -479,9 +481,13 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     } catch (_) {}
   }
 
+  bool _globalKeysRegistered = false;
+
   @override
   void dispose() {
-    HardwareKeyboard.instance.removeHandler(_onGlobalKey);
+    if (_globalKeysRegistered) {
+      HardwareKeyboard.instance.removeHandler(_onGlobalKey);
+    }
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -771,6 +777,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
             View.of(context), say, TextDirection.ltr);
       }
     });
+
+    // iPhone and iPad use a separate touch-first shell. The desktop shell
+    // below remains unchanged for macOS/Windows/Linux.
+    if (Platform.isIOS) {
+      return WaveMobileShell(location: widget.location, child: widget.child);
+    }
     final active = waveActivePath(widget.location);
     // Responsive: rail collapses at canonical compact breakpoint (900),
     // never a permanent right panel.
