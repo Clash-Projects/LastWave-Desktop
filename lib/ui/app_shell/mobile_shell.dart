@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 
 import '../../core/audio/stream_models.dart';
+import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/player/player_state.dart';
 import '../../features/equalizer/equalizer_panel.dart';
@@ -12,6 +13,7 @@ import '../components/artwork.dart';
 import '../navigation/destinations.dart';
 import '../queue/queue_panel.dart';
 import '../components/buttons.dart' show LWVolumeSlider;
+import '../player_dock/player_dock.dart' show WaveTimeline;
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -159,6 +161,9 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
     final PlayerSnapshot player = ref.watch(playbackServiceProvider);
     final playback = ref.read(playbackServiceProvider.notifier);
     final output = ref.read(audioOutputProvider.notifier);
+    final wavySeekbar = ref.watch(
+      prefsProvider.select((prefs) => prefs.wavySeekbar),
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -252,6 +257,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                           onRepeat: playback.cycleRepeat,
                           onVolume: output.setVolume,
                           onMute: output.toggleMute,
+                          wavySeekbar: wavySeekbar,
                           onQueue: () => setState(() {
                             _showQueue = !_showQueue;
                             _showEqualizer = false;
@@ -614,6 +620,7 @@ class _MobileTransportDock extends StatelessWidget {
   final Future<void> Function() onRepeat;
   final Future<void> Function(double) onVolume;
   final Future<void> Function() onMute;
+  final bool wavySeekbar;
   final VoidCallback onQueue;
   final VoidCallback onEqualizer;
   final bool queueActive;
@@ -629,6 +636,7 @@ class _MobileTransportDock extends StatelessWidget {
     required this.onRepeat,
     required this.onVolume,
     required this.onMute,
+    required this.wavySeekbar,
     required this.onQueue,
     required this.onEqualizer,
     required this.queueActive,
@@ -667,21 +675,38 @@ class _MobileTransportDock extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: avp.ProgressBar(
-                  progress: snapshot.position,
-                  buffered: snapshot.buffered,
-                  total: hasDuration ? duration : const Duration(seconds: 1),
-                  onSeek: hasDuration ? onSeek : null,
-                  barHeight: 3,
-                  thumbRadius: hasDuration ? 5 : 0,
-                  thumbColor: waveTextPrimary(context),
-                  progressBarColor: waveTextPrimary(context),
-                  bufferedBarColor:
-                      waveTextSecondary(context).withValues(alpha: 0.22),
-                  baseBarColor:
-                      waveTextSecondary(context).withValues(alpha: 0.12),
-                  timeLabelLocation: avp.TimeLabelLocation.none,
-                ),
+                child: wavySeekbar
+                    ? WaveTimeline(
+                        progress: snapshot.position,
+                        buffered: snapshot.buffered,
+                        total: duration,
+                        showThumb: hasDuration,
+                        onSeek: hasDuration ? onSeek : null,
+                        baseColor:
+                            waveTextSecondary(context).withValues(alpha: 0.12),
+                        bufferedColor:
+                            waveTextSecondary(context).withValues(alpha: 0.18),
+                        progressColor: waveTextPrimary(context),
+                        thumbColor: waveTextPrimary(context),
+                        thumbGlowColor:
+                            waveAccent(context).withValues(alpha: 0.25),
+                      )
+                    : avp.ProgressBar(
+                        progress: snapshot.position,
+                        buffered: snapshot.buffered,
+                        total:
+                            hasDuration ? duration : const Duration(seconds: 1),
+                        onSeek: hasDuration ? onSeek : null,
+                        barHeight: 3,
+                        thumbRadius: hasDuration ? 5 : 0,
+                        thumbColor: waveTextPrimary(context),
+                        progressBarColor: waveTextPrimary(context),
+                        bufferedBarColor:
+                            waveTextSecondary(context).withValues(alpha: 0.22),
+                        baseBarColor:
+                            waveTextSecondary(context).withValues(alpha: 0.12),
+                        timeLabelLocation: avp.TimeLabelLocation.none,
+                      ),
               ),
               SizedBox(
                 width: 38,
