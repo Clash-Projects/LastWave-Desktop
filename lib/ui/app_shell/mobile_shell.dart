@@ -119,7 +119,9 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
     if (clean == '/artists' || clean.startsWith('/artist/')) return 5;
     if (clean == '/playlists' ||
         clean.startsWith('/ytplaylist/') ||
-        clean.startsWith('/spotifyplaylist/')) return 6;
+        clean.startsWith('/spotifyplaylist/')) {
+      return 6;
+    }
     if (clean == '/podcasts' || clean.startsWith('/podcasts/')) return 7;
     if (clean == '/downloads') return 8;
     return null;
@@ -1041,7 +1043,6 @@ class _MorePage extends StatelessWidget {
   final List<WaveDestination> destinations;
   final void Function(String) onGo;
   const _MorePage({
-    super.key,
     required this.destinations,
     required this.onGo,
   });
