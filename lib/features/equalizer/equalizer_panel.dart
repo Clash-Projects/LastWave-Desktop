@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -72,12 +74,14 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           // Header
           _buildHeader(context, dark, eq, notifier),
 
-          // Tab Selector: 10-Band EQ vs Studio Master Clarity
-          _buildTabSelector(context, dark, eq),
+          // Studio Clarity depends on optional FFmpeg filters that are not
+          // part of the supported iOS processing path. Keep the proven
+          // 10-band EQ as the focused mobile experience.
+          if (!Platform.isIOS) _buildTabSelector(context, dark, eq),
 
           // Content body
           Expanded(
-            child: _selectedTab == 0
+            child: Platform.isIOS || _selectedTab == 0
                 ? _build10BandView(context, dark, eq, notifier)
                 : _buildStudioClarityView(context, dark, eq, notifier),
           ),
@@ -93,7 +97,11 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     EqualizerNotifier notifier,
   ) {
     String statusSubtitle;
-    if (!eq.isProcessingActive) {
+    if (Platform.isIOS) {
+      statusSubtitle = eq.enabled
+          ? '${eq.presetName} · 10-band mobile EQ'
+          : 'Bypassed';
+    } else if (!eq.isProcessingActive) {
       statusSubtitle = 'Bypassed (Bit-Perfect output)';
     } else if (eq.studioClarityEnabled && eq.enabled) {
       statusSubtitle = 'Studio Clarity + ${eq.presetName}';
@@ -104,7 +112,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     }
 
     return Container(
-      height: WaveDensity.titleBar + 12,
+      height: Platform.isIOS ? 64 : WaveDensity.titleBar + 12,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         border: Border(
@@ -606,20 +614,37 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           color: waveDivider(context).withValues(alpha: dark ? 0.3 : 0.5),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          for (int i = 0; i < eqBandFreqsHz.length; i++)
-            _VerticalEqBand(
-              index: i,
-              freqHz: eqBandFreqsHz[i],
-              gainDb: gains[i],
-              enabled: eq.enabled,
-              dark: dark,
-              onChanged: (val) => notifier.setBandGain(i, val),
-              onReset: () => notifier.setBandGain(i, 0.0),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Ten vertical controls need real touch targets. On an iPhone or a
+          // narrow Split View window the rack scrolls horizontally instead
+          // of squeezing each slider into a mouse-sized strip.
+          final rackWidth = constraints.maxWidth < 520
+              ? 520.0
+              : constraints.maxWidth;
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: rackWidth,
+              child: Row(
+                children: [
+                  for (int i = 0; i < eqBandFreqsHz.length; i++)
+                    Expanded(
+                      child: _VerticalEqBand(
+                        index: i,
+                        freqHz: eqBandFreqsHz[i],
+                        gainDb: gains[i],
+                        enabled: eq.enabled,
+                        dark: dark,
+                        onChanged: (val) => notifier.setBandGain(i, val),
+                        onReset: () => notifier.setBandGain(i, 0.0),
+                      ),
+                    ),
+                ],
+              ),
             ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -630,14 +655,15 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     EqualizerState eq,
     EqualizerNotifier notifier,
   ) {
-    return Row(
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
         _QuickActionPill(
           label: 'Flat (0 dB)',
           onTap: notifier.reset,
           dark: dark,
         ),
-        const SizedBox(width: 6),
         _QuickActionPill(
           label: '+2 dB Bass',
           onTap: () async {
@@ -648,7 +674,6 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           },
           dark: dark,
         ),
-        const SizedBox(width: 6),
         _QuickActionPill(
           label: '+2 dB Treble',
           onTap: () async {
@@ -658,14 +683,6 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
             }
           },
           dark: dark,
-        ),
-        const Spacer(),
-        Text(
-          'Double-click band to zero',
-          style: WaveType.meta.copyWith(
-            fontSize: 10,
-            color: waveTextSecondary(context).withValues(alpha: 0.7),
-          ),
         ),
       ],
     );
@@ -801,7 +818,7 @@ class _VerticalEqBand extends StatelessWidget {
               onTapDown: (d) => _handleDrag(d.localPosition),
               onDoubleTap: onReset,
               child: SizedBox(
-                width: 32,
+                width: 44,
                 height: kTrackHeight,
                 child: Stack(
                   alignment: Alignment.center,
