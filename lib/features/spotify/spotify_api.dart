@@ -706,8 +706,9 @@ class SpotifyApi {
               (e) =>
                   e.toString().toLowerCase().contains('persistedquerynotfound'),
             );
-        if (stale && !retry)
+        if (stale && !retry) {
           return await _canvasViaQuery(trackUri, retry: true);
+        }
         return null;
       }
       final url = _text(_at(data, ['trackUnion', 'canvas', 'url']));
