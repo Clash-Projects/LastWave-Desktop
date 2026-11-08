@@ -315,7 +315,7 @@ class _Session {
         return;
       }
       if (_hybridPlan != null) {
-        await _runHybrid(_hybridPlan!);
+        await _runHybrid(_hybridPlan);
         return;
       }
       final plan =
