@@ -58,11 +58,12 @@ class WaveQueuePanel extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
-            child: Text('Queue',
-                style: WaveType.pageTitle.copyWith(fontSize: 18)),
-          ),
+          if (!embedded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
+              child: Text('Queue',
+                  style: WaveType.pageTitle.copyWith(fontSize: 18)),
+            ),
           if (current != null) ...[
             const SizedBox(height: 10),
             Padding(
