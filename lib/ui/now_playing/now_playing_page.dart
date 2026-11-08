@@ -410,7 +410,7 @@ class _TopActionsBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: _kTopBarHeight,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: EdgeInsets.symmetric(horizontal: Platform.isIOS ? 10 : 24),
       child: Row(
         children: [
           WaveGlass(
@@ -510,8 +510,8 @@ class _FsIconButtonState extends State<_FsIconButton> {
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: waveMotion(context, WaveMotion.fast),
-          width: 36,
-          height: 36,
+          width: Platform.isIOS ? 44 : 36,
+          height: Platform.isIOS ? 44 : 36,
           decoration: BoxDecoration(
             color: widget.active
                 ? accent.withValues(alpha: 0.15)
@@ -525,7 +525,7 @@ class _FsIconButtonState extends State<_FsIconButton> {
                   : Colors.transparent,
             ),
           ),
-          child: Center(child: Icon(widget.icon, size: 16, color: color)),
+          child: Center(child: Icon(widget.icon, size: Platform.isIOS ? 18 : 16, color: color)),
         ),
       ),
     );
