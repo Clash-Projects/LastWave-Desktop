@@ -1,0 +1,103 @@
+name: iPadOS unsigned build
+
+on:
+  push:
+    branches:
+      - codex/ipados-port-foundation
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ipados-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Analyze, test, and build unsigned iPadOS IPA
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.9
+          cache: true
+
+      - name: Inspect Apple toolchain
+        run: |
+          flutter doctor -v
+          xcodebuild -version
+          pod --version
+
+      - name: Prepare build-time secrets
+        shell: bash
+        env:
+          ADDON_CLIENT_SECRET: ${{ secrets.ADDON_CLIENT_SECRET }}
+          LYRICS_API_KEY: ${{ secrets.LYRICS_API_KEY }}
+        run: |
+          set -euo pipefail
+          : > .env
+          if [[ -n "${ADDON_CLIENT_SECRET:-}" ]]; then
+            printf 'ADDON_CLIENT_SECRET=%s\n' "$ADDON_CLIENT_SECRET" >> .env
+            echo "::add-mask::$ADDON_CLIENT_SECRET"
+          else
+            echo "::warning::ADDON_CLIENT_SECRET is not configured. The IPA can compile, but add-on authentication cannot be verified."
+          fi
+          if [[ -n "${LYRICS_API_KEY:-}" ]]; then
+            printf 'LYRICS_API_KEY=%s\n' "$LYRICS_API_KEY" >> .env
+            echo "::add-mask::$LYRICS_API_KEY"
+          fi
+          dart tool/obfuscate_secrets.dart
+          rm -f .env
+
+      - name: Generate and configure iPadOS host
+        run: bash tool/prepare_ipados.sh
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test --reporter expanded
+
+      - name: List available Apple devices
+        run: |
+          flutter devices
+          xcrun simctl list devices available
+
+      - name: Build unsigned iOS release
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [[ ! -d "$APP_PATH" ]]; then
+            echo "Expected application bundle was not produced: $APP_PATH" >&2
+            exit 1
+          fi
+          mkdir -p package/Payload
+          ditto "$APP_PATH" package/Payload/Runner.app
+          (cd package && /usr/bin/zip -qry ../LastWave-iPadOS-unsigned.ipa Payload)
+
+      - name: Upload IPA and generated iOS platform project
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-iPadOS-unsigned
+          path: |
+            LastWave-iPadOS-unsigned.ipa
+            ios/
+          if-no-files-found: error
+          retention-days: 14
