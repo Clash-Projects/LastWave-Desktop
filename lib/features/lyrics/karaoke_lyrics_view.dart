@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter_lyric/flutter_lyric.dart';
+import 'desktop_lyrics_painter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -130,7 +130,7 @@ class WaveKaraokeLyricsView extends ConsumerStatefulWidget {
 
 class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     with SingleTickerProviderStateMixin {
-  late final LyricController _lyricController;
+  final ValueNotifier<bool> _isSelectingNotifier = ValueNotifier<bool>(false);
   bool _following = true;
   late final Ticker _ticker;
   final ValueNotifier<int> _interpolatedPositionMs = ValueNotifier<int>(0);
@@ -159,19 +159,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   @override
   void initState() {
     super.initState();
-    _lyricController = LyricController();
-    _lyricController.setOnTapLineCallback((duration) {
-      final seekTargetMs = duration.inMilliseconds + _offsetMs;
-      ref
-          .read(playbackServiceProvider.notifier)
-          .seek(Duration(milliseconds: math.max(0, seekTargetMs)));
-      _lyricController.stopSelection();
-      if (!_following) {
-        setState(() => _following = true);
-      }
-    });
-
-    _lyricController.isSelectingNotifier.addListener(_onSelectingChanged);
+    _isSelectingNotifier.addListener(_onSelectingChanged);
     _ticker = createTicker(_onTick);
     // Subscribe without rebuilding: each emission only re-syncs the
     // interpolation clock (same math the in-build block used to run).
@@ -195,7 +183,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   }
 
   void _onSelectingChanged() {
-    final selecting = _lyricController.isSelectingNotifier.value;
+    final selecting = _isSelectingNotifier.value;
     if (selecting && _following) {
       setState(() => _following = false);
     } else if (!selecting && !_following) {
@@ -392,8 +380,8 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     _ticker.dispose();
     _interpolatedPositionMs.dispose();
     _activeLineIndex.dispose();
-    _lyricController.isSelectingNotifier.removeListener(_onSelectingChanged);
-    _lyricController.dispose();
+    _isSelectingNotifier.removeListener(_onSelectingChanged);
+    _isSelectingNotifier.dispose();
     super.dispose();
   }
 
@@ -402,15 +390,16 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       if (!_isEffectivelyActive || !_isPlaying) return;
       final now = DateTime.now();
       final nowMs = now.millisecondsSinceEpoch;
-      // Cap tick rate to ~60Hz (min 16ms between ticks).
-      // On 120Hz/144Hz/240Hz monitors, this cuts CPU usage drastically
-      // while remaining completely smooth for text wipe animation.
-      if (nowMs - _lastTickMs < 16) return;
+      // Adaptive tick rate: 60Hz (~16ms) for word-synced lyrics with active syllable wipe,
+      // and 20Hz (~50ms) for line-synced lyrics to drastically save CPU cycles.
+      final minInterval = (_currentResult?.isWordSynced == true) ? 16 : 50;
+      if (nowMs - _lastTickMs < minInterval) return;
       _lastTickMs = nowMs;
 
       final elapsed = now.difference(_lastSyncTime).inMilliseconds;
       final currentMs = _lastAudioMs + (elapsed * _speed).round() - _offsetMs;
       _interpolatedPositionMs.value = currentMs;
+
       if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
         final lineIndex = activeLyricLineIndex(
           _currentResult!.lines,
@@ -601,7 +590,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                   onShareSong: () => _shareSong(effectiveResult),
                   onToggleFollowing: () {
                     if (!_following) {
-                      _lyricController.stopSelection();
+                      _isSelectingNotifier.value = false;
                       setState(() => _following = true);
                     } else {
                       setState(() => _following = false);
@@ -706,7 +695,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                         },
                         onToggleFollowing: () {
                           if (!_following) {
-                            _lyricController.stopSelection();
+                            _isSelectingNotifier.value = false;
                             setState(() => _following = true);
                           } else {
                             setState(() => _following = false);
@@ -739,15 +728,17 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                             selected: _selectedLines,
                             onToggleSelect: _toggleShareLine,
                             onUserScroll: () {
-                              if (_following)
+                              if (_following) {
                                 setState(() => _following = false);
+                              }
                             },
                             onResume: () {
                               setState(() => _following = true);
                             },
                             onSeekLineMs: (lineMs) {
-                              if (!effectiveResult.isSynced || lineMs <= 0)
+                              if (!effectiveResult.isSynced || lineMs <= 0) {
                                 return;
+                              }
                               final seekTargetMs = lineMs + _offsetMs;
                               ref
                                   .read(playbackServiceProvider.notifier)
@@ -1329,10 +1320,18 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
       _cachedIdleStyle = widget.idleStyle;
       _cachedScaler = scaler;
       _idlePainter?.dispose();
+      final fade = _groupFade(widget.idleStyle, text);
+      final effectiveIdleStyle = fade.alpha < 1.0
+          ? fade.style.copyWith(
+              color: (fade.style.color ?? const Color(0xFFFFFFFF)).withValues(
+                alpha: (fade.style.color?.a ?? 1.0) * fade.alpha,
+              ),
+            )
+          : fade.style;
       _idlePainter = TextPainter(
         text: TextSpan(
           text: text,
-          style: _groupFade(widget.idleStyle, text).style,
+          style: effectiveIdleStyle,
         ),
         textDirection: textDirection,
         textScaler: scaler,
@@ -1420,7 +1419,6 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
             syllable: widget.syllable,
             initialPosMs: widget.initialPosMs,
             idlePainter: _idlePainter!,
-            idleAlpha: _groupFade(widget.idleStyle, text).alpha,
             activePainter: _activePainter!,
             featherPainters: _featherPainters,
             isRtl: widget.isRtl,
@@ -1440,7 +1438,6 @@ class _KaraokeSyllablePainter extends CustomPainter {
   final LyricSyllable syllable;
   final int initialPosMs;
   final TextPainter idlePainter;
-  final double idleAlpha;
   final TextPainter activePainter;
   final List<TextPainter> featherPainters;
   final bool isRtl;
@@ -1450,7 +1447,6 @@ class _KaraokeSyllablePainter extends CustomPainter {
     required this.syllable,
     required this.initialPosMs,
     required this.idlePainter,
-    required this.idleAlpha,
     required this.activePainter,
     required this.featherPainters,
     required this.isRtl,
@@ -1461,17 +1457,8 @@ class _KaraokeSyllablePainter extends CustomPainter {
     final pos = positionListenable?.value ?? initialPosMs;
     final progress = calculateSyllableProgress(syllable, pos);
 
-    // 1. Draw base idle text (faded as one group: see [_groupFade]).
-    if (idleAlpha < 1.0) {
-      canvas.saveLayer(
-        Offset.zero & size,
-        Paint()..color = Color.fromRGBO(0, 0, 0, idleAlpha),
-      );
-      idlePainter.paint(canvas, Offset.zero);
-      canvas.restore();
-    } else {
-      idlePainter.paint(canvas, Offset.zero);
-    }
+    // 1. Draw base idle text (alpha pre-baked into painter to avoid saveLayer GPU buffer overhead).
+    idlePainter.paint(canvas, Offset.zero);
 
     if (progress <= 0.0) return;
 
@@ -1516,7 +1503,6 @@ class _KaraokeSyllablePainter extends CustomPainter {
     return oldDelegate.positionListenable != positionListenable ||
         oldDelegate.syllable != syllable ||
         oldDelegate.idlePainter != idlePainter ||
-        oldDelegate.idleAlpha != idleAlpha ||
         oldDelegate.activePainter != activePainter ||
         oldDelegate.featherPainters != featherPainters ||
         oldDelegate.isRtl != isRtl;
@@ -2032,8 +2018,351 @@ class _ReturnToCurrentPill extends StatelessWidget {
   }
 }
 
+/// Pulsating 3-dot countdown indicator for instrumental solo breaks (>= 3.5s).
+class InstrumentalCountdownDots extends StatelessWidget {
+  final ValueListenable<int> positionListenable;
+  final int breakStartMs;
+  final int breakEndMs;
+
+  const InstrumentalCountdownDots({
+    super.key,
+    required this.positionListenable,
+    required this.breakStartMs,
+    required this.breakEndMs,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: positionListenable,
+      builder: (context, posMs, _) {
+        final totalDur = math.max(1, breakEndMs - breakStartMs);
+        final progress = ((posMs - breakStartMs) / totalDur).clamp(0.0, 1.0);
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20.0),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(3, (i) {
+                final threshold = (i + 1) / 4.0;
+                final isLit = progress >= threshold;
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 5.0),
+                  width: isLit ? 9.0 : 7.0,
+                  height: isLit ? 9.0 : 7.0,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: isLit ? 0.9 : 0.25),
+                    boxShadow: isLit
+                        ? [
+                            BoxShadow(
+                              color: Colors.white.withValues(alpha: 0.4),
+                              blurRadius: 6.0,
+                              spreadRadius: 1.0,
+                            ),
+                          ]
+                        : null,
+                  ),
+                );
+              }),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Stanza Block Layout Widget: Groups lines and subordinate background harmonies
+/// inside a cached RepaintBoundary with spatial duet staging.
+class DesktopStanzaWidget extends StatelessWidget {
+  final LyricStanza stanza;
+  final int activeLineTimeMs;
+  final ValueListenable<int> positionListenable;
+  final ParagraphLayoutCache layoutCache;
+  final TextStyle activeStyle;
+  final TextStyle activeUnsungStyle;
+  final TextStyle idleStyle;
+  final TextStyle backgroundStyle;
+  final bool selectMode;
+  final Set<int> selectedLines;
+  final ValueChanged<int> onToggleSelect;
+  final ValueChanged<int> onSeekLineMs;
+  final List<LyricLine> allLines;
+  final List<String?> translations;
+  final bool showTransliteration;
+  final bool isInstrumentalBreak;
+  final int breakStartMs;
+  final int breakEndMs;
+
+  const DesktopStanzaWidget({
+    super.key,
+    required this.stanza,
+    required this.activeLineTimeMs,
+    required this.positionListenable,
+    required this.layoutCache,
+    required this.activeStyle,
+    required this.activeUnsungStyle,
+    required this.idleStyle,
+    required this.backgroundStyle,
+    required this.selectMode,
+    required this.selectedLines,
+    required this.onToggleSelect,
+    required this.onSeekLineMs,
+    required this.allLines,
+    this.translations = const [],
+    this.showTransliteration = true,
+    this.isInstrumentalBreak = false,
+    this.breakStartMs = 0,
+    this.breakEndMs = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          vertical: DesktopLyricsTokens.lineSpacing / 2,
+          horizontal: DesktopLyricsTokens.inlinePadding,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (isInstrumentalBreak)
+              InstrumentalCountdownDots(
+                positionListenable: positionListenable,
+                breakStartMs: breakStartMs,
+                breakEndMs: breakEndMs,
+              ),
+            for (final group in stanza.groups)
+              _buildLineGroup(context, group),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLineGroup(BuildContext context, LyricLineGroup group) {
+    final isActive = group.leadLine.timeMs == activeLineTimeMs;
+    final leadIndex = allLines.indexOf(group.leadLine);
+    final isLeadSelected = leadIndex >= 0 && selectedLines.contains(leadIndex);
+
+    // Spatial Staging alignment mapping
+    final alignment = switch (group.role) {
+      VocalRole.duetRight => Alignment.centerRight,
+      VocalRole.unisonCenter => Alignment.center,
+      _ => Alignment.centerLeft,
+    };
+
+    final maxContainerWidth = MediaQuery.of(context).size.width * DesktopLyricsTokens.maxDuetWidthRatio;
+
+    return Align(
+      alignment: alignment,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: maxContainerWidth,
+        ),
+        child: Column(
+          crossAxisAlignment: switch (group.role) {
+            VocalRole.duetRight => CrossAxisAlignment.end,
+            VocalRole.unisonCenter => CrossAxisAlignment.center,
+            _ => CrossAxisAlignment.start,
+          },
+          children: [
+            // Lead Line
+            _buildTappableLine(
+              context: context,
+              index: leadIndex,
+              line: group.leadLine,
+              isSelected: isLeadSelected,
+              child: Column(
+                crossAxisAlignment: switch (group.role) {
+                  VocalRole.duetRight => CrossAxisAlignment.end,
+                  VocalRole.unisonCenter => CrossAxisAlignment.center,
+                  _ => CrossAxisAlignment.start,
+                },
+                children: [
+                  if (showTransliteration && group.leadLine.transliteration.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2.0),
+                      child: Text(
+                        group.leadLine.transliteration,
+                        style: idleStyle.copyWith(
+                          fontSize: idleStyle.fontSize! * 0.65,
+                          fontWeight: FontWeight.w500,
+                          color: idleStyle.color!.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                  _buildLeadLine(context, group.leadLine, isActive, maxContainerWidth),
+                  if (leadIndex >= 0 &&
+                      leadIndex < translations.length &&
+                      translations[leadIndex] != null &&
+                      translations[leadIndex]!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Text(
+                        translations[leadIndex]!,
+                        style: idleStyle.copyWith(
+                          fontSize: idleStyle.fontSize! * 0.70,
+                          fontWeight: FontWeight.normal,
+                          color: idleStyle.color!.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // Nested Sub-paragraph Background Harmonies (0.65x scale, 7.5px shift)
+            for (final bg in group.backgroundSublines)
+              _buildBackgroundSubline(context, bg, isActive, maxContainerWidth),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTappableLine({
+    required BuildContext context,
+    required int index,
+    required LyricLine line,
+    required bool isSelected,
+    required Widget child,
+  }) {
+    final tappable = selectMode || line.timeMs > 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3.0),
+      child: MouseRegion(
+        cursor: tappable ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: GestureDetector(
+          onTap: !tappable
+              ? null
+              : () {
+                  if (selectMode) {
+                    if (index >= 0) onToggleSelect(index);
+                  } else {
+                    onSeekLineMs(line.timeMs);
+                  }
+                },
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? waveAccent(context).withValues(alpha: 0.16)
+                  : const Color(0x00000000),
+              borderRadius: WaveRadius.artworkRadius,
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLeadLine(
+    BuildContext context,
+    LyricLine line,
+    bool isActive,
+    double maxWidth,
+  ) {
+    if (!isActive) {
+      return Text(
+        line.text,
+        style: idleStyle,
+        textAlign: switch (line.isRtl) {
+          true => TextAlign.right,
+          false => TextAlign.left,
+        },
+      );
+    }
+
+    final layout = layoutCache.getOrCreate(
+      line: line,
+      maxWidth: maxWidth,
+      activeStyle: activeStyle,
+      idleStyle: activeUnsungStyle,
+      isRtl: line.isRtl,
+    );
+
+    return CustomPaint(
+      size: Size(layout.width, layout.height),
+      painter: DesktopKaraokeLinePainter(
+        positionListenable: positionListenable,
+        line: line,
+        layout: layout,
+        highlightColor: Colors.white,
+        isRtl: line.isRtl,
+      ),
+    );
+  }
+
+  Widget _buildBackgroundSubline(
+    BuildContext context,
+    LyricLine bg,
+    bool isLeadActive,
+    double maxWidth,
+  ) {
+    final bgIndex = allLines.indexOf(bg);
+    final isBgSelected = bgIndex >= 0 && selectedLines.contains(bgIndex);
+    final isBgActive = bg.timeMs == activeLineTimeMs;
+
+    final subStyle = backgroundStyle.copyWith(
+      fontSize: (backgroundStyle.fontSize ?? 36.0) * DesktopLyricsTokens.backgroundVocalFontScale,
+      color: backgroundStyle.color!.withValues(alpha: isBgActive || isLeadActive ? 0.85 : 0.45),
+    );
+
+    return _buildTappableLine(
+      context: context,
+      index: bgIndex,
+      line: bg,
+      isSelected: isBgSelected,
+      child: Padding(
+        padding: const EdgeInsets.only(top: DesktopLyricsTokens.backgroundVocalStackShift),
+        child: isBgActive
+            ? CustomPaint(
+                size: Size(
+                  layoutCache
+                      .getOrCreate(
+                        line: bg,
+                        maxWidth: maxWidth,
+                        activeStyle: subStyle.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                        idleStyle: subStyle,
+                        isRtl: bg.isRtl,
+                      )
+                      .width,
+                  layoutCache
+                      .getOrCreate(
+                        line: bg,
+                        maxWidth: maxWidth,
+                        activeStyle: subStyle.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                        idleStyle: subStyle,
+                        isRtl: bg.isRtl,
+                      )
+                      .height,
+                ),
+                painter: DesktopKaraokeLinePainter(
+                  positionListenable: positionListenable,
+                  line: bg,
+                  layout: layoutCache.getOrCreate(
+                    line: bg,
+                    maxWidth: maxWidth,
+                    activeStyle: subStyle.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                    idleStyle: subStyle,
+                    isRtl: bg.isRtl,
+                  ),
+                  highlightColor: Colors.white,
+                  isRtl: bg.isRtl,
+                ),
+              )
+            : Text(bg.text, style: subStyle),
+      ),
+    );
+  }
+}
+
 /// Apple Music default lyrics: the whole current line is sharp and
-/// fully lit. Past and upcoming lines stay dim with a slight blur.
+/// fully lit via DesktopKaraokeLinePainter. Stanzas are grouped with
+/// nested background harmonies and spatial duet staging.
 class _AppleLineLyricsView extends StatefulWidget {
   final LyricsResult result;
   final List<String?> translations;
@@ -2075,6 +2404,27 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
   int _lastIndex = -1;
   bool _pinnedOpening = false;
+  Rect? _lastBounds;
+  ui.Shader? _cachedMaskShader;
+
+  ui.Shader _getMaskShader(Rect bounds) {
+    if (_lastBounds == bounds && _cachedMaskShader != null) {
+      return _cachedMaskShader!;
+    }
+    _lastBounds = bounds;
+    _cachedMaskShader = const LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.transparent,
+        Colors.black,
+        Colors.black,
+        Colors.transparent,
+      ],
+      stops: [0.0, 0.08, 0.88, 1.0],
+    ).createShader(bounds);
+    return _cachedMaskShader!;
+  }
 
   @override
   void initState() {
@@ -2166,7 +2516,8 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   void _scrollTo(int index, {bool animate = true}) {
     if (!_scroll.isAttached) return;
     if (index < 0) index = 0;
-    final alignment = lyricFollowAlignment(index, compact: widget.compact);
+    // 18% upper-third golden ratio focal anchor
+    final alignment = lyricFollowAlignment(index, compact: widget.compact, targetAnchor: 0.18);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       runGuarded('karaoke.scroll', () {
         if (!_scroll.isAttached || !mounted) return;
@@ -2174,8 +2525,8 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           _scroll.scrollTo(
             index: index,
             alignment: alignment,
-            duration: waveMotion(context, WaveMotion.normal),
-            curve: Curves.easeOutCubic,
+            duration: waveMotion(context, const Duration(milliseconds: 400)),
+            curve: const Cubic(0.41, 0.0, 0.12, 0.99), // Apple Music Spring scroll curve
           );
         } else {
           _scroll.jumpTo(index: index, alignment: alignment);
@@ -2200,6 +2551,9 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       widget.compact ? 12 : 28,
       widget.compact ? 80 : 120,
     );
+
+    final baseFontSize =
+        widget.fontSize ?? (widget.compact ? 28.0 : DesktopLyricsTokens.fontSizeBase);
 
     if (untimed) {
       return ShaderMask(
@@ -2226,6 +2580,10 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
             itemBuilder: (context, i) {
               final line = widget.result.lines[i];
               final canSeek = widget.result.isSynced && line.timeMs > 0;
+              final isBackground = (line.syllables.isNotEmpty && line.syllables.every((s) => s.isBackground)) ||
+                  (line.text.trim().startsWith('(') && line.text.trim().endsWith(')'));
+              final lineFontSize = isBackground ? (baseFontSize * 0.65) : baseFontSize;
+
               return _tappableLine(
                 index: i,
                 seekable: canSeek,
@@ -2236,11 +2594,12 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                   isActive: false,
                   isPast: false,
                   compact: widget.compact,
-                  fontSize: widget.fontSize,
+                  fontSize: lineFontSize,
                   showTransliteration: widget.showTransliteration,
                   translation: _translationAt(i),
                   karaoke: false,
                   softenIdle: false,
+                  blurSigma: 0.0,
                 ),
               );
             },
@@ -2258,90 +2617,111 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
         }
         return false;
       },
-      child: ValueListenableBuilder<int>(
-        valueListenable: widget.activeLineListenable,
-        builder: (context, active, _) {
-          return ScrollablePositionedList.builder(
-            itemScrollController: _scroll,
-            initialScrollIndex: initialActive > 0 ? initialActive : 0,
-            initialAlignment: lyricFollowAlignment(
-              initialActive > 0 ? initialActive : 0,
-              compact: widget.compact,
-            ),
-            itemCount: widget.result.lines.length,
-            padding: padding,
-            itemBuilder: (context, i) {
-              final line = widget.result.lines[i];
-              final isActive = i == active;
+      child: ScrollablePositionedList.builder(
+        itemScrollController: _scroll,
+        initialScrollIndex: initialActive > 0 ? initialActive : 0,
+        initialAlignment: lyricFollowAlignment(
+          initialActive > 0 ? initialActive : 0,
+          compact: widget.compact,
+          targetAnchor: 0.18,
+        ),
+        itemCount: widget.result.lines.length,
+        padding: padding,
+        itemBuilder: (context, i) {
+          final line = widget.result.lines[i];
 
-              // Apple Music-style progressive depth-of-field blur and gentle
-              // distance-based opacity attenuation when following:
-              // - Active line is sharp (blurSigma = 0.0, opacity = 1.0)
-              // - Upcoming lines progressively increase in Gaussian blur with
-              //   distance from the active line while staying visible across
-              //   the full viewport.
-              // - Past lines above the active line receive a stronger defocus.
+          // Instrumental solo break detection (>= 3.5s gap before line i)
+          final prevLine = i > 0 ? widget.result.lines[i - 1] : null;
+          final int prevEndMs = prevLine != null
+              ? (prevLine.timeMs + math.max<int>(prevLine.durationMs, 1000))
+              : 0;
+          final int gapMs = line.timeMs - prevEndMs;
+          final isBreak = gapMs >= 3500;
+
+          // Spatial Duet opposing alignment:
+          // Singer 1 (Left 72%), Singer 2 (Right 72%), Unison / Chorus (Center)
+          final text = line.text.trim();
+          final isDuetRight = line.agent == 'v2' ||
+              text.startsWith('Vocalist 2:') ||
+              text.startsWith('Singer 2:') ||
+              text.contains('[v2]');
+          final isUnison = (line.agent != null && line.agent!.contains('both')) ||
+              text.startsWith('Both:') ||
+              text.startsWith('Chorus:') ||
+              text.contains('[all]');
+          final alignment = isDuetRight
+              ? Alignment.centerRight
+              : (isUnison ? Alignment.center : Alignment.centerLeft);
+
+          // Background harmony subordination (0.65x font scale)
+          final isBackground = (line.syllables.isNotEmpty && line.syllables.every((s) => s.isBackground)) ||
+              (text.startsWith('(') && text.endsWith(')'));
+          final lineFontSize = isBackground ? (baseFontSize * 0.65) : baseFontSize;
+
+          final maxLineWidth = isUnison
+              ? double.infinity
+              : MediaQuery.of(context).size.width * DesktopLyricsTokens.maxDuetWidthRatio;
+
+          return ValueListenableBuilder<int>(
+            valueListenable: widget.activeLineListenable,
+            builder: (context, active, _) {
+              final isActive = i == active;
+              final isPast = active >= 0 && i < active;
+
+              // Distance-based opacity attenuation (0 blur = zero GPU blur overhead!)
               double lineOpacity = 1.0;
-              double blurSigma = 0.0;
-              if (widget.following && !isActive) {
+              if (widget.following && !isActive && !widget.selectMode) {
                 final refIndex = active >= 0 ? active : 0;
                 final dist = (i - refIndex).abs();
-                final isPastLine = active >= 0 && i < active;
-                if (isPastLine) {
-                  if (dist == 1) {
-                    lineOpacity = 0.85;
-                    blurSigma = 2.6;
-                  } else if (dist == 2) {
-                    lineOpacity = 0.72;
-                    blurSigma = 4.2;
-                  } else {
-                    lineOpacity = 0.60;
-                    blurSigma = 5.8;
-                  }
+                if (dist == 1) {
+                  lineOpacity = isPast ? 0.45 : 0.55;
+                } else if (dist == 2) {
+                  lineOpacity = isPast ? 0.35 : 0.42;
                 } else {
-                  if (dist == 0) {
-                    lineOpacity = 0.96;
-                    blurSigma = 0.0;
-                  } else if (dist == 1) {
-                    lineOpacity = 0.94;
-                    blurSigma = 0.7;
-                  } else if (dist == 2) {
-                    lineOpacity = 0.86;
-                    blurSigma = 1.6;
-                  } else if (dist == 3) {
-                    lineOpacity = 0.78;
-                    blurSigma = 2.8;
-                  } else if (dist == 4) {
-                    lineOpacity = 0.68;
-                    blurSigma = 4.4;
-                  } else {
-                    lineOpacity = 0.58;
-                    blurSigma = 6.0;
-                  }
+                  lineOpacity = DesktopLyricsTokens.inactiveOpacity; // 0.35
                 }
               }
+
+              final lineWidget = WaveKaraokeLyricLine(
+                line: line,
+                positionMs: 0,
+                positionListenable: isActive ? widget.positionListenable : null,
+                isActive: isActive,
+                isPast: isPast,
+                compact: widget.compact,
+                fontSize: lineFontSize,
+                showTransliteration: widget.showTransliteration,
+                translation: _translationAt(i),
+                karaoke: widget.result.isWordSynced,
+                softenIdle: true,
+                lineOpacity: widget.selectMode ? 1.0 : lineOpacity,
+                blurSigma: 0.0, // HARD ZERO to eliminate GPU ImageFilter.blur lag & RAM spike!
+              );
 
               return _tappableLine(
                 index: i,
                 seekable: true,
                 onSeek: () => widget.onSeekLineMs(line.timeMs),
-                child: WaveKaraokeLyricLine(
-                  line: line,
-                  positionMs: 0,
-                  positionListenable: isActive
-                      ? widget.positionListenable
-                      : null,
-                  isActive: isActive,
-                  isPast: active >= 0 && i < active,
-                  compact: widget.compact,
-                  fontSize: widget.fontSize,
-                  showTransliteration: widget.showTransliteration,
-                  translation: _translationAt(i),
-                  karaoke: widget.result.isWordSynced,
-                  softenIdle: true,
-                  // Every line stays sharp and lit while ticking lines.
-                  lineOpacity: widget.selectMode ? 1.0 : lineOpacity,
-                  blurSigma: widget.selectMode ? 0.0 : blurSigma,
+                child: Align(
+                  alignment: alignment,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxLineWidth),
+                    child: Column(
+                      crossAxisAlignment: isDuetRight
+                          ? CrossAxisAlignment.end
+                          : (isUnison ? CrossAxisAlignment.center : CrossAxisAlignment.start),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isBreak && isActive)
+                          InstrumentalCountdownDots(
+                            positionListenable: widget.positionListenable,
+                            breakStartMs: prevEndMs,
+                            breakEndMs: line.timeMs,
+                          ),
+                        lineWidget,
+                      ],
+                    ),
+                  ),
                 ),
               );
             },
@@ -2351,22 +2731,8 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     );
 
     final maskedList = ShaderMask(
-      shaderCallback: (Rect bounds) {
-        return const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.transparent,
-            Colors.black,
-            Colors.black,
-            Colors.transparent,
-          ],
-          stops: [0.0, 0.08, 0.88, 1.0],
-        ).createShader(bounds);
-      },
+      shaderCallback: _getMaskShader,
       blendMode: BlendMode.dstIn,
-      // The app-wide scrollbar flashes on every programmatic follow-scroll;
-      // lyrics are tap/wheel/drag driven, so it carries no information here.
       child: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: list,

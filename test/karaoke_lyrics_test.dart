@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/storage/prefs.dart';
+import 'package:lastwave_desktop/features/lyrics/desktop_lyrics_painter.dart';
 import 'package:lastwave_desktop/features/lyrics/karaoke_lyrics_view.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_models.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_repository.dart';
@@ -168,6 +169,65 @@ void main() {
 ''';
       final lines = parseLrc(lrc);
       expect(lines[0].durationMs, equals(400));
+    });
+
+    test('enhanced LRC keeps leading word before first timestamp tag', () {
+      const lrc = '[00:10.00]When <00:10.50>the <00:11.00>night';
+      final lines = parseLrc(lrc);
+      expect(lines.isNotEmpty, isTrue);
+      expect(lines.first.syllables.length, equals(3));
+      expect(lines.first.syllables[0].text, equals('When'));
+      expect(lines.first.syllables[0].timeMs, equals(10000));
+      expect(lines.first.syllables[1].text, equals('the'));
+      expect(lines.first.syllables[1].timeMs, equals(10500));
+      expect(lines.first.syllables[2].text, equals('night'));
+      expect(lines.first.syllables[2].timeMs, equals(11000));
+    });
+
+    test('TTML parses agent and preserves pre-span leading text', () {
+      const ttml = '''
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+  <body>
+    <div>
+      <p begin="00:01.00" end="00:05.00" ttm:agent="v2">Hello <span begin="00:01.50" end="00:02.00">world</span></p>
+    </div>
+  </body>
+</tt>
+''';
+      final lines = parseTtml(ttml);
+      expect(lines.length, equals(1));
+      expect(lines.first.agent, equals('v2'));
+      expect(lines.first.text, equals('Hello world'));
+      expect(lines.first.syllables.length, equals(2));
+      expect(lines.first.syllables.first.text.trim(), equals('Hello'));
+      expect(lines.first.syllables.first.timeMs, equals(1000));
+    });
+
+    test('assembleStanzas groups musical stanzas, duet roles, and nested background harmonies', () {
+      const lines = [
+        LyricLine(timeMs: 1000, durationMs: 1000, text: 'Lead line 1'),
+        LyricLine(timeMs: 2200, durationMs: 800, text: '(ooh yeah)'),
+        // Gap > 2500ms creates stanza break:
+        LyricLine(timeMs: 6000, durationMs: 1000, text: 'Duet line 2', agent: 'v2'),
+        LyricLine(timeMs: 7200, durationMs: 1000, text: 'Both: All together now'),
+      ];
+
+      final stanzas = assembleStanzas(lines);
+      expect(stanzas.length, equals(2));
+
+      // Stanza 1 has 1 group with 1 background subline
+      expect(stanzas[0].groups.length, equals(1));
+      expect(stanzas[0].groups[0].leadLine.text, equals('Lead line 1'));
+      expect(stanzas[0].groups[0].backgroundSublines.length, equals(1));
+      expect(stanzas[0].groups[0].backgroundSublines.first.text, equals('(ooh yeah)'));
+      expect(stanzas[0].groups[0].role, equals(VocalRole.leadLeft));
+
+      // Stanza 2 has 2 groups: duetRight and unisonCenter
+      expect(stanzas[1].groups.length, equals(2));
+      expect(stanzas[1].groups[0].leadLine.text, equals('Duet line 2'));
+      expect(stanzas[1].groups[0].role, equals(VocalRole.duetRight));
+      expect(stanzas[1].groups[1].leadLine.text, equals('Both: All together now'));
+      expect(stanzas[1].groups[1].role, equals(VocalRole.unisonCenter));
     });
   });
 
@@ -852,6 +912,126 @@ void main() {
 
       expect(activeBlurFinder, findsNothing);
       expect(inactiveBlurFinder, findsOneWidget);
+    });
+  });
+
+  group('Desktop Lyrics Skia GPU Canvas Engine & Layout Cache', () {
+    test('ParagraphLayoutCache caches and precomputes layout metrics', () {
+      final cache = ParagraphLayoutCache();
+      const line = LyricLine(
+        timeMs: 1000,
+        durationMs: 2000,
+        text: 'Save your tears for another day',
+        syllables: [
+          LyricSyllable(timeMs: 1000, durationMs: 400, text: 'Save '),
+          LyricSyllable(timeMs: 1400, durationMs: 300, text: 'your '),
+          LyricSyllable(timeMs: 1700, durationMs: 500, text: 'tears '),
+          LyricSyllable(timeMs: 2200, durationMs: 300, text: 'for '),
+          LyricSyllable(timeMs: 2500, durationMs: 300, text: 'another '),
+          LyricSyllable(timeMs: 2800, durationMs: 200, text: 'day'),
+        ],
+      );
+
+      const activeStyle = TextStyle(fontSize: 36.0, fontWeight: FontWeight.bold);
+      const idleStyle = TextStyle(fontSize: 36.0, fontWeight: FontWeight.normal);
+
+      final layout1 = cache.getOrCreate(
+        line: line,
+        maxWidth: 800,
+        activeStyle: activeStyle,
+        idleStyle: idleStyle,
+      );
+
+      expect(layout1.width, greaterThan(0));
+      expect(layout1.height, greaterThan(0));
+      expect(layout1.syllableOffsetsX.length, equals(7)); // 0.0 + 6 syllables
+      expect(layout1.syllableOffsetsX.first, equals(0.0));
+      expect(layout1.syllableOffsetsX.last, greaterThan(layout1.syllableOffsetsX.first));
+
+      // Same object returned from cache:
+      final layout2 = cache.getOrCreate(
+        line: line,
+        maxWidth: 800,
+        activeStyle: activeStyle,
+        idleStyle: idleStyle,
+      );
+      expect(identical(layout1, layout2), isTrue);
+
+      cache.clear();
+      final layout3 = cache.getOrCreate(
+        line: line,
+        maxWidth: 800,
+        activeStyle: activeStyle,
+        idleStyle: idleStyle,
+      );
+      expect(identical(layout1, layout3), isFalse);
+    });
+
+    testWidgets('DesktopStanzaWidget renders spatial duet staging and nested background vocals', (tester) async {
+      final cache = ParagraphLayoutCache();
+      final posNotifier = ValueNotifier<int>(1200);
+      addTearDown(posNotifier.dispose);
+
+      const stanza = LyricStanza(
+        timeMs: 1000,
+        durationMs: 4000,
+        groups: [
+          LyricLineGroup(
+            leadLine: LyricLine(timeMs: 1000, durationMs: 2000, text: 'Lead line singing'),
+            backgroundSublines: [
+              LyricLine(timeMs: 1800, durationMs: 1000, text: '(backing harmony)'),
+            ],
+            role: VocalRole.leadLeft,
+          ),
+          LyricLineGroup(
+            leadLine: LyricLine(timeMs: 3000, durationMs: 2000, text: 'Duet partner replying'),
+            role: VocalRole.duetRight,
+          ),
+        ],
+      );
+
+      const activeStyle = TextStyle(fontSize: 36.0, fontWeight: FontWeight.bold, color: Colors.white);
+      const activeUnsungStyle = TextStyle(fontSize: 36.0, fontWeight: FontWeight.bold, color: Color(0x60FFFFFF));
+      const idleStyle = TextStyle(fontSize: 34.0, fontWeight: FontWeight.normal, color: Color(0x60FFFFFF));
+      const backgroundStyle = TextStyle(fontSize: 36.0, fontWeight: FontWeight.normal, color: Color(0x60FFFFFF));
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: FluentThemeData.dark(),
+          home: ScaffoldPage(
+            content: DesktopStanzaWidget(
+              stanza: stanza,
+              activeLineTimeMs: 1000,
+              positionListenable: posNotifier,
+              layoutCache: cache,
+              activeStyle: activeStyle,
+              activeUnsungStyle: activeUnsungStyle,
+              idleStyle: idleStyle,
+              backgroundStyle: backgroundStyle,
+              selectMode: false,
+              selectedLines: const {},
+              onToggleSelect: (_) {},
+              onSeekLineMs: (_) {},
+              allLines: const [
+                LyricLine(timeMs: 1000, durationMs: 2000, text: 'Lead line singing'),
+                LyricLine(timeMs: 1800, durationMs: 1000, text: '(backing harmony)'),
+                LyricLine(timeMs: 3000, durationMs: 2000, text: 'Duet partner replying'),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Active lead line renders via CustomPaint (DesktopKaraokeLinePainter)
+      final painterFinder = find.byType(CustomPaint);
+      expect(painterFinder, findsWidgets);
+
+      // Backing harmony is present as subordinate text under lead line
+      expect(find.text('(backing harmony)'), findsOneWidget);
+
+      // Duet line is present as text with right alignment
+      expect(find.text('Duet partner replying'), findsOneWidget);
     });
   });
 }
