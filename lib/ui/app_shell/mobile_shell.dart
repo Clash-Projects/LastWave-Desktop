@@ -6,7 +6,6 @@ import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
-import '../../features/player/player_state.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../components/artwork.dart';
@@ -589,8 +588,6 @@ class _MobileTransportDock extends ConsumerWidget {
   final bool equalizerActive;
   final VoidCallback onQueue;
   final VoidCallback onEqualizer;
-  final bool queueActive;
-  final bool equalizerActive;
 
   const _MobileTransportDock({
     required this.onQueue,
@@ -669,7 +666,7 @@ class _MobileTransportDock extends ConsumerWidget {
                         buffered: snapshot.buffered,
                         total:
                             hasDuration ? duration : const Duration(seconds: 1),
-                        onSeek: hasDuration ? onSeek : null,
+                        onSeek: hasDuration ? playback.seek : null,
                         barHeight: 3,
                         thumbRadius: hasDuration ? 5 : 0,
                         thumbColor: waveTextPrimary(context),
