@@ -379,10 +379,10 @@ void processTraf(
 
     var pos = base + (dataOffset ?? 0);
     for (var i = 0; i < count; i++) {
-      var sampleDuration = defaultDuration;
       var sampleSize = defaultSize;
       if ((trunFlags & 0x000100) != 0) {
-        sampleDuration = _u32(buf, toff);
+        // Duration is not needed for segment assembly, but the field must
+        // still be consumed to keep the remaining sample fields aligned.
         toff += 4;
       }
       if ((trunFlags & 0x000200) != 0) {
