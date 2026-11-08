@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -134,21 +135,18 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
       try {
         ref.read(audioOutputProvider.notifier).attach();
       } catch (_) {}
-      try {
-        // Discord Rich Presence: own block so an audio failure above can
-        // never skip it; never throws (Discord closed degrades to silence).
-        ref.read(discordPresenceProvider).startup();
-      } catch (_) {}
-      try {
-        // MPRIS (Linux): exposes now-playing + transport on the session
-        // bus for bars, playerctl and media keys. No-op elsewhere.
-        ref.read(mprisProvider).startup();
-      } catch (_) {}
-      try {
-        // SMTC (Windows): volume flyout, lock screen, Bluetooth and
-        // hardware media keys. No-op elsewhere.
-        ref.read(smtcProvider).startup();
-      } catch (_) {}
+      if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
+        try {
+          // Desktop Discord Rich Presence; never blocks audio startup.
+          ref.read(discordPresenceProvider).startup();
+        } catch (_) {}
+        try {
+          ref.read(mprisProvider).startup();
+        } catch (_) {}
+        try {
+          ref.read(smtcProvider).startup();
+        } catch (_) {}
+      }
       Future<void>.delayed(const Duration(seconds: 20), () {
         try {
           if (ref.read(prefsProvider).disablePoToken) return;
@@ -168,14 +166,16 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(
-        themeControllerProvider.select(
-            (t) => (t.effectiveLight, t.amoled, t.customSurfaces?.background)),
-        (_, mode) => applyWindowMaterial(
-              isLight: mode.$1,
-              amoled: mode.$2,
-              background: mode.$3,
-            ));
+    if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
+      ref.listen(
+          themeControllerProvider.select(
+              (t) => (t.effectiveLight, t.amoled, t.customSurfaces?.background)),
+          (_, mode) => applyWindowMaterial(
+                isLight: mode.$1,
+                amoled: mode.$2,
+                background: mode.$3,
+              ));
+    }
     // Live auth state drives the gate (login, logout, guest entry,
     // session expiry). Guests count as inside.
     ref.listen(
