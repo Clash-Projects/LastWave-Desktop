@@ -346,7 +346,8 @@ void processTraf(
   }
   if ((tfhdFlags & 0x000002) != 0) off += 4;
   if ((tfhdFlags & 0x000008) != 0) {
-    defaultDuration = _u32(buf, off);
+    // Consume the optional default duration; segment assembly uses sizes,
+    // not timing information.
     off += 4;
   }
   if ((tfhdFlags & 0x000010) != 0) {
