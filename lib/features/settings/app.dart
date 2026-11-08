@@ -68,10 +68,14 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     // lastwave:// links: the launch link once the first frame is up, and
     // links forwarded by a second launch while running.
     _linkSub = DeepLinks.stream.listen(_openLink);
-    final launchLink = DeepLinks.takeInitial();
-    if (launchLink != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openLink(launchLink));
-    }
+    unawaited(
+      DeepLinks.takeInitialAsync().then((launchLink) {
+        if (launchLink == null || !mounted) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _openLink(launchLink);
+        });
+      }).catchError((_) {}),
+    );
     // Warm start (non-blocking, best-effort): create the single
     // persistent media_kit/libmpv player. BotGuard pre-warms once on a
     // delay (single hidden window, reused for app lifetime): this moves
