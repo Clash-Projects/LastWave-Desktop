@@ -146,6 +146,7 @@ import AVFoundation
 import Flutter
 import MediaPlayer
 import UIKit
+import UniformTypeIdentifiers
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -164,6 +165,12 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+
+    let dropRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "LastWaveFileDropBridge")
+    dropRegistrar.register(
+      LastWaveFileDropViewFactory(messenger: dropRegistrar.messenger()),
+      withId: "com.lastwave/file-drop"
+    )
 
     let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LastWaveAudioBridge")
     let channel = FlutterMethodChannel(
@@ -380,6 +387,181 @@ import UIKit
       NotificationCenter.default.removeObserver(observer)
     }
     artworkTask?.cancel()
+  }
+}
+
+/// Full-surface iPadOS file drop target. File providers are copied into
+/// app-owned temporary storage while their security-scoped transfer URL is
+/// still valid; only the resulting local paths cross the Flutter channel.
+private final class LastWaveFileDropViewFactory: NSObject, FlutterPlatformViewFactory {
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    LastWaveFileDropView(
+      frame: frame,
+      viewIdentifier: viewId,
+      binaryMessenger: messenger
+    )
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+private final class LastWaveFileDropView: NSObject, FlutterPlatformView, UIDropInteractionDelegate {
+  private static let allowedExtensions: Set<String> = [
+    "mp3", "flac", "m4a", "mp4", "ogg", "opus", "wav", "webm"
+  ]
+
+  private let nativeView: UIView
+  private let channel: FlutterMethodChannel
+
+  init(
+    frame: CGRect,
+    viewIdentifier viewId: Int64,
+    binaryMessenger messenger: FlutterBinaryMessenger
+  ) {
+    nativeView = UIView(frame: frame)
+    channel = FlutterMethodChannel(
+      name: "com.lastwave/file-drop/\(viewId)",
+      binaryMessenger: messenger
+    )
+    super.init()
+    nativeView.backgroundColor = .clear
+    nativeView.isOpaque = false
+    nativeView.addInteraction(UIDropInteraction(delegate: self))
+  }
+
+  func view() -> UIView {
+    nativeView
+  }
+
+  private func send(_ method: String, arguments: Any? = nil) {
+    DispatchQueue.main.async {
+      self.channel.invokeMethod(method, arguments: arguments)
+    }
+  }
+
+  private func fileTypeIdentifier(for provider: NSItemProvider) -> String? {
+    let suggestedExtension = URL(
+      fileURLWithPath: provider.suggestedName ?? ""
+    ).pathExtension.lowercased()
+
+    for identifier in provider.registeredTypeIdentifiers {
+      guard let type = UTType(identifier) else { continue }
+      let extensionName = type.preferredFilenameExtension?.lowercased() ?? ""
+      if Self.allowedExtensions.contains(extensionName) || type.conforms(to: .audio) {
+        return identifier
+      }
+    }
+
+    if Self.allowedExtensions.contains(suggestedExtension) {
+      return provider.registeredTypeIdentifiers.first(where: { identifier in
+        guard let type = UTType(identifier) else { return false }
+        return type.conforms(to: .item) || type.conforms(to: .content)
+      })
+    }
+    return nil
+  }
+
+  private func copyToAppStorage(
+    sourceURL: URL,
+    provider: NSItemProvider,
+    typeIdentifier: String
+  ) -> String? {
+    let suggestedName = provider.suggestedName ?? sourceURL.lastPathComponent
+    let suggestedExtension = URL(fileURLWithPath: suggestedName).pathExtension.lowercased()
+    let sourceExtension = sourceURL.pathExtension.lowercased()
+    let typeExtension = UTType(typeIdentifier)?.preferredFilenameExtension?.lowercased() ?? ""
+    let fileExtension = [sourceExtension, suggestedExtension, typeExtension]
+      .first(where: { Self.allowedExtensions.contains($0) })
+
+    guard let fileExtension = fileExtension else { return nil }
+
+    let baseName = URL(fileURLWithPath: suggestedName)
+      .deletingPathExtension()
+      .lastPathComponent
+    let safeBaseName = baseName
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: ":", with: "_")
+      .replacingOccurrences(of: "\\", with: "_")
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("lastwave-imports", isDirectory: true)
+    let destination = directory.appendingPathComponent(
+      "\(UUID().uuidString)-\(safeBaseName).\(fileExtension)"
+    )
+
+    do {
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+      )
+      try FileManager.default.copyItem(at: sourceURL, to: destination)
+      return destination.path
+    } catch {
+      NSLog("LastWave: dropped file copy failed (%@)", String(describing: error))
+      return nil
+    }
+  }
+
+  func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+    session.items.contains { fileTypeIdentifier(for: $0.itemProvider) != nil }
+  }
+
+  func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnter session: UIDropSession) {
+    send("dragEntered")
+  }
+
+  func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
+    send("dragExited")
+  }
+
+  func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+    UIDropProposal(operation: .copy)
+  }
+
+  func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+    let providers: [(NSItemProvider, String)] = session.items.compactMap { item in
+      guard let identifier = fileTypeIdentifier(for: item.itemProvider) else {
+        return nil
+      }
+      return (item.itemProvider, identifier)
+    }
+
+    let group = DispatchGroup()
+    let lock = NSLock()
+    var copiedPaths: [String] = []
+
+    for (provider, identifier) in providers {
+      group.enter()
+      provider.loadFileRepresentation(forTypeIdentifier: identifier) { [weak self] url, error in
+        defer { group.leave() }
+        guard let self = self, error == nil, let url = url else { return }
+        guard let path = self.copyToAppStorage(
+          sourceURL: url,
+          provider: provider,
+          typeIdentifier: identifier
+        ) else { return }
+        lock.lock()
+        copiedPaths.append(path)
+        lock.unlock()
+      }
+    }
+
+    group.notify(queue: .main) { [weak self] in
+      guard let self = self else { return }
+      self.channel.invokeMethod("filesDropped", arguments: copiedPaths)
+    }
   }
 }
 SWIFT
