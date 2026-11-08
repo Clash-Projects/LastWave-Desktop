@@ -19,6 +19,16 @@ if [[ ! -d ios ]]; then
     .
 fi
 
+# flutter create emits a generic starter test when the repository has no
+# starter widget_test.dart. It targets MyApp in lib/main.dart, which LastWave
+# does not define. Delete only that exact generated template, never project tests.
+STARTER_TEST="test/widget_test.dart"
+if [[ -f "$STARTER_TEST" ]] && \
+   grep -q "package:lastwave/main.dart" "$STARTER_TEST" && \
+   grep -q "MyApp" "$STARTER_TEST"; then
+  rm "$STARTER_TEST"
+fi
+
 PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
 INFO_PLIST="ios/Runner/Info.plist"
 if [[ ! -f "$PBXPROJ" || ! -f "$INFO_PLIST" ]]; then
