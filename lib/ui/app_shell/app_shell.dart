@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../app/window.dart';
 import '../../core/audio/stream_models.dart';
@@ -702,7 +703,393 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       final base = path
           .split(Platform.pathSeparator)
           .last
-          .replaceAll(RegExp(r'\.\w+$'), '');
+          .replaceAll(RegExp(r'\.\w+
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    ref.watch(podcastProgressCoordinatorProvider);
+    // Screen-reader announcements for state changes with no focus change:
+    // a new track starting, and play/pause (e.g. from the media keys).
+    ref.listen(playbackServiceProvider, (prev, next) {
+      String? say;
+      if (next.current != null &&
+          next.current?.queueKey != prev?.current?.queueKey) {
+        say = 'Now playing ${next.current!.title} by ${next.current!.artist}';
+      } else if (next.current != null &&
+          prev != null &&
+          next.isPlaying != prev.isPlaying) {
+        say = next.isPlaying ? 'Playing' : 'Paused';
+      }
+      if (say != null) {
+        SemanticsService.sendAnnouncement(
+            View.of(context), say, TextDirection.ltr);
+      }
+    });
+    final active = waveActivePath(widget.location);
+    // Responsive: rail collapses at canonical compact breakpoint (900),
+    // never a permanent right panel.
+    final collapsed = width < 900 ? true : !_railExpanded;
+    final routePath = waveRoutePath(widget.location);
+    final isNowPlaying = routePath.startsWith('/now');
+    final immersive =
+        ref.watch(nowPlayingImmersiveProvider) && isNowPlaying;
+    // Immersive only lives on Now Playing: leaving the route resets it.
+    if (!isNowPlaying && ref.read(nowPlayingImmersiveProvider)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(nowPlayingImmersiveProvider.notifier).state = false;
+        }
+      });
+    }
+    // F11 from another page: Now Playing has arrived, finish the job.
+    final pendingAt = _pendingImmersiveAt;
+    if (pendingAt != null && isNowPlaying) {
+      _pendingImmersiveAt = null;
+      if (DateTime.now().difference(pendingAt) <
+          const Duration(seconds: 3)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ref.read(nowPlayingImmersiveProvider.notifier).state = true;
+          }
+        });
+      }
+    }
+    ref.listen<bool>(nowPlayingImmersiveProvider, (prev, next) {
+      if (next) {
+        setState(() {
+          _queueOpen = false;
+          _equalizerOpen = false;
+          _canvasOpen = false;
+          _railExpanded = false;
+        });
+      }
+      () async {
+        try {
+          await windowManager.setFullScreen(next);
+        } catch (_) {}
+      }();
+    });
+
+    // Snapshot for the focus-independent Esc chain (the global
+    // HardwareKeyboard handler reads these fields).
+    _lastCollapsed = collapsed;
+    _lastIsNowPlaying = isNowPlaying;
+
+    if (_miniOpen) {
+      return Mica(
+        backgroundColor: waveBackground(context),
+        child: WaveMiniPlayer(
+          onClose: () => _exitMiniPlayer(),
+          onExpand: () => _exitMiniPlayer(expand: true),
+        ),
+      );
+    }
+
+    // NOTE: no CallbackShortcuts / Focus(onKeyEvent) wrapper here on
+    // purpose. Those only fire via focus-bubbling, so focused buttons and
+    // lists ate Space/arrows before the shell saw them. All app-wide keys
+    // live in the HardwareKeyboard handler (see initState/_onGlobalKey +
+    // wave_hotkeys.dart), which runs before focus dispatch and works from
+    // anywhere. Enter is deliberately left to focused controls.
+    return Mica(
+      backgroundColor: waveBackground(context),
+      // Single pointer observer for the whole chrome. Route
+      // transitions anchor at wherever the user last released the
+      // pointer (see WaveRouteOrigin): one Listener here beats a global
+      // key per card, translucent keeps it out of the hit-test verdict,
+      // and pointer-up is dispatched before the gesture arena resolves
+      // the tap, so the anchor is always in place for the navigation it
+      // caused.
+      child: Focus(
+        // Arrow-key guard, NOT a shortcut layer (see NOTE above): the global
+        // handler already seeked / changed volume, but the key still reaches
+        // the focus tree, where WidgetsApp's directional-focus shortcut moves
+        // focus to the next button. Swallow exactly the keys it acts on.
+        canRequestFocus: false,
+        skipTraversal: true,
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+            return KeyEventResult.ignored;
+          }
+          final k = event.logicalKey;
+          final vertical = k == LogicalKeyboardKey.arrowUp ||
+              k == LogicalKeyboardKey.arrowDown;
+          if (k != LogicalKeyboardKey.arrowLeft &&
+              k != LogicalKeyboardKey.arrowRight &&
+              !vertical) {
+            return KeyEventResult.ignored;
+          }
+          // Up/Down are volume only outside nav scopes (menus, tables).
+          if (vertical && waveNavScopeOwnsUpDown()) {
+            return KeyEventResult.ignored;
+          }
+          final hk = HardwareKeyboard.instance;
+          if (hk.isControlPressed || hk.isAltPressed || hk.isMetaPressed) {
+            return KeyEventResult.ignored;
+          }
+          if (waveIsTypingFocused(_searchFocus) ||
+              ref.read(playbackServiceProvider).current == null) {
+            return KeyEventResult.ignored;
+          }
+          return KeyEventResult.handled;
+        },
+        child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerUp: (event) => WaveRouteOrigin.record(event.position),
+        onPointerDown: (event) {
+          if (event.kind != PointerDeviceKind.mouse) return;
+          if (event.buttons & kBackMouseButton != 0) {
+            _goBack();
+          } else if (event.buttons & kForwardMouseButton != 0) {
+            _goForward();
+          }
+        },
+        child: Column(
+          children: [
+            if (!immersive) ...[
+              _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
+              const WaveInfoBarHost(),
+            ],
+            // Overlay rail: the content below keeps full width and the
+            // rail floats above its left edge (60 collapsed, 200
+            // expanded). Toggling used to reflow the whole window, so
+            // every animation frame re-laid-out every page + panel.
+            // Now constraints stay constant during the animation and
+            // only the tiny rail subtree lays out per tick.
+            Expanded(
+              child: Column(
+                children: [
+                  Expanded(
+                    child: DropTarget(
+                      acceptedKinds: const {DropItemKind.file},
+                      onEnter: (_) => setState(() => _draggingFiles = true),
+                      onLeave: () => setState(() => _draggingFiles = false),
+                      onDrop: (details) async {
+                        setState(() => _draggingFiles = false);
+                        try {
+                          final paths = await _pathsFromDrop(details);
+                          await _dropFiles(paths);
+                        } catch (_) {
+                          if (mounted) {
+                            setState(() => _draggingFiles = false);
+                          }
+                        }
+                      },
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final qw = (constraints.maxWidth * 0.9)
+                              .clamp(280.0, 360.0)
+                              .toDouble();
+                          final ew = (constraints.maxWidth * 0.52)
+                              .clamp(440.0, 560.0)
+                              .toDouble();
+
+                          final railW = immersive
+                              ? 0.0
+                              : (collapsed
+                                  ? WaveDensity.railCollapsed
+                                  : WaveDensity.railExpanded);
+                          // Exact 9:16 from the content height; the page
+                          // keeps its minimum width.
+                          final cw = canvasPanelWidth(
+                            height: constraints.maxHeight,
+                            available: constraints.maxWidth - railW,
+                          );
+
+                          return Stack(
+                            children: [
+                              // Page reserves the collapsed rail
+                              // strip; the rail floats above it.
+                              // Side panels (queue / equalizer) dock
+                              // beside the page instead of covering it,
+                              // so the page re-lays out to the space
+                              // left and stays fully usable.
+                              AnimatedPositioned(
+                                duration: waveMotion(
+                                  context,
+                                  WaveMotion.normal,
+                                ),
+                                curve: Curves.easeOutCubic,
+                                // The expanded rail is the collapsed
+                                // rail grown wider: the page makes room
+                                // for it and it stays until toggled off.
+                                left: railW,
+                                top: 0,
+                                bottom: 0,
+                                // Queue / equalizer overlay the page (they
+                                // do not push it); only Canvas docks.
+                                right: _canvasOpen ? cw : 0,
+                                child: widget.child,
+                              ),
+                              // Canvas — docks on the right edge and pushes
+                              // the page. Queue / equalizer are painted
+                              // after it, so they overlay it.
+                              AnimatedPositioned(
+                                duration: waveMotion(
+                                  context,
+                                  WaveMotion.normal,
+                                ),
+                                curve: Curves.easeOutCubic,
+                                top: 0,
+                                bottom: 0,
+                                right: _canvasOpen ? 0 : -(cw + 12),
+                                width: cw,
+                                child: ExcludeFocus(
+                                  excluding: !_canvasOpen,
+                                  child: IgnorePointer(
+                                    ignoring: !_canvasOpen,
+                                    child: Offstage(
+                                      offstage: !_canvasOpen,
+                                      child: WaveCanvasPanel(
+                                        open: _canvasOpen,
+                                        onClose: _closeCanvas,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Rail: one solid strip, 60px collapsed /
+                              // 200px expanded.
+                              if (!immersive)
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  child: WaveSideRail(
+                                    expanded: !collapsed,
+                                    active: active,
+                                    onGo: _go,
+                                  ),
+                                ),
+                              if (_draggingFiles)
+                                Positioned.fill(
+                                  child: Container(
+                                    color: Colors.black.withValues(alpha: 0.4),
+                                    child: const Center(
+                                      child: Text(
+                                        'Drop audio files to play',
+                                        style: WaveType.sectionTitle,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              // Contextual queue — slides smoothly from right.
+                              AnimatedPositioned(
+                                duration: waveMotion(
+                                  context,
+                                  WaveMotion.normal,
+                                ),
+                                curve: Curves.easeOutCubic,
+                                top: 0,
+                                bottom: 0,
+                                right: _queueOpen ? 0 : -(qw + 12),
+                                onEnd: () {
+                                  if (_queueSettled == _queueOpen) {
+                                    setState(
+                                        () => _queueSettled = !_queueOpen);
+                                  }
+                                },
+                                width: qw,
+                                child: ExcludeFocus(
+                                  excluding: !_queueOpen,
+                                  child: IgnorePointer(
+                                    ignoring: !_queueOpen,
+                                    // Offstage when slid shut: the 8-row
+                                    // list (images, menus, tooltips)
+                                    // skips paint/raster entirely, so
+                                    // every page navigation no longer
+                                    // rasterizes a hidden panel.
+                                    // Layout still runs (cheap box
+                                    // math); scroll offset is kept.
+                                    child: Offstage(
+                                      offstage: !_queueOpen && _queueSettled,
+                                      child: _queuePanelCache ??=
+                                          WaveQueuePanel(onClose: _closeQueue),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Contextual Equalizer & Studio Master Clarity drawer — slides smoothly from right.
+                              AnimatedPositioned(
+                                duration: waveMotion(
+                                  context,
+                                  WaveMotion.normal,
+                                ),
+                                curve: Curves.easeOutCubic,
+                                top: 0,
+                                bottom: 0,
+                                right: _equalizerOpen ? 0 : -(ew + 12),
+                                onEnd: () {
+                                  if (_equalizerSettled == _equalizerOpen) {
+                                    setState(() =>
+                                        _equalizerSettled = !_equalizerOpen);
+                                  }
+                                },
+                                width: ew,
+                                child: ExcludeFocus(
+                                  excluding: !_equalizerOpen,
+                                  child: IgnorePointer(
+                                    ignoring: !_equalizerOpen,
+                                    child: Offstage(
+                                      offstage: !_equalizerOpen && _equalizerSettled,
+                                      child: _equalizerPanelCache ??=
+                                          WaveEqualizerPanel(
+                                            onClose: _closeEqualizer,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Immersive: the dock floats over the stage
+                              // and fades with the page's other controls
+                              // (it is not in the Column below then).
+                              // Painted last so the queue / equalizer
+                              // panels never cover its toggles.
+                              if (immersive)
+                                AnimatedPositioned(
+                                  duration: waveMotion(
+                                    context,
+                                    WaveMotion.normal,
+                                  ),
+                                  curve: Curves.easeOutCubic,
+                                  left: 0,
+                                  right: _canvasOpen ? cw : 0,
+                                  bottom: 0,
+                                  child: WaveImmersiveDockOverlay(
+                                    child: _dockFor(
+                                      lyricsActive: isNowPlaying,
+                                      queueActive: _queueOpen,
+                                      equalizerActive: _equalizerOpen,
+                                      canvasActive: _canvasOpen,
+                                      compact: true,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  if (!immersive)
+                    _dockFor(
+                      lyricsActive: isNowPlaying,
+                      queueActive: _queueOpen,
+                      equalizerActive: _equalizerOpen,
+                      canvasActive: _canvasOpen,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        ),
+      ),
+    );
+  }
+}
+), '');
       final parts = base.split(' - ');
       tracks.add(
         PlayableTrack(
@@ -716,6 +1103,42 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     await ref
         .read(playbackServiceProvider.notifier)
         .playQueue(tracks, 0, sourceLabel: 'Local files');
+  }
+
+  /// iPadOS may deliver provider-backed files with no durable filesystem path.
+  /// Copy those into app-owned temporary storage before desktop_drop releases
+  /// the drag provider at the end of its asynchronous onDrop callback.
+  Future<List<String>> _pathsFromDrop(DropDetails details) async {
+    final items = details.items.whereType<DropFileItem>().toList();
+    if (!Platform.isIOS) {
+      return items
+          .map((item) => item.localPath ?? item.file.path)
+          .where((path) => path.isNotEmpty)
+          .toList();
+    }
+
+    final temporary = await getTemporaryDirectory();
+    final importDirectory = Directory(
+      '${temporary.path}${Platform.pathSeparator}lastwave-imports',
+    );
+    await importDirectory.create(recursive: true);
+
+    final paths = <String>[];
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      final safeName = item.name
+          .replaceAll(RegExp(r'[/\\\\:]'), '_')
+          .replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_')
+          .trim();
+      final fileName = safeName.isEmpty ? 'audio-$i' : safeName;
+      final destination = File(
+        '${importDirectory.path}${Platform.pathSeparator}'
+        '${DateTime.now().microsecondsSinceEpoch}-$i-$fileName',
+      );
+      await item.file.openRead().pipe(destination.openWrite());
+      paths.add(destination.path);
+    }
+    return paths;
   }
 
   @override
