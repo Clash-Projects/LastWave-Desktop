@@ -107,7 +107,6 @@ FluentThemeData buildWaveFluentTheme({
       buttonTheme: buttonTheme,
       dialogTheme: _waveDialogTheme(surface: card),
       tooltipTheme: _waveTooltipTheme,
-      extensions: [custom ?? WaveSurfaces.graphite],
     );
   }
   return FluentThemeData(
@@ -128,6 +127,5 @@ FluentThemeData buildWaveFluentTheme({
     buttonTheme: buttonTheme,
     dialogTheme: _waveDialogTheme(surface: surfaces.surfaceRaised),
     tooltipTheme: _waveTooltipTheme,
-    extensions: [surfaces],
   );
 }
