@@ -7,6 +7,7 @@
 // case), so the numbers isolate the algorithmic change from everything else.
 // Results are machine-specific: compare before/after on the same machine.
 
+import 'dart:io';
 import 'dart:math' as math;
 
 // ---------------------------------------------------------------------------
@@ -94,7 +95,7 @@ void main() {
   String word() => String.fromCharCodes(
       List.generate(6 + rnd.nextInt(10), (_) => 97 + rnd.nextInt(26)));
 
-  print('== WaveDesktopTable order, 20 rows built per frame, title sort ==');
+  stdout.writeln('== WaveDesktopTable order, 20 rows built per frame, title sort ==');
   for (final n in [200, 2000, 10000]) {
     final items = List.generate(n, (_) => _Row('${word()} ${word()}'));
     final cached = _computeOrder(items);
@@ -104,13 +105,13 @@ void main() {
         _usPer(iters, () => sink += _frameBefore(items, 20, n ~/ 2 - 10));
     final after =
         _usPer(iters * 1000, () => sink += _frameAfter(cached, 20, n ~/ 2 - 10));
-    print('n=$n  before=${before.toStringAsFixed(1)} us/frame  '
+    stdout.writeln('n=$n  before=${before.toStringAsFixed(1)} us/frame  '
         'after=${after.toStringAsFixed(3)} us/frame  '
         '(${(before / after).toStringAsFixed(0)}x)');
-    if (sink == -1) print(sink); // keeps the work observable
+    if (sink == -1) stdout.writeln(sink); // keeps the work observable
   }
 
-  print('\n== activeLyricLineIndex, per call ==');
+  stdout.writeln('\n== activeLyricLineIndex, per call ==');
   for (final n in [60, 120, 400]) {
     var t = 0;
     final times = [for (var i = 0; i < n; i++) t += 1000 + rnd.nextInt(4000)];
@@ -119,8 +120,8 @@ void main() {
     var p = 0;
     final bin = _usPer(200000, () => sink += _binary(times, probes[p++ % 1000]));
     final lin = _usPer(200000, () => sink += _linear(times, probes[p++ % 1000]));
-    print('lines=$n  binary=${(bin * 1000).toStringAsFixed(0)} ns  '
+    stdout.writeln('lines=$n  binary=${(bin * 1000).toStringAsFixed(0)} ns  '
         'linear=${(lin * 1000).toStringAsFixed(0)} ns');
-    if (sink == -1) print(sink); // keeps the work observable
+    if (sink == -1) stdout.writeln(sink); // keeps the work observable
   }
 }
