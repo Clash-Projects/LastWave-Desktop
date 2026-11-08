@@ -1237,6 +1237,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
 /// frames and has nothing to unwind under reduce motion.
 class WaveTimeline extends StatelessWidget {
   const WaveTimeline({
+    super.key,
     required this.progress,
     required this.buffered,
     required this.total,
