@@ -3498,7 +3498,7 @@ class _Downloads extends ConsumerWidget {
                     Text('Save location', style: WaveType.trackTitle),
                     Text(
                       Platform.isIOS
-                          ? 'LastWave app storage · Files app'
+                          ? 'LastWave app storage'
                           : custom.isEmpty
                               ? 'Default location'
                               : custom,
