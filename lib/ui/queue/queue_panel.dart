@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/material.dart' show ReorderableListView;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/wave_icons.dart';
@@ -48,7 +49,7 @@ class WaveQueuePanel extends ConsumerWidget {
     final current =
         index >= 0 && index < queue.length ? queue[index] : null;
     final upcoming = index >= 0
-        ? queue.sublist((index + 1).clamp(0, queue.length))
+        ? queue.sublist((index + 1).clamp(0, queue.length).toInt())
         : queue;
 
     return _Shell(
@@ -159,7 +160,7 @@ class WaveQueuePanel extends ConsumerWidget {
                     ? ListView.builder(
                         itemCount: upcoming.length,
                         itemBuilder: (context, i) {
-                          final queueIndex = index + 1 + i;
+                          final int queueIndex = index + 1 + i;
                           final t = upcoming[i];
                           return _QueueRow(
                             key: ValueKey('q:${t.queueKey}:$queueIndex'),
@@ -176,10 +177,10 @@ class WaveQueuePanel extends ConsumerWidget {
                     // onReorderItem hands over post-removal coordinates;
                     // moveInQueue expects classic onReorder coordinates,
                     // so shift back up when moving down.
-                    onReorderItem: (oldI, newI) {
-                      final r = newI > oldI ? newI + 1 : newI;
-                      final oldQueue = index + 1 + oldI;
-                      final newQueue = index + 1 + r;
+                    onReorderItem: (int oldI, int newI) {
+                      final int r = newI > oldI ? newI + 1 : newI;
+                      final int oldQueue = index + 1 + oldI;
+                      final int newQueue = index + 1 + r;
                       notifier.moveInQueue(oldQueue, newQueue);
                     },
                     itemBuilder: (context, i) {
