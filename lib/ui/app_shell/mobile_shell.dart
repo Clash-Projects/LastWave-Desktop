@@ -35,13 +35,19 @@ const _tabletDestinations = <WaveDestination>[
   WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
 ];
 
-const _moreDestinations = <WaveDestination>[
+const _phoneMoreDestinations = <WaveDestination>[
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
   WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
   WaveDestination('/stats', 'Listening statistics', WaveIcons.stats),
   WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
   WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
+  WaveDestination('/history', 'Listening history', WaveIcons.history),
+  WaveDestination('/friends', 'Friends', WaveIcons.friends),
+  WaveDestination('/settings', 'Settings', WaveIcons.settings),
+];
+
+const _tabletMoreDestinations = <WaveDestination>[
   WaveDestination('/history', 'Listening history', WaveIcons.history),
   WaveDestination('/friends', 'Friends', WaveIcons.friends),
   WaveDestination('/settings', 'Settings', WaveIcons.settings),
@@ -148,8 +154,10 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
         final tablet = constraints.maxWidth >= 850;
         final nowPlaying = _route.startsWith('/now');
         final activePath = waveActivePath(widget.location);
+        final moreDestinations =
+            tablet ? _tabletMoreDestinations : _phoneMoreDestinations;
         final moreActive = _showMore ||
-            _moreDestinations.any((d) =>
+            moreDestinations.any((d) =>
                 activePath == d.path ||
                 _route.startsWith('${d.path}/'));
 
@@ -186,7 +194,10 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                               Positioned.fill(
                                 child: ColoredBox(
                                   color: waveBackground(context),
-                                  child: _MorePage(onGo: _go),
+                                  child: _MorePage(
+                                    destinations: moreDestinations,
+                                    onGo: _go,
+                                  ),
                                 ),
                               ),
                             if (_showEqualizer && nowPlaying)
@@ -1025,15 +1036,20 @@ class _TouchIconButton extends StatelessWidget {
 }
 
 class _MorePage extends StatelessWidget {
+  final List<WaveDestination> destinations;
   final void Function(String) onGo;
-  const _MorePage({super.key, required this.onGo});
+  const _MorePage({
+    super.key,
+    required this.destinations,
+    required this.onGo,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
       children: [
-        for (final destination in _moreDestinations)
+        for (final destination in destinations)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: GestureDetector(
