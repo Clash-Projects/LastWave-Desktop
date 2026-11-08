@@ -740,7 +740,7 @@ class _MobileTransportDock extends StatelessWidget {
                 icon: volume <= 0 ? WaveIcons.volumeMute : WaveIcons.volume,
                 tooltip: volume <= 0
                     ? 'Unmute'
-                    : 'Mute (\${(volume * 100).round()}%)',
+                    : 'Mute (${(volume * 100).round()}%)',
                 onPressed: onMute,
               ),
               const SizedBox(width: 2),
@@ -754,7 +754,7 @@ class _MobileTransportDock extends StatelessWidget {
               SizedBox(
                 width: 34,
                 child: Text(
-                  '\${(volume * 100).round()}%',
+                  '${(volume * 100).round()}%',
                   textAlign: TextAlign.end,
                   style: WaveType.meta,
                 ),
