@@ -183,9 +183,8 @@ import UIKit
       }
     }
 
-    configureAudioSession()
-    configureRemoteCommands()
-    installAudioSessionObservers()
+    // Dart calls "configure" before constructing the playback player.
+    // Avoid registering duplicate remote-command targets here.
   }
 
   private func configureAudioSession() {
