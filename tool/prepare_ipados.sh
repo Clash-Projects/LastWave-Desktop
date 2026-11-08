@@ -44,7 +44,7 @@ def replace_bundle(match: re.Match[str]) -> str:
     return f"{match.group(1)}{bundle_id}{suffix}{match.group(3)}"
 
 pbx, bundle_count = re.subn(
-    r"(PRODUCT_BUNDLE_IDENTIFIER\\s*=\\s*)([^;]+)(;)",
+    r"(PRODUCT_BUNDLE_IDENTIFIER\s*=\s*)([^;]+)(;)",
     replace_bundle,
     pbx,
 )
@@ -52,7 +52,7 @@ if bundle_count == 0:
     raise SystemExit("No PRODUCT_BUNDLE_IDENTIFIER settings found in iOS project.")
 
 pbx, target_count = re.subn(
-    r"IPHONEOS_DEPLOYMENT_TARGET\\s*=\\s*[^;]+;",
+    r"IPHONEOS_DEPLOYMENT_TARGET\s*=\s*[^;]+;",
     "IPHONEOS_DEPLOYMENT_TARGET = 15.0;",
     pbx,
 )
