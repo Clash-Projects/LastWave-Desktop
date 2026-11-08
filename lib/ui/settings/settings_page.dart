@@ -70,6 +70,11 @@ const _waveSettingsSections = [
   ('about', 'About', FluentIcons.info),
 ];
 
+/// Keep desktop-only prototypes out of the iOS settings navigation.
+List<(String, String, IconData)> get _settingsSections => Platform.isIOS
+    ? _waveSettingsSections.where((section) => section.$1 != 'experimental').toList()
+    : _waveSettingsSections;
+
 /// Fluent settings: left nav list + right form.
 ///
 /// Reuses theme_controller + prefs logic; presentation is Fluent
@@ -101,7 +106,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
     _railScrollController = ScrollController();
     final initial = widget.initialSection;
     _section =
-        initial != null && _waveSettingsSections.any((s) => s.$1 == initial)
+        initial != null && _settingsSections.any((s) => s.$1 == initial)
         ? initial
         : 'general';
   }
@@ -198,7 +203,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final s in _waveSettingsSections)
+                    for (final s in _settingsSections)
                       ToggleButton(
                         checked: _section == s.$1,
                         onChanged: (_) => setState(() => _section = s.$1),
@@ -240,7 +245,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                       ),
                       const Text('Settings', style: WaveType.pageTitle),
                       const SizedBox(height: 12),
-                      for (final s in _waveSettingsSections)
+                      for (final s in _settingsSections)
                         ListTile.selectable(
                           shape: RoundedRectangleBorder(
                             borderRadius: WaveRadius.controlsRadius,
@@ -692,10 +697,22 @@ class _Audio extends ConsumerWidget {
         _Group(
           id: 'audio.output',
           title: 'Audio output',
-          subtitle: Platform.isWindows
-              ? 'WASAPI Exclusive bypasses the Windows mixer'
-              : 'System audio output',
-          child: _WasapiOutputSettings(onUpdate: onUpdate),
+          subtitle: Platform.isIOS
+              ? 'Audio routing is managed by iOS'
+              : Platform.isWindows
+                  ? 'WASAPI Exclusive bypasses the Windows mixer'
+                  : 'System audio output',
+          child: Platform.isIOS
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 6),
+                  child: Text(
+                    'LastWave follows the active iPhone or iPad audio route. '
+                    'Choose speakers, headphones, Bluetooth, or AirPlay from '
+                    'the system playback destination controls.',
+                    style: WaveType.body,
+                  ),
+                )
+              : _WasapiOutputSettings(onUpdate: onUpdate),
         ),
         const SizedBox(height: 8),
         _Group(
@@ -851,10 +868,14 @@ class _Appearance extends ConsumerWidget {
               const Text('Accent source', style: WaveType.trackTitle),
               const SizedBox(height: 6),
               WaveSelect<AccentSource>(
-                value: AccentSource.fromId(theme.accentSource),
+                value: Platform.isIOS &&
+                        AccentSource.fromId(theme.accentSource) == AccentSource.system
+                    ? AccentSource.custom
+                    : AccentSource.fromId(theme.accentSource),
                 options: [
                   for (final source in AccentSource.values)
-                    WaveSelectOption(value: source, label: source.label),
+                    if (!Platform.isIOS || source != AccentSource.system)
+                      WaveSelectOption(value: source, label: source.label),
                 ],
                 onChanged: (v) {
                   // Re-probe the desktop accent on every re-selection: the
@@ -1574,23 +1595,25 @@ class _Ytm extends ConsumerWidget {
           subtitle: 'Your playlists, Liked Songs and Canvas',
           child: _SpotifyCard(onUpdate: onUpdate),
         ),
-        const SizedBox(height: 16),
-        _Group(
-          id: 'integrations.discord',
-          title: 'Discord',
-          subtitle: 'Show what you are listening to on your Discord profile',
-          child: _SwitchRow(
-            value: prefs.discordRichPresence,
-            onChanged: (v) async {
-              await onUpdate((p) => p.setDiscordRichPresence(v));
-              try {
-                ref.read(discordPresenceProvider).refresh();
-              } catch (_) {}
-            },
-            title: 'Discord Rich Presence',
-            subtitle: 'Uses the local Discord client · no bot or login',
+        if (!Platform.isIOS) ...[
+          const SizedBox(height: 16),
+          _Group(
+            id: 'integrations.discord',
+            title: 'Discord',
+            subtitle: 'Show what you are listening to on your Discord profile',
+            child: _SwitchRow(
+              value: prefs.discordRichPresence,
+              onChanged: (v) async {
+                await onUpdate((p) => p.setDiscordRichPresence(v));
+                try {
+                  ref.read(discordPresenceProvider).refresh();
+                } catch (_) {}
+              },
+              title: 'Discord Rich Presence',
+              subtitle: 'Uses the local Discord client · no bot or login',
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -3082,10 +3105,12 @@ class _AboutState extends ConsumerState<_About> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text(
-                'LastWave Desktop · v$appVersion',
+                Platform.isIOS
+                    ? 'LastWave for iOS · v$appVersion'
+                    : 'LastWave Desktop · v$appVersion',
                 style: WaveType.trackTitle,
               ),
-              _buildUpdateButton(),
+              if (!Platform.isIOS) _buildUpdateButton(),
             ],
           ),
           const SizedBox(height: 12),
@@ -3168,23 +3193,25 @@ class _General extends ConsumerWidget {
     final prefs = ref.watch(prefsProvider);
     return Column(
       children: [
-        _Group(
-          id: 'general.behaviour',
-          title: 'Behaviour',
-          subtitle: 'Startup and window defaults',
-          child: Column(
-            children: [
-              _SwitchRow(
-                value: prefs.closeToTray,
-                onChanged: (v) => onUpdate((p) => p.setCloseToTray(v)),
-                title: 'Close button minimize to tray.',
-                subtitle:
-                    'Keep the player running in the background when closed.',
-              ),
-            ],
+        if (!Platform.isIOS) ...[
+          _Group(
+            id: 'general.behaviour',
+            title: 'Behaviour',
+            subtitle: 'Startup and window defaults',
+            child: Column(
+              children: [
+                _SwitchRow(
+                  value: prefs.closeToTray,
+                  onChanged: (v) => onUpdate((p) => p.setCloseToTray(v)),
+                  title: 'Close button minimize to tray.',
+                  subtitle:
+                      'Keep the player running in the background when closed.',
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
+          const SizedBox(height: 16),
+        ],
         const _Group(
           id: 'general.backup',
           title: 'Backup',
@@ -3227,11 +3254,13 @@ class _General extends ConsumerWidget {
                     onPressed: () => exportDiagnostics(context, ref),
                     child: const Text('Export diagnostic logs'),
                   ),
-                  const SizedBox(width: 8),
-                  WaveButton(
-                    onPressed: openLogFolder,
-                    child: const Text('Open log folder'),
-                  ),
+                  if (!Platform.isIOS) ...[
+                    const SizedBox(width: 8),
+                    WaveButton(
+                      onPressed: openLogFolder,
+                      child: const Text('Open log folder'),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 8),
