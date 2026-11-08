@@ -390,18 +390,21 @@ class _AccentPreview extends StatelessWidget {
     final argb = resolution.color.toARGB32();
     final hex =
         '#${argb.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
-    final text = switch (resolution.source) {
-      AccentSource.custom => 'Custom colour · $hex',
-      AccentSource.lastwave => 'LastWave neutral · $hex',
-      AccentSource.system =>
-        resolution.resolved
-            ? 'Desktop accent · $hex'
-            : 'This desktop exposes no accent — using custom colour',
-      AccentSource.artwork =>
-        resolution.resolved
-            ? 'Tinted from the current cover · $hex'
-            : 'No cover hue to tint from — using custom colour',
-    };
+    final text = Platform.isIOS &&
+            resolution.source == AccentSource.system
+        ? 'System accent unavailable on iOS — using custom colour · $hex'
+        : switch (resolution.source) {
+            AccentSource.custom => 'Custom colour · $hex',
+            AccentSource.lastwave => 'LastWave neutral · $hex',
+            AccentSource.system =>
+              resolution.resolved
+                  ? 'Desktop accent · $hex'
+                  : 'This desktop exposes no accent — using custom colour',
+            AccentSource.artwork =>
+              resolution.resolved
+                  ? 'Tinted from the current cover · $hex'
+                  : 'No cover hue to tint from — using custom colour',
+          };
     return Row(
       children: [
         Container(
@@ -1569,24 +1572,51 @@ class _Ytm extends ConsumerWidget {
                     ),
                   ],
                 )
-              : Row(
-                  children: [
-                    const Icon(FluentIcons.video, size: 18),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text('Not connected', style: WaveType.trackTitle),
+              : Platform.isIOS
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(FluentIcons.video, size: 18),
+                            SizedBox(width: 10),
+                            Text('Not connected', style: WaveType.trackTitle),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'The desktop sign-in window is unavailable on iPhone and iPad. '
+                          'Connect by importing a cookies.txt file from your Files app.',
+                          style: WaveType.meta,
+                        ),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: WaveFilledButton(
+                            onPressed: () => _ytConnectWithCookies(context, ref),
+                            child: const Text('Import YouTube Music cookies'),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        const Icon(FluentIcons.video, size: 18),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text('Not connected', style: WaveType.trackTitle),
+                        ),
+                        WaveButton(
+                          onPressed: () => _ytConnectWithCookies(context, ref),
+                          child: const Text('Use cookies'),
+                        ),
+                        const SizedBox(width: 8),
+                        WaveFilledButton(
+                          onPressed: () => _ytConnect(context, ref),
+                          child: const Text('Connect'),
+                        ),
+                      ],
                     ),
-                    WaveButton(
-                      onPressed: () => _ytConnectWithCookies(context, ref),
-                      child: const Text('Use cookies'),
-                    ),
-                    const SizedBox(width: 8),
-                    WaveFilledButton(
-                      onPressed: () => _ytConnect(context, ref),
-                      child: const Text('Connect'),
-                    ),
-                  ],
-                ),
         ),
         const SizedBox(height: 16),
         _Group(
@@ -1849,7 +1879,9 @@ class _YtStaleBannerState extends ConsumerState<_YtStaleBanner> {
     // One silent attempt per app run (shared with the shell info bar).
     // The persisted WebView2 profile survives restarts and updates, so
     // this works even when this run never opened the sign-in window.
-    if (!YtSessionKeeper.autoAttempted && !YtSessionKeeper.isRunning) {
+    if (!Platform.isIOS &&
+        !YtSessionKeeper.autoAttempted &&
+        !YtSessionKeeper.isRunning) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _refresh(auto: true);
       });
@@ -1857,7 +1889,9 @@ class _YtStaleBannerState extends ConsumerState<_YtStaleBanner> {
   }
 
   Future<void> _refresh({bool auto = false}) async {
-    if (_busy || !mounted) return;
+    // YtSessionKeeper refreshes a desktop WebView profile. iOS users
+    // reconnect through the explicit Files cookie-import flow instead.
+    if (Platform.isIOS || _busy || !mounted) return;
     setState(() => _busy = true);
     final ok = auto
         ? await YtSessionKeeper.autoRecover(ref)
@@ -1885,9 +1919,11 @@ class _YtStaleBannerState extends ConsumerState<_YtStaleBanner> {
     if (_dismissed) return const SizedBox.shrink();
     return InfoBar(
       title: const Text('YouTube Music session expired'),
-      content: const Text(
-        'YouTube rejected the saved session. Library, history and '
-        'uploads stay empty until you reconnect.',
+      content: Text(
+        Platform.isIOS
+            ? 'YouTube rejected the saved session. Import an updated cookies.txt file to reconnect.'
+            : 'YouTube rejected the saved session. Library, history and '
+                'uploads stay empty until you reconnect.',
       ),
       severity: InfoBarSeverity.warning,
       isLong: false,
@@ -1899,9 +1935,9 @@ class _YtStaleBannerState extends ConsumerState<_YtStaleBanner> {
               padding: EdgeInsets.only(right: 8),
               child: SizedBox(width: 14, height: 14, child: ProgressRing()),
             )
-          else
+          else if (!Platform.isIOS)
             WaveLink(onPressed: _refresh, child: const Text('Refresh')),
-          const SizedBox(width: 12),
+          if (!Platform.isIOS) const SizedBox(width: 12),
           WaveLink(
             onPressed: () => _ytConnectWithCookies(context, ref),
             child: const Text('Reconnect'),
@@ -1935,13 +1971,14 @@ class _CardActions extends ConsumerWidget {
               child: const Text('Switch'),
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: WaveButton(
-            onPressed: () => _ytAddMenu(context, ref),
-            child: const Text('Add'),
+        if (!Platform.isIOS)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: WaveButton(
+              onPressed: () => _ytAddMenu(context, ref),
+              child: const Text('Add'),
+            ),
           ),
-        ),
         WaveButton(
           onPressed: () async {
             final tube = ref.read(innerTubeProvider);
