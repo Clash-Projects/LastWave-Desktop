@@ -76,6 +76,21 @@ with plist_path.open("rb") as handle:
 info["CFBundleDisplayName"] = "LastWave"
 info["CFBundleName"] = "LastWave"
 
+# Register LastWave's custom URL scheme. The app_links plugin owns incoming
+# URL delivery, so disable Flutter's competing default deep-link handler.
+info["FlutterDeepLinkingEnabled"] = False
+url_types = list(info.get("CFBundleURLTypes", []))
+if not any(
+    "lastwave" in item.get("CFBundleURLSchemes", [])
+    for item in url_types
+    if isinstance(item, dict)
+):
+    url_types.append({
+        "CFBundleURLName": "com.lastwave.lastwaveDesktop",
+        "CFBundleURLSchemes": ["lastwave"],
+    })
+info["CFBundleURLTypes"] = url_types
+
 # Permit continuous audio playback while the application is backgrounded.
 # This declares the capability; the native audio session and remote-control
 # bridge must still be implemented and tested before background playback can
