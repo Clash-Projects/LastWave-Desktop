@@ -1521,6 +1521,16 @@ class _SpotifyCard extends ConsumerWidget {
             ],
           ],
         ),
+        if (Platform.isIOS) ...[
+          const SizedBox(height: 8),
+          Text(
+            'iOS uses the manual sp_dc cookie connection. LastWave cannot '
+            'read your Safari or other browser sign-in cookies automatically.',
+            style: WaveType.meta.copyWith(
+              color: waveTextSecondary(context),
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         _SwitchRow(
           value: prefs.spotifyCanvasEnabled,
