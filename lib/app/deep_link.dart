@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:app_links/app_links.dart';
 
 /// Room code carried by a `lastwave://jam?code=ABC123` link, upper-cased,
 /// or null when [link] is anything else.
@@ -26,6 +27,8 @@ class DeepLinks {
   DeepLinks._();
 
   static const _channel = MethodChannel('lastwave/deeplink');
+  static final AppLinks _appLinks = AppLinks();
+  static StreamSubscription<Uri>? _appLinksSub;
   static final _controller = StreamController<String>.broadcast();
   static String? _initial;
 
@@ -36,6 +39,22 @@ class DeepLinks {
     final link = _initial;
     _initial = null;
     return link;
+  }
+
+  /// Returns the process launch link, including iPadOS custom URL schemes.
+  /// AppLinks is started early in [start] so links arriving after launch are
+  /// delivered on [stream] while this asynchronous cold-start lookup runs.
+  static Future<String?> takeInitialAsync() async {
+    final queued = takeInitial();
+    if (queued != null) return queued;
+    if (!Platform.isIOS) return null;
+    try {
+      final uri = await _appLinks.getInitialLink();
+      final link = uri?.toString();
+      return link != null && routeForLink(link) != null ? link : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static void start(List<String> args) {
@@ -50,6 +69,15 @@ class DeepLinks {
         _controller.add(call.arguments as String);
       }
     });
+    if (Platform.isIOS) {
+      _appLinksSub ??= _appLinks.uriLinkStream.listen(
+        (uri) {
+          final link = uri.toString();
+          if (routeForLink(link) != null) _controller.add(link);
+        },
+        onError: (_) {},
+      );
+    }
     if (Platform.isWindows) _registerWindowsScheme();
   }
 
