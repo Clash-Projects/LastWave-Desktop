@@ -10,7 +10,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../app/window.dart';
 import '../../core/audio/stream_models.dart';
@@ -20,6 +19,7 @@ import '../../features/player/playback_service.dart';
 import '../../features/search/search_repository.dart';
 import '../mini_player/mini_player.dart';
 import '../components/infobar_host.dart';
+import '../components/ios_file_drop_target.dart';
 import '../navigation/destinations.dart';
 import '../navigation/route_origin.dart';
 import '../navigation/side_rail.dart';
@@ -682,6 +682,37 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _lastCollapsed = true;
   bool _lastIsNowPlaying = false;
 
+  Widget _buildFileDropTarget({required Widget child}) {
+    if (Platform.isIOS) {
+      return IosFileDropTarget(
+        child: child,
+        onDragStateChanged: (dragging) {
+          if (mounted && _draggingFiles != dragging) {
+            setState(() => _draggingFiles = dragging);
+          }
+        },
+        onFilesDropped: (paths) async {
+          if (mounted) setState(() => _draggingFiles = false);
+          await _dropFiles(paths);
+        },
+      );
+    }
+
+    // Keep the original desktop_drop 0.8.x API and its native macOS
+    // implementation. iPadOS uses the native UIDropInteraction bridge above.
+    return DropTarget(
+      onDragEntered: (_) => setState(() => _draggingFiles = true),
+      onDragExited: (_) => setState(() => _draggingFiles = false),
+      onDragDone: (details) {
+        setState(() => _draggingFiles = false);
+        unawaited(
+          _dropFiles(details.files.map((file) => file.path).toList()),
+        );
+      },
+      child: child,
+    );
+  }
+
   Future<void> _dropFiles(List<String> paths) async {
     final tracks = <PlayableTrack>[];
     for (final path in paths) {
@@ -861,21 +892,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
               child: Column(
                 children: [
                   Expanded(
-                    child: DropTarget(
-                      acceptedKinds: const {DropItemKind.file},
-                      onEnter: (_) => setState(() => _draggingFiles = true),
-                      onLeave: () => setState(() => _draggingFiles = false),
-                      onDrop: (details) async {
-                        setState(() => _draggingFiles = false);
-                        try {
-                          final paths = await _pathsFromDrop(details);
-                          await _dropFiles(paths);
-                        } catch (_) {
-                          if (mounted) {
-                            setState(() => _draggingFiles = false);
-                          }
-                        }
-                      },
+                    child: _buildFileDropTarget(
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           final qw = (constraints.maxWidth * 0.9)
@@ -1070,7 +1087,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                           );
                         },
                       ),
-                    ),
                   ),
                   if (!immersive)
                     _dockFor(
@@ -1103,69 +1119,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     await ref
         .read(playbackServiceProvider.notifier)
         .playQueue(tracks, 0, sourceLabel: 'Local files');
-  }
-
-  /// iPadOS may deliver provider-backed files with no durable filesystem path.
-  /// Copy those into app-owned temporary storage before desktop_drop releases
-  /// the drag provider at the end of its asynchronous onDrop callback.
-  Future<List<String>> _pathsFromDrop(DropDetails details) async {
-    final items = details.items.whereType<DropFileItem>().toList();
-    final paths = <String>[];
-
-    final temporary = await getTemporaryDirectory();
-    final importDirectory = Directory(
-      '${temporary.path}${Platform.pathSeparator}lastwave-imports',
-    );
-
-    for (var i = 0; i < items.length; i++) {
-      final item = items[i];
-      final bookmark = item.appleBookmark;
-      final needsContainerCopy = Platform.isIOS ||
-          (Platform.isMacOS && bookmark != null && bookmark.isNotEmpty);
-
-      if (!needsContainerCopy) {
-        final path = item.localPath ?? item.file.path;
-        if (path.isNotEmpty) paths.add(path);
-        continue;
-      }
-
-      final safeName = item.name
-          .replaceAll(RegExp(r'[/\\:]'), '_')
-          .replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_')
-          .trim();
-      final fileName = safeName.isEmpty ? 'audio-$i' : safeName;
-      final destination = File(
-        '${importDirectory.path}${Platform.pathSeparator}'
-        '${DateTime.now().microsecondsSinceEpoch}-$i-$fileName',
-      );
-
-      var securityScopeStarted = false;
-      if (Platform.isMacOS && bookmark != null && bookmark.isNotEmpty) {
-        securityScopeStarted = await DesktopDrop.instance
-            .startAccessingSecurityScopedResource(bookmark: bookmark);
-        if (!securityScopeStarted) {
-          // Keep the original path as a best-effort fallback if the security
-          // scope cannot be acquired. The normal import validator checks it.
-          final fallback = item.localPath ?? item.file.path;
-          if (fallback.isNotEmpty) paths.add(fallback);
-          continue;
-        }
-      }
-
-      try {
-        await importDirectory.create(recursive: true);
-        // iOS provider-backed URLs expire when onDrop returns. Sandboxed
-        // macOS bookmarks are also released below, so retain an app-owned copy.
-        await item.file.openRead().pipe(destination.openWrite());
-        paths.add(destination.path);
-      } finally {
-        if (securityScopeStarted && bookmark != null) {
-          await DesktopDrop.instance
-              .stopAccessingSecurityScopedResource(bookmark: bookmark);
-        }
-      }
-    }
-    return paths;
   }
 
   @override
