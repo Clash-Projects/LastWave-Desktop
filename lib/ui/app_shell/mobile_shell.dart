@@ -1,13 +1,17 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 
 import '../../core/audio/stream_models.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/player/player_state.dart';
 import '../../features/equalizer/equalizer_panel.dart';
+import '../../features/audio_output/output_controller.dart';
 import '../components/artwork.dart';
 import '../navigation/destinations.dart';
+import '../queue/queue_panel.dart';
+import '../components/buttons.dart' show LWVolumeSlider;
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -56,6 +60,7 @@ class WaveMobileShell extends ConsumerStatefulWidget {
 class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   bool _showMore = false;
   bool _showEqualizer = false;
+  bool _showQueue = false;
 
   String get _route => waveRoutePath(widget.location);
 
@@ -78,6 +83,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
     setState(() {
       _showMore = false;
       _showEqualizer = false;
+      _showQueue = false;
     });
     final branch = _branchForPath(path);
     final child = widget.child;
@@ -112,8 +118,11 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   }
 
   void _back() {
-    if (_showEqualizer) {
-      setState(() => _showEqualizer = false);
+    if (_showEqualizer || _showQueue) {
+      setState(() {
+        _showEqualizer = false;
+        _showQueue = false;
+      });
       return;
     }
     setState(() => _showMore = false);
@@ -128,6 +137,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   Widget build(BuildContext context) {
     final PlayerSnapshot player = ref.watch(playbackServiceProvider);
     final playback = ref.read(playbackServiceProvider.notifier);
+    final output = ref.read(audioOutputProvider.notifier);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -162,6 +172,11 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                           onEqualizer: () =>
                               setState(() => _showEqualizer = true),
                           showingEqualizer: _showEqualizer,
+                          onQueue: () => setState(() {
+                            _showQueue = !_showQueue;
+                            _showEqualizer = false;
+                          }),
+                          queueActive: _showQueue,
                         )
                       else
                         _MobileToolbar(
@@ -180,15 +195,21 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                   key: ValueKey('mobile-equalizer'),
                                   embedded: true,
                                 )
-                              : _showMore && !nowPlaying
-                                  ? _MorePage(
-                                      key: const ValueKey('mobile-more'),
-                                      onGo: _go,
+                              : _showQueue && nowPlaying
+                                  ? WaveQueuePanel(
+                                      key: const ValueKey('mobile-queue'),
+                                      onClose: () => setState(() => _showQueue = false),
+                                      embedded: true,
                                     )
-                                  : KeyedSubtree(
-                                      key: ValueKey(widget.location),
-                                      child: widget.child,
-                                    ),
+                                  : _showMore && !nowPlaying
+                                      ? _MorePage(
+                                          key: const ValueKey('mobile-more'),
+                                          onGo: _go,
+                                        )
+                                      : KeyedSubtree(
+                                          key: ValueKey(widget.location),
+                                          child: widget.child,
+                                        ),
                         ),
                       ),
                       if (nowPlaying)
@@ -200,6 +221,8 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                           onNext: playback.next,
                           onShuffle: playback.toggleShuffle,
                           onRepeat: playback.cycleRepeat,
+                          onVolume: output.setVolume,
+                          onMute: output.toggleMute,
                         )
                       else
                         _MobileMiniPlayer(
@@ -296,12 +319,16 @@ class _MobileToolbar extends StatelessWidget {
 class _NowPlayingToolbar extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onEqualizer;
+  final VoidCallback onQueue;
   final bool showingEqualizer;
+  final bool queueActive;
 
   const _NowPlayingToolbar({
     required this.onBack,
     required this.onEqualizer,
+    required this.onQueue,
     required this.showingEqualizer,
+    required this.queueActive,
   });
 
   @override
@@ -312,21 +339,33 @@ class _NowPlayingToolbar extends StatelessWidget {
           children: [
             _TouchIconButton(
               icon: WaveIcons.back,
-              tooltip: showingEqualizer ? 'Back to Now Playing' : 'Back',
+              tooltip: showingEqualizer || queueActive
+                  ? 'Back to Now Playing'
+                  : 'Back',
               onPressed: onBack,
             ),
             Expanded(
               child: Text(
-                showingEqualizer ? 'Equalizer' : 'Now Playing',
+                showingEqualizer
+                    ? 'Equalizer'
+                    : queueActive
+                        ? 'Queue'
+                        : 'Now Playing',
                 style: WaveType.trackTitle,
               ),
             ),
-            if (!showingEqualizer)
+            if (!showingEqualizer && !queueActive) ...[
+              _TouchIconButton(
+                icon: WaveIcons.queue,
+                tooltip: 'Queue',
+                onPressed: onQueue,
+              ),
               _TouchIconButton(
                 icon: WaveIcons.equalizer,
                 tooltip: 'Equalizer',
                 onPressed: onEqualizer,
               ),
+            ],
           ],
         ),
       );
@@ -550,7 +589,7 @@ class _PhoneTabContent extends StatelessWidget {
   }
 }
 
-class _MobileTransportDock extends StatefulWidget {
+class _MobileTransportDock extends StatelessWidget {
   final PlayerSnapshot snapshot;
   final Future<void> Function(Duration) onSeek;
   final Future<void> Function() onPrevious;
@@ -558,6 +597,8 @@ class _MobileTransportDock extends StatefulWidget {
   final Future<void> Function() onNext;
   final Future<void> Function() onShuffle;
   final Future<void> Function() onRepeat;
+  final Future<void> Function(double) onVolume;
+  final Future<void> Function() onMute;
 
   const _MobileTransportDock({
     required this.snapshot,
@@ -567,14 +608,9 @@ class _MobileTransportDock extends StatefulWidget {
     required this.onNext,
     required this.onShuffle,
     required this.onRepeat,
+    required this.onVolume,
+    required this.onMute,
   });
-
-  @override
-  State<_MobileTransportDock> createState() => _MobileTransportDockState();
-}
-
-class _MobileTransportDockState extends State<_MobileTransportDock> {
-  double? _dragMilliseconds;
 
   String _time(Duration value) {
     final minutes = value.inMinutes;
@@ -584,11 +620,10 @@ class _MobileTransportDockState extends State<_MobileTransportDock> {
 
   @override
   Widget build(BuildContext context) {
-    final durationMs = widget.snapshot.duration.inMilliseconds;
-    final maxMs = durationMs > 0 ? durationMs.toDouble() : 1.0;
-    final positionMs = (_dragMilliseconds ??
-            widget.snapshot.position.inMilliseconds.toDouble())
-        .clamp(0.0, maxMs);
+    final duration = snapshot.duration;
+    final hasDuration = duration > Duration.zero;
+    final volume = snapshot.volume.clamp(0.0, 1.0).toDouble();
+    final quality = snapshot.stream?.qualityBadge ?? '';
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 3, 12, 8),
@@ -601,25 +636,38 @@ class _MobileTransportDockState extends State<_MobileTransportDock> {
         children: [
           Row(
             children: [
-              Text(_time(Duration(milliseconds: positionMs.round())),
-                  style: WaveType.meta),
-              Expanded(
-                child: Slider(
-                  value: positionMs,
-                  min: 0,
-                  max: maxMs,
-                  onChanged: durationMs <= 0
-                      ? null
-                      : (value) => setState(() => _dragMilliseconds = value),
-                  onChangeEnd: durationMs <= 0
-                      ? null
-                      : (value) {
-                          setState(() => _dragMilliseconds = null);
-                          widget.onSeek(Duration(milliseconds: value.round()));
-                        },
+              SizedBox(
+                width: 38,
+                child: Text(
+                  hasDuration ? _time(snapshot.position) : '--:--',
+                  style: WaveType.meta,
                 ),
               ),
-              Text(_time(widget.snapshot.duration), style: WaveType.meta),
+              Expanded(
+                child: avp.ProgressBar(
+                  progress: snapshot.position,
+                  buffered: snapshot.buffered,
+                  total: hasDuration ? duration : const Duration(seconds: 1),
+                  onSeek: hasDuration ? onSeek : null,
+                  barHeight: 3,
+                  thumbRadius: hasDuration ? 5 : 0,
+                  thumbColor: waveTextPrimary(context),
+                  progressBarColor: waveTextPrimary(context),
+                  bufferedBarColor:
+                      waveTextSecondary(context).withValues(alpha: 0.22),
+                  baseBarColor:
+                      waveTextSecondary(context).withValues(alpha: 0.12),
+                  timeLabelLocation: avp.TimeLabelLocation.none,
+                ),
+              ),
+              SizedBox(
+                width: 38,
+                child: Text(
+                  hasDuration ? _time(duration) : '--:--',
+                  textAlign: TextAlign.end,
+                  style: WaveType.meta,
+                ),
+              ),
             ],
           ),
           Row(
@@ -628,13 +676,13 @@ class _MobileTransportDockState extends State<_MobileTransportDock> {
               _TouchIconButton(
                 icon: WaveIcons.shuffle,
                 tooltip: 'Shuffle',
-                selected: widget.snapshot.shuffleEnabled,
-                onPressed: widget.onShuffle,
+                selected: snapshot.shuffleEnabled,
+                onPressed: onShuffle,
               ),
               _TouchIconButton(
                 icon: WaveIcons.previous,
                 tooltip: 'Previous track',
-                onPressed: widget.onPrevious,
+                onPressed: onPrevious,
               ),
               Container(
                 width: 50,
@@ -645,11 +693,9 @@ class _MobileTransportDockState extends State<_MobileTransportDock> {
                 ),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: widget.onToggle,
+                  onTap: onToggle,
                   child: Icon(
-                    widget.snapshot.isPlaying
-                        ? WaveIcons.pause
-                        : WaveIcons.play,
+                    snapshot.isPlaying ? WaveIcons.pause : WaveIcons.play,
                     color: waveBackground(context),
                     size: 23,
                   ),
@@ -658,13 +704,60 @@ class _MobileTransportDockState extends State<_MobileTransportDock> {
               _TouchIconButton(
                 icon: WaveIcons.next,
                 tooltip: 'Next track',
-                onPressed: widget.onNext,
+                onPressed: onNext,
               ),
               _TouchIconButton(
-                icon: WaveIcons.repeat,
+                icon: snapshot.repeatMode.name == 'one'
+                    ? WaveIcons.repeatOne
+                    : WaveIcons.repeat,
                 tooltip: 'Repeat mode',
-                selected: widget.snapshot.repeatMode.name != 'off',
-                onPressed: widget.onRepeat,
+                selected: snapshot.repeatMode.name != 'off',
+                onPressed: onRepeat,
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              if (quality.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: waveDivider(context)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    quality,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.overline.copyWith(fontSize: 9),
+                  ),
+                ),
+              const Spacer(),
+              _TouchIconButton(
+                icon: volume <= 0 ? WaveIcons.volumeMute : WaveIcons.volume,
+                tooltip: volume <= 0
+                    ? 'Unmute'
+                    : 'Mute (\${(volume * 100).round()}%)',
+                onPressed: onMute,
+              ),
+              const SizedBox(width: 2),
+              LWVolumeSlider(
+                value: volume,
+                width: 88,
+                semanticLabel: 'Playback volume',
+                onChanged: onVolume,
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 34,
+                child: Text(
+                  '\${(volume * 100).round()}%',
+                  textAlign: TextAlign.end,
+                  style: WaveType.meta,
+                ),
               ),
             ],
           ),
