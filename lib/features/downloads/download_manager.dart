@@ -225,7 +225,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   Future<Directory> _musicDir() async {
     // Custom folder wins (Settings → Downloads, Downloads page).
     final custom = _prefs.downloadDir.trim();
-    if (custom.isNotEmpty) {
+    if (!Platform.isIOS && custom.isNotEmpty) {
       try {
         final dir = Directory(custom);
         await dir.create(recursive: true);
