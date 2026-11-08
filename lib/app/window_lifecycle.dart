@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,6 +40,7 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   @override
   void initState() {
     super.initState();
+    if (!Platform.isMacOS && !Platform.isWindows && !Platform.isLinux) return;
     try {
       trayManager.addListener(this);
     } catch (_) {}
