@@ -15,6 +15,7 @@ import '../../core/storage/prefs.dart';
 import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../ui/theme/fluent_theme.dart';
+import '../../ui/theme/tokens.dart';
 import '../../ui/theme/haze.dart';
 import '../player/playback_service.dart';
 import '../audio_output/output_controller.dart';
@@ -196,7 +197,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     final custom = theme.customSurfaces;
     final customLight = custom != null && theme.effectiveLight;
     final activeSurfaces = theme.effectiveLight
-        ? (customLight ? custom! : WaveSurfaces.graphite)
+        ? (customLight ? custom : WaveSurfaces.graphite)
         : (custom ?? (theme.amoled ? WaveSurfaces.amoled : WaveSurfaces.graphite));
     final darkTheme = buildWaveFluentTheme(
       accent: accent,
