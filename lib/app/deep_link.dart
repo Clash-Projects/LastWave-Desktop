@@ -29,8 +29,30 @@ class DeepLinks {
   static const _channel = MethodChannel('lastwave/deeplink');
   static final AppLinks _appLinks = AppLinks();
   static StreamSubscription<Uri>? _appLinksSub;
-  static final _controller = StreamController<String>.broadcast();
+  static final List<String> _pendingLinks = [];
+  static final _controller =
+      StreamController<String>.broadcast(onListen: _flushPending);
   static String? _initial;
+
+  static void _flushPending() {
+    if (_pendingLinks.isEmpty) return;
+    final pending = List<String>.of(_pendingLinks);
+    _pendingLinks.clear();
+    for (final link in pending) {
+      _controller.add(link);
+    }
+  }
+
+  static void _emitLink(String link) {
+    if (routeForLink(link) == null) return;
+    if (_controller.hasListener) {
+      _controller.add(link);
+    } else if (!_pendingLinks.contains(link) && _pendingLinks.length < 16) {
+      // The platform may deliver a link while app startup is still opening
+      // prefs/database and before LastWaveApp has subscribed to this stream.
+      _pendingLinks.add(link);
+    }
+  }
 
   static Stream<String> get stream => _controller.stream;
 
@@ -41,21 +63,10 @@ class DeepLinks {
     return link;
   }
 
-  /// Returns the process launch link, including iPadOS custom URL schemes.
-  /// AppLinks is started early in [start] so links arriving after launch are
-  /// delivered on [stream] while this asynchronous cold-start lookup runs.
-  static Future<String?> takeInitialAsync() async {
-    final queued = takeInitial();
-    if (queued != null) return queued;
-    if (!Platform.isIOS) return null;
-    try {
-      final uri = await _appLinks.getInitialLink();
-      final link = uri?.toString();
-      return link != null && routeForLink(link) != null ? link : null;
-    } catch (_) {
-      return null;
-    }
-  }
+  /// Process arguments are used on Windows; AppLinks delivers iPadOS launch
+  /// URLs on the same URI stream as subsequent links. Do not separately call
+  /// getInitialLink(), which could route the same cold-start URL twice.
+  static Future<String?> takeInitialAsync() async => takeInitial();
 
   static void start(List<String> args) {
     for (final arg in args) {
@@ -66,14 +77,13 @@ class DeepLinks {
     }
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'link' && call.arguments is String) {
-        _controller.add(call.arguments as String);
+        _emitLink(call.arguments as String);
       }
     });
     if (Platform.isIOS) {
       _appLinksSub ??= _appLinks.uriLinkStream.listen(
         (uri) {
-          final link = uri.toString();
-          if (routeForLink(link) != null) _controller.add(link);
+          _emitLink(uri.toString());
         },
         onError: (_) {},
       );
