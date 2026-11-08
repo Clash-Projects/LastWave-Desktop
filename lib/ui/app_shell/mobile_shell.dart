@@ -408,13 +408,10 @@ class _TabletRail extends StatelessWidget {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Divider(
-              style: DividerThemeData(
-                decoration: BoxDecoration(color: waveDivider(context)),
-              ),
-            ),
+          Container(
+            height: 1,
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            color: waveDivider(context),
           ),
           for (final destination in const [
             WaveDestination('/friends', 'Friends', WaveIcons.friends),
@@ -845,83 +842,133 @@ class _MobileMiniPlayer extends ConsumerWidget {
         current: state.current,
         isPlaying: state.isPlaying,
         isBuffering: state.isBuffering,
+        position: state.position,
+        buffered: state.buffered,
+        duration: state.duration,
       )),
     );
     final playback = ref.read(playbackServiceProvider.notifier);
+    final wavySeekbar =
+        ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
     final track = player.current;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: track == null ? null : onOpen,
-      child: Container(
-        height: 66,
-        margin: const EdgeInsets.fromLTRB(10, 7, 10, 7),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: waveSurfaceRaised(context),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: waveDivider(context)),
-        ),
-        child: Row(
-          children: [
-            if (track != null)
-              WaveArtwork(
-                url: track.artworkUrl,
-                videoId: track.videoId,
-                size: 44,
-                radius: 7,
-                label: track.title,
-                title: track.title,
-                artist: track.artist,
-              )
-            else
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: waveSurface(context),
-                  borderRadius: BorderRadius.circular(7),
-                ),
-                child: const Icon(WaveIcons.music, size: 20),
-              ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
+    final durationMs = player.duration.inMilliseconds;
+    final progressRatio = durationMs > 0
+        ? (player.position.inMilliseconds / durationMs).clamp(0.0, 1.0)
+        : 0.0;
+
+    return Container(
+      height: 70,
+      margin: const EdgeInsets.fromLTRB(10, 7, 10, 7),
+      padding: const EdgeInsets.fromLTRB(10, 5, 10, 3),
+      decoration: BoxDecoration(
+        color: waveSurfaceRaised(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: waveDivider(context)),
+      ),
+      child: Column(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: track == null ? null : onOpen,
+              child: Row(
                 children: [
-                  Text(
-                    track?.title ?? 'Nothing playing',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.trackTitle,
-                  ),
-                  Text(
-                    track?.artist ?? 'Choose music from your library',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.meta.copyWith(
-                      color: waveTextSecondary(context),
+                  if (track != null)
+                    WaveArtwork(
+                      url: track.artworkUrl,
+                      videoId: track.videoId,
+                      size: 44,
+                      radius: 7,
+                      label: track.title,
+                      title: track.title,
+                      artist: track.artist,
+                    )
+                  else
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: waveSurface(context),
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: const Icon(WaveIcons.music, size: 20),
                     ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          track?.title ?? 'Nothing playing',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.trackTitle,
+                        ),
+                        Text(
+                          track?.artist ?? 'Choose music from your library',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.meta.copyWith(
+                            color: waveTextSecondary(context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _TouchIconButton(
+                    icon: player.isBuffering
+                        ? WaveIcons.music
+                        : player.isPlaying
+                            ? WaveIcons.pause
+                            : WaveIcons.play,
+                    tooltip: player.isPlaying ? 'Pause' : 'Play',
+                    onPressed: track == null ? null : playback.toggle,
+                  ),
+                  _TouchIconButton(
+                    icon: WaveIcons.next,
+                    tooltip: 'Next track',
+                    onPressed: track == null ? null : playback.next,
                   ),
                 ],
               ),
             ),
-            _TouchIconButton(
-              icon: player.isBuffering
-                  ? WaveIcons.music
-                  : player.isPlaying
-                      ? WaveIcons.pause
-                      : WaveIcons.play,
-              tooltip: player.isPlaying ? 'Pause' : 'Play',
-              onPressed: track == null ? null : playback.toggle,
+          ),
+          if (wavySeekbar)
+            WaveTimeline(
+              progress: player.position,
+              buffered: player.buffered,
+              total: player.duration,
+              showThumb: false,
+              onSeek: null,
+              baseColor: waveTextSecondary(context).withValues(alpha: 0.12),
+              bufferedColor: waveTextSecondary(context).withValues(alpha: 0.18),
+              progressColor: waveTextPrimary(context),
+              thumbColor: waveTextPrimary(context),
+              thumbGlowColor: waveAccent(context).withValues(alpha: 0.25),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Container(
+                height: 2,
+                decoration: BoxDecoration(
+                  color: waveTextSecondary(context).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: progressRatio,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: waveTextPrimary(context),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ),
             ),
-            _TouchIconButton(
-              icon: WaveIcons.next,
-              tooltip: 'Next track',
-              onPressed: track == null ? null : playback.next,
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
