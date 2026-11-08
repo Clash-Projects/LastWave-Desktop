@@ -1169,7 +1169,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                       opacity: jamLive ? 0.45 : 1,
                       child: RepaintBoundary(
                       child: wavy
-                          ? _WaveTimeline(
+                          ? WaveTimeline(
                               progress: clock.position,
                               buffered: clock.buffered,
                               total: clock.duration,
@@ -1235,8 +1235,8 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
 ///
 /// Static by design: the wave is a shape, not an animation, so it costs no
 /// frames and has nothing to unwind under reduce motion.
-class _WaveTimeline extends StatelessWidget {
-  const _WaveTimeline({
+class WaveTimeline extends StatelessWidget {
+  const WaveTimeline({
     required this.progress,
     required this.buffered,
     required this.total,
