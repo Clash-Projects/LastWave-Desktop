@@ -30,6 +30,7 @@ import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
 import '../search/shared_providers.dart';
 import '../../core/error/fatal_crumbs.dart';
+import '../../core/platform/ios_now_playing.dart';
 
 /// Desktop playback service built on media_kit (MPV).
 ///
@@ -49,6 +50,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   final OfficialArtworkService _artworkService;
 
   Player? _player;
+  bool _iosAudioBridgeInitialized = false;
+  DateTime _lastIosNowPlayingSync = DateTime.fromMillisecondsSinceEpoch(0);
   final List<StreamSubscription> _subs = [];
   final List<PlayerLog> _mpvLogTail = [];
   static const int _mpvLogTailMax = 50;
@@ -448,7 +451,53 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
             mixing: _crossfading,
           );
 
+  Future<void> _initializeIosAudioBridge() async {
+    if (!Platform.isIOS || _iosAudioBridgeInitialized) return;
+    try {
+      await IosNowPlayingBridge.initialize(
+        onPlay: playResume,
+        onPause: pause,
+        onToggle: toggle,
+        onNext: next,
+        onPrevious: previous,
+        onSeek: seek,
+      );
+      _iosAudioBridgeInitialized = true;
+      await _syncIosNowPlaying(force: true);
+    } catch (error) {
+      _crumb('iOS media controls initialization failed (${error.runtimeType})');
+    }
+  }
+
+  Future<void> _syncIosNowPlaying({bool force = false}) async {
+    if (!Platform.isIOS || !_iosAudioBridgeInitialized) return;
+    final now = DateTime.now();
+    if (!force &&
+        now.difference(_lastIosNowPlayingSync).inMilliseconds < 1000) {
+      return;
+    }
+    _lastIosNowPlayingSync = now;
+    final track = state.current;
+    if (track == null) {
+      await IosNowPlayingBridge.clear();
+      return;
+    }
+    final duration =
+        state.duration > Duration.zero ? state.duration : track.duration;
+    await IosNowPlayingBridge.update(
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      artworkUrl: track.artworkUrl,
+      duration: duration,
+      position: state.position,
+      isPlaying: state.isPlaying,
+      speed: state.speed,
+    );
+  }
+
   Future<void> ensurePlayer() async {
+    await _initializeIosAudioBridge();
     if (_player != null) return;
     // One persistent audio-only libmpv instance with on-disk demuxer cache
     // + gapless. media_kit already defaults to vo=null (audio-only) + the
@@ -550,6 +599,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         runGuarded('player.playing', () {
           state = state.copyWith(isPlaying: v);
           _onPlayingChanged(v);
+          unawaited(_syncIosNowPlaying(force: true));
         });
       }),
       p.stream.buffering.listen((v) {
@@ -574,6 +624,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           _maybePrefetchFromPosition(v);
           _updateCrossfadeSchedule(v);
           state = state.copyWith(position: v);
+          unawaited(_syncIosNowPlaying());
         });
       }),
       p.stream.buffer.listen((v) {
@@ -597,6 +648,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         runGuarded('player.duration', () {
           if (_resolving || state.error != null) return;
           state = state.copyWith(duration: v);
+          unawaited(_syncIosNowPlaying(force: true));
           // Keep scrobble duration in sync with the track that owns the
           // current window — not the next track that has already been
           // written to state during resolve.
@@ -1707,6 +1759,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// so no texture callbacks fire after the Flutter view is destroyed
   /// (release-only `flutter_windows+1e220` crash on close).
   Future<void> disposePlayer() async {
+    unawaited(IosNowPlayingBridge.clear());
     _mixWatchdog?.cancel();
     _mixWatchdog = null;
     // Flush any past-threshold window before tearing down (manual pause/
@@ -2468,6 +2521,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       speed: 1.0,
       pitch: 1.0,
     );
+    unawaited(IosNowPlayingBridge.clear());
     final reset = _player;
     if (reset != null) unawaited(_applyRateAndPitchTo(reset));
   }
