@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/prefs.dart';
@@ -133,35 +136,48 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
 
   Future<void> _applyToPlayer() async {
     final af = _formatMpvFilter(state);
-    await _playback.setAudioFilter(af);
+    try {
+      await _playback.setAudioFilter(af);
+    } catch (error, stackTrace) {
+      // A failed optional DSP update must not crash the player screen.
+      // Keep the selected curve in prefs/state so it can be retried later.
+      debugPrint('LastWave equalizer update failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   static String _formatMpvFilter(EqualizerState s) {
-    if (!s.isProcessingActive) return '';
-    final gains = s.combinedGainsDb;
+    // iOS uses the lightweight 10-band portion of libmpv's lavfi chain.
+    // The optional Studio Clarity crystalizer and limiter are intentionally
+    // excluded from the mobile graph: some bundled FFmpeg builds do not ship
+    // those filters, and one unavailable filter can reject the entire chain.
+    if (Platform.isIOS && !s.enabled) return '';
+    if (!Platform.isIOS && !s.isProcessingActive) return '';
+
+    final gains = Platform.isIOS
+        ? s.gainsDb
+        : s.combinedGainsDb;
     if (gains.every((g) => g.abs() < 0.05)) return '';
 
     final filters = <String>[];
-    // Auto pre-amp: pull the whole signal down by the largest boost so the
-    // EQ can never push peaks past full scale (the old chain clipped on
-    // loud masters, which is what made boosted presets sound harsh).
+    // Reserve digital headroom before applying positive band gains.
     var maxBoost = 0.0;
     for (final g in gains) {
       if (g > maxBoost) maxBoost = g;
     }
-    // Pre-amp WITHOUT the `volume` filter: the libmpv bundled on some
-    // builds ships an FFmpeg without it, and one unknown filter fails the
-    // whole graph (no audio at all). Shifting every band down by the
-    // largest boost gives the same headroom using `equalizer` alone.
     final shift = maxBoost > 0.05 ? maxBoost : 0.0;
     for (int i = 0; i < eqBandFreqsHz.length; i++) {
       final freq = eqBandFreqsHz[i];
       final gain = gains[i] - shift;
-      if (gain.abs() < 0.05) continue; // skip flat bands
+      if (gain.abs() < 0.05) continue;
       filters.add('equalizer=f=$freq:t=o:w=1:g=${gain.toStringAsFixed(1)}');
     }
-    // Studio Master Clarity: a touch of transient sharpening on top of the
-    // curve, scaled by the output target (gentler for DACs / headphones).
+
+    if (Platform.isIOS) {
+      // PlaybackService merges this into its libmpv audio-filter graph.
+      return 'lavfi=[${filters.join(",")}]';
+    }
+
     if (s.studioClarityEnabled) {
       final exciterTrim = s.clarityPreset.trimsDb.length > 7
           ? s.clarityPreset.trimsDb[7]
@@ -169,7 +185,6 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
       final intensity = (1.3 + exciterTrim * 0.15).clamp(0.6, 2.0);
       filters.add('crystalizer=i=${intensity.toStringAsFixed(2)}:c=1');
     }
-    // Safety net against inter-sample overs; does nothing below 0.98.
     filters.add('alimiter=limit=0.98:level=0');
     return 'format=floatp,lavfi=[${filters.join(",")}]';
   }
