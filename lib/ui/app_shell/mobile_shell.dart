@@ -158,13 +158,6 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
 
   @override
   Widget build(BuildContext context) {
-    final PlayerSnapshot player = ref.watch(playbackServiceProvider);
-    final playback = ref.read(playbackServiceProvider.notifier);
-    final output = ref.read(audioOutputProvider.notifier);
-    final wavySeekbar = ref.watch(
-      prefsProvider.select((prefs) => prefs.wavySeekbar),
-    );
-
     return LayoutBuilder(
       builder: (context, constraints) {
         // Window width matters: Split View and Stage Manager can be narrower
@@ -248,16 +241,6 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                       ),
                       if (nowPlaying)
                         _MobileTransportDock(
-                          snapshot: player,
-                          onSeek: playback.seek,
-                          onPrevious: playback.previous,
-                          onToggle: playback.toggle,
-                          onNext: playback.next,
-                          onShuffle: playback.toggleShuffle,
-                          onRepeat: playback.cycleRepeat,
-                          onVolume: output.setVolume,
-                          onMute: output.toggleMute,
-                          wavySeekbar: wavySeekbar,
                           onQueue: () => setState(() {
                             _showQueue = !_showQueue;
                             _showEqualizer = false;
@@ -270,16 +253,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                           equalizerActive: _showEqualizer,
                         )
                       else
-                        _MobileMiniPlayer(
-                          current: player.current,
-                          isPlaying: player.isPlaying,
-                          isBuffering: player.isBuffering,
-                          onOpen: _openNowPlaying,
-                          onToggle: player.current == null
-                              ? null
-                              : playback.toggle,
-                          onNext: player.current == null ? null : playback.next,
-                        ),
+                        _MobileMiniPlayer(onOpen: _openNowPlaying),
                       if (!tablet && !nowPlaying)
                         _PhoneNavigation(
                           activePath: activePath,
@@ -610,33 +584,15 @@ class _PhoneTabContent extends StatelessWidget {
   }
 }
 
-class _MobileTransportDock extends StatelessWidget {
-  final PlayerSnapshot snapshot;
-  final Future<void> Function(Duration) onSeek;
-  final Future<void> Function() onPrevious;
-  final Future<void> Function() onToggle;
-  final Future<void> Function() onNext;
-  final Future<void> Function() onShuffle;
-  final Future<void> Function() onRepeat;
-  final Future<void> Function(double) onVolume;
-  final Future<void> Function() onMute;
-  final bool wavySeekbar;
+class _MobileTransportDock extends ConsumerWidget {
+  final bool queueActive;
+  final bool equalizerActive;
   final VoidCallback onQueue;
   final VoidCallback onEqualizer;
   final bool queueActive;
   final bool equalizerActive;
 
   const _MobileTransportDock({
-    required this.snapshot,
-    required this.onSeek,
-    required this.onPrevious,
-    required this.onToggle,
-    required this.onNext,
-    required this.onShuffle,
-    required this.onRepeat,
-    required this.onVolume,
-    required this.onMute,
-    required this.wavySeekbar,
     required this.onQueue,
     required this.onEqualizer,
     required this.queueActive,
@@ -650,7 +606,24 @@ class _MobileTransportDock extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final snapshot = ref.watch(
+      playbackServiceProvider.select((state) => (
+        current: state.current,
+        isPlaying: state.isPlaying,
+        position: state.position,
+        buffered: state.buffered,
+        duration: state.duration,
+        volume: state.volume,
+        stream: state.stream,
+        shuffleEnabled: state.shuffleEnabled,
+        repeatMode: state.repeatMode,
+      )),
+    );
+    final playback = ref.read(playbackServiceProvider.notifier);
+    final output = ref.read(audioOutputProvider.notifier);
+    final wavySeekbar =
+        ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
     final duration = snapshot.duration;
     final hasDuration = duration > Duration.zero;
     final volume = snapshot.volume.clamp(0.0, 1.0).toDouble();
@@ -681,7 +654,7 @@ class _MobileTransportDock extends StatelessWidget {
                         buffered: snapshot.buffered,
                         total: duration,
                         showThumb: hasDuration,
-                        onSeek: hasDuration ? onSeek : null,
+                        onSeek: hasDuration ? playback.seek : null,
                         baseColor:
                             waveTextSecondary(context).withValues(alpha: 0.12),
                         bufferedColor:
@@ -725,12 +698,12 @@ class _MobileTransportDock extends StatelessWidget {
                 icon: WaveIcons.shuffle,
                 tooltip: 'Shuffle',
                 selected: snapshot.shuffleEnabled,
-                onPressed: onShuffle,
+                onPressed: playback.toggleShuffle,
               ),
               _TouchIconButton(
                 icon: WaveIcons.previous,
                 tooltip: 'Previous track',
-                onPressed: onPrevious,
+                onPressed: playback.previous,
               ),
               Container(
                 width: 50,
@@ -741,7 +714,7 @@ class _MobileTransportDock extends StatelessWidget {
                 ),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: onToggle,
+                  onTap: playback.toggle,
                   child: Icon(
                     snapshot.isPlaying ? WaveIcons.pause : WaveIcons.play,
                     color: waveBackground(context),
@@ -752,7 +725,7 @@ class _MobileTransportDock extends StatelessWidget {
               _TouchIconButton(
                 icon: WaveIcons.next,
                 tooltip: 'Next track',
-                onPressed: onNext,
+                onPressed: playback.next,
               ),
               _TouchIconButton(
                 icon: snapshot.repeatMode.name == 'one'
@@ -760,7 +733,7 @@ class _MobileTransportDock extends StatelessWidget {
                     : WaveIcons.repeat,
                 tooltip: 'Repeat mode',
                 selected: snapshot.repeatMode.name != 'off',
-                onPressed: onRepeat,
+                onPressed: playback.cycleRepeat,
               ),
             ],
           ),
@@ -807,14 +780,14 @@ class _MobileTransportDock extends StatelessWidget {
                         ? 'Unmute'
                         : 'Mute (${(volume * 100).round()}%)',
                     width: compact ? 42 : 48,
-                    onPressed: onMute,
+                    onPressed: output.toggleMute,
                   ),
                   const SizedBox(width: 2),
                   LWVolumeSlider(
                     value: volume,
                     width: compact ? 64 : 88,
                     semanticLabel: 'Playback volume',
-                    onChanged: onVolume,
+                    onChanged: output.setVolume,
                   ),
                   if (!compact) ...[
                     const SizedBox(width: 8),
@@ -837,26 +810,22 @@ class _MobileTransportDock extends StatelessWidget {
   }
 }
 
-class _MobileMiniPlayer extends StatelessWidget {
-  final PlayableTrack? current;
-  final bool isPlaying;
-  final bool isBuffering;
+class _MobileMiniPlayer extends ConsumerWidget {
   final VoidCallback onOpen;
-  final VoidCallback? onToggle;
-  final VoidCallback? onNext;
 
-  const _MobileMiniPlayer({
-    required this.current,
-    required this.isPlaying,
-    required this.isBuffering,
-    required this.onOpen,
-    required this.onToggle,
-    required this.onNext,
-  });
+  const _MobileMiniPlayer({required this.onOpen});
 
   @override
-  Widget build(BuildContext context) {
-    final track = current;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final player = ref.watch(
+      playbackServiceProvider.select((state) => (
+        current: state.current,
+        isPlaying: state.isPlaying,
+        isBuffering: state.isBuffering,
+      )),
+    );
+    final playback = ref.read(playbackServiceProvider.notifier);
+    final track = player.current;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: track == null ? null : onOpen,
@@ -915,18 +884,18 @@ class _MobileMiniPlayer extends StatelessWidget {
               ),
             ),
             _TouchIconButton(
-              icon: isBuffering
+              icon: player.isBuffering
                   ? WaveIcons.music
-                  : isPlaying
+                  : player.isPlaying
                       ? WaveIcons.pause
                       : WaveIcons.play,
-              tooltip: isPlaying ? 'Pause' : 'Play',
-              onPressed: onToggle,
+              tooltip: player.isPlaying ? 'Pause' : 'Play',
+              onPressed: track == null ? null : playback.toggle,
             ),
             _TouchIconButton(
               icon: WaveIcons.next,
               tooltip: 'Next track',
-              onPressed: onNext,
+              onPressed: track == null ? null : playback.next,
             ),
           ],
         ),
