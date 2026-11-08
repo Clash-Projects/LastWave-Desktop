@@ -2315,32 +2315,35 @@ Future<void> _ytConnectWithCookies(BuildContext context, WidgetRef ref) async {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Use this when the built-in sign-in window is blocked or '
-                'cannot load. The jar comes from your own browser, so '
-                'Google sees a normal desktop session. Brand channels on '
-                'the same Google login are detected after connecting — '
-                'pick one in the channel chooser.',
+                Platform.isIOS
+                    ? 'Import a cookies.txt file exported from a browser where you are already signed in. The iOS app does not read Safari cookies or open the desktop sign-in window.'
+                    : 'Use this when the built-in sign-in window is blocked or '
+                        'cannot load. The jar comes from your own browser, so '
+                        'Google sees a normal desktop session. Brand channels on '
+                        'the same Google login are detected after connecting — '
+                        'pick one in the channel chooser.',
                 style: WaveType.meta.copyWith(
                   color: waveTextSecondary(context),
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  WaveButton(
-                    onPressed: _openYtInBrowser,
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(FluentIcons.open_in_new_window, size: 14),
-                        SizedBox(width: 6),
-                        Text('Open music.youtube.com'),
-                      ],
+              if (!Platform.isIOS)
+                Row(
+                  children: [
+                    WaveButton(
+                      onPressed: _openYtInBrowser,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.open_in_new_window, size: 14),
+                          SizedBox(width: 6),
+                          Text('Open music.youtube.com'),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  WaveButton(
-                    onPressed: () async {
+                    const SizedBox(width: 8),
+                    WaveButton(
+                      onPressed: () async {
                       final text = await _pickCookieFile();
                       if (text == null || text.isEmpty) return;
                       // The picker is not modal everywhere (Linux
@@ -2353,25 +2356,45 @@ Future<void> _ytConnectWithCookies(BuildContext context, WidgetRef ref) async {
                         analyse();
                       });
                     },
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(FluentIcons.open_folder_horizontal, size: 14),
-                        SizedBox(width: 6),
-                        Text('Import cookies.txt'),
-                      ],
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.open_folder_horizontal, size: 14),
+                          SizedBox(width: 6),
+                          Text('Import cookies.txt'),
+                        ],
+                      ),
                     ),
+                  ],
+                )
+              else
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: WaveButton(
+                    onPressed: () async {
+                      final text = await _pickCookieFile();
+                      if (text == null || text.isEmpty || !context.mounted) {
+                        return;
+                      }
+                      controller.text = text;
+                      setState(() {
+                        errorText = null;
+                        analyse();
+                      });
+                    },
+                    child: const Text('Choose cookies.txt from Files'),
                   ),
-                ],
-              ),
+                ),
               const SizedBox(height: 10),
               Text(
-                'In Chrome/Edge: sign in to music.youtube.com, press F12 '
-                '→ Network, reload the page, open any music.youtube.com '
-                'request and copy the value of its Cookie request header '
-                '(right-click → Copy value). Paste it below. '
-                'Firefox works the same way; a cookies.txt extension '
-                'export is also accepted.',
+                Platform.isIOS
+                    ? 'Cookie files contain account credentials. Import them only on your own device; never share them in messages, screenshots, bug reports, or with anyone else.'
+                    : 'In Chrome/Edge: sign in to music.youtube.com, press F12 '
+                        '→ Network, reload the page, open any music.youtube.com '
+                        'request and copy the value of its Cookie request header '
+                        '(right-click → Copy value). Paste it below. '
+                        'Firefox works the same way; a cookies.txt extension '
+                        'export is also accepted.',
                 style: WaveType.meta.copyWith(
                   color: waveTextSecondary(context),
                 ),
