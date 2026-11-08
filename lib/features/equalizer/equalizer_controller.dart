@@ -174,6 +174,10 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
     }
 
     if (Platform.isIOS) {
+      // A uniform positive gain is removed by the headroom shift above.
+      // In that case the resulting curve is flat, so do not send libmpv an
+      // empty lavfi graph (some builds reject lavfi=[]).
+      if (filters.isEmpty) return '';
       // PlaybackService merges this into its libmpv audio-filter graph.
       return 'lavfi=[${filters.join(",")}]';
     }
