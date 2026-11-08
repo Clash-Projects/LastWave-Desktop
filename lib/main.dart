@@ -27,14 +27,18 @@ Future<void> main(List<String> args) async {
   // change, measured). See lib/core/platform/allocator_tuning.dart.
   applyAllocatorTuning();
   WidgetsFlutterBinding.ensureInitialized();
+  final isDesktopPlatform =
+      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
   // Desktop is always mouse + keyboard. In the default "automatic" mode a
   // single touch/pen pointer event (touchscreen, Windows Ink, a touch
   // keyboard tap) flips Flutter's highlight mode to `touch`, which silences
   // every hover highlight (FocusableActionDetector only reports hover in
   // traditional mode), and only a key press flips it back — hence menu rows
   // that stayed dead until Tab or an Alt+Tab round trip.
-  FocusManager.instance.highlightStrategy =
-      FocusHighlightStrategy.alwaysTraditional;
+  if (isDesktopPlatform) {
+    FocusManager.instance.highlightStrategy =
+        FocusHighlightStrategy.alwaysTraditional;
+  }
   // Screen readers (NVDA, Narrator, VoiceOver): keep the semantics tree
   // built for the whole session and restore keyboard focus whenever the
   // window comes back. See lib/app/accessibility.dart (issue #75).
@@ -62,7 +66,7 @@ Future<void> main(List<String> args) async {
   PaintingBinding.instance.imageCache.maximumSize = 500;
   PaintingBinding.instance.imageCache.maximumSizeBytes =
       64 << 20; // 64 MiB
-  if (runWebViewTitleBarWidget(args)) return;
+  if (isDesktopPlatform && runWebViewTitleBarWidget(args)) return;
   // libmpv is deliberately NOT dlopened here. MediaKit.ensureInitialized()
   // just dlopens a multi-MB .so (media_kit's NativeLibrary) — pure
   // first-frame latency — and nothing on the first frame needs it: the
@@ -74,8 +78,10 @@ Future<void> main(List<String> args) async {
 
   // Image-cache database (cached_network_image → sqflite) needs the
   // desktop FFI backend, otherwise every thumbnail silently fails.
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  if (isDesktopPlatform) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
 
   // Session log (Settings → General → Export diagnostic logs): one file
   // per run under the app-support root, beside the library database.
@@ -100,7 +106,9 @@ Future<void> main(List<String> args) async {
   // brought up while they load.
   final prefsFuture = Prefs.load();
   final databaseFuture = AppDatabase.open();
-  final windowFuture = setupWindow();
+  final windowFuture = isDesktopPlatform
+      ? setupWindow()
+      : Future<void>.value();
   final prefs = await prefsFuture;
   // Verbose logging is a saved preference: without this the toggle would
   // only take effect on the next launch.
