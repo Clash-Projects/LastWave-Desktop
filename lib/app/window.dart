@@ -112,8 +112,12 @@ Future<void> _setupTray() async {
 /// `Binding '<Primary><Alt>…' failed!` warnings and the keys stay dead.
 /// Shell UI must offer the same combos as in-app shortcuts instead.
 bool get globalHotkeysSupported {
-  if (!Platform.isLinux) return true;
-  return Platform.environment['WAYLAND_DISPLAY'] == null;
+  if (Platform.isLinux) {
+    return Platform.environment['WAYLAND_DISPLAY'] == null;
+  }
+  // hotkey_manager global registration is desktop-only. iPad hardware
+  // keyboard shortcuts remain handled by Flutter's in-app key dispatcher.
+  return Platform.isMacOS || Platform.isWindows;
 }
 
 Future<void> _setupHotkeys() async {
