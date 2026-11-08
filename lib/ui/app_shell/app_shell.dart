@@ -1110,24 +1110,27 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   /// the drag provider at the end of its asynchronous onDrop callback.
   Future<List<String>> _pathsFromDrop(DropDetails details) async {
     final items = details.items.whereType<DropFileItem>().toList();
-    if (!Platform.isIOS) {
-      return items
-          .map((item) => item.localPath ?? item.file.path)
-          .where((path) => path.isNotEmpty)
-          .toList();
-    }
+    final paths = <String>[];
 
     final temporary = await getTemporaryDirectory();
     final importDirectory = Directory(
       '${temporary.path}${Platform.pathSeparator}lastwave-imports',
     );
-    await importDirectory.create(recursive: true);
 
-    final paths = <String>[];
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
+      final bookmark = item.appleBookmark;
+      final needsContainerCopy = Platform.isIOS ||
+          (Platform.isMacOS && bookmark != null && bookmark.isNotEmpty);
+
+      if (!needsContainerCopy) {
+        final path = item.localPath ?? item.file.path;
+        if (path.isNotEmpty) paths.add(path);
+        continue;
+      }
+
       final safeName = item.name
-          .replaceAll(RegExp(r'[/\\\\:]'), '_')
+          .replaceAll(RegExp(r'[/\\:]'), '_')
           .replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_')
           .trim();
       final fileName = safeName.isEmpty ? 'audio-$i' : safeName;
@@ -1135,8 +1138,32 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         '${importDirectory.path}${Platform.pathSeparator}'
         '${DateTime.now().microsecondsSinceEpoch}-$i-$fileName',
       );
-      await item.file.openRead().pipe(destination.openWrite());
-      paths.add(destination.path);
+
+      var securityScopeStarted = false;
+      if (Platform.isMacOS && bookmark != null && bookmark.isNotEmpty) {
+        securityScopeStarted = await DesktopDrop.instance
+            .startAccessingSecurityScopedResource(bookmark: bookmark);
+        if (!securityScopeStarted) {
+          // Keep the original path as a best-effort fallback if the security
+          // scope cannot be acquired. The normal import validator checks it.
+          final fallback = item.localPath ?? item.file.path;
+          if (fallback.isNotEmpty) paths.add(fallback);
+          continue;
+        }
+      }
+
+      try {
+        await importDirectory.create(recursive: true);
+        // iOS provider-backed URLs expire when onDrop returns. Sandboxed
+        // macOS bookmarks are also released below, so retain an app-owned copy.
+        await item.file.openRead().pipe(destination.openWrite());
+        paths.add(destination.path);
+      } finally {
+        if (securityScopeStarted && bookmark != null) {
+          await DesktopDrop.instance
+              .stopAccessingSecurityScopedResource(bookmark: bookmark);
+        }
+      }
     }
     return paths;
   }
