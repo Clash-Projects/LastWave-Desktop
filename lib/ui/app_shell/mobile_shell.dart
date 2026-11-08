@@ -145,7 +145,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
       builder: (context, constraints) {
         // Window width matters: Split View and Stage Manager can be narrower
         // than the iPad's physical display.
-        final tablet = constraints.maxWidth >= 720;
+        final tablet = constraints.maxWidth >= 850;
         final nowPlaying = _route.startsWith('/now');
         final activePath = waveActivePath(widget.location);
         final moreActive = _showMore ||
