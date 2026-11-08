@@ -629,16 +629,14 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
               child: Row(
                 children: [
                   for (int i = 0; i < eqBandFreqsHz.length; i++)
-                    Expanded(
-                      child: _VerticalEqBand(
-                        index: i,
-                        freqHz: eqBandFreqsHz[i],
-                        gainDb: gains[i],
-                        enabled: eq.enabled,
-                        dark: dark,
-                        onChanged: (val) => notifier.setBandGain(i, val),
-                        onReset: () => notifier.setBandGain(i, 0.0),
-                      ),
+                    _VerticalEqBand(
+                      index: i,
+                      freqHz: eqBandFreqsHz[i],
+                      gainDb: gains[i],
+                      enabled: eq.enabled,
+                      dark: dark,
+                      onChanged: (val) => notifier.setBandGain(i, val),
+                      onReset: () => notifier.setBandGain(i, 0.0),
                     ),
                 ],
               ),
