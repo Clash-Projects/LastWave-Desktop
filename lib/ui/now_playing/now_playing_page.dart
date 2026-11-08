@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -79,6 +80,16 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   }
 
   void _resetIdleTimer() {
+    // Touch interfaces do not have a persistent pointer hover. Keep the
+    // Now Playing actions visible on iPhone and iPad instead of hiding them
+    // after 3.5 seconds while the user is simply listening.
+    if (Platform.isIOS) {
+      if (_controlsIdle && mounted) {
+        setState(() => _controlsIdle = false);
+        _idleMirror.state = false;
+      }
+      return;
+    }
     _lastHoverAt = DateTime.now();
     if (_controlsIdle) {
       setState(() => _controlsIdle = false);
@@ -271,7 +282,12 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
               right: 0,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final isWide = constraints.maxWidth > 860;
+                  // The two-column artwork/lyrics layout is a desktop
+                  // affordance. On iPad, keep the cover centered and let
+                  // lyrics become a deliberate alternate view until there
+                  // is enough room for a genuinely comfortable split.
+                  final isWide = constraints.maxWidth >
+                      (Platform.isIOS ? 1180 : 860);
 
                   // The body spans the whole page and the top action bar floats
                   // over it, so the lyrics toolbar can sit on the same row as the
