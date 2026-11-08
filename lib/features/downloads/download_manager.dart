@@ -237,17 +237,17 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         final music = await getDownloadsDirectory();
         // Prefer ~/Music/LastWave when available.
         if (music != null) {
-        final parent = Directory(music.path).parent;
-        final candidates = [
-          Directory(p.join(parent.path, 'Music', 'LastWave')),
-          Directory(p.join(music.path, 'LastWave')),
-        ];
-        for (final c in candidates) {
-          try {
-            await c.create(recursive: true);
-            return c;
-          } catch (_) {}
-        }
+          final parent = Directory(music.path).parent;
+          final candidates = [
+            Directory(p.join(parent.path, 'Music', 'LastWave')),
+            Directory(p.join(music.path, 'LastWave')),
+          ];
+          for (final candidate in candidates) {
+            try {
+              await candidate.create(recursive: true);
+              return candidate;
+            } catch (_) {}
+          }
         }
       } catch (_) {}
     }
