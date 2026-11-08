@@ -126,7 +126,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           Icon(
             FluentIcons.equalizer,
             size: 18,
-            color: eq.isProcessingActive
+            color: (Platform.isIOS ? eq.enabled : eq.isProcessingActive)
                 ? WaveColors.defaultAccent
                 : waveTextSecondary(context),
           ),
@@ -137,15 +137,15 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Equalizer & Sound FX',
+                  Platform.isIOS ? 'Equalizer' : 'Equalizer & Sound FX',
                   style: WaveType.sectionTitle.copyWith(fontSize: 14),
                 ),
                 Text(
                   statusSubtitle,
                   style: WaveType.meta.copyWith(
                     fontSize: 11,
-                    color: eq.isProcessingActive
-                        ? (eq.studioClarityEnabled
+                    color: (Platform.isIOS ? eq.enabled : eq.isProcessingActive)
+                        ? (!Platform.isIOS && eq.studioClarityEnabled
                             ? const Color(0xFFF5A623)
                             : WaveColors.defaultAccent)
                         : waveTextSecondary(context),
@@ -510,8 +510,9 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
         borderRadius: BorderRadius.circular(WaveRadius.menu - 2),
         child: CustomPaint(
           painter: _EqCurvePainter(
-            gainsDb: eq.combinedGainsDb,
-            active: eq.isProcessingActive,
+            gainsDb:
+                Platform.isIOS ? eq.gainsDb : eq.combinedGainsDb,
+            active: Platform.isIOS ? eq.enabled : eq.isProcessingActive,
             dark: dark,
           ),
           child: const SizedBox.expand(),
@@ -709,9 +710,9 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              eq.isProcessingActive
-                  ? 'Hardware-accelerated 32-bit float biquad filter applied via libmpv.'
-                  : 'Bypassed: Audio stream flows directly to output with bit-perfect integrity.',
+              (Platform.isIOS ? eq.enabled : eq.isProcessingActive)
+                  ? '10-band audio filter is applied through LastWave’s playback engine.'
+                  : 'Bypassed: audio passes through without equalizer processing.',
               style: WaveType.meta.copyWith(
                 fontSize: 10.5,
                 color: waveTextSecondary(context),
