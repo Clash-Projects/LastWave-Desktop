@@ -1,6 +1,4 @@
 import 'dart:io';
-import 'dart:ui' show Color;
-
 import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
