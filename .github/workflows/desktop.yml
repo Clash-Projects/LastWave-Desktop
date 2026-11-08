@@ -150,6 +150,11 @@ jobs:
           find "$WEBKIT_DST" -type f -name '*.so*' -print0 | while IFS= read -r -d '' so; do
             patchelf --set-rpath '$ORIGIN:$ORIGIN/..:$ORIGIN/../..' "$so" 2>/dev/null || true
           done
+          # WebKitWebProcess looks for the injected bundle directly under the helper root
+          # rather than the injected-bundle/ subdirectory.
+          if [ -f "$WEBKIT_DST/injected-bundle/libwebkit2gtkinjectedbundle.so" ]; then
+            ln -sf injected-bundle/libwebkit2gtkinjectedbundle.so "$WEBKIT_DST/libwebkit2gtkinjectedbundle.so"
+          fi
           echo "--- vendored webkit helpers:"
           ls -la "$WEBKIT_DST"
           # GIO TLS modules: the gtk plugin copies libgio but not the
@@ -245,6 +250,10 @@ jobs:
           # stacks ("Failed to setup compositor shaders").
           unset GTK_MODULES
           export WEBKIT_DISABLE_DMABUF_RENDERER=1
+          # Modern glibc (Arch, Fedora, openSUSE) strictly validates chunk sizes in free().
+          # Bundled GLib 2.72's slice allocator causes `free(): invalid size` aborts when
+          # plugins (desktop_webview_window) free GList/slice structures via g_free().
+          export G_SLICE=always-malloc
 
           # Proprietary NVIDIA on Wayland: GTK's Wayland GL path commonly
           # presents nothing (black window). XWayland is reliable there.
