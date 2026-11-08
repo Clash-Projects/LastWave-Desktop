@@ -232,10 +232,11 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         return dir;
       } catch (_) {}
     }
-    try {
-      final music = await getDownloadsDirectory();
-      // Prefer ~/Music/LastWave when available.
-      if (music != null) {
+    if (!Platform.isIOS) {
+      try {
+        final music = await getDownloadsDirectory();
+        // Prefer ~/Music/LastWave when available.
+        if (music != null) {
         final parent = Directory(music.path).parent;
         final candidates = [
           Directory(p.join(parent.path, 'Music', 'LastWave')),
@@ -247,8 +248,11 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
             return c;
           } catch (_) {}
         }
-      }
-    } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    // iOS downloads always stay in the app's Documents container, which is
+    // the app-owned location exposed by iOS document/file import workflows.
     final docs = await getApplicationDocumentsDirectory();
     final dir = Directory(p.join(docs.path, 'LastWave'));
     await dir.create(recursive: true);
