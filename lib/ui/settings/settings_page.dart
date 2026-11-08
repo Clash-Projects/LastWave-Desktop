@@ -122,6 +122,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
 
   /// Opens the card's section, scrolls to it and outlines it for a moment.
   void _jump(SettingsSearchEntry entry) {
+    if (Platform.isIOS && entry.section == 'experimental') return;
     final switching = _section != entry.section;
     setState(() {
       _section = entry.section;
@@ -2838,6 +2839,7 @@ Future<void> _ytSignInFailed(BuildContext context, WidgetRef ref) async {
 }
 
 Future<void> _refocusMain() async {
+  if (Platform.isIOS) return;
   try {
     await windowManager.focus();
   } catch (_) {}
@@ -3495,24 +3497,30 @@ class _Downloads extends ConsumerWidget {
                   children: [
                     Text('Save location', style: WaveType.trackTitle),
                     Text(
-                      custom.isEmpty ? 'Default location' : custom,
-                      maxLines: 1,
+                      Platform.isIOS
+                          ? 'LastWave app storage · Files app'
+                          : custom.isEmpty
+                              ? 'Default location'
+                              : custom,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: WaveType.meta,
                     ),
                   ],
                 ),
               ),
-              WaveButton(
-                onPressed: () => _pickDir(ref),
-                child: const Text('Change'),
-              ),
-              if (custom.isNotEmpty) ...[
-                const SizedBox(width: 8),
+              if (!Platform.isIOS) ...[
                 WaveButton(
-                  onPressed: () => onUpdate((p) => p.resetDownloadDir()),
-                  child: const Text('Reset'),
+                  onPressed: () => _pickDir(ref),
+                  child: const Text('Change'),
                 ),
+                if (custom.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  WaveButton(
+                    onPressed: () => onUpdate((p) => p.resetDownloadDir()),
+                    child: const Text('Reset'),
+                  ),
+                ],
               ],
             ],
           ),
