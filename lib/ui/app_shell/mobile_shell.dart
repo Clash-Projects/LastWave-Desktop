@@ -85,21 +85,6 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
     }
   }
 
-  String get _title {
-    if (_showMore) return 'More';
-    for (final destination in [..._tabletDestinations, ..._moreDestinations]) {
-      if (_route == destination.path ||
-          _route.startsWith('${destination.path}/')) {
-        return destination.label;
-      }
-    }
-    if (_route.startsWith('/now')) return 'Now Playing';
-    if (_route.startsWith('/album/')) return 'Album';
-    if (_route.startsWith('/artist/')) return 'Artist';
-    if (_route.startsWith('/history')) return 'History';
-    return 'LastWave';
-  }
-
   void _go(String path) {
     setState(() {
       _showMore = false;
