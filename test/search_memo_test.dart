@@ -18,6 +18,18 @@ class _FakeTube extends Fake implements InnerTubeMusicApi {
     if (fail) throw Exception('offline');
     return result;
   }
+
+  int videoCalls = 0;
+
+  @override
+  Future<List<YouTubeMusicTrack>> searchVideos(String query,
+      {int limit = 30}) async {
+    videoCalls++;
+    if (fail) throw Exception('offline');
+    return const [
+      YouTubeMusicTrack(videoId: 'video-id', title: 'Official Music Video', artist: 'Artist'),
+    ];
+  }
 }
 
 class _FakeApi extends Fake implements LastFmApiService {}
@@ -34,6 +46,15 @@ void main() {
     now = DateTime(2026, 11, 4, 12);
     repo = SearchRepository(_FakeApi(), tube, _FakeDb(), () => '',
         clock: () => now);
+  });
+
+  test('Videos tab uses the dedicated YouTube Music video search', () async {
+    final results = await repo.search(SearchTab.videos, 'Song');
+    expect(results, hasLength(1));
+    expect(results.single.videoId, 'video-id');
+    expect(results.single.tab, SearchTab.videos);
+    expect(tube.videoCalls, 1);
+    expect(tube.calls, 0);
   });
 
   test('a repeat query is served from the memo, case and spacing aside',
