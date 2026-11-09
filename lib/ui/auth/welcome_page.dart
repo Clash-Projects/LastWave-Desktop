@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../components/text_selection.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
@@ -691,7 +692,9 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
             label: 'Last.fm API key',
             textField: true,
             child: TextBox(
-              decoration: waveInputDecoration(),
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+decoration: waveInputDecoration(),
               controller: _key,
               placeholder: 'API key',
               autofocus: true,
@@ -703,7 +706,9 @@ class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
             textField: true,
             obscured: true,
             child: TextBox(
-              decoration: waveInputDecoration(),
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+decoration: waveInputDecoration(),
               controller: _secret,
               placeholder: 'Shared secret',
               obscureText: true,
