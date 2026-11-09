@@ -729,6 +729,7 @@ class _MobileTransportDock extends ConsumerWidget {
             builder: (context, constraints) {
               final compact = constraints.maxWidth < 420;
               return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   _TouchIconButton(
                     icon: WaveIcons.queue,
@@ -761,7 +762,7 @@ class _MobileTransportDock extends ConsumerWidget {
                         style: WaveType.overline.copyWith(fontSize: 9),
                       ),
                     ),
-                  const Spacer(),
+                  const SizedBox(width: 12),
                   _TouchIconButton(
                     icon: volume <= 0 ? WaveIcons.volumeMute : WaveIcons.volume,
                     tooltip: volume <= 0
@@ -780,10 +781,12 @@ class _MobileTransportDock extends ConsumerWidget {
                   if (!compact) ...[
                     const SizedBox(width: 8),
                     SizedBox(
-                      width: 34,
+                      width: 46,
                       child: Text(
                         '${(volume * 100).round()}%',
-                        textAlign: TextAlign.end,
+                        maxLines: 1,
+                        softWrap: false,
+                        textAlign: TextAlign.center,
                         style: WaveType.meta,
                       ),
                     ),
@@ -851,22 +854,23 @@ class _MobileMiniPlayer extends ConsumerWidget {
     return Container(
       height: 78,
       margin: const EdgeInsets.fromLTRB(10, 7, 10, 7),
-      padding: const EdgeInsets.fromLTRB(11, 5, 11, 4),
-      decoration: BoxDecoration(
-        color: waveSurfaceRaised(context),
+      child: WaveHaze(
+        level: LwHazeLevel.l2,
+        base: waveSurfaceRaised(context),
         borderRadius: BorderRadius.circular(16),
         border: waveIsDark(context)
             ? Border.all(color: waveDivider(context).withValues(alpha: 0.8))
             : null,
-        boxShadow: [
+        shadow: [
           BoxShadow(
             color: waveTextPrimary(context).withValues(alpha: 0.035),
             blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],
-      ),
-      child: Column(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(11, 5, 11, 4),
+          child: Column(
         children: [
           Expanded(
             child: GestureDetector(
@@ -1023,7 +1027,9 @@ class _MobileMiniPlayer extends ConsumerWidget {
                 ),
               ),
             ),
-        ],
+          ],
+          ),
+        ),
       ),
     );
   }
