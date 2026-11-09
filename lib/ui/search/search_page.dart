@@ -939,6 +939,7 @@ class _CombinedResults extends ConsumerStatefulWidget {
   final SearchTab? filter;
   final String catalogProvider;
   const _CombinedResults({
+    super.key,
     required this.query,
     required this.catalogProvider,
     this.filter,
