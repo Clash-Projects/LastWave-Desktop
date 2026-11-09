@@ -28,20 +28,6 @@ const _phoneDestinations = <WaveDestination>[
   WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
-const _tabletDestinations = <WaveDestination>[
-  WaveDestination('/home', 'Home', WaveIcons.home),
-  WaveDestination('/stats', 'Stats', WaveIcons.stats),
-  WaveDestination('/search', 'Search', WaveIcons.search),
-  WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
-  WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
-  WaveDestination('/albums', 'Albums', WaveIcons.albums),
-  WaveDestination('/artists', 'Artists', WaveIcons.artists),
-  WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
-  WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
-  WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
-  WaveDestination('/settings', 'Settings', WaveIcons.settings),
-];
-
 const _phoneMoreDestinations = <WaveDestination>[
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
@@ -49,11 +35,6 @@ const _phoneMoreDestinations = <WaveDestination>[
   WaveDestination('/stats', 'Listening statistics', WaveIcons.stats),
   WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
   WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
-  WaveDestination('/history', 'Listening history', WaveIcons.history),
-  WaveDestination('/friends', 'Friends', WaveIcons.friends),
-];
-
-const _tabletMoreDestinations = <WaveDestination>[
   WaveDestination('/history', 'Listening history', WaveIcons.history),
   WaveDestination('/friends', 'Friends', WaveIcons.friends),
 ];
@@ -80,8 +61,28 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   bool _showEqualizer = false;
   bool _showQueue = false;
   bool _offlineNoticeDismissed = false;
+  Offset? _touchStart;
 
   String get _route => waveRoutePath(widget.location);
+
+  void _handleTouchStart(PointerDownEvent event) {
+    if (event.kind == PointerDeviceKind.touch) _touchStart = event.position;
+  }
+
+  void _handleTouchEnd(PointerUpEvent event) {
+    final start = _touchStart;
+    _touchStart = null;
+    if (start == null || event.kind != PointerDeviceKind.touch) return;
+    final delta = event.position - start;
+    if (delta.dx.abs() < 140 || delta.dy.abs() > 64) return;
+    if (FocusManager.instance.primaryFocus?.hasFocus == true) return;
+    final playback = ref.read(playbackServiceProvider.notifier);
+    if (delta.dx < 0) {
+      playback.next();
+    } else {
+      playback.previous();
+    }
+  }
 
   @override
   void didUpdateWidget(WaveMobileShell oldWidget) {
@@ -191,8 +192,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
           'high' => WaveHazeIntensity.high,
           _ => WaveHazeIntensity.medium,
         };
-        final moreDestinations =
-            tablet ? _tabletMoreDestinations : _phoneMoreDestinations;
+        final moreDestinations = _phoneMoreDestinations;
         final moreActive = _showMore ||
             moreDestinations.any((d) =>
                 activePath == d.path ||
@@ -209,8 +209,13 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
             child: ColoredBox(
               color: waveBackground(context),
               child: SafeArea(
-                child: Column(
+                child: Listener(
+                  onPointerDown: _handleTouchStart,
+                  onPointerUp: _handleTouchEnd,
+                  child: Column(
                   children: [
+                    if (!nowPlaying)
+                      _MobileMiniPlayer(onOpen: _openNowPlaying),
                     if (!tablet && !nowPlaying)
                       _MobileToolbar(
                         tabletLayout: tablet,
@@ -219,8 +224,14 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                         onSearch: () => _go('/search'),
                         onMore: () => setState(() => _showMore = !_showMore),
                       ),
-                    if (tablet && !nowPlaying)
-                      _MobileMiniPlayer(onOpen: _openNowPlaying),
+                    if (tablet && moreActive && !_showMore && !nowPlaying)
+                      _MobileToolbar(
+                        tabletLayout: true,
+                        showBack: true,
+                        onBack: _back,
+                        onSearch: () => _go('/search'),
+                        onMore: () => setState(() => _showMore = true),
+                      ),
                     Expanded(
                       child: Stack(
                         fit: StackFit.expand,
@@ -233,6 +244,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                 child: _MorePage(
                                   destinations: moreDestinations,
                                   onGo: _go,
+                                  onBack: () => setState(() => _showMore = false),
                                 ),
                               ),
                             ),
@@ -335,25 +347,16 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                         queueActive: _showQueue,
                         equalizerActive: _showEqualizer,
                       )
-                    else if (!tablet)
-                      _MobileMiniPlayer(onOpen: _openNowPlaying),
                     if (!nowPlaying)
-                      tablet
-                          ? _TabletBottomNavigation(
-                              activePath: activePath,
-                              moreActive: moreActive,
-                              onGo: _go,
-                              onMore: () =>
-                                  setState(() => _showMore = !_showMore),
-                            )
-                          : _PhoneNavigation(
-                              activePath: activePath,
-                              moreActive: moreActive,
-                              onGo: _go,
-                              onMore: () =>
-                                  setState(() => _showMore = !_showMore),
-                            ),
+                      _PhoneNavigation(
+                        activePath: activePath,
+                        moreActive: moreActive,
+                        onGo: _go,
+                        onMore: () =>
+                            setState(() => _showMore = !_showMore),
+                      ),
                   ],
+                  ),
                 ),
               ),
             ),
@@ -1006,25 +1009,19 @@ class _MobileMiniPlayer extends ConsumerWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          track?.title ?? 'Nothing playing',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        _WaveAutoScrollText(
+                          text: track?.title ?? 'Nothing playing',
                           style: WaveType.trackTitle,
                         ),
-                        Text(
-                          track?.artist ?? 'Choose music from your library',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        _WaveAutoScrollText(
+                          text: track?.artist ?? 'Choose music from your library',
                           style: WaveType.meta.copyWith(
                             color: waveTextSecondary(context),
                           ),
                         ),
                         if (streamDetails.isNotEmpty)
-                          Text(
-                            streamDetails,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          _WaveAutoScrollText(
+                            text: streamDetails,
                             style: WaveType.meta.copyWith(
                               fontSize: 10,
                               letterSpacing: 0.15,
@@ -1074,6 +1071,12 @@ class _MobileMiniPlayer extends ConsumerWidget {
                               ref,
                               StoredTrack.fromPlayable(track),
                             ),
+                  ),
+                  _TouchIconButton(
+                    icon: WaveIcons.previous,
+                    tooltip: 'Previous track',
+                    width: 36,
+                    onPressed: track == null ? null : playback.previous,
                   ),
                   _TouchIconButton(
                     icon: player.isBuffering
@@ -1183,53 +1186,170 @@ class _TouchIconButton extends StatelessWidget {
   }
 }
 
+class _WaveAutoScrollText extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+
+  const _WaveAutoScrollText({required this.text, required this.style});
+
+  @override
+  State<_WaveAutoScrollText> createState() => _WaveAutoScrollTextState();
+}
+
+class _WaveAutoScrollTextState extends State<_WaveAutoScrollText> {
+  final ScrollController _controller = ScrollController();
+  bool _overflow = false;
+  bool _loopRunning = false;
+
+  @override
+  void didUpdateWidget(_WaveAutoScrollText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text || oldWidget.style != widget.style) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _controller.hasClients) _controller.jumpTo(0);
+      });
+    }
+  }
+
+  Future<void> _runScrollLoop() async {
+    if (_loopRunning) return;
+    _loopRunning = true;
+    while (mounted && _overflow) {
+      await Future<void>.delayed(const Duration(milliseconds: 650));
+      if (!mounted || !_overflow || !_controller.hasClients) break;
+      final end = _controller.position.maxScrollExtent;
+      if (end <= 1) break;
+      await _controller.animateTo(
+        end,
+        duration: Duration(milliseconds: (end * 22).round().clamp(900, 3200)),
+        curve: Curves.linear,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 750));
+      if (!mounted || !_overflow || !_controller.hasClients) break;
+      await _controller.animateTo(
+        0,
+        duration: const Duration(milliseconds: 650),
+        curve: Curves.easeOut,
+      );
+    }
+    _loopRunning = false;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final painter = TextPainter(
+            text: TextSpan(text: widget.text, style: widget.style),
+            maxLines: 1,
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+          )..layout();
+          final overflows = painter.width > constraints.maxWidth + 1;
+          if (_overflow != overflows) {
+            _overflow = overflows;
+            if (_overflow) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _runScrollLoop();
+              });
+            } else {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && _controller.hasClients) _controller.jumpTo(0);
+              });
+            }
+          }
+          if (!overflows) {
+            return Text(widget.text, maxLines: 1, style: widget.style);
+          }
+          return ClipRect(
+            child: SingleChildScrollView(
+              controller: _controller,
+              scrollDirection: Axis.horizontal,
+              physics: const NeverScrollableScrollPhysics(),
+              child: Text(widget.text, maxLines: 1, softWrap: false, style: widget.style),
+            ),
+          );
+        },
+      );
+}
+
 class _MorePage extends StatelessWidget {
   final List<WaveDestination> destinations;
   final void Function(String) onGo;
+  final VoidCallback onBack;
+
   const _MorePage({
     required this.destinations,
     required this.onGo,
+    required this.onBack,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+    return Column(
       children: [
-        for (final destination in destinations)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => onGo(destination.path),
-              child: Container(
-                height: 60,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: waveSurface(context),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: waveDivider(context)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(destination.icon, size: 22),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        destination.label,
-                        style: WaveType.trackTitle,
+        Container(
+          height: 54,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: waveSurface(context),
+            border: Border(bottom: BorderSide(color: waveDivider(context))),
+          ),
+          child: Row(
+            children: [
+              _TouchIconButton(
+                icon: WaveIcons.back,
+                tooltip: 'Back',
+                onPressed: onBack,
+              ),
+              const SizedBox(width: 8),
+              Text('More', style: WaveType.trackTitle),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+            children: [
+              for (final destination in destinations)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => onGo(destination.path),
+                    child: Container(
+                      height: 60,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: waveSurface(context),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: waveDivider(context)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(destination.icon, size: 22),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Text(destination.label, style: WaveType.trackTitle),
+                          ),
+                          Icon(
+                            WaveIcons.chevronRight,
+                            size: 16,
+                            color: waveTextSecondary(context),
+                          ),
+                        ],
                       ),
                     ),
-                    Icon(
-                      WaveIcons.chevronRight,
-                      size: 16,
-                      color: waveTextSecondary(context),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
+            ],
           ),
+        ),
       ],
     );
   }

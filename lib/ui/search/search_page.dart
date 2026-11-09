@@ -255,7 +255,7 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
     final side =
         ((viewport - WaveDensity.contentMax) / 2).clamp(0, double.infinity) +
             pad;
-    final fieldWidth = math.min(420.0, math.max(0.0, viewport - side * 2));
+    final fieldWidth = math.max(0.0, viewport - side * 2);
 
     return Focus(
       onKeyEvent: (_, e) => _onPageKey(e, suggestions),
