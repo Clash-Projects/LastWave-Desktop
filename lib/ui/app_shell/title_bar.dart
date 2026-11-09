@@ -9,7 +9,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/track_actions.dart' show playGenerated;
-import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart' show GeneratedTrack;
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
