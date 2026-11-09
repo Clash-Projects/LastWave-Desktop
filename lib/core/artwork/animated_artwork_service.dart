@@ -10,12 +10,10 @@ import '../network/dio_factory.dart';
 import '../storage/app_database.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/search/shared_providers.dart';
-import 'apple_music_canvas.dart';
 import 'community_canvas.dart';
 import 'official_artwork_service.dart';
 import 'tidal_canvas.dart';
 
-export 'apple_music_canvas.dart';
 export 'community_canvas.dart';
 export 'tidal_canvas.dart';
 
@@ -23,15 +21,13 @@ export 'tidal_canvas.dart';
 ///
 /// Priority order: [apple] > [tidal] > [community].
 enum CanvasSource {
-  apple,
   tidal,
   community,
 }
 
 typedef CanvasArtwork = AnimatedArtwork;
 
-/// Looping motion artwork clip (Apple Music editorialVideo HLS/fMP4,
-/// Tidal 1280x1280 video cover MP4, or Community Canvas manifest MP4).
+/// Looping motion artwork clip from TIDAL or the Community Canvas manifest.
 class AnimatedArtwork {
   final String url;
   final String urlTall;
@@ -48,7 +44,7 @@ class AnimatedArtwork {
     this.title,
     this.artist,
     this.album,
-    this.source = CanvasSource.apple,
+    this.source = CanvasSource.community,
   });
 
   bool get hasUrl => url.isNotEmpty;
@@ -151,7 +147,7 @@ bool canvasTitlesMatch(String wantTitle, String gotTitle) {
 /// Compares credited artists across platforms.
 ///
 /// Handles cases where YouTube Music lists featured artists in the artist
-/// field (`"The Weeknd, Daft Punk"`) while Apple Music, Tidal, or Community
+/// field (`"The Weeknd, Daft Punk"`) while TIDAL or Community
 /// Canvas credits only the primary artist (`"The Weeknd"`) or puts
 /// `(feat. Daft Punk)` in the song title.
 bool canvasArtistsMatch(
@@ -337,7 +333,6 @@ class AnimatedArtworkQuery {
   int get hashCode => cacheKey.hashCode;
 }
 
-const _animHit = 'anim';
 const _animTidalHit = 'anim-tidal';
 const _animCommunityHit = 'anim-community';
 const _animMiss = 'anim-v2-miss';
@@ -366,28 +361,14 @@ String animatedArtworkCacheKey({
   return 'anim6|$a||${OfficialArtworkService.normalizeForSearch(title)}';
 }
 
-const appleArtworkHeaders = {
-  'User-Agent': canvasUserAgent,
-  'Referer': 'https://music.apple.com/',
-  'Origin': 'https://music.apple.com',
-  'Accept': '*/*',
-};
-
-Map<String, String> headersForAnimatedArtworkUrl(String url) {
-  final lower = url.toLowerCase();
-  if (lower.contains('apple.com')) {
-    return appleArtworkHeaders;
-  }
-  return const {
-    'User-Agent': canvasUserAgent,
-    'Accept': '*/*',
-  };
-}
+Map<String, String> headersForAnimatedArtworkUrl(String url) => const {
+      'User-Agent': canvasUserAgent,
+      'Accept': '*/*',
+    };
 
 /// Persistent disk cache for `.mp4` animated cover loops.
 ///
-/// Saves resolved `.mp4` clips (Apple Music fMP4, Tidal 1280x1280 MP4,
-/// Community Canvas MP4) to `<systemTemp>/lastwave_canvas_cache/` with a
+/// Saves resolved `.mp4` clips (TIDAL video covers and Community Canvas MP4) to `<systemTemp>/lastwave_canvas_cache/` with a
 /// 150 MB LRU cap so repeated plays, same-album track switches, and app
 /// restarts decode directly from local disk without re-downloading.
 class CanvasDiskCache {
@@ -544,8 +525,7 @@ class CanvasDiskCache {
   }
 }
 
-/// Picks a mid-size H.264 STREAM-INF rendition. Apple masters list
-/// I-frame trick-play first, then 4K HEVC — those look still or fail.
+/// Picks a mid-size H.264 STREAM-INF rendition, avoiding trick-play and very high-resolution variants.
 String? pickAnimatedArtworkStream(String playlist, {String masterUrl = ''}) {
   final lines = playlist.split(RegExp(r'\r?\n'));
   var bestUrl = '';
@@ -576,7 +556,7 @@ String? pickAnimatedArtworkStream(String playlist, {String masterUrl = ''}) {
   return Uri.parse(masterUrl).resolve(bestUrl).toString();
 }
 
-/// Apple motion-art variants are one fMP4 addressed by HLS byteranges.
+/// Some HLS motion-art variants are a single fMP4 addressed by byte ranges.
 String? pickAnimatedArtworkFile(
   String variantPlaylist, {
   required String variantUrl,
@@ -597,25 +577,12 @@ String? pickAnimatedArtworkFile(
   return Uri.parse(variantUrl).resolve(uri).toString();
 }
 
-AnimatedArtwork? parseAnimatedArtworkPayload(Object? json) {
-  if (json is! Map) return null;
-  final url = json['url']?.toString() ?? '';
-  if (url.isEmpty || !url.contains('.m3u8')) return null;
-  return AnimatedArtwork(
-    url: url,
-    urlTall: json['url_tall']?.toString() ?? '',
-    source: CanvasSource.apple,
-  );
-}
-
 /// Multi-source lookup + memory/SQLite cache for animated album artwork.
 ///
-/// Waterfall priority order (matching LastWave-Native `CanvasRepository`):
-/// 1. Apple Music (`AppleMusicCanvas` + proxy fallback)
-/// 2. Tidal (`TidalCanvas` 1280x1280 video covers)
-/// 3. Community (`CommunityCanvas` ViMusic manifest)
+/// Waterfall priority order:
+/// 1. TIDAL video covers
+/// 2. Community Canvas manifest
 class AnimatedArtworkService {
-  static const baseUrl = 'https://artwork.m8tec.top';
 
   final Dio _dio;
   final AppDatabase? _db;
@@ -714,15 +681,6 @@ class AnimatedArtworkService {
     );
   }
 
-  Future<AnimatedArtwork?> lookupByUrl(String appleMusicUrl) {
-    final url = appleMusicUrl.trim();
-    if (url.isEmpty || !url.contains('music.apple.com')) {
-      return Future.value(null);
-    }
-    final key = 'anim6|url|${url.toLowerCase()}';
-    return _lookupKey(key, () => _fetchUrl(url, key));
-  }
-
   Future<AnimatedArtwork?> _lookupKey(
     String key,
     Future<AnimatedArtwork?> Function() fetch, {
@@ -785,18 +743,15 @@ class AnimatedArtworkService {
     if (provider == _animMiss) {
       return (null, age < _missTtl.inMilliseconds);
     }
-    final isHitProvider = provider == _animHit ||
-        provider == _animTidalHit ||
-        provider == _animCommunityHit;
+    final isHitProvider =
+        provider == _animTidalHit || provider == _animCommunityHit;
     if (isHitProvider &&
         (url.contains('.m3u8') ||
             url.contains('.mp4') ||
             url.startsWith('http'))) {
-      final source = switch (provider) {
-        _animTidalHit => CanvasSource.tidal,
-        _animCommunityHit => CanvasSource.community,
-        _ => CanvasSource.apple,
-      };
+      final source = provider == _animTidalHit
+          ? CanvasSource.tidal
+          : CanvasSource.community;
       return (
         AnimatedArtwork(url: url, source: source),
         age < _hitTtl.inMilliseconds,
@@ -879,14 +834,9 @@ class AnimatedArtworkService {
       }
 
       // Waterfall lookup in strict priority order:
-      // 1. Apple Music > 2. Tidal > 3. Community
+      // 1. TIDAL > 2. Community
       final found = await _firstHit(
         [
-          () => _lookupAppleMusic(
-                artist: artist,
-                album: album,
-                title: title,
-              ),
           () => _lookupTidal(
                 artist: artist,
                 album: album,
@@ -975,65 +925,6 @@ class AnimatedArtworkService {
     return null;
   }
 
-  Future<AnimatedArtwork?> _lookupAppleMusic({
-    required String artist,
-    required String album,
-    required String title,
-  }) async {
-    // 1a. Direct Apple Music AMP catalog (editorialVideo)
-    AnimatedArtwork? found;
-    if (title.isNotEmpty && artist.isNotEmpty) {
-      found = await AppleMusicCanvas.search(
-        _dio,
-        title: title,
-        artist: artist,
-        album: album.isEmpty ? null : album,
-      );
-      if (found == null && album.isNotEmpty) {
-        found = await AppleMusicCanvas.search(
-          _dio,
-          title: title,
-          artist: artist,
-        );
-      }
-      if (found == null && album.isNotEmpty) {
-        found = await AppleMusicCanvas.searchAlbum(
-          _dio,
-          album: album,
-          artist: artist,
-        );
-      }
-    } else if (album.isNotEmpty && artist.isNotEmpty) {
-      found = await AppleMusicCanvas.searchAlbum(
-        _dio,
-        album: album,
-        artist: artist,
-      );
-    }
-    if (found != null) return found;
-
-    // 1b. Proxy / iTunes fallback for Apple Music
-    final primary = primaryCanvasArtist(artist);
-    if (album.isNotEmpty && title.isNotEmpty) {
-      found = await _requestSearch(artist: artist, album: album, title: title);
-      if (found == null && primary != artist) {
-        found =
-            await _requestSearch(artist: primary, album: album, title: title);
-      }
-    }
-    if (found == null && album.isNotEmpty) {
-      found = await _requestSearch(artist: artist, album: album);
-      if (found == null && primary != artist) {
-        found = await _requestSearch(artist: primary, album: album);
-      }
-    }
-    found ??= await _lookupViaItunes(
-      primary.isNotEmpty ? primary : artist,
-      album.isNotEmpty ? album : title,
-    );
-    return found;
-  }
-
   Future<AnimatedArtwork?> _lookupTidal({
     required String artist,
     required String album,
@@ -1115,96 +1006,6 @@ class AnimatedArtworkService {
     }
   }
 
-  Future<AnimatedArtwork?> _fetchUrl(String appleMusicUrl, String key) async {
-    try {
-      final found = await _request(
-        path: '/api/v1/artwork/url',
-        queryParameters: {'url': appleMusicUrl},
-      );
-      if (found == null) {
-        _store(key, null);
-        return null;
-      }
-      final playable = await _resolvePlayableUrl(found.url);
-      final resolved = AnimatedArtwork(
-        url: playable,
-        urlTall: found.urlTall,
-        source: CanvasSource.apple,
-      );
-      _store(key, resolved);
-      unawaited(CanvasDiskCache.instance.warm(resolved.url));
-      return resolved;
-    } catch (_) {
-      return _memory[key];
-    }
-  }
-
-  Future<AnimatedArtwork?> _requestSearch({
-    required String artist,
-    required String album,
-    String title = '',
-  }) {
-    return _request(
-      path: '/api/v1/artwork/search',
-      queryParameters: {
-        'artist': artist,
-        'album': album,
-        if (title.isNotEmpty) 'title': title,
-      },
-    );
-  }
-
-  Future<AnimatedArtwork?> _lookupViaItunes(String artist, String album) async {
-    if (artist.isEmpty || album.isEmpty) return null;
-    try {
-      final res = await _dio.get(
-        'https://itunes.apple.com/search',
-        queryParameters: {
-          'term': '$artist $album',
-          'entity': 'album',
-          'limit': 5,
-        },
-      );
-      final results = res.data is Map ? res.data['results'] : null;
-      if (results is! List) return null;
-      for (final item in results) {
-        if (item is! Map) continue;
-        final raw = item['collectionViewUrl']?.toString() ?? '';
-        if (raw.isEmpty) continue;
-        final art = await _request(
-          path: '/api/v1/artwork/url',
-          queryParameters: {'url': raw.split('?').first},
-        );
-        if (art != null) return art;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  Future<AnimatedArtwork?> _request({
-    required String path,
-    required Map<String, dynamic> queryParameters,
-  }) async {
-    try {
-      final res = await DioFactory.withRetry(
-        () => _dio.get(
-          '$baseUrl$path',
-          queryParameters: queryParameters,
-          options: Options(
-            validateStatus: (code) =>
-                code != null && (code == 200 || code == 400 || code == 404),
-          ),
-        ),
-      );
-      if (res.statusCode != 200) return null;
-      return parseAnimatedArtworkPayload(res.data);
-    } on DioException catch (e) {
-      final code = e.response?.statusCode;
-      if (code == 400 || code == 404) return null;
-      rethrow;
-    }
-  }
-
   Future<String> _resolvePlayableIfNeeded(String url) async {
     if (url.contains('.m3u8')) {
       return _resolvePlayableUrl(url);
@@ -1250,7 +1051,6 @@ class AnimatedArtworkService {
     }
     final provider = switch (art?.source) {
       null => _animMiss,
-      CanvasSource.apple => _animHit,
       CanvasSource.tidal => _animTidalHit,
       CanvasSource.community => _animCommunityHit,
     };
