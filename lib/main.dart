@@ -49,19 +49,18 @@ Future<void> main(List<String> args) async {
     writeFatalCrumb(fatalCrumb(error, stack));
     return false;
   };
-  // Desktop image cache budget: 64 MiB / 500 images.
+  // Desktop image cache budget: 128 MiB / 500 images.
   //
-  // The previous 128 MiB was chosen when oversized tiles decoded at
-  // native size; after DPR-aware decode sizing (each tile decodes at
-  // `size × dpr` snapped to a 16px grid — see WaveArtwork) a long session
-  // was observed filling that ceiling at roughly 5 MiB per track, i.e. up
-  // to 128 MiB of pure decoded-artwork residency that only ever ratchets.
-  // 64 MiB still holds ~150 tiles at a 320px decode or ~39 at 640px, so it
-  // comfortably covers a visible grid; the cost of going below that is
-  // re-decodes while scrolling large collections.
+  // Each cover now has one decode per ladder step (ArtworkCache.ladder)
+  // instead of one per layout width, and the Now Playing covers are pinned
+  // as live images (ArtworkResolver.pinOnly), which the size budget never
+  // evicts. So this cap only governs how many browsed thumbnails stay
+  // decoded: 128 MiB holds ~500 tiles at 256px or ~80 at 640px, enough for
+  // a full grid plus back-navigation without re-decodes, while keeping
+  // long-session RAM bounded (a 512 MiB trial only parked stale thumbnails).
   PaintingBinding.instance.imageCache.maximumSize = 500;
   PaintingBinding.instance.imageCache.maximumSizeBytes =
-      64 << 20; // 64 MiB
+      128 << 20; // 128 MiB
   if (runWebViewTitleBarWidget(args)) return;
   // libmpv is deliberately NOT dlopened here. MediaKit.ensureInitialized()
   // just dlopens a multi-MB .so (media_kit's NativeLibrary) — pure

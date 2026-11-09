@@ -12,6 +12,7 @@ import '../theme/wave_icons.dart';
 
 import '../../app/track_actions.dart'
     show formatDuration, playGenerated;
+import '../../core/artwork/artwork_cache.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart';
@@ -789,8 +790,9 @@ class _BrowseTileState extends ConsumerState<_BrowseTile> {
                       child: SizedBox.expand(
                         child: CachedNetworkImage(
                           imageUrl: _url,
+                          cacheManager: ArtworkCache.instance,
                           fit: BoxFit.cover,
-                          memCacheWidth: 400,
+                          memCacheWidth: 384,
                           fadeInDuration: Duration.zero,
                           errorWidget: (_, _, _) => const SizedBox.shrink(),
                         ),

@@ -41,11 +41,15 @@ void main() {
 
       const template =
           'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/b1/e3/27/cover.jpg/{w}x{h}bb.{f}';
+      // Sizes snap UP to the shared ladder (ArtworkCache.ladder) so every
+      // layout width doesn't mint its own URL + cache entry.
       final sized1000 = ArtworkResolver.sized(template, 1000);
       expect(
         sized1000,
-        'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/b1/e3/27/cover.jpg/1000x1000bb.jpg',
+        'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/b1/e3/27/cover.jpg/1024x1024bb.jpg',
       );
+      expect(ArtworkResolver.sized(original, 523), contains('640x640bb'));
+      expect(ArtworkResolver.sized(original, 530), contains('640x640bb'));
     });
 
     test('sizes Qobuz cover URLs to large resolution', () {
