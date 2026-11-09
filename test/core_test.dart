@@ -6,7 +6,6 @@ import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
 import 'package:lastwave_desktop/features/innertube/signature_decipher.dart';
 import 'package:lastwave_desktop/features/library/playlists.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_models.dart';
-import 'package:lastwave_desktop/features/lyrics/lyrics_repository.dart';
 
 void main() {
   group('LastFmSigner', () {
