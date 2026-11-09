@@ -231,6 +231,12 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                 initialSettings: InAppWebViewSettings(
                   javaScriptEnabled: true,
                   domStorageEnabled: true,
+                  // Keep YouTube Music in WebKit's desktop Safari content
+                  // mode. The default embedded mobile mode can trigger
+                  // YouTube Music's unsupported-browser landing page.
+                  preferredContentMode: _isYouTube
+                      ? UserPreferredContentMode.DESKTOP
+                      : UserPreferredContentMode.RECOMMENDED,
                   supportMultipleWindows: false,
                   javaScriptCanOpenWindowsAutomatically: false,
                 ),
@@ -304,6 +310,13 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                       initialSettings: InAppWebViewSettings(
                         javaScriptEnabled: true,
                         domStorageEnabled: true,
+                        // Request the desktop Safari content mode instead of
+                        // WKWebView's default mobile mode. This uses the
+                        // platform's real WebKit engine; it does not spoof
+                        // Chrome or bypass Google's sign-in protections.
+                        preferredContentMode: _isYouTube
+                            ? UserPreferredContentMode.DESKTOP
+                            : UserPreferredContentMode.RECOMMENDED,
                         supportZoom: true,
                         allowsInlineMediaPlayback: true,
                         mediaPlaybackRequiresUserGesture: false,
