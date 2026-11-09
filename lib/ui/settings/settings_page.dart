@@ -18,7 +18,6 @@ import '../../core/audio/stream_models.dart';
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/env/app_env.dart';
 import '../../core/storage/prefs.dart';
-import '../../core/storage/secure_store.dart';
 import '../../features/addons/addon_api.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
@@ -1446,7 +1445,7 @@ class _Lyrics extends ConsumerWidget {
             onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
             title: 'Word-by-word lyrics',
             subtitle:
-                'Karaoke word highlight. Off uses Apple Music line lyrics.',
+                'Karaoke word highlight. Off keeps lyrics line-synced without word highlighting.',
           ),
           const SizedBox(height: 10),
           const Text('Primary provider', style: WaveType.trackTitle),
@@ -1613,135 +1612,6 @@ class _SpotifyCard extends ConsumerWidget {
   }
 }
 
-class _AppleMusicCatalogTokenCard extends ConsumerStatefulWidget {
-  const _AppleMusicCatalogTokenCard();
-
-  @override
-  ConsumerState<_AppleMusicCatalogTokenCard> createState() =>
-      _AppleMusicCatalogTokenCardState();
-}
-
-class _AppleMusicCatalogTokenCardState
-    extends ConsumerState<_AppleMusicCatalogTokenCard> {
-  final TextEditingController _controller = TextEditingController();
-  bool _loading = true;
-  bool _saving = false;
-  bool _configured = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final token = await ref
-        .read(secureStoreProvider)
-        .readAppleMusicDeveloperToken();
-    if (!mounted) return;
-    _controller.text = token ?? '';
-    setState(() {
-      _configured = token?.isNotEmpty == true;
-      _loading = false;
-    });
-  }
-
-  Future<void> _save() async {
-    final token = _controller.text.trim();
-    if (token.split('.').length != 3) {
-      setState(() => _error = 'Enter a valid three-part developer JWT.');
-      return;
-    }
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    await ref
-        .read(secureStoreProvider)
-        .writeAppleMusicDeveloperToken(token);
-    if (!mounted) return;
-    setState(() {
-      _saving = false;
-      _configured = true;
-    });
-  }
-
-  Future<void> _clear() async {
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    await ref
-        .read(secureStoreProvider)
-        .writeAppleMusicDeveloperToken(null);
-    if (!mounted) return;
-    _controller.clear();
-    setState(() {
-      _saving = false;
-      _configured = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          _loading
-              ? 'Checking secure storage…'
-              : (_configured
-                  ? 'Developer token saved in secure storage'
-                  : 'Not configured — Apple Music catalog search is unavailable'),
-          style: WaveType.meta,
-        ),
-        const SizedBox(height: 8),
-        TextBox(
-          controller: _controller,
-          decoration: waveInputDecoration(),
-          placeholder: 'Apple Music developer JWT',
-          maxLines: 2,
-          enabled: !_loading && !_saving,
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: 6),
-          Text(_error!, style: WaveType.meta.copyWith(color: Colors.red)),
-        ],
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            WaveFilledButton(
-              onPressed: _loading || _saving ? null : _save,
-              child: Text(_saving ? 'Saving…' : 'Save token'),
-            ),
-            if (_configured)
-              WaveButton(
-                onPressed: _saving ? null : _clear,
-                child: const Text('Clear'),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'LastWave uses this token only for Apple Music catalog metadata. '
-          'It does not enable Apple Music audio playback. The token is kept '
-          'in device secure storage; never paste your private signing key here.',
-          style: TextStyle(fontSize: 12),
-        ),
-      ],
-    );
-  }
-}
-
 class _Ytm extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Ytm({required this.onUpdate});
@@ -1831,13 +1701,6 @@ class _Ytm extends ConsumerWidget {
                         ),
                       ],
                     ),
-        ),
-        const SizedBox(height: 16),
-        _Group(
-          id: 'integrations.apple_music_catalog',
-          title: 'Apple Music catalog',
-          subtitle: 'Search Apple Music metadata; playback stays with LastWave sources',
-          child: const _AppleMusicCatalogTokenCard(),
         ),
         const SizedBox(height: 16),
         _Group(
