@@ -1,3 +1,4 @@
+import '../components/text_selection.dart';
 import '../components/buttons.dart';
 import '../components/inputs.dart';
 import 'dart:async';
@@ -223,7 +224,9 @@ class _PaletteDialogState extends ConsumerState<_PaletteDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextBox(
-                decoration: waveInputDecoration(),
+                selectionControls: waveTextSelectionControls,
+                contextMenuBuilder: waveTextContextMenuBuilder,
+decoration: waveInputDecoration(),
                 controller: widget.controller,
                 autofocus: true,
                 placeholder: 'Type a command…',
