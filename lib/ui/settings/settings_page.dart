@@ -924,6 +924,17 @@ class _Appearance extends ConsumerWidget {
             ],
           ),
         ),
+        _Group(
+          id: 'appearance.wavy_seekbar',
+          title: 'Playback appearance',
+          subtitle: 'Customize the timeline shown in the player',
+          child: _SwitchRow(
+            value: prefs.wavySeekbar,
+            onChanged: (v) => onUpdate((p) => p.setWavySeekbar(v)),
+            title: 'Wavy seekbar',
+            subtitle: 'Use the animated waveform-style timeline',
+          ),
+        ),
         if (Platform.isIOS) ...[
           _Group(
             id: 'appearance.interface_scale',
@@ -3721,22 +3732,15 @@ class _Experimental extends ConsumerWidget {
   const _Experimental({required this.onUpdate});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final prefs = ref.watch(prefsProvider);
     return _Group(
       id: 'experimental.main',
       title: 'Experimental',
       subtitle: Platform.isIOS
           ? 'Optional visual experiments supported by LastWave'
           : 'Opt-in visual prototypes',
-      child: Column(
-        children: [
-          _SwitchRow(
-            value: prefs.wavySeekbar,
-            onChanged: (v) => onUpdate((p) => p.setWavySeekbar(v)),
-            title: 'Wavy seekbar',
-            subtitle: 'Experimental timeline treatment',
-          ),
-        ],
+      child: Text(
+        'There are no experimental settings available right now.',
+        style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
       ),
     );
   }
