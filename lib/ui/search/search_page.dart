@@ -36,18 +36,15 @@ import '../theme/tokens.dart';
 /// [_CombinedResults] keeps the previous lists on screen with skeleton rows
 /// for sections still pending.
 final waveSearchSongsProvider = FutureProvider.autoDispose.family<
-    List<SearchResultItem>, ({String query, String catalogProvider})>(
-  (ref, args) {
-    if (args.query.trim().isEmpty) {
-      return Future.value(const <SearchResultItem>[]);
-    }
-    return ref.watch(searchRepositoryProvider).search(
-      SearchTab.tracks,
-      args.query,
-      catalogProvider: args.catalogProvider,
-    );
-  },
-);
+    List<SearchResultItem>, String>((ref, query) {
+  if (query.trim().isEmpty) return Future.value(const <SearchResultItem>[]);
+  return ref.watch(searchRepositoryProvider).search(SearchTab.tracks, query);
+});
+final waveSearchVideosProvider = FutureProvider.autoDispose.family<
+    List<SearchResultItem>, String>((ref, query) {
+  if (query.trim().isEmpty) return Future.value(const <SearchResultItem>[]);
+  return ref.watch(searchRepositoryProvider).search(SearchTab.videos, query);
+});
 // NOTE: ALL query-keyed families must be autoDispose — every distinct
 // keystroke prefix otherwise lives in the container forever with its
 // results (songs already was; albums/artists/playlists/suggestions
@@ -115,9 +112,6 @@ PlayableTrack playableFromSearch(SearchResultItem e) => PlayableTrack(
       artworkUrl: e.artworkUrl,
       videoId: e.videoId,
       duration: Duration(seconds: e.durationSeconds),
-      catalogProvider: e.catalogProvider,
-      isrc: e.isrc,
-      externalUrl: e.externalUrl,
     );
 
 /// Search — live results when a query is submitted; empty state is
@@ -141,8 +135,6 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
   SearchTab? _filter;
   int _suggestIndex = -1;
   bool _suggestDismissed = false;
-  String _catalogProvider = searchCatalogYoutubeMusic;
-
   @override
   void initState() {
     super.initState();
@@ -150,13 +142,6 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
     _query = widget.initialQuery;
     _suggestQuery = widget.initialQuery;
     _submitted = widget.initialQuery;
-    _catalogProvider = ref.read(prefsProvider).searchCatalogProvider;
-  }
-
-  Future<void> _selectCatalogProvider(String provider) async {
-    if (provider == searchCatalogTidal || provider == _catalogProvider) return;
-    await ref.read(prefsProvider).setSearchCatalogProvider(provider);
-    if (mounted) setState(() => _catalogProvider = provider);
   }
 
   @override
@@ -341,11 +326,6 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
               ),
             ),
           ],
-          const SizedBox(height: 12),
-          _CatalogProviderSelector(
-            selected: _catalogProvider,
-            onSelected: _selectCatalogProvider,
-          ),
           if (_submitted.isEmpty) ...[
             if (history.isNotEmpty) ...[
               const SizedBox(height: 28),
@@ -378,10 +358,9 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
             ),
             const SizedBox(height: 16),
             _CombinedResults(
-              key: ValueKey('$_submitted|$_catalogProvider|${_filter?.name}'),
+              key: ValueKey('$_submitted|${_filter?.name}'),
               query: _submitted,
               filter: _filter,
-              catalogProvider: _catalogProvider,
             ),
           ],
         ],
@@ -564,6 +543,8 @@ class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
         return 'Artist';
       case SearchTab.tracks:
         return hit.artist.isEmpty ? 'Song' : 'Song · ${hit.artist}';
+      case SearchTab.videos:
+        return hit.artist.isEmpty ? 'Video' : 'Video · ${hit.artist}';
       case SearchTab.albums:
         return hit.artist.isEmpty ? 'Album' : 'Album · ${hit.artist}';
       case SearchTab.playlists:
@@ -864,45 +845,6 @@ class _BrowseTileState extends ConsumerState<_BrowseTile> {
   }
 }
 
-class _CatalogProviderSelector extends StatelessWidget {
-  final String selected;
-  final ValueChanged<String> onSelected;
-  const _CatalogProviderSelector({
-    required this.selected,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        Text('TRACK CATALOG', style: WaveType.overline),
-        ToggleButton(
-          checked: selected == searchCatalogYoutubeMusic,
-          onChanged: (_) => onSelected(searchCatalogYoutubeMusic),
-          child: const Text('YouTube Music'),
-        ),
-        ToggleButton(
-          checked: selected == searchCatalogAppleMusic,
-          onChanged: (_) => onSelected(searchCatalogAppleMusic),
-          child: const Text('Apple Music'),
-        ),
-        const Tooltip(
-          message: 'TIDAL API use is pending authorization for this app.',
-          child: ToggleButton(
-            checked: false,
-            onChanged: null,
-            child: Text('TIDAL · approval needed'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _ResultFilters extends StatelessWidget {
   final SearchTab? selected;
   final ValueChanged<SearchTab?> onSelected;
@@ -913,6 +855,7 @@ class _ResultFilters extends StatelessWidget {
     const items = <(SearchTab?, String)>[
       (null, 'All'),
       (SearchTab.tracks, 'Songs'),
+      (SearchTab.videos, 'Videos'),
       (SearchTab.albums, 'Albums'),
       (SearchTab.artists, 'Artists'),
       (SearchTab.playlists, 'Playlists'),
@@ -936,11 +879,9 @@ class _ResultFilters extends StatelessWidget {
 class _CombinedResults extends ConsumerStatefulWidget {
   final String query;
   final SearchTab? filter;
-  final String catalogProvider;
   const _CombinedResults({
     super.key,
     required this.query,
-    required this.catalogProvider,
     this.filter,
   });
   @override
@@ -952,6 +893,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
   // Previous lists stay on screen while a new query loads — the page is
   // never blanked. Assigned during build when fresh data arrives.
   List<SearchResultItem> _songs = const [];
+  List<SearchResultItem> _videos = const [];
   List<SearchResultItem> _albums = const [];
   List<SearchResultItem> _artists = const [];
   List<SearchResultItem> _playlists = const [];
@@ -970,6 +912,17 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
       [playableFromSearch(e)],
       0,
       sourceLabel: 'Search',
+      endlessRadio: ref.read(prefsProvider).autoplaySimilar,
+    );
+  }
+
+  Future<void> _playVideos(WidgetRef ref, int start) async {
+    if (_videos.isEmpty) return;
+    final video = _videos[start.clamp(0, _videos.length - 1)];
+    await ref.read(playbackServiceProvider.notifier).playQueue(
+      [playableFromSearch(video)],
+      0,
+      sourceLabel: 'Search videos',
       endlessRadio: ref.read(prefsProvider).autoplaySimilar,
     );
   }
@@ -1006,6 +959,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
       case SearchTab.playlists:
         _openPlaylist(hero);
       case SearchTab.tracks:
+      case SearchTab.videos:
         _playSingle(ref, hero);
       case SearchTab.users:
         _openUser(hero);
@@ -1035,10 +989,13 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
 
   @override
   Widget build(BuildContext context) {
-    final songsAsync = ref.watch(waveSearchSongsProvider((
-      query: widget.query,
-      catalogProvider: widget.catalogProvider,
-    )));
+    final songsAsync = ref.watch(waveSearchSongsProvider(widget.query));
+    final showVideos = widget.filter == SearchTab.videos;
+    AsyncValue<List<SearchResultItem>> videosAsync =
+        const AsyncData(<SearchResultItem>[]);
+    if (showVideos) {
+      videosAsync = ref.watch(waveSearchVideosProvider(widget.query));
+    }
     final albumsAsync =
         ref.watch(waveSearchAlbumsProvider(widget.query));
     final artistsAsync =
@@ -1070,6 +1027,9 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
     if (songsAsync.hasValue) {
       _songs = songsAsync.value ?? _songs;
     }
+    if (videosAsync.hasValue) {
+      _videos = videosAsync.value ?? _videos;
+    }
     if (albumsAsync.hasValue) {
       _albums = albumsAsync.value ?? _albums;
     }
@@ -1084,13 +1044,15 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
     }
 
     final anyLoading = (showSongs && songsAsync.isLoading) ||
-        (showAlbums && albumsAsync.isLoading) ||
+        (showVideos && videosAsync.isLoading) ||
+        (showAlbums && albumsAsync.isLoading)
         (showArtists && artistsAsync.isLoading) ||
         (showPlaylists && playlistsAsync.isLoading) ||
         (showUsers && usersAsync.isLoading) ||
         (podcastsOn && podcastAsync.isLoading);
     final allEmpty = (!showSongs || _songs.isEmpty) &&
-        (!showAlbums || _albums.isEmpty) &&
+        (!showVideos || _videos.isEmpty) &&
+        (!showAlbums || _albums.isEmpty)
         (!showArtists || _artists.isEmpty) &&
         (!showPlaylists || _playlists.isEmpty) &&
         (!showUsers || _users.isEmpty) &&
@@ -1111,7 +1073,8 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
 
     if (allEmpty && !anyLoading) {
       final anyError = (showSongs && songsAsync.hasError) ||
-          (showAlbums && albumsAsync.hasError) ||
+          (showVideos && videosAsync.hasError) ||
+          (showAlbums && albumsAsync.hasError)
           (showArtists && artistsAsync.hasError) ||
           (showPlaylists && playlistsAsync.hasError) ||
           (showUsers && usersAsync.hasError);
@@ -1124,7 +1087,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               ? 'Search failed'
               : (usersOnly ? 'No users' : 'No results'),
           subtitle: anyError
-              ? (songsAsync.error?.toString() ??
+              ? ((showVideos ? videosAsync.error : songsAsync.error)?.toString() ??
                   'Check your connection and try again.')
               : (usersOnly
                   ? 'No Last.fm users match that name.'
@@ -1252,17 +1215,42 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
             rise: 8,
             child: WaveEmpty(
               icon: FluentIcons.error,
-              title: widget.catalogProvider == searchCatalogAppleMusic
-                  ? 'Apple Music catalog unavailable'
-                  : 'Track catalog unavailable',
+              title: 'Track search unavailable',
               subtitle: songsAsync.error?.toString() ??
                   'Could not retrieve track results.',
-              actionLabel: widget.catalogProvider == searchCatalogAppleMusic
-                  ? 'Open Integrations'
-                  : null,
-              onAction: widget.catalogProvider == searchCatalogAppleMusic
-                  ? () => context.go('/settings?section=integrations')
-                  : null,
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+        if (showVideos &&
+            (_videos.isNotEmpty || videosAsync.isLoading)) ...[
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: _SectionHead(
+              label: 'Videos',
+              loading: videosAsync.isLoading,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (_videos.isEmpty)
+            const _SkeletonRows(count: 5)
+          else
+            _SongsTable(
+              songs: _videos,
+              onPlay: (i) => _playVideos(ref, i),
+            ),
+          const SizedBox(height: 24),
+        ],
+        if (showVideos && videosAsync.hasError) ...[
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: WaveEmpty(
+              icon: FluentIcons.error,
+              title: 'Video search unavailable',
+              subtitle: videosAsync.error?.toString() ??
+                  'Could not retrieve YouTube Music video results.',
             ),
           ),
           const SizedBox(height: 20),
@@ -1720,9 +1708,7 @@ class _SongsTable extends ConsumerWidget {
       items: shown,
       keyOf: keyOf,
       titleOf: (e) => e.name,
-      subtitleOf: (e) => e.catalogProvider == searchCatalogAppleMusic
-          ? '${e.artist} · Apple Music'
-          : e.artist,
+      subtitleOf: (e) => e.artist,
       albumOf: (e) => e.subtitle,
       artworkOf: (e) => e.artworkUrl,
       playableOf: (e) => playableFromSearch(e),
