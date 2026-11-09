@@ -39,8 +39,8 @@ class AppleMusicCatalogApi {
   final Future<String?> Function() _readDeveloperToken;
 
   AppleMusicCatalogApi({
-    required Dio this._dio,
-    required Future<String?> Function() this._readDeveloperToken,
+    required this._dio,
+    required this._readDeveloperToken,
   });
 
   Future<List<AppleMusicCatalogTrack>> searchSongs(
