@@ -89,6 +89,7 @@ class PlayableTrack {
 
   String get queueKey {
     final base = '${title.toLowerCase()}|${artist.toLowerCase()}';
+    return base;
   }
 
   Map<String, dynamic> toJson() => {
