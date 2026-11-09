@@ -2,16 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_providers.dart';
 
 void main() {
-  test('exactly 17 providers are registered', () {
-    expect(LyricsProviderId.values.length, 17);
+  test('exactly 16 providers are registered', () {
+    expect(LyricsProviderId.values.length, 16);
   });
 
   test('provider ids round-trip, unknown falls back to auto', () {
     expect(LyricsProviderId.fromId('lastwave'), LyricsProviderId.lastwave);
     expect(LyricsProviderId.fromId('kugou'), LyricsProviderId.kugou);
     expect(LyricsProviderId.fromId('lrc_red'), LyricsProviderId.lrcRed);
-    expect(
-        LyricsProviderId.fromId('apple_music'), LyricsProviderId.appleMusic);
     expect(LyricsProviderId.fromId('better_lyrics_portato'),
         LyricsProviderId.betterLyricsPortato);
     expect(LyricsProviderId.fromId('bini_lyrics'), LyricsProviderId.biniLyrics);
@@ -62,7 +60,7 @@ void main() {
   test('lyricsSourceToProviderId maps all source variants', () {
     expect(lyricsSourceToProviderId('LastWave Karaoke'), 'lastwave');
     expect(lyricsSourceToProviderId('lrc.red (Syllable)'), 'lrc_red');
-    expect(lyricsSourceToProviderId('Apple Music'), 'apple_music');
+    expect(lyricsSourceToProviderId('Apple Music'), isNull);
     expect(lyricsSourceToProviderId('BetterLyrics'), 'better_lyrics');
     expect(lyricsSourceToProviderId('QQ Karaoke (Portato)'),
         'better_lyrics_portato');
