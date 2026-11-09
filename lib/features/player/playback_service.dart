@@ -2628,17 +2628,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         return;
       }
       if (stream == null) {
-        // External catalog rows must not be silently replaced with a
-        // loosely matched recording. Keep the selected row visible and
-        // let the UI explain that no verified YouTube Music match exists.
-        if (track.catalogProvider != 'youtube_music') {
+        // Strict matching is fail-closed for every catalog: never play a
+        // different recording just to keep the queue moving. Keep the
+        // requested track selected and expose the missing-match warning.
+        if (_prefs.strictTrackMatching) {
+          final catalogName = track.catalogProvider == 'apple_music'
+              ? 'Apple Music'
+              : 'selected catalog';
           state = state.copyWith(
             isBuffering: false,
             isPlaying: false,
             clearStream: true,
-            error: 'No verified YouTube Music match was found for this '
-                '${track.catalogProvider == 'apple_music' ? 'Apple Music' : 'catalog'} track. '
-                'It was not substituted with another recording.',
+            error: 'No verified YouTube Music recording matched this '
+                '$catalogName track. No alternate recording was played.',
           );
           return;
         }
