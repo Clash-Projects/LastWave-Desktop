@@ -235,6 +235,15 @@ class YtWebLogin {
     return t.contains('verifying') && t.contains('passkey');
   }
 
+  /// True when YouTube Music has rendered its unsupported-browser notice.
+  static bool isUnsupportedBrowserPage(String pageText) {
+    final t = pageText.toLowerCase();
+    return t.contains('not optimized for your browser') ||
+        t.contains('not optimised for your browser') ||
+        (t.contains('check for updates') &&
+            t.contains('try google chrome'));
+  }
+
   /// Pure page-text matcher for Google's embedded-browser rejection.
   ///
   /// macOS WKWebView is served "Couldn't sign you in — This browser or
