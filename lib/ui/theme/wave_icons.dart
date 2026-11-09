@@ -9,7 +9,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 /// - [WindowsIcons] (Segoe Fluent Icons, the Windows 11 set) for
 ///   navigation and content. It has the real shuffle glyph, a right-handed
 ///   magnifier, a vinyl-in-square album and a list-with-note playlist.
-///   These are the shapes people know from Windows 11 and Apple Music.
+///   These are familiar shapes from modern desktop and music-player interfaces.
 /// - [FluentIcons] (the older Fabric MDL2 set) for transport
 ///   (previous/next/play/pause/repeat), window chrome and the remaining
 ///   utility glyphs, whose shapes already read correctly.
