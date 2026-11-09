@@ -117,7 +117,7 @@ print("Configured LastWave bundle metadata, iOS 15 minimum, and audio background
 PY
 
 # Reuse the actual LastWave macOS app icon as the iPadOS app icon.
-ICON_SOURCE="macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_1024.png"
+ICON_SOURCE="lastwave-logo.png"
 ICON_DIR="ios/Runner/Assets.xcassets/AppIcon.appiconset"
 if [[ -f "$ICON_SOURCE" && -d "$ICON_DIR" ]]; then
   cp "$ICON_SOURCE" "$ICON_DIR/AppIcon.png"
