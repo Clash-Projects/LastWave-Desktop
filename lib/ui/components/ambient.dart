@@ -40,7 +40,7 @@ class VisualizerEnabledNotifier extends StateNotifier<bool> {
 
 /// Now Playing ambient style. See [Prefs.ambientStyle].
 enum AmbientStyle {
-  apple('apple', 'Apple Music'),
+  apple('apple', 'Artwork Aura'),
   winui('winui', 'WinUI');
 
   final String id;
@@ -175,7 +175,7 @@ class _StageScrim extends StatelessWidget {
   }
 }
 
-/// Scrim for the Apple Music stage: always black, never the theme
+/// Scrim for the Artwork Aura stage: always black, never the theme
 /// background, so the stage looks the same in Midnight, Pearl, AMOLED and
 /// Custom and always carries white text. Light at the top so the colours
 /// stay vivid, deeper toward the bottom (controls, dock). [boost] adds
@@ -296,7 +296,7 @@ Color _nudgeColor(
       .toColor();
 }
 
-/// Light, desaturated wash like the lyrics side on Apple Music / monochrome.
+/// Light, desaturated wash like a calm, monochrome listening interface.
 Color _toCream(Color color) {
   final hsl = HSLColor.fromColor(color);
   return hsl
@@ -949,7 +949,7 @@ class WaveAmbientMesh extends ConsumerWidget {
   /// than the separate Now Playing visualizer toggle.
   final bool respectVisualizerToggle;
 
-  /// Apple Music stage: vivid multi-colour aura and a fixed dark scrim,
+  /// Artwork Aura stage: vivid multi-colour aura and a fixed dark scrim,
   /// identical in every app theme (the caller renders white text on it).
   /// Only meaningful with [cinematic].
   final bool apple;
@@ -1083,7 +1083,7 @@ class WaveAmbientMesh extends ConsumerWidget {
   }
 }
 
-/// Apple Music-inspired album cover background visualizer:
+/// Album-cover-inspired background visualizer:
 /// Composites multiple slowly counter-rotating and orbiting blurred layers of
 /// the album cover with regional palette blooms.
 class _AppleArtworkAura extends ConsumerWidget {
@@ -1394,7 +1394,7 @@ class _AuraPainter extends CustomPainter {
     canvas.drawRect(rect, paint);
   }
 
-  /// Apple Music stage: the cover's own colours as large soft fields that
+  /// Artwork Aura stage: the cover's own colours as large soft fields that
   /// drift past each other, mid-dark everywhere (no fall-off to black), so
   /// white text reads anywhere on the page.
   ///
@@ -1478,7 +1478,7 @@ class _AuraPainter extends CustomPainter {
     final rect = Offset.zero & size;
     final maxDim = math.max(w, h);
 
-    // Calm, tonal stage (Apple Music / Spotify style): one dominant hue of
+    // Calm, tonal stage (modern player style): one dominant hue of
     // the cover, deep and low-contrast. No hot spots, no competing blobs —
     // just a soft light source on a dark ground that fades out downward.
     final tint = Color.lerp(palette.darkMuted, palette.primary, 0.55) ??
