@@ -1,13 +1,12 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:palette_generator/palette_generator.dart';
 
 import '../../app/track_actions.dart' show playGenerated;
 import '../../core/audio/artist_parser.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
+import '../components/ambient.dart' show artworkSeedProvider;
 import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/hero.dart';
@@ -19,19 +18,10 @@ import '../theme/tokens.dart';
 final _discoveryTintProvider =
     FutureProvider.autoDispose.family<Color?, String>((ref, url) async {
   if (url.isEmpty) return null;
-  ref.keepAlive();
-  try {
-    final provider = CachedNetworkImageProvider(url,
-        maxWidth: 128, maxHeight: 128);
-    final palette = await PaletteGenerator.fromImageProvider(
-      provider,
-      size: const Size(64, 64),
-      maximumColorCount: 8,
-    );
-    return palette.dominantColor?.color;
-  } catch (_) {
-    return null;
-  }
+  // Shared palette pipeline (worker isolate + LRU + timed keep-alive).
+  // The old body ran PaletteGenerator on the UI isolate and called
+  // keepAlive() with no release: one element per URL for the whole run.
+  return ref.watch(artworkSeedProvider(url).future);
 });
 
 class DiscoverySectionHead extends StatelessWidget {
