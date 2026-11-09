@@ -11,6 +11,7 @@ class SecureStore {
   static const _ytProfiles = 'lastwave.yt_profiles';
   static const _ytActive = 'lastwave.yt_active';
   static const _spotifySpDc = 'lastwave.spotify_sp_dc';
+  static const _appleMusicDeveloperToken = 'lastwave.apple_music_developer_token';
 
   final FlutterSecureStorage _storage;
   final Map<String, String> _memoryFallback = {};
@@ -61,6 +62,12 @@ class SecureStore {
   /// Spotify `sp_dc` session cookie (WebView sign-in or pasted).
   Future<String?> readSpotifySpDc() => _read(_spotifySpDc);
   Future<void> writeSpotifySpDc(String? v) => _write(_spotifySpDc, v);
+
+  /// Apple Music developer JWT used for catalog metadata requests.
+  Future<String?> readAppleMusicDeveloperToken() =>
+      _read(_appleMusicDeveloperToken);
+  Future<void> writeAppleMusicDeveloperToken(String? v) =>
+      _write(_appleMusicDeveloperToken, v);
 
   Future<void> clearAll() async {
     _memoryFallback.clear();
