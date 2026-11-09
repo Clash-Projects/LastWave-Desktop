@@ -327,7 +327,7 @@ class Prefs {
   bool get amoled => _sp.getBool('lw_amoled') ?? false;
   Future<void> setAmoled(bool v) => _sp.setBool('lw_amoled', v);
 
-  /// 'dark' (midnight observatory), 'light' (pearl white) or 'custom'
+  /// 'dark' (Midnight), 'light' (White) or 'custom'
   /// (surfaces generated from [customThemeBase]).
   String get themeMode => _sp.getString('lw_theme_mode') ?? 'dark';
   Future<void> setThemeMode(String v) => _sp.setString('lw_theme_mode', v);
@@ -371,7 +371,7 @@ class Prefs {
         _sp.getString('lw_accent_source') ??
         _sp.getString('lw_accent_mode') ??
         'custom';
-    if (v == 'manual') return 'custom';
+    if (v == 'manual' || v == 'lastwave') return 'custom';
     return v;
   }
 
@@ -379,9 +379,6 @@ class Prefs {
     await _sp.setString('lw_accent_source', v);
     await _sp.setString('lw_accent_mode', v);
   }
-
-  bool get liquidGlass => _sp.getBool('lw_liquid_glass') ?? true;
-  Future<void> setLiquidGlass(bool v) => _sp.setBool('lw_liquid_glass', v);
 
   String get interfaceScale {
     final value = _sp.getString('lw_interface_scale') ?? 'auto';

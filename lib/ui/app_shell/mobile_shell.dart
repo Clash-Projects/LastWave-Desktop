@@ -38,6 +38,7 @@ const _tabletDestinations = <WaveDestination>[
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
   WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
   WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
+  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 const _phoneMoreDestinations = <WaveDestination>[
@@ -55,7 +56,6 @@ const _phoneMoreDestinations = <WaveDestination>[
 const _tabletMoreDestinations = <WaveDestination>[
   WaveDestination('/history', 'Listening history', WaveIcons.history),
   WaveDestination('/friends', 'Friends', WaveIcons.friends),
-  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 /// Touch-first shell for iPhone and iPad. It reuses the existing routes,
@@ -206,13 +206,12 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
           child: WaveHazeScope(
             material: material,
             intensity: intensity,
-            liquidGlass: theme.liquidGlass,
             child: ColoredBox(
               color: waveBackground(context),
               child: SafeArea(
                 child: Column(
                   children: [
-                    if (!nowPlaying)
+                    if (!tablet && !nowPlaying)
                       _MobileToolbar(
                         tabletLayout: tablet,
                         showBack: _route != '/home' && _route != '/search',
@@ -485,8 +484,9 @@ class _TabletBottomNavigation extends StatelessWidget {
                 child: _TabletBottomTab(
                   icon: destination.icon,
                   label: destination.label,
-                  selected: activePath == destination.path ||
-                      activePath.startsWith('${destination.path}/'),
+                  selected: !moreActive &&
+                      (activePath == destination.path ||
+                          activePath.startsWith('${destination.path}/')),
                   onTap: () => onGo(destination.path),
                 ),
               ),
@@ -598,8 +598,9 @@ class _PhoneNavigation extends StatelessWidget {
             Expanded(
               child: _PhoneTab(
                 destination: destination,
-                selected: activePath == destination.path ||
-                    activePath.startsWith('${destination.path}/'),
+                selected: !moreActive &&
+                    (activePath == destination.path ||
+                        activePath.startsWith('${destination.path}/')),
                 onTap: () => onGo(destination.path),
               ),
             ),
@@ -960,7 +961,9 @@ class _MobileMiniPlayer extends ConsumerWidget {
       decoration: BoxDecoration(
         color: waveSurfaceRaised(context),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: waveDivider(context).withValues(alpha: 0.8)),
+        border: waveIsDark(context)
+            ? Border.all(color: waveDivider(context).withValues(alpha: 0.8))
+            : null,
         boxShadow: [
           BoxShadow(
             color: waveTextPrimary(context).withValues(alpha: 0.035),

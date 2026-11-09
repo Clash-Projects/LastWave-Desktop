@@ -133,9 +133,9 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     id: 'appearance.theme',
     section: 'appearance',
     title: 'Theme',
-    subtitle: 'Midnight, Pearl, or your own colours',
+    subtitle: 'Midnight, White, or your own colours',
     keywords:
-        'dark light midnight pearl custom theme background base tint '
+        'dark light midnight white custom theme background base tint '
         'accent colour color picker palette mode personalize',
   ),
   SettingsSearchEntry(
@@ -217,7 +217,7 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     section: 'experimental',
     title: 'Experimental',
     subtitle: 'Opt-in desktop prototypes',
-    keywords: 'extra translucency wavy seekbar timeline prototype beta',
+    keywords: 'wavy seekbar timeline prototype beta',
   ),
   SettingsSearchEntry(
     id: 'about.main',

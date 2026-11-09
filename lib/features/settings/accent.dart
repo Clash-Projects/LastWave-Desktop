@@ -15,10 +15,6 @@ enum AccentSource {
   /// The colour picked in Settings ([Prefs.accentColor]).
   custom('custom', 'Custom colour'),
 
-  /// The brand-neutral off-white ([WaveColors.defaultAccent]) — a
-  /// monochrome chrome where only artwork carries hue.
-  lastwave('lastwave', 'LastWave neutral'),
-
   /// The desktop environment's accent ([SystemAccent]).
   system('system', 'System accent'),
 
@@ -31,7 +27,6 @@ enum AccentSource {
   final String label;
 
   static AccentSource fromId(String? id) => switch (id) {
-        'lastwave' => AccentSource.lastwave,
         'system' => AccentSource.system,
         'artwork' => AccentSource.artwork,
         _ => AccentSource.custom,
@@ -131,12 +126,6 @@ final accentResolutionProvider = Provider<AccentResolution>((ref) {
       return AccentResolution(
         source: source,
         color: custom,
-        resolved: true,
-      );
-    case AccentSource.lastwave:
-      return const AccentResolution(
-        source: AccentSource.lastwave,
-        color: WaveColors.defaultAccent,
         resolved: true,
       );
     case AccentSource.system:

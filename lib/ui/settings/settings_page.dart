@@ -384,7 +384,6 @@ class _AccentPreview extends StatelessWidget {
         ? 'System accent unavailable on iOS — using custom colour · $hex'
         : switch (resolution.source) {
             AccentSource.custom => 'Custom colour · $hex',
-            AccentSource.lastwave => 'LastWave neutral · $hex',
             AccentSource.system =>
               resolution.resolved
                   ? 'Desktop accent · $hex'
@@ -824,7 +823,7 @@ class _Appearance extends ConsumerWidget {
         _Group(
           id: 'appearance.theme',
           title: 'Theme',
-          subtitle: 'Midnight, Pearl, or your own colours',
+          subtitle: 'Midnight, White, or your own colours',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -832,7 +831,7 @@ class _Appearance extends ConsumerWidget {
                 children: [
                   for (final (mode, label) in const [
                     ('dark', 'Midnight'),
-                    ('light', 'Pearl'),
+                    ('light', 'White'),
                     ('custom', 'Custom'),
                   ]) ...[
                     if (mode != 'dark') const SizedBox(width: 8),
@@ -938,17 +937,6 @@ class _Appearance extends ConsumerWidget {
           ),
         ),
         if (Platform.isIOS) ...[
-          _Group(
-            id: 'appearance.liquid_glass',
-            title: 'Liquid Glass',
-            subtitle: 'A translucent surface treatment for the mobile interface',
-            child: _SwitchRow(
-              value: prefs.liquidGlass,
-              onChanged: (value) => onUpdate((p) => p.setLiquidGlass(value)),
-              title: 'Use Liquid Glass',
-              subtitle: 'Turn off for a more solid appearance',
-            ),
-          ),
           _Group(
             id: 'appearance.interface_scale',
             title: 'Interface scale',

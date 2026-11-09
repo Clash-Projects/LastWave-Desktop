@@ -4,13 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/storage/prefs.dart';
 import '../../ui/theme/tokens.dart';
 
-/// App theme state (accent + AMOLED + pearl/midnight/custom mode + Haze
+/// App theme state (accent + AMOLED + White/Midnight/custom mode + Haze
 /// prefs).
 class ThemeState {
   final Color accent;
   final bool amoled;
 
-  /// Pearl is selected. False for Midnight and for Custom (see
+  /// White is selected. False for Midnight and for Custom (see
   /// [effectiveLight] for the brightness actually rendered).
   final bool isLight;
 
@@ -20,11 +20,6 @@ class ThemeState {
   final String hazeMaterial;
   final String hazeIntensity;
   final String accentSource;
-
-  /// Experimental: panels sit further off the surface — thinner fill, wider
-  /// blur. Threaded into [WaveHazeScope], so every WaveHaze / WaveGlass
-  /// follows the switch without reading prefs itself.
-  final bool liquidGlass;
 
   /// Experimental: the dock timeline is drawn as a wave instead of a bar.
   final bool wavySeekbar;
@@ -38,7 +33,6 @@ class ThemeState {
     this.hazeMaterial = 'automatic',
     this.hazeIntensity = 'medium',
     this.accentSource = 'custom',
-    this.liquidGlass = false,
     this.wavySeekbar = false,
   });
 
@@ -64,7 +58,6 @@ class ThemeController extends StateNotifier<ThemeState> {
           hazeMaterial: _prefs.hazeMaterial,
           hazeIntensity: _prefs.hazeIntensity,
           accentSource: _prefs.accentSource,
-          liquidGlass: _prefs.liquidGlass,
           wavySeekbar: _prefs.wavySeekbar,
         ));
 
@@ -78,7 +71,6 @@ class ThemeController extends StateNotifier<ThemeState> {
       hazeMaterial: _prefs.hazeMaterial,
       hazeIntensity: _prefs.hazeIntensity,
       accentSource: _prefs.accentSource,
-      liquidGlass: _prefs.liquidGlass,
       wavySeekbar: _prefs.wavySeekbar,
     );
   }

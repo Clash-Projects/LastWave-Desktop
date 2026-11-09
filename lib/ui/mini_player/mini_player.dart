@@ -72,10 +72,12 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
         height: double.infinity,
         decoration: BoxDecoration(
           color: dark ? waveSurfaceRaised(context) : waveSurface(context),
-          border: Border.all(
-            color: waveDivider(context).withValues(alpha: dark ? 0.35 : 0.6),
-            width: 1,
-          ),
+          border: dark
+              ? Border.all(
+                  color: waveDivider(context).withValues(alpha: 0.35),
+                  width: 1,
+                )
+              : null,
         ),
         // macOS keeps the native traffic lights above this chromeless
         // window even in mini mode; clear their corner (they end
@@ -291,7 +293,7 @@ class _MiniPlay extends StatelessWidget {
   Widget build(BuildContext context) {
     // The dock renders the accent with a luminance-derived glyph; the mini
     // player used to hardcode off-white + black, which broke under the
-    // off-white "LastWave neutral" accent and under light accents.
+    // off-white default accent and under light accents.
     final accent = waveAccent(context);
     final onAccent = onAccentFor(accent);
     return LWTooltip(

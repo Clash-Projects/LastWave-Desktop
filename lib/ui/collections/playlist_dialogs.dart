@@ -48,12 +48,9 @@ decoration: waveInputDecoration(),
   );
   controller.dispose();
   if (name != null && name.isNotEmpty && context.mounted) {
-    final created = await ref
+    await ref
         .read(playlistRepositoryProvider.notifier)
         .createCustom(name);
-    if (context.mounted) {
-      context.go('/playlists/${created.id}');
-    }
   }
 }
 
@@ -366,13 +363,12 @@ Future<void> showWaveImportPlaylist(
             error = null;
           });
           try {
-            final created = await importPreview(
+            await importPreview(
               repo: ref.read(playlistRepositoryProvider.notifier),
               preview: ready,
             );
             if (!context.mounted) return;
             Navigator.of(context).pop();
-            context.go('/playlists/${created.id}');
           } catch (e) {
             if (!context.mounted) return;
             setState(() {
