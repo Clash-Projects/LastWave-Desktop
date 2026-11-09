@@ -102,18 +102,6 @@ class Prefs {
   Future<void> setCloseToTray(bool v) =>
       _sp.setBool('lw_close_to_tray', v);
 
-  // -- Music catalog -------------------------------------------------------
-  /// Search provider for track results. TIDAL remains unavailable until
-  /// the app has the required authorization for its intended use.
-  String get searchCatalogProvider {
-    final value = _sp.getString('lw_search_catalog_provider') ?? 'youtube_music';
-    return value == 'apple_music' ? value : 'youtube_music';
-  }
-
-  Future<void> setSearchCatalogProvider(String value) =>
-      _sp.setString('lw_search_catalog_provider',
-          value == 'apple_music' ? value : 'youtube_music');
-
   // -- Playback behaviour -------------------------------------------------
   /// Keep playing similar tracks (endless radio) after a queue runs
   /// out. Default on — matches Spotify/YTM autoplay behaviour.
