@@ -63,12 +63,6 @@ class PlayableTrack {
   final String playbackUrl;
   final String playbackMimeType;
 
-  /// Catalog that supplied this row (for example, youtube_music or apple_music).
-  /// This is metadata only; it never grants access to that provider's audio.
-  final String catalogProvider;
-  final String isrc;
-  final String externalUrl;
-
   /// Length the source advertised for this track, when known. Carried so
   /// the lossless matcher can separate the album cut from a radio edit /
   /// short variant of the same title (the addon duration gate is ±8s);
@@ -84,32 +78,17 @@ class PlayableTrack {
     this.videoId = '',
     this.playbackUrl = '',
     this.playbackMimeType = '',
-    this.catalogProvider = 'youtube_music',
-    this.isrc = '',
-    this.externalUrl = '',
     this.duration = Duration.zero,
   });
 
   String get mediaId {
     if (playbackUrl.isNotEmpty) return 'local:$playbackUrl';
-    if (catalogProvider != 'youtube_music') {
-      if (isrc.isNotEmpty) return 'isrc:${isrc.toUpperCase()}';
-      if (externalUrl.isNotEmpty) return '$catalogProvider:$externalUrl';
-      return 'catalog:$catalogProvider:${title.toLowerCase()}|${artist.toLowerCase()}|${duration.inSeconds}';
-    }
     if (videoId.isNotEmpty) return videoId;
     return 'query:${artist.toLowerCase()}|${title.toLowerCase()}';
   }
 
   String get queueKey {
     final base = '${title.toLowerCase()}|${artist.toLowerCase()}';
-    if (catalogProvider == 'youtube_music') return base;
-    final identity = isrc.isNotEmpty
-        ? isrc.toUpperCase()
-        : externalUrl.isNotEmpty
-            ? externalUrl
-            : duration.inSeconds.toString();
-    return '$base|$catalogProvider|$identity';
   }
 
   Map<String, dynamic> toJson() => {
@@ -120,9 +99,6 @@ class PlayableTrack {
         'videoId': videoId,
         'playbackUrl': playbackUrl,
         'playbackMimeType': playbackMimeType,
-        'catalogProvider': catalogProvider,
-        'isrc': isrc,
-        'externalUrl': externalUrl,
         'durationMs': duration.inMilliseconds,
       };
 
@@ -135,9 +111,6 @@ class PlayableTrack {
         videoId: json['videoId']?.toString() ?? '',
         playbackUrl: json['playbackUrl']?.toString() ?? '',
         playbackMimeType: json['playbackMimeType']?.toString() ?? '',
-        catalogProvider: json['catalogProvider']?.toString() ?? 'youtube_music',
-        isrc: json['isrc']?.toString() ?? '',
-        externalUrl: json['externalUrl']?.toString() ?? '',
         duration: Duration(
           milliseconds: int.tryParse('${json['durationMs'] ?? 0}') ?? 0,
         ),
@@ -151,9 +124,6 @@ class PlayableTrack {
     String? videoId,
     String? playbackUrl,
     String? playbackMimeType,
-    String? catalogProvider,
-    String? isrc,
-    String? externalUrl,
     Duration? duration,
   }) =>
       PlayableTrack(
@@ -164,9 +134,6 @@ class PlayableTrack {
         videoId: videoId ?? this.videoId,
         playbackUrl: playbackUrl ?? this.playbackUrl,
         playbackMimeType: playbackMimeType ?? this.playbackMimeType,
-        catalogProvider: catalogProvider ?? this.catalogProvider,
-        isrc: isrc ?? this.isrc,
-        externalUrl: externalUrl ?? this.externalUrl,
         duration: duration ?? this.duration,
       );
 
