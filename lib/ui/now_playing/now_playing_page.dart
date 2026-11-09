@@ -31,7 +31,7 @@ import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
-/// Centerpiece Fullscreen Player — Apple Music Split View & Cinematic Centering.
+/// Centerpiece Fullscreen Player — Split View & Cinematic Centering.
 ///
 /// Mirrored directly from `desktop-app`'s `#fullscreen-cover-overlay`:
 /// - 2-Column Split: Left media column (Large artwork, title/artist, Up Next)
@@ -133,14 +133,14 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     _idleMirror.state = true;
   }
 
-  // Dark theme for the Apple Music stage, memoized on the accent so page
+  // Dark theme for the Artwork Aura stage, memoized on the accent so page
   // rebuilds don't hand FluentTheme a new data object each time.
   FluentThemeData? _stageTheme;
   Color? _stageAccent;
 
-  /// Apple Music ambient: the page always renders on the dark stage with
+  /// Artwork Aura ambient: the page always renders on the dark stage with
   /// white text and controls, whatever the app theme (Pearl, Custom…), the
-  /// way Apple Music's lyrics view does. WinUI keeps following the theme.
+  /// way a focused lyrics view does. WinUI keeps following the theme.
   @override
   Widget build(BuildContext context) {
     // Pointer activity on the immersive overlay dock keeps the stage awake.
@@ -752,7 +752,7 @@ class _DesktopDualPane extends StatelessWidget {
                     width: gap,
                   ),
 
-                  // Right Column (Apple Music Karaoke Lyrics Pane)
+                  // Right Column (Karaoke Lyrics Pane)
                   AnimatedContainer(
                     duration: waveMotion(
                       context,
