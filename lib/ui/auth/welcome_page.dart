@@ -16,7 +16,7 @@ import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
 const _githubUrl =
-    'https://github.com/Clash-Projects/LastWave-Desktop';
+    'https://github.com/sundaywired/LastWave-iOS';
 
 /// Mandatory Last.fm entry screen.
 ///
@@ -582,7 +582,7 @@ class _AuthPanelState extends ConsumerState<_AuthPanel> {
               children: [
                 Icon(FluentIcons.favorite_star, size: 14),
                 SizedBox(width: 6),
-                Text('Star LastWave on GitHub'),
+                Text('Star LastWave-iOS on GitHub'),
               ],
             ),
           ),
