@@ -2632,15 +2632,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         // different recording just to keep the queue moving. Keep the
         // requested track selected and expose the missing-match warning.
         if (_prefs.strictTrackMatching) {
-          final catalogName = track.catalogProvider == 'apple_music'
-              ? 'Apple Music'
-              : 'selected catalog';
           state = state.copyWith(
             isBuffering: false,
             isPlaying: false,
             clearStream: true,
-            error: 'No verified YouTube Music recording matched this '
-                '$catalogName track. No alternate recording was played.',
+            error: 'No verified YouTube Music recording matched this track. '
+                'No alternate recording was played.',
           );
           return;
         }
