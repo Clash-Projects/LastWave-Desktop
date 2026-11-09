@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../components/text_selection.dart';
 import '../../core/network/dio_factory.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/library/playlist_import.dart';
@@ -23,7 +24,9 @@ Future<void> showWaveCreatePlaylist(
     builder: (context) => ContentDialog(
       title: const Text('New playlist'),
       content: TextBox(
-        decoration: waveInputDecoration(),
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+decoration: waveInputDecoration(),
         controller: controller,
         placeholder: 'Playlist name',
         autofocus: true,
@@ -70,7 +73,9 @@ Future<void> showWaveAddToNewPlaylist(
     builder: (context) => ContentDialog(
       title: const Text('New playlist'),
       content: TextBox(
-        decoration: waveInputDecoration(),
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+decoration: waveInputDecoration(),
         controller: controller,
         placeholder: 'Playlist name',
         autofocus: true,
@@ -184,7 +189,9 @@ Future<void> showWaveRenamePlaylist(
     builder: (context) => ContentDialog(
       title: const Text('Rename playlist'),
       content: TextBox(
-        decoration: waveInputDecoration(),
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+decoration: waveInputDecoration(),
         controller: controller,
         autofocus: true,
         onSubmitted: (v) =>
@@ -383,7 +390,9 @@ Future<void> showWaveImportPlaylist(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextBox(
-                decoration: waveInputDecoration(),
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+decoration: waveInputDecoration(),
                 controller: controller,
                 autofocus: true,
                 placeholder:
