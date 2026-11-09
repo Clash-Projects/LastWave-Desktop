@@ -21,15 +21,10 @@ void main() {
     );
   });
 
-  test('detects Apple and YouTube shapes, rejects garbage', () {
+  test('detects YouTube shapes and rejects Apple Music and garbage', () {
     expect(
-      detectPlaylistLink(
-          'https://music.apple.com/us/playlist/slug/pl.abc123'),
-      PlaylistLinkSource.appleMusic,
-    );
-    expect(
-      detectPlaylistLink('music.apple.com/us/playlist/pl.abc123'),
-      PlaylistLinkSource.appleMusic,
+      detectPlaylistLink('https://music.apple.com/us/playlist/slug/pl.abc123'),
+      isNull,
     );
     expect(
       detectPlaylistLink('https://music.youtube.com/playlist?list=PLxyz'),
@@ -59,12 +54,6 @@ void main() {
       extractPlaylistId(
           'spotify:playlist:ABC123', PlaylistLinkSource.spotify),
       'ABC123',
-    );
-    expect(
-      extractPlaylistId(
-          'https://music.apple.com/us/playlist/slug/pl.abc123',
-          PlaylistLinkSource.appleMusic),
-      'pl.abc123',
     );
     expect(
       extractPlaylistId('https://music.youtube.com/playlist?list=PLxyz',
