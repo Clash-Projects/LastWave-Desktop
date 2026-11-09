@@ -2628,6 +2628,20 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         return;
       }
       if (stream == null) {
+        // External catalog rows must not be silently replaced with a
+        // loosely matched recording. Keep the selected row visible and
+        // let the UI explain that no verified YouTube Music match exists.
+        if (track.catalogProvider != 'youtube_music') {
+          state = state.copyWith(
+            isBuffering: false,
+            isPlaying: false,
+            clearStream: true,
+            error: 'No verified YouTube Music match was found for this '
+                '${track.catalogProvider == 'apple_music' ? 'Apple Music' : 'catalog'} track. '
+                'It was not substituted with another recording.',
+          );
+          return;
+        }
         // Stale check before triggering retry or skip
         if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
 
@@ -2868,9 +2882,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         // the outer cap is a safety net only.
         final matchSw = Stopwatch()..start();
         final match = await _tube
-            .findBestEffortMatchOrNull(
+            .findVerifiedMatchOrNull(
               track.title,
               track.artist,
+              expectedDurationSeconds: track.duration.inSeconds,
               excludedVideoIds: excluded,
             )
             .timeout(const Duration(seconds: 20), onTimeout: () => null);
