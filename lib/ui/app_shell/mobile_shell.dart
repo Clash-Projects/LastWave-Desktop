@@ -351,7 +351,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                         }),
                         queueActive: _showQueue,
                         equalizerActive: _showEqualizer,
-                      )
+                      ),
                     if (!nowPlaying)
                       _PhoneNavigation(
                         activePath: activePath,
