@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -211,10 +213,14 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
           child: WaveHazeScope(
             material: material,
             intensity: intensity,
-            child: ColoredBox(
-              color: waveBackground(context),
-              child: SafeArea(
-                child: Listener(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _AmbientArtworkBackdrop(),
+                ColoredBox(
+                  color: waveBackground(context).withValues(alpha: 0.82),
+                  child: SafeArea(
+                    child: Listener(
                   onPointerDown: _handleTouchStart,
                   onPointerUp: _handleTouchEnd,
                   onPointerCancel: (_) => _touchStart = null,
@@ -362,13 +368,47 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                             setState(() => _showMore = !_showMore),
                       ),
                   ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class _AmbientArtworkBackdrop extends ConsumerWidget {
+  const _AmbientArtworkBackdrop();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final artworkUrl = ref.watch(
+      playbackServiceProvider.select(
+        (snapshot) => snapshot.current?.artworkUrl ?? '',
+      ),
+    );
+    if (artworkUrl.isEmpty) return const SizedBox.expand();
+
+    return Positioned.fill(
+      child: ClipRect(
+        child: Transform.scale(
+          scale: 1.22,
+          child: ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 38, sigmaY: 38),
+            child: Image.network(
+              artworkUrl,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
