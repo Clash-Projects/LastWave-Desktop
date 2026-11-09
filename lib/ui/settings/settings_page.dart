@@ -3618,6 +3618,15 @@ class _PlaybackState extends ConsumerState<_Playback> {
           ),
           const SizedBox(height: 8),
           _SwitchRow(
+            value: prefs.strictTrackMatching,
+            onChanged: (v) =>
+                widget.onUpdate((p) => p.setStrictTrackMatching(v)),
+            title: 'Strict Track Matching',
+            subtitle: 'Require a reliable title, artist and duration match. '
+                'Never silently substitute another recording.',
+          ),
+          const SizedBox(height: 8),
+          _SwitchRow(
             value: prefs.crossfadeEnabled,
             onChanged: (v) async {
               await widget.onUpdate((p) => p.setCrossfade(v));
