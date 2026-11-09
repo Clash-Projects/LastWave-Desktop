@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../components/text_selection.dart';
 import '../../app/track_actions.dart' show playGenerated;
 import '../../features/feed/feed_repository.dart' show GeneratedTrack;
 import '../../features/lastfm/auth_repository.dart';
@@ -583,7 +584,9 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                 hint: 'Type to see suggestions, Enter to search',
                 textField: true,
                 child: TextBox(
-                decoration: waveInputDecoration(radius: 8),
+                selectionControls: waveTextSelectionControls,
+                contextMenuBuilder: waveTextContextMenuBuilder,
+decoration: waveInputDecoration(radius: 8),
                 controller: widget.controller,
                 focusNode: widget.focus,
                 placeholder: 'Search',
