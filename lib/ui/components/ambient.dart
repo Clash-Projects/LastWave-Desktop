@@ -40,7 +40,7 @@ class VisualizerEnabledNotifier extends StateNotifier<bool> {
 
 /// Now Playing ambient style. See [Prefs.ambientStyle].
 enum AmbientStyle {
-  apple('apple', 'Artwork Aura'),
+  artworkAura('artwork_aura', 'Artwork Aura'),
   winui('winui', 'WinUI');
 
   final String id;
@@ -48,7 +48,7 @@ enum AmbientStyle {
   const AmbientStyle(this.id, this.label);
 
   static AmbientStyle fromId(String id) =>
-      id == winui.id ? winui : apple;
+      id == winui.id ? winui : artworkAura;
 }
 
 final ambientStyleProvider =
