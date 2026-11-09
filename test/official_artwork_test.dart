@@ -92,7 +92,7 @@ void main() {
     test('isOfficialArtwork identifies official and non-official CDNs', () {
       expect(
         OfficialArtworkService.isOfficialArtwork(
-          'https://static.qobuz.com/images/covers/cover_600.jpg',
+          'https://is1-ssl.mzstatic.com/image/thumb/cover.jpg/100x100bb.jpg',
         ),
         isFalse,
       );
