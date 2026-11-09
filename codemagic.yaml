@@ -17,8 +17,6 @@ workflows:
           include: true
           source: true
 
-    cancel_previous_builds: false
-
     scripts:
       - name: Prepare build-time secrets
         script: |
