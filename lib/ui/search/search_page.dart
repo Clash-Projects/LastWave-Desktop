@@ -11,7 +11,7 @@ import '../components/inputs.dart';
 import '../theme/wave_icons.dart';
 
 import '../../app/track_actions.dart'
-    show formatDuration, playGenerated;
+    show formatDuration;
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart';
@@ -37,10 +37,18 @@ import '../theme/tokens.dart';
 /// [_CombinedResults] keeps the previous lists on screen with skeleton rows
 /// for sections still pending.
 final waveSearchSongsProvider = FutureProvider.autoDispose.family<
-    List<SearchResultItem>, String>((ref, q) {
-  if (q.trim().isEmpty) return Future.value(const <SearchResultItem>[]);
-  return ref.watch(searchRepositoryProvider).search(SearchTab.tracks, q);
-});
+    List<SearchResultItem>, ({String query, String catalogProvider})>(
+  (ref, args) {
+    if (args.query.trim().isEmpty) {
+      return Future.value(const <SearchResultItem>[]);
+    }
+    return ref.watch(searchRepositoryProvider).search(
+      SearchTab.tracks,
+      args.query,
+      catalogProvider: args.catalogProvider,
+    );
+  },
+);
 // NOTE: ALL query-keyed families must be autoDispose — every distinct
 // keystroke prefix otherwise lives in the container forever with its
 // results (songs already was; albums/artists/playlists/suggestions
@@ -108,6 +116,9 @@ PlayableTrack playableFromSearch(SearchResultItem e) => PlayableTrack(
       artworkUrl: e.artworkUrl,
       videoId: e.videoId,
       duration: Duration(seconds: e.durationSeconds),
+      catalogProvider: e.catalogProvider,
+      isrc: e.isrc,
+      externalUrl: e.externalUrl,
     );
 
 /// Search — live results when a query is submitted; empty state is
@@ -131,6 +142,7 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
   SearchTab? _filter;
   int _suggestIndex = -1;
   bool _suggestDismissed = false;
+  String _catalogProvider = searchCatalogYoutubeMusic;
 
   @override
   void initState() {
@@ -139,6 +151,13 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
     _query = widget.initialQuery;
     _suggestQuery = widget.initialQuery;
     _submitted = widget.initialQuery;
+    _catalogProvider = ref.read(prefsProvider).searchCatalogProvider;
+  }
+
+  Future<void> _selectCatalogProvider(String provider) async {
+    if (provider == searchCatalogTidal || provider == _catalogProvider) return;
+    await ref.read(prefsProvider).setSearchCatalogProvider(provider);
+    if (mounted) setState(() => _catalogProvider = provider);
   }
 
   @override
@@ -323,6 +342,11 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
               ),
             ),
           ],
+          const SizedBox(height: 12),
+          _CatalogProviderSelector(
+            selected: _catalogProvider,
+            onSelected: _selectCatalogProvider,
+          ),
           if (_submitted.isEmpty) ...[
             if (history.isNotEmpty) ...[
               const SizedBox(height: 28),
@@ -354,7 +378,11 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
               onSelected: (tab) => setState(() => _filter = tab),
             ),
             const SizedBox(height: 16),
-            _CombinedResults(query: _submitted, filter: _filter),
+            _CombinedResults(
+              query: _submitted,
+              filter: _filter,
+              catalogProvider: _catalogProvider,
+            ),
           ],
         ],
       ),
@@ -836,6 +864,45 @@ class _BrowseTileState extends ConsumerState<_BrowseTile> {
   }
 }
 
+class _CatalogProviderSelector extends StatelessWidget {
+  final String selected;
+  final ValueChanged<String> onSelected;
+  const _CatalogProviderSelector({
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text('TRACK CATALOG', style: WaveType.overline),
+        ToggleButton(
+          checked: selected == searchCatalogYoutubeMusic,
+          onChanged: (_) => onSelected(searchCatalogYoutubeMusic),
+          child: const Text('YouTube Music'),
+        ),
+        ToggleButton(
+          checked: selected == searchCatalogAppleMusic,
+          onChanged: (_) => onSelected(searchCatalogAppleMusic),
+          child: const Text('Apple Music'),
+        ),
+        const Tooltip(
+          message: 'TIDAL API use is pending authorization for this app.',
+          child: ToggleButton(
+            checked: false,
+            onChanged: null,
+            child: Text('TIDAL · approval needed'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ResultFilters extends StatelessWidget {
   final SearchTab? selected;
   final ValueChanged<SearchTab?> onSelected;
@@ -869,7 +936,12 @@ class _ResultFilters extends StatelessWidget {
 class _CombinedResults extends ConsumerStatefulWidget {
   final String query;
   final SearchTab? filter;
-  const _CombinedResults({required this.query, this.filter});
+  final String catalogProvider;
+  const _CombinedResults({
+    required this.query,
+    required this.catalogProvider,
+    this.filter,
+  });
   @override
   ConsumerState<_CombinedResults> createState() =>
       _CombinedResultsState();
@@ -894,29 +966,22 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
     // track and let endless radio (Settings → Playback) pick what
     // follows, instead of the next-best search match.
     final e = _songs[start.clamp(0, _songs.length - 1)];
-    await playGenerated(
-        ref,
-        context,
-        GeneratedTrack(
-            name: e.name,
-            artist: e.artist,
-            artworkUrl: e.artworkUrl,
-            videoId: e.videoId,
-            durationSeconds: e.durationSeconds),
-        sourceLabel: 'Search');
+    await ref.read(playbackServiceProvider.notifier).playQueue(
+      [playableFromSearch(e)],
+      0,
+      sourceLabel: 'Search',
+      endlessRadio: ref.read(prefsProvider).autoplaySimilar,
+    );
   }
 
   Future<void> _playSingle(
       WidgetRef ref, BuildContext context, SearchResultItem hero) async {
-    await playGenerated(
-        ref,
-        context,
-        GeneratedTrack(
-            name: hero.name,
-            artist: hero.artist,
-            artworkUrl: hero.artworkUrl,
-            videoId: hero.videoId),
-        sourceLabel: 'Top result');
+    await ref.read(playbackServiceProvider.notifier).playQueue(
+      [playableFromSearch(hero)],
+      0,
+      sourceLabel: 'Top result',
+      endlessRadio: ref.read(prefsProvider).autoplaySimilar,
+    );
   }
 
   /// Primary action keeps hierarchy: artist → artist page, album →
@@ -971,7 +1036,10 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
 
   @override
   Widget build(BuildContext context) {
-    final songsAsync = ref.watch(waveSearchSongsProvider(widget.query));
+    final songsAsync = ref.watch(waveSearchSongsProvider((
+      query: widget.query,
+      catalogProvider: widget.catalogProvider,
+    )));
     final albumsAsync =
         ref.watch(waveSearchAlbumsProvider(widget.query));
     final artistsAsync =
@@ -1632,7 +1700,9 @@ class _SongsTable extends ConsumerWidget {
       items: shown,
       keyOf: keyOf,
       titleOf: (e) => e.name,
-      subtitleOf: (e) => e.artist,
+      subtitleOf: (e) => e.catalogProvider == searchCatalogAppleMusic
+          ? '${e.artist} · Apple Music'
+          : e.artist,
       albumOf: (e) => e.subtitle,
       artworkOf: (e) => e.artworkUrl,
       playableOf: (e) => playableFromSearch(e),
