@@ -100,7 +100,7 @@ jobs:
         with:
           name: LastWave-iOS-v1.0.0-unsigned
           path: |
-            LastWave-iPadOS-unsigned.ipa
+            LastWave-iOS-v1.0.0-unsigned.ipa
             ios/
           if-no-files-found: error
           retention-days: 14
