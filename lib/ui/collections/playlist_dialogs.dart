@@ -171,8 +171,8 @@ Future<void> showWaveDeletePlaylist(
   }
 }
 
-/// Import a public playlist from a pasted link (YouTube, Spotify or
-/// Apple Music — no account needed) or a playlist file (CSV, M3U, text).
+/// Import a public playlist from a pasted link (YouTube or Spotify) or a
+/// playlist file (CSV, M3U, text).
 /// Paste or pick, fetch a preview ("<title>" - N of M tracks matched),
 /// then import.
 Future<void> showWaveImportPlaylist(
@@ -311,7 +311,7 @@ Future<void> showWaveImportPlaylist(
                 controller: controller,
                 autofocus: true,
                 placeholder:
-                    'Paste a YouTube, Spotify or Apple Music playlist link...',
+                    'Paste a YouTube or Spotify playlist link...',
                 onChanged: (v) => setState(() {
                   source = detectPlaylistLink(v);
                   preview = null;
