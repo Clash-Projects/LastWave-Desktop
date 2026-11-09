@@ -1066,11 +1066,11 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
     ));
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
-    final clock = ref.watch(playbackServiceProvider.select((s) => (
-          position: s.position,
-          buffered: s.buffered,
-          duration: s.duration,
-        )));
+    // The row only needs the duration; the 10Hz clock is watched by the
+    // bar and the position label alone (it used to rebuild this whole row,
+    // tooltip and focus wrapper included, ten times a second).
+    final duration =
+        ref.watch(playbackServiceProvider.select((s) => s.duration));
     final notifier = ref.read(playbackServiceProvider.notifier);
     // Settings → Experimental swaps the timeline for a wave; the straight
     // bar stays the default so nothing changes for anyone who never opts in.
@@ -1083,7 +1083,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
       fontFeatures: const [FontFeature.tabularFigures()],
       color: dark ? WaveColors.textTertiary : WaveColors.lightTextTertiary,
     );
-    final totalMs = clock.duration.inMilliseconds;
+    final totalMs = duration.inMilliseconds;
     // mpv reports no duration until the source is open — a restored session
     // or a freshly-resolved stream sits at zero for a beat. Printing that as
     // "0:00" claimed a zero-length track and pinned the thumb to the start.
@@ -1100,8 +1100,7 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
         if (showTimes)
           SizedBox(
             width: 38,
-            child: Text(_fmt(clock.position),
-                textAlign: TextAlign.right, style: timeStyle),
+            child: _DockPositionLabel(style: timeStyle),
           ),
         if (showTimes) const SizedBox(width: 8),
         Expanded(
@@ -1121,11 +1120,13 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                 return KeyEventResult.handled;
               }
               if (e.logicalKey == LogicalKeyboardKey.arrowRight) {
-                _seekBy(clock.position, clock.duration, step);
+                _seekBy(ref.read(playbackServiceProvider).position,
+                    duration, step);
                 return KeyEventResult.handled;
               }
               if (e.logicalKey == LogicalKeyboardKey.arrowLeft) {
-                _seekBy(clock.position, clock.duration, -step);
+                _seekBy(ref.read(playbackServiceProvider).position,
+                    duration, -step);
                 return KeyEventResult.handled;
               }
               return KeyEventResult.ignored;
@@ -1168,7 +1169,16 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                       // Dimmed + thumbless: reads as disabled, not draggable.
                       opacity: jamLive ? 0.45 : 1,
                       child: RepaintBoundary(
-                      child: wavy
+                      child: Consumer(
+                        builder: (context, ref, _) {
+                          final clock = ref.watch(
+                            playbackServiceProvider.select((s) => (
+                                  position: s.position,
+                                  buffered: s.buffered,
+                                  duration: s.duration,
+                                )),
+                          );
+                          return wavy
                           ? _WaveTimeline(
                               progress: clock.position,
                               buffered: clock.buffered,
@@ -1204,7 +1214,9 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
                                   (dark ? Colors.white : Colors.black)
                                       .withValues(alpha: 0.12),
                               timeLabelLocation: avp.TimeLabelLocation.none,
-                            ),
+                            );
+                        },
+                      ),
                     ),
                     ),
                   ),
@@ -1217,11 +1229,28 @@ class _DockProgressState extends ConsumerState<_DockProgress> {
         if (showTimes)
           SizedBox(
             width: 38,
-            child: Text(hasDuration ? _fmt(clock.duration) : '--:--',
+            child: Text(hasDuration ? _fmt(duration) : '--:--',
                 style: timeStyle),
           ),
       ],
     );
+  }
+}
+
+/// Elapsed-time label: rebuilds once per second, not on every 10Hz tick.
+class _DockPositionLabel extends ConsumerWidget {
+  final TextStyle style;
+  const _DockPositionLabel({required this.style});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final secs = ref.watch(
+      playbackServiceProvider.select((s) => s.position.inSeconds),
+    );
+    final m = secs ~/ 60;
+    final s = secs % 60;
+    return Text('$m:${s.toString().padLeft(2, '0')}',
+        textAlign: TextAlign.right, style: style);
   }
 }
 
