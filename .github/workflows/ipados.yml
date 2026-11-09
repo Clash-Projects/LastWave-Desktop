@@ -19,7 +19,7 @@ concurrency:
 jobs:
   build:
     name: Analyze and build LastWave iOS v1.0.0 IPA
-    runs-on: macos-15
+    runs-on: macos-latest
     timeout-minutes: 90
     steps:
       - name: Check out source
