@@ -64,8 +64,8 @@ class _Repo extends LyricsRepository {
 void main() {
   group('codec', () {
     test('round-trips lines, syllables, transliteration and flags', () {
-      final back = decodeLyrics(encodeLyrics(_word('apple_music')))!;
-      expect(back.source, 'apple_music');
+      final back = decodeLyrics(encodeLyrics(_word('karaoke-provider')))!;
+      expect(back.source, 'karaoke-provider');
       expect(back.isSynced, isTrue);
       expect(back.isWordSynced, isTrue);
       expect(back.plainLyrics, 'Hello world\nSecond line');
