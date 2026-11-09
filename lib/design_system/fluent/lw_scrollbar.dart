@@ -3,14 +3,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 
 
-/// ONE reusable Fluent scrollbar treatment.
-///
-/// - thin (6px idle, 8px hover), unobtrusive, fades when idle
-/// - larger hit area than visible thumb (Fluent handles this)
-/// - no huge track, no browser appearance
-/// - vertical only for page regions; horizontal carousels hide bars and
-///   rely on wheel/trackpad/drag + subtle edge affordance
-/// - reserves space so durations/actions/lyrics never sit underneath
+/// Compatibility wrapper for older call sites. It preserves the child
+/// layout without adding a visible scrollbar.
 class WaveThinScrollbar extends StatelessWidget {
   final Widget child;
   final ScrollController? controller;
@@ -26,9 +20,9 @@ class WaveThinScrollbar extends StatelessWidget {
   Widget build(BuildContext context) => child;
 }
 
-/// Global scroll behaviour: thin Fluent bars, smooth inertia scroll physics,
-/// and support for mouse and trackpad dragging. Horizontal strips scroll via wheel/
-/// trackpad/drag; the bar only appears while interacting.
+/// Global scroll behaviour: no visible scrollbars, smooth inertia scroll
+/// physics, and support for mouse and trackpad dragging. Horizontal strips
+/// remain usable via wheel, trackpad, or drag.
 class WaveScrollBehavior extends FluentScrollBehavior {
   const WaveScrollBehavior();
 

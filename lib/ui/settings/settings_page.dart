@@ -170,10 +170,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
         // width, unlike MediaQuery window width (+200 rail error).
         final narrow = constraints.maxWidth < 900;
         if (narrow) {
-          return Scrollbar(
-            controller: _narrowScrollController,
-            interactive: true,
-            child: ListView(
+          return ListView(
               controller: _narrowScrollController,
               physics: const ClampingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
@@ -206,18 +203,14 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                   ),
                 ),
               ],
-            ),
-          );
+            );
         }
         return Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SizedBox(
               width: 220,
-              child: Scrollbar(
-                controller: _railScrollController,
-                interactive: true,
-                child: SingleChildScrollView(
+              child: SingleChildScrollView(
                   controller: _railScrollController,
                   physics: const ClampingScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(24, 20, 12, 20),
@@ -246,14 +239,10 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                     ],
                   ),
                 ),
-              ),
             ),
             Container(width: 1, color: waveDivider(context)),
             Expanded(
-              child: Scrollbar(
-                controller: _contentScrollController,
-                interactive: true,
-                child: ListView(
+              child: ListView(
                   controller: _contentScrollController,
                   physics: const ClampingScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
@@ -274,7 +263,6 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                     ),
                   ],
                 ),
-              ),
             ),
           ],
         );

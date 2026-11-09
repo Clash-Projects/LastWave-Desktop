@@ -648,12 +648,7 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
           ));
         }
       }
-      body = Scrollbar(
-        controller: _scrollController,
-        interactive: true,
-        // Desktop ScrollBehavior would add its own Scrollbar on top of the
-        // explicit one above (doubled bars), so switch the implicit one off.
-        child: ScrollConfiguration(
+      body = ScrollConfiguration(
           behavior:
               ScrollConfiguration.of(context).copyWith(scrollbars: false),
           child: SingleChildScrollView(
@@ -665,7 +660,6 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
               children: rows,
             ),
           ),
-        ),
       );
     }
 
