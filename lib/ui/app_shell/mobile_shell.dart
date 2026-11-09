@@ -75,7 +75,10 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
     if (start == null || event.kind != PointerDeviceKind.touch) return;
     final delta = event.position - start;
     if (delta.dx.abs() < 140 || delta.dy.abs() > 64) return;
-    if (FocusManager.instance.primaryFocus?.hasFocus == true) return;
+    final focusedContext = FocusManager.instance.primaryFocus?.context;
+    if (focusedContext?.findAncestorWidgetOfExactType<EditableText>() != null) {
+      return;
+    }
     final playback = ref.read(playbackServiceProvider.notifier);
     if (delta.dx < 0) {
       playback.next();
@@ -212,6 +215,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                 child: Listener(
                   onPointerDown: _handleTouchStart,
                   onPointerUp: _handleTouchEnd,
+                  onPointerCancel: (_) => _touchStart = null,
                   child: Column(
                   children: [
                     if (!nowPlaying)
@@ -446,120 +450,6 @@ class _MobileOverlayHeader extends StatelessWidget {
           ],
         ),
       );
-}
-
-class _TabletBottomNavigation extends StatelessWidget {
-  final String activePath;
-  final bool moreActive;
-  final void Function(String) onGo;
-  final VoidCallback onMore;
-
-  const _TabletBottomNavigation({
-    required this.activePath,
-    required this.moreActive,
-    required this.onGo,
-    required this.onMore,
-  });
-
-  @override
-  Widget build(BuildContext context) => Container(
-        height: 78,
-        margin: const EdgeInsets.fromLTRB(18, 6, 18, 8),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          color: waveSurface(context),
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(color: waveDivider(context)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: waveIsDark(context) ? 0.24 : 0.08),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Row(
-          children: [
-            for (final destination in _tabletDestinations)
-              Expanded(
-                child: _TabletBottomTab(
-                  icon: destination.icon,
-                  label: destination.label,
-                  selected: !moreActive &&
-                      (activePath == destination.path ||
-                          activePath.startsWith('${destination.path}/')),
-                  onTap: () => onGo(destination.path),
-                ),
-              ),
-            Expanded(
-              child: _TabletBottomTab(
-                icon: WaveIcons.more,
-                label: 'More',
-                selected: moreActive,
-                onTap: onMore,
-              ),
-            ),
-          ],
-          ),
-        ),
-      );
-}
-
-class _TabletBottomTab extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _TabletBottomTab({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color =
-        selected ? waveTextPrimary(context) : waveTextSecondary(context);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 7),
-        decoration: BoxDecoration(
-          color: selected
-              ? waveAccent(context).withValues(alpha: 0.12)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 19, color: color),
-            const SizedBox(height: 3),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: WaveType.meta.copyWith(
-                  fontSize: 8.5,
-                  color: color,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _PhoneNavigation extends StatelessWidget {
@@ -1221,7 +1111,7 @@ class _WaveAutoScrollTextState extends State<_WaveAutoScrollText> {
       if (end <= 1) break;
       await _controller.animateTo(
         end,
-        duration: Duration(milliseconds: (end * 22).round().clamp(900, 3200)),
+        duration: Duration(milliseconds: (end * 22).round().clamp(900, 3200).toInt()),
         curve: Curves.linear,
       );
       await Future<void>.delayed(const Duration(milliseconds: 750));
