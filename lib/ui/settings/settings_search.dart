@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../components/text_selection.dart';
 import '../components/inputs.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -368,7 +369,9 @@ class _SettingsSearchBoxState extends State<SettingsSearchBox> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TextBox(
-          controller: _controller,
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+controller: _controller,
           placeholder: 'Search settings',
           prefix: const Padding(
             padding: EdgeInsets.only(left: 10),
