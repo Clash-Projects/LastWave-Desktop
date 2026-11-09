@@ -182,24 +182,21 @@ class WaveFilterBar extends StatelessWidget {
         return Row(
           children: [
             Expanded(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 300),
-                child: TextBox(
-                  decoration: waveInputDecoration(),
-                  controller: controller,
-                  placeholder: hint,
-                  prefix: Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: Icon(
-                      WaveIcons.search,
-                      size: 15,
-                      color: dark
-                          ? WaveColors.textTertiary
-                          : WaveColors.lightTextTertiary,
-                    ),
+              child: TextBox(
+                decoration: waveInputDecoration(),
+                controller: controller,
+                placeholder: hint,
+                prefix: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Icon(
+                    WaveIcons.search,
+                    size: 15,
+                    color: dark
+                        ? WaveColors.textTertiary
+                        : WaveColors.lightTextTertiary,
                   ),
-                  onChanged: onChanged,
                 ),
+                onChanged: onChanged,
               ),
             ),
             if (countLabel != null && !compact) ...[
@@ -217,8 +214,10 @@ class WaveFilterBar extends StatelessWidget {
                 ),
               ),
             ],
-            const Spacer(),
-            if (sortSlot != null) Flexible(child: sortSlot!),
+            if (sortSlot != null) ...[
+              const SizedBox(width: WaveSpacing.x8),
+              sortSlot!,
+            ],
           ],
         );
       },

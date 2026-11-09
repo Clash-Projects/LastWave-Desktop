@@ -23,7 +23,9 @@ Future<void> showWaveCreatePlaylist(
     context: context,
     builder: (context) => ContentDialog(
       title: const Text('New playlist'),
-      content: TextBox(
+      content: SizedBox(
+        height: 48,
+        child: TextBox(
         selectionControls: waveTextSelectionControls,
         contextMenuBuilder: waveTextContextMenuBuilder,
 decoration: waveInputDecoration(),
@@ -32,6 +34,7 @@ decoration: waveInputDecoration(),
         autofocus: true,
         onSubmitted: (v) =>
             Navigator.of(context).pop(v.trim()),
+        ),
       ),
       actions: [
         WaveButton(
@@ -69,7 +72,9 @@ Future<void> showWaveAddToNewPlaylist(
     context: context,
     builder: (context) => ContentDialog(
       title: const Text('New playlist'),
-      content: TextBox(
+      content: SizedBox(
+        height: 48,
+        child: TextBox(
         selectionControls: waveTextSelectionControls,
         contextMenuBuilder: waveTextContextMenuBuilder,
 decoration: waveInputDecoration(),
@@ -77,6 +82,7 @@ decoration: waveInputDecoration(),
         placeholder: 'Playlist name',
         autofocus: true,
         onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+        ),
       ),
       actions: [
         WaveButton(
@@ -185,7 +191,9 @@ Future<void> showWaveRenamePlaylist(
     context: context,
     builder: (context) => ContentDialog(
       title: const Text('Rename playlist'),
-      content: TextBox(
+      content: SizedBox(
+        height: 48,
+        child: TextBox(
         selectionControls: waveTextSelectionControls,
         contextMenuBuilder: waveTextContextMenuBuilder,
 decoration: waveInputDecoration(),
@@ -193,6 +201,7 @@ decoration: waveInputDecoration(),
         autofocus: true,
         onSubmitted: (v) =>
             Navigator.of(context).pop(v.trim()),
+        ),
       ),
       actions: [
         WaveButton(
