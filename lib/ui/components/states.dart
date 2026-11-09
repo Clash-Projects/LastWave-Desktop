@@ -155,7 +155,7 @@ class WaveError extends StatelessWidget {
     if (Platform.isIOS) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(WaveSpacing.x24),
+          padding: const EdgeInsets.all(WaveSpacing.x20),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
             child: Column(
