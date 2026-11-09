@@ -468,6 +468,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     String album = '',
     String artworkUrl = '',
     String year = '',
+    String videoId = '',
   }) async {
     final key = keyOf(title, artist);
     final generation = _cancelGeneration[key] ?? 0;
@@ -519,14 +520,21 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         }
       }
       if (stream == null) {
-        final match = await _tube.findBestMatchOrNull(title, artist);
-        if (match == null) {
+        // Search results already carry the exact YouTube Music video ID.
+        // Prefer it so downloading a specific Videos-tab result cannot
+        // silently resolve to a different recording with the same title.
+        var resolvedVideoId = videoId.trim();
+        if (resolvedVideoId.isEmpty) {
+          final match = await _tube.findBestMatchOrNull(title, artist);
+          resolvedVideoId = match?.videoId ?? '';
+        }
+        if (resolvedVideoId.isEmpty) {
           throw Exception('No playable source found');
         }
         // Opus-first: YouTube's best lossy codec, probed before use.
         final opus =
-            await _tube.resolveOpusDownloadStream(match.videoId);
-        final yt = opus ?? await _tube.resolveAudioStream(match.videoId);
+            await _tube.resolveOpusDownloadStream(resolvedVideoId);
+        final yt = opus ?? await _tube.resolveAudioStream(resolvedVideoId);
         if (yt == null) throw Exception('Stream unavailable');
         stream = yt;
         ytCodecHint = yt.audioCodec.toUpperCase();
