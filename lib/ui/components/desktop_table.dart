@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -995,7 +996,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                   width: _kRowActions,
                   child: AnimatedOpacity(
                   duration: waveMotion(context, WaveMotion.fast),
-                  opacity: (hovered || current || liked) ? 1 : 0,
+                  opacity: (Platform.isIOS || hovered || current || liked) ? 1 : 0,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.end,
