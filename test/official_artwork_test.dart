@@ -1,50 +1,67 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/artwork/artwork_resolver.dart';
 import 'package:lastwave_desktop/core/artwork/official_artwork_service.dart';
 import 'package:lastwave_desktop/core/audio/stream_models.dart';
 import 'package:lastwave_desktop/core/storage/app_database.dart';
 
+Dio _deezerArtworkStub() {
+  final dio = Dio();
+  dio.interceptors.add(InterceptorsWrapper(
+    onRequest: (options, handler) {
+      handler.resolve(Response(
+        requestOptions: options,
+        statusCode: 200,
+        data: {
+          'data': [
+            {
+              'title': 'All Caps',
+              'artist': {'name': 'Madvillain'},
+              'album': {
+                'title': 'Madvillainy',
+                'cover_xl':
+                    'https://cdn-images.dzcdn.net/images/cover/madvillainy/1000x1000.jpg',
+              },
+            },
+          ],
+        },
+      ));
+    },
+  ));
+  return dio;
+}
+
 void main() {
   group('ArtworkResolver official priority & sizing', () {
-    test('prioritizes official Apple/iTunes art over YouTube thumbnails', () {
+    test('prioritizes official Deezer art over YouTube thumbnails', () {
       final req = ArtworkRequest(
         kind: ArtworkKind.track,
         candidates: [
           'https://i.ytimg.com/vi/video12345/hqdefault.jpg',
-          'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/b1/e3/27/cover.jpg/100x100bb.jpg',
+          'https://cdn-images.dzcdn.net/images/cover/abc/1000x1000.jpg',
         ],
         videoId: 'video12345',
         targetPx: 640,
       );
       final resolved = ArtworkResolver.resolve(req);
       expect(resolved.urls, isNotEmpty);
-      // First URL in the chain must be the official studio cover, sized to targetPx
-      expect(resolved.urls.first, contains('mzstatic.com'));
-      expect(resolved.urls.first, contains('640x640bb'));
+      expect(resolved.urls.first, contains('dzcdn.net'));
 
-      // YouTube fallback occurs only after official covers
       final ytIndex = resolved.urls.indexWhere((u) => u.contains('ytimg.com'));
-      final appleIndex = resolved.urls.indexWhere(
-        (u) => u.contains('mzstatic.com'),
-      );
-      expect(appleIndex, lessThan(ytIndex));
+      final deezerIndex = resolved.urls.indexWhere((u) => u.contains('dzcdn.net'));
+      expect(deezerIndex, lessThan(ytIndex));
     });
 
-    test('sizes Apple Music / mzstatic URLs to target dimension', () {
-      const original =
-          'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/b1/e3/27/cover.jpg/100x100bb.jpg';
-      final sized640 = ArtworkResolver.sized(original, 640);
+    test('rejects legacy Apple Music artwork URLs', () {
       expect(
-        sized640,
-        'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/b1/e3/27/cover.jpg/640x640bb.jpg',
+        ArtworkResolver.normalize(
+          'https://is1-ssl.mzstatic.com/image/thumb/cover.jpg/100x100bb.jpg',
+        ),
+        isNull,
       );
-
-      const template =
-          'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/b1/e3/27/cover.jpg/{w}x{h}bb.{f}';
-      final sized1000 = ArtworkResolver.sized(template, 1000);
       expect(
-        sized1000,
-        'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/b1/e3/27/cover.jpg/1000x1000bb.jpg',
+        ArtworkResolver.normalize('https://itunes.apple.com/lookup?id=123'),
+        isNull,
       );
     });
 
@@ -75,9 +92,9 @@ void main() {
     test('isOfficialArtwork identifies official and non-official CDNs', () {
       expect(
         OfficialArtworkService.isOfficialArtwork(
-          'https://is1-ssl.mzstatic.com/image/thumb/cover.jpg/100x100bb.jpg',
+          'https://static.qobuz.com/images/covers/cover_600.jpg',
         ),
-        isTrue,
+        isFalse,
       );
       expect(
         OfficialArtworkService.isOfficialArtwork(
@@ -160,10 +177,10 @@ void main() {
     });
 
     test(
-      'stale YouTube cache is ignored so All Caps can resolve iTunes art',
+      'stale YouTube cache is ignored so All Caps can resolve Deezer art',
       () async {
         final db = AppDatabase.inMemory();
-        final service = OfficialArtworkService(null, db);
+        final service = OfficialArtworkService(_deezerArtworkStub(), db);
         db.saveArtworkEntry(
           cacheKey: 't5|madvillain|all caps',
           url: 'https://i.ytimg.com/vi/video12345/hqdefault.jpg',
@@ -221,13 +238,13 @@ void main() {
             'trackName': 'Wisakda Me (Piranha, Pt. 2)',
             'artistName': 'Zany Inzane',
             'collectionName': 'Kushcobar',
-            'artworkUrl100': 'https://is1-ssl.mzstatic.com/image/thumb/wrong.jpg/100x100bb.jpg',
+            'artworkUrl100': 'https://cdn-images.dzcdn.net/images/cover/wrong/1000x1000.jpg',
           },
           {
             'trackName': 'Piranha (feat. Tikx Kooda)',
             'artistName': 'Zany Inzane',
             'collectionName': 'Piranha (feat. Tikx Kooda) - Single',
-            'artworkUrl100': 'https://is1-ssl.mzstatic.com/image/thumb/right.jpg/100x100bb.jpg',
+            'artworkUrl100': 'https://cdn-images.dzcdn.net/images/cover/right/1000x1000.jpg',
           },
         ],
         title: 'Piranah',
@@ -242,13 +259,13 @@ void main() {
             'trackName': 'Cinderella (feat. Ty Dolla \$ign)',
             'artistName': 'Mac Miller',
             'collectionName': 'The Divine Feminine',
-            'artworkUrl100': 'https://is1-ssl.mzstatic.com/image/thumb/cinderella.jpg/100x100bb.jpg',
+            'artworkUrl100': 'https://cdn-images.dzcdn.net/images/cover/cinderella/1000x1000.jpg',
           },
           {
             'trackName': 'Cider',
             'artistName': 'Yezi',
             'collectionName': 'Foresight Dream - EP',
-            'artworkUrl100': 'https://is1-ssl.mzstatic.com/image/thumb/yezi.jpg/100x100bb.jpg',
+            'artworkUrl100': 'https://cdn-images.dzcdn.net/images/cover/yezi/1000x1000.jpg',
           },
           {
             'trackName': 'Cider',
@@ -356,14 +373,14 @@ void main() {
       // Save an entry (track cache keys are versioned: t5|artist|title)
       db.saveArtworkEntry(
         cacheKey: 't5|madvillain|all caps',
-        url: 'https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/madvillainy.jpg/1400x1400bb.jpg',
-        provider: 'itunes',
+        url: 'https://cdn-images.dzcdn.net/images/cover/madvillainy/1000x1000.jpg',
+        provider: 'deezer',
       );
 
       final loaded = db.loadArtworkEntry('t5|madvillain|all caps');
       expect(loaded, isNotNull);
       expect(loaded!['url'], contains('madvillainy.jpg'));
-      expect(loaded['provider'], 'itunes');
+      expect(loaded['provider'], 'deezer');
 
       // resolveOfficialArtwork returns from db without network
       final resolved = await service.resolveOfficialArtwork(
