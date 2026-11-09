@@ -1045,14 +1045,14 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
 
     final anyLoading = (showSongs && songsAsync.isLoading) ||
         (showVideos && videosAsync.isLoading) ||
-        (showAlbums && albumsAsync.isLoading)
+        (showAlbums && albumsAsync.isLoading) ||
         (showArtists && artistsAsync.isLoading) ||
         (showPlaylists && playlistsAsync.isLoading) ||
         (showUsers && usersAsync.isLoading) ||
         (podcastsOn && podcastAsync.isLoading);
     final allEmpty = (!showSongs || _songs.isEmpty) &&
         (!showVideos || _videos.isEmpty) &&
-        (!showAlbums || _albums.isEmpty)
+        (!showAlbums || _albums.isEmpty) &&
         (!showArtists || _artists.isEmpty) &&
         (!showPlaylists || _playlists.isEmpty) &&
         (!showUsers || _users.isEmpty) &&
@@ -1074,7 +1074,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
     if (allEmpty && !anyLoading) {
       final anyError = (showSongs && songsAsync.hasError) ||
           (showVideos && videosAsync.hasError) ||
-          (showAlbums && albumsAsync.hasError)
+          (showAlbums && albumsAsync.hasError) ||
           (showArtists && artistsAsync.hasError) ||
           (showPlaylists && playlistsAsync.hasError) ||
           (showUsers && usersAsync.hasError);
