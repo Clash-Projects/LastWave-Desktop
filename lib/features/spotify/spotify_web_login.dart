@@ -44,7 +44,6 @@ class SpotifyWebLogin {
   );
 
   /// True for a page that can only be reached once the sign-in finished.
-  @visibleForTesting
   static bool isPostAuth(String? url) {
     if (url == null || url.isEmpty) return false;
     if (_status.hasMatch(url)) return true;
