@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'desktop_lyrics_painter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -149,8 +150,21 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   String? _currentTrackKey;
   bool _selectMode = false;
   final Set<int> _selectedLines = {};
-  bool _controlsShown = true;
+  /// Toolbar auto-hide state. A notifier, not a setState field: toggling
+  /// it used to rebuild the whole lyrics view (list, translation key…).
+  final ValueNotifier<bool> _controlsShown = ValueNotifier<bool>(true);
   Timer? _hideTimer;
+
+  /// One-shot timer that flips the active line exactly at the next line's
+  /// timestamp for LINE-synced lyrics (which no longer run the Ticker).
+  Timer? _lineTimer;
+
+  // Memo for the translation key: it hashes every lyric line, and used to
+  // be rebuilt on every build of this view.
+  LyricsResult? _tkResult;
+  String _tkLang = '';
+  String _tkTrack = '';
+  LyricsTranslationKey? _tkValue;
   int _armedAutoHide = 0;
   LyricsResult? _currentResult;
   bool _lastTransliteration = true;
@@ -221,7 +235,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         res.isInstrumental) {
       return false;
     }
-    if (!_lastWordByWord && !res.isWordSynced) {
+    // Line-synced lyrics only change state at line boundaries: no Ticker
+    // (a Ticker makes the engine composite the whole window every vsync).
+    // [_armLineTimer] lands each boundary exactly instead.
+    if (!res.isWordSynced) {
       return false;
     }
     final pos = _getCurrentPositionMs();
@@ -291,7 +308,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     final seconds = ref.read(prefsProvider).lyricsAutoHideSeconds;
     final now = DateTime.now();
     _lastPokeAt = now;
-    if (_controlsShown &&
+    if (_controlsShown.value &&
         !_selectMode &&
         seconds > 0 &&
         seconds == _armedHideSeconds &&
@@ -300,7 +317,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       return;
     }
     _hideTimer?.cancel();
-    if (!_controlsShown && mounted) setState(() => _controlsShown = true);
+    if (!_controlsShown.value && mounted) _controlsShown.value = true;
     if (_selectMode || seconds <= 0) return;
     _lastArmAt = now;
     _armedHideSeconds = seconds;
@@ -318,7 +335,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       _hideTimer = Timer(Duration(milliseconds: remainingMs), _onHideTimeout);
       return;
     }
-    setState(() => _controlsShown = false);
+    _controlsShown.value = false;
   }
 
   void _toggleSelectMode() {
@@ -374,6 +391,8 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _lineTimer?.cancel();
+    _controlsShown.dispose();
     _posSub?.close();
     _playingSub?.close();
     _speedSub?.close();
@@ -390,9 +409,9 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       if (!_isEffectivelyActive || !_isPlaying) return;
       final now = DateTime.now();
       final nowMs = now.millisecondsSinceEpoch;
-      // Adaptive tick rate: 60Hz (~16ms) for word-synced lyrics with active syllable wipe,
-      // and 20Hz (~50ms) for line-synced lyrics to drastically save CPU cycles.
-      final minInterval = (_currentResult?.isWordSynced == true) ? 16 : 50;
+      // ~60Hz cap for the syllable wipe (the Ticker only runs for
+      // word-synced lyrics; see _shouldTickerRun).
+      const minInterval = 16;
       if (nowMs - _lastTickMs < minInterval) return;
       _lastTickMs = nowMs;
 
@@ -434,11 +453,18 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
       final effectiveMs = audioMs - _offsetMs;
       _interpolatedPositionMs.value = effectiveMs;
       if (_currentResult != null && _currentResult!.lines.isNotEmpty) {
-        final lineIndex = activeLyricLineIndex(
-          _currentResult!.lines,
-          effectiveMs,
-        );
-        if (_activeLineIndex.value != lineIndex) {
+        final lines = _currentResult!.lines;
+        final lineIndex = activeLyricLineIndex(lines, effectiveMs);
+        final current = _activeLineIndex.value;
+        // Hysteresis: [_armLineTimer] may have advanced the line a few ms
+        // before the (100ms-throttled) position sample catches up. Don't
+        // step back one line for that — only for a real seek.
+        final justAdvanced = _isPlaying &&
+            lineIndex == current - 1 &&
+            current >= 0 &&
+            current < lines.length &&
+            lines[current].timeMs - effectiveMs <= 150;
+        if (current != lineIndex && !justAdvanced) {
           _activeLineIndex.value = lineIndex;
         }
       }
@@ -464,6 +490,40 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     }
 
     _updateTickerState();
+    _armLineTimer();
+  }
+
+  /// Line-synced lyrics: schedule the next line flip for its exact
+  /// timestamp. Re-armed on every clock sync (10Hz), but only once the
+  /// boundary is close, so it allocates at most a couple of timers per line.
+  void _armLineTimer() {
+    _lineTimer?.cancel();
+    _lineTimer = null;
+    final res = _currentResult;
+    if (res == null ||
+        !res.isSynced ||
+        res.isWordSynced ||
+        res.lines.isEmpty ||
+        !_isPlaying ||
+        _ticker.isActive ||
+        !_isEffectivelyActive) {
+      return;
+    }
+    final lines = res.lines;
+    final posMs = _interpolatedPositionMs.value;
+    // Active -1 (before the first line) makes the first boundary lines[0].
+    final target = _activeLineIndex.value + 1;
+    if (target < 0 || target >= lines.length) return;
+    final boundary = lines[target].timeMs;
+    final delayMs = ((boundary - posMs) / (_speed <= 0 ? 1.0 : _speed)).round();
+    if (delayMs < 0 || delayMs > 160) return; // next 10Hz sync re-arms
+    _lineTimer = Timer(Duration(milliseconds: delayMs), () {
+      _lineTimer = null;
+      if (!mounted || !_isPlaying || !identical(_currentResult, res)) return;
+      _interpolatedPositionMs.value = boundary;
+      final idx = activeLyricLineIndex(lines, boundary);
+      if (_activeLineIndex.value != idx) _activeLineIndex.value = idx;
+    });
   }
 
   // Memo for [_effectiveResultFor]: the provider result it was derived
@@ -649,13 +709,22 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           }
         }
 
-        final translateKey = lyricsTranslationKey(
-          trackKey: widget.track.queueKey,
-          target: ref.watch(
-            prefsProvider.select((p) => p.lyricsTranslationLang),
-          ),
-          lines: [for (final line in effectiveResult.lines) line.text],
+        final translateLang = ref.watch(
+          prefsProvider.select((p) => p.lyricsTranslationLang),
         );
+        if (!identical(_tkResult, effectiveResult) ||
+            _tkLang != translateLang ||
+            _tkTrack != widget.track.queueKey) {
+          _tkResult = effectiveResult;
+          _tkLang = translateLang;
+          _tkTrack = widget.track.queueKey;
+          _tkValue = lyricsTranslationKey(
+            trackKey: widget.track.queueKey,
+            target: translateLang,
+            lines: [for (final line in effectiveResult.lines) line.text],
+          );
+        }
+        final translateKey = _tkValue;
         final translations = translateKey == null
             ? const <String?>[]
             : ref.watch(lyricsTranslationProvider(translateKey)).valueOrNull ??
@@ -669,12 +738,14 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (widget.showHeaderControls)
-                  AnimatedOpacity(
-                    opacity: _controlsShown ? 1 : 0,
-                    duration: const Duration(milliseconds: 180),
-                    child: IgnorePointer(
-                      ignoring: !_controlsShown,
-                      child: _KaraokeToolbar(
+                  ValueListenableBuilder<bool>(
+                    valueListenable: _controlsShown,
+                    builder: (context, shown, toolbar) => AnimatedOpacity(
+                      opacity: shown ? 1 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: IgnorePointer(ignoring: !shown, child: toolbar),
+                    ),
+                    child: _KaraokeToolbar(
                         track: widget.track,
                         result: effectiveResult,
                         offsetMs: offsetMs,
@@ -702,7 +773,6 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                           }
                         },
                       ),
-                    ),
                   ),
                 if (_selectMode)
                   _SelectBanner(
@@ -2154,7 +2224,7 @@ class DesktopStanzaWidget extends StatelessWidget {
       _ => Alignment.centerLeft,
     };
 
-    final maxContainerWidth = MediaQuery.of(context).size.width * DesktopLyricsTokens.maxDuetWidthRatio;
+    final maxContainerWidth = MediaQuery.sizeOf(context).width * DesktopLyricsTokens.maxDuetWidthRatio;
 
     return Align(
       alignment: alignment,
@@ -2404,27 +2474,6 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
   int _lastIndex = -1;
   bool _pinnedOpening = false;
-  Rect? _lastBounds;
-  ui.Shader? _cachedMaskShader;
-
-  ui.Shader _getMaskShader(Rect bounds) {
-    if (_lastBounds == bounds && _cachedMaskShader != null) {
-      return _cachedMaskShader!;
-    }
-    _lastBounds = bounds;
-    _cachedMaskShader = const LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        Colors.transparent,
-        Colors.black,
-        Colors.black,
-        Colors.transparent,
-      ],
-      stops: [0.0, 0.08, 0.88, 1.0],
-    ).createShader(bounds);
-    return _cachedMaskShader!;
-  }
 
   @override
   void initState() {
@@ -2556,22 +2605,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
         widget.fontSize ?? (widget.compact ? 28.0 : DesktopLyricsTokens.fontSizeBase);
 
     if (untimed) {
-      return ShaderMask(
-        shaderCallback: (Rect bounds) {
-          return const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.transparent,
-              Colors.black,
-              Colors.black,
-              Colors.transparent,
-            ],
-            stops: [0.0, 0.14, 0.86, 1.0],
-          ).createShader(bounds);
-        },
-        blendMode: BlendMode.dstIn,
-        child: ScrollConfiguration(
+      return ScrollConfiguration(
           behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
           child: ListView.builder(
             physics: const ClampingScrollPhysics(),
@@ -2584,27 +2618,30 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                   (line.text.trim().startsWith('(') && line.text.trim().endsWith(')'));
               final lineFontSize = isBackground ? (baseFontSize * 0.65) : baseFontSize;
 
-              return _tappableLine(
-                index: i,
-                seekable: canSeek,
-                onSeek: () => widget.onSeekLineMs(line.timeMs),
-                child: WaveKaraokeLyricLine(
-                  line: line,
-                  positionMs: 0,
-                  isActive: false,
-                  isPast: false,
-                  compact: widget.compact,
-                  fontSize: lineFontSize,
-                  showTransliteration: widget.showTransliteration,
-                  translation: _translationAt(i),
-                  karaoke: false,
-                  softenIdle: false,
-                  blurSigma: 0.0,
+              return _ViewportEdgeFade(
+                top: 0.14,
+                bottom: 0.14,
+                child: _tappableLine(
+                  index: i,
+                  seekable: canSeek,
+                  onSeek: () => widget.onSeekLineMs(line.timeMs),
+                  child: WaveKaraokeLyricLine(
+                    line: line,
+                    positionMs: 0,
+                    isActive: false,
+                    isPast: false,
+                    compact: widget.compact,
+                    fontSize: lineFontSize,
+                    showTransliteration: widget.showTransliteration,
+                    translation: _translationAt(i),
+                    karaoke: false,
+                    softenIdle: false,
+                    blurSigma: 0.0,
+                  ),
                 ),
               );
             },
           ),
-        ),
       );
     }
 
@@ -2660,11 +2697,17 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
 
           final maxLineWidth = isUnison
               ? double.infinity
-              : MediaQuery.of(context).size.width * DesktopLyricsTokens.maxDuetWidthRatio;
+              : MediaQuery.sizeOf(context).width * DesktopLyricsTokens.maxDuetWidthRatio;
 
-          return ValueListenableBuilder<int>(
-            valueListenable: widget.activeLineListenable,
-            builder: (context, active, _) {
+          // Rebuilds only when THIS line's (active, past, distance bucket)
+          // changes, not every built line on every line change.
+          return _ViewportEdgeFade(
+            top: 0.08,
+            bottom: 0.12,
+            child: _ActiveLineSelector(
+              listenable: widget.activeLineListenable,
+              index: i,
+              builder: (context, active) {
               final isActive = i == active;
               final isPast = active >= 0 && i < active;
 
@@ -2725,18 +2768,18 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                 ),
               );
             },
+          ),
           );
         },
       ),
     );
 
-    final maskedList = ShaderMask(
-      shaderCallback: _getMaskShader,
-      blendMode: BlendMode.dstIn,
-      child: ScrollConfiguration(
-        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-        child: list,
-      ),
+    // No ShaderMask over the list: it rendered the whole pane offscreen and
+    // re-masked it every frame the 60Hz syllable wipe repainted. The edge
+    // fade is applied per line by [_ViewportEdgeFade] instead.
+    final maskedList = ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+      child: list,
     );
 
     return Stack(
@@ -2749,6 +2792,185 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
             child: _ReturnToCurrentPill(onTap: widget.onResume),
           ),
       ],
+    );
+  }
+}
+
+/// Rebuilds [builder] only when the (isActive, isPast, distance-bucket)
+/// signature of line [index] changes. Every line used to sit in its own
+/// ValueListenableBuilder, so each line change rebuilt every built line.
+class _ActiveLineSelector extends StatefulWidget {
+  final ValueListenable<int> listenable;
+  final int index;
+  final Widget Function(BuildContext context, int active) builder;
+
+  const _ActiveLineSelector({
+    required this.listenable,
+    required this.index,
+    required this.builder,
+  });
+
+  @override
+  State<_ActiveLineSelector> createState() => _ActiveLineSelectorState();
+}
+
+class _ActiveLineSelectorState extends State<_ActiveLineSelector> {
+  late int _active;
+  late (bool, bool, int) _sig;
+
+  static (bool, bool, int) _signature(int index, int active) {
+    final ref = active >= 0 ? active : 0;
+    final dist = (index - ref).abs();
+    return (index == active, active >= 0 && index < active, dist > 3 ? 3 : dist);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _active = widget.listenable.value;
+    _sig = _signature(widget.index, _active);
+    widget.listenable.addListener(_onChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ActiveLineSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.listenable != widget.listenable) {
+      oldWidget.listenable.removeListener(_onChanged);
+      widget.listenable.addListener(_onChanged);
+    }
+    _active = widget.listenable.value;
+    _sig = _signature(widget.index, _active);
+  }
+
+  @override
+  void dispose() {
+    widget.listenable.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  void _onChanged() {
+    final active = widget.listenable.value;
+    final sig = _signature(widget.index, active);
+    _active = active;
+    if (sig != _sig) setState(() => _sig = sig);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _active);
+}
+
+/// Per-line replacement for a ShaderMask edge fade over the whole list.
+///
+/// Fades a line by where it sits in the enclosing viewport ([top]/[bottom]
+/// are fractions of the viewport height). Lines away from the edges paint
+/// with no layer at all; only the one or two lines inside a fade band get
+/// an opacity layer, and nothing is rendered offscreen per frame.
+class _ViewportEdgeFade extends SingleChildRenderObjectWidget {
+  final double top;
+  final double bottom;
+
+  const _ViewportEdgeFade({
+    required this.top,
+    required this.bottom,
+    super.child,
+  });
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderViewportEdgeFade(
+        top,
+        bottom,
+        Scrollable.maybeOf(context)?.position,
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderViewportEdgeFade renderObject,
+  ) {
+    renderObject
+      ..top = top
+      ..bottom = bottom
+      ..position = Scrollable.maybeOf(context)?.position;
+  }
+}
+
+class _RenderViewportEdgeFade extends RenderProxyBox {
+  _RenderViewportEdgeFade(this._top, this._bottom, this._position);
+
+  double _top;
+  set top(double v) {
+    if (v == _top) return;
+    _top = v;
+    markNeedsPaint();
+  }
+
+  double _bottom;
+  set bottom(double v) {
+    if (v == _bottom) return;
+    _bottom = v;
+    markNeedsPaint();
+  }
+
+  ScrollPosition? _position;
+  set position(ScrollPosition? p) {
+    if (identical(p, _position)) return;
+    if (attached) _position?.removeListener(markNeedsPaint);
+    _position = p;
+    if (attached) _position?.addListener(markNeedsPaint);
+    markNeedsPaint();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    // Scrolling moves this line through the fade bands without repainting
+    // it (the list item is its own repaint boundary), so repaint on scroll.
+    _position?.addListener(markNeedsPaint);
+  }
+
+  @override
+  void detach() {
+    _position?.removeListener(markNeedsPaint);
+    super.detach();
+  }
+
+  @override
+  bool get alwaysNeedsCompositing => child != null;
+
+  int _alpha() {
+    final viewport = RenderAbstractViewport.maybeOf(this);
+    if (viewport is! RenderBox) return 255;
+    final box = viewport as RenderBox;
+    if (!box.hasSize || box.size.height <= 0 || !hasSize) return 255;
+    final dy = getTransformTo(box).getTranslation().y;
+    final f = (dy + size.height / 2) / box.size.height;
+    double a = 1.0;
+    if (_top > 0 && f < _top) a = f / _top;
+    if (_bottom > 0 && f > 1 - _bottom) a = math.min(a, (1 - f) / _bottom);
+    return (a.clamp(0.0, 1.0) * 255).round();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    if (child == null) return;
+    final alpha = _alpha();
+    if (alpha <= 0) {
+      layer = null;
+      return;
+    }
+    if (alpha >= 255) {
+      layer = null;
+      context.paintChild(child, offset);
+      return;
+    }
+    layer = context.pushOpacity(
+      offset,
+      alpha,
+      super.paint,
+      oldLayer: layer as OpacityLayer?,
     );
   }
 }
