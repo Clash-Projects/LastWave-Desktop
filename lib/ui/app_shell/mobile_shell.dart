@@ -178,7 +178,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                 Expanded(
                   child: Column(
                     children: [
-                      if (!nowPlaying)
+                      if (!nowPlaying && !tablet)
                         _MobileToolbar(
                           tabletLayout: tablet,
                           showBack: _route != '/home' && _route != '/search',
