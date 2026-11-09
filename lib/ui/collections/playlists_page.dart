@@ -139,7 +139,7 @@ class _WavePlaylistsPageState
         children: [
         ConstrainedBox(
           constraints: const BoxConstraints(
-            maxWidth: WaveDensity.contentMax,
+            maxWidth: double.infinity,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -812,6 +812,50 @@ class _PlaylistCardState
                               ),
                             ),
                           ),
+                        ),
+                      ),
+                    ),
+                      Positioned(
+                        right: 6,
+                        top: 6,
+                        child: WaveOverflowButton(
+                          tooltip: 'Playlist options',
+                          items: [
+                            WaveMenuAction(
+                              leading: const Icon(FluentIcons.play, size: 15),
+                              label: 'Open',
+                              onPressed: open,
+                            ),
+                            WaveMenuAction(
+                              leading: Icon(
+                                p.isPinned ? FluentIcons.pinned : FluentIcons.pin,
+                                size: 15,
+                              ),
+                              label: p.isPinned ? 'Unpin' : 'Pin',
+                              onPressed: () => ref
+                                  .read(playlistRepositoryProvider.notifier)
+                                  .setPinned(p.id, !p.isPinned),
+                            ),
+                            WaveMenuAction(
+                              leading: const Icon(FluentIcons.edit, size: 15),
+                              label: 'Rename',
+                              onPressed: () => showWaveRenamePlaylist(
+                                context,
+                                ref,
+                                p,
+                              ),
+                            ),
+                            if (!p.isLikedSongs && !p.isLocal)
+                              WaveMenuAction(
+                                leading: const Icon(FluentIcons.delete, size: 15),
+                                label: 'Delete',
+                                onPressed: () => showWaveDeletePlaylist(
+                                  context,
+                                  ref,
+                                  p,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ],
