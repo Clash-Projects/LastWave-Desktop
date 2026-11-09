@@ -23,7 +23,7 @@ YtHomeShelf _listenAgain() => YtHomeShelf(
             artist: 'Artist $i',
             // An official CDN URL: WaveArtwork skips the iTunes upgrade for
             // these, so the test never leaves a network timer behind.
-            artworkUrl: 'https://is1-ssl.mzstatic.com/image/thumb/x$i.jpg',
+            artworkUrl: 'https://i.ytimg.com/vi/test-video/hqdefault.jpg',
           ),
       ],
     );
