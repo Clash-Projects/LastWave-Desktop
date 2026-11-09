@@ -13,7 +13,7 @@ import '../../features/audio_output/output_controller.dart';
 import '../components/artwork.dart';
 import '../navigation/destinations.dart';
 import '../queue/queue_panel.dart';
-import '../components/buttons.dart' show LWVolumeSlider;
+import '../components/buttons.dart' show LWVolumeSlider, WaveButton;
 import '../player_dock/player_dock.dart' show WaveTimeline;
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -165,8 +165,8 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
         // Window width matters: Split View and Stage Manager can be narrower
         // than the iPad's physical display.
         final viewSize = MediaQuery.sizeOf(context);
-        final tablet = constraints.maxWidth >= 850 ||
-            (viewSize.shortestSide >= 600 && constraints.maxWidth >= 760);
+        final tablet = constraints.maxWidth >= 680 ||
+            (viewSize.shortestSide >= 600 && constraints.maxWidth >= 520);
         final nowPlaying = _route.startsWith('/now');
         final online = ref.watch(networkMonitorProvider);
         final activePath = waveActivePath(widget.location);
@@ -1114,6 +1114,7 @@ class _MobileMiniPlayer extends ConsumerWidget {
                     icon: WaveIcons.next,
                     tooltip: 'Next track',
                     onPressed: track == null ? null : playback.next,
+                    width: 36,
                   ),
                 ],
               ),
