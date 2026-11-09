@@ -226,7 +226,6 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         'high' => WaveHazeIntensity.high,
         _ => WaveHazeIntensity.medium,
       },
-      liquidGlass: theme.liquidGlass,
       child: WindowLifecycle(
         child: FluentApp.router(
           title: 'LastWave',

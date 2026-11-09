@@ -35,7 +35,7 @@ void main() {
   group('AccentSource.fromId', () {
     test('maps every supported id', () {
       expect(AccentSource.fromId('custom'), AccentSource.custom);
-      expect(AccentSource.fromId('lastwave'), AccentSource.lastwave);
+      expect(AccentSource.fromId('lastwave'), AccentSource.custom);
       expect(AccentSource.fromId('system'), AccentSource.system);
       expect(AccentSource.fromId('artwork'), AccentSource.artwork);
     });
@@ -253,14 +253,14 @@ void main() {
       expect(r.resolved, isTrue);
     });
 
-    test('lastwave uses the neutral brand accent, not the pick', () async {
+    test('legacy lastwave accent source falls back to custom', () async {
       final c = await container({
         'lw_accent': 0xFF12AB34,
         'lw_accent_source': 'lastwave',
       });
       final r = c.read(accentResolutionProvider);
-      expect(r.source, AccentSource.lastwave);
-      expect(r.color, WaveColors.defaultAccent);
+      expect(r.source, AccentSource.custom);
+      expect(r.color.toARGB32(), 0xFF12AB34);
       expect(r.resolved, isTrue);
     });
 
