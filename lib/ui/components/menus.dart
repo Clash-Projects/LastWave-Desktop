@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import 'text_selection.dart';
 import '../../app/track_actions.dart';
 import '../../core/audio/artist_parser.dart';
 import '../../core/audio/stream_models.dart';
@@ -432,7 +433,9 @@ Future<void> showWaveTrackProperties(
               ),
               const SizedBox(height: 3),
               SelectableText(
-                rows[i].$2,
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+rows[i].$2,
                 style: WaveType.body.copyWith(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
