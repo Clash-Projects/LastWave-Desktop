@@ -4781,6 +4781,51 @@ class InnerTubeMusicApi {
     return msg.length > 160 ? '${msg.substring(0, 160)}…' : msg;
   }
 
+  /// Conservative playback match for externally sourced catalog tracks.
+  ///
+  /// Unlike [findBestEffortMatchOrNull], this never drops the artist or
+  /// searches mixed video results. A match must pass the normal title and
+  /// artist gates, and (when both durations are known) be within 8 seconds.
+  /// This avoids silently playing a different artist or recording.
+  Future<YouTubeMusicTrack?> findVerifiedMatchOrNull(
+    String title,
+    String artist, {
+    int expectedDurationSeconds = 0,
+    Set<String> excludedVideoIds = const {},
+  }) async {
+    final requestedArtist = artist.trim();
+    if (title.trim().isEmpty ||
+        requestedArtist.isEmpty ||
+        requestedArtist.toLowerCase() == 'unknown artist' ||
+        requestedArtist.toLowerCase() == 'unknown') {
+      return null;
+    }
+
+    final artists = <String>[requestedArtist];
+    final primary = primaryArtistForMatch(requestedArtist);
+    if (primary.isNotEmpty && normalize(primary) != normalize(requestedArtist)) {
+      artists.add(primary);
+    }
+
+    for (final candidateArtist in artists) {
+      try {
+        final match = await findBestMatch(
+          title,
+          candidateArtist,
+          excludedVideoIds: excludedVideoIds,
+        ).timeout(const Duration(seconds: 6));
+        if (expectedDurationSeconds > 0 && match.durationSeconds > 0 &&
+            (match.durationSeconds - expectedDurationSeconds).abs() > 8) {
+          continue;
+        }
+        return match;
+      } catch (_) {
+        // Try only the normalized primary billing for a collaboration.
+      }
+    }
+    return null;
+  }
+
   Future<YouTubeMusicTrack?> findBestEffortMatchOrNull(
     String title,
     String artist, {
