@@ -1,0 +1,65 @@
+workflows:
+  lastwave-ios-unsigned:
+    name: LastWave iOS v1.0.0 unsigned IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+
+    environment:
+      flutter: 3.47.9
+      xcode: latest
+      cocoapods: default
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: codex/ipados-port-foundation
+          include: true
+          source: true
+
+    cancel_previous_builds: false
+
+    scripts:
+      - name: Prepare build-time secrets
+        script: |
+          set -euo pipefail
+          : > .env
+          if [[ -n "${ADDON_CLIENT_SECRET:-}" ]]; then
+            printf 'ADDON_CLIENT_SECRET=%s\n' "$ADDON_CLIENT_SECRET" >> .env
+          else
+            echo "Warning: ADDON_CLIENT_SECRET is not configured; add-on authentication cannot be verified."
+          fi
+          if [[ -n "${LYRICS_API_KEY:-}" ]]; then
+            printf 'LYRICS_API_KEY=%s\n' "$LYRICS_API_KEY" >> .env
+          fi
+          dart tool/obfuscate_secrets.dart
+          rm -f .env
+
+      - name: Generate and configure iPadOS host
+        script: bash tool/prepare_ipados.sh
+
+      - name: Resolve Flutter dependencies
+        script: flutter pub get
+
+      - name: Static analysis
+        script: flutter analyze
+
+      - name: Build unsigned iOS release
+        script: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        script: |
+          set -euo pipefail
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [[ ! -d "$APP_PATH" ]]; then
+            echo "Expected application bundle was not produced: $APP_PATH" >&2
+            exit 1
+          fi
+          mkdir -p package/Payload
+          ditto "$APP_PATH" package/Payload/Runner.app
+          (cd package && /usr/bin/zip -qry ../LastWave-iOS-v1.0.0-unsigned.ipa Payload)
+
+    artifacts:
+      - LastWave-iOS-v1.0.0-unsigned.ipa
+      - build/ios/iphoneos/Runner.app
+      - /tmp/xcodebuild_logs/*.log
