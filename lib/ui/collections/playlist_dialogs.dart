@@ -96,6 +96,82 @@ Future<void> showWaveAddToNewPlaylist(
   await library.addTrack(created.id, track);
 }
 
+Future<void> showWaveAddToPlaylist(
+  BuildContext context,
+  WidgetRef ref,
+  StoredTrack track,
+) async {
+  final repository = ref.read(playlistRepositoryProvider.notifier);
+  final playlists = ref
+      .read(playlistRepositoryProvider)
+      .where((playlist) => !playlist.isLikedSongs && !playlist.isLocal)
+      .toList();
+
+  if (playlists.isEmpty) {
+    await showWaveAddToNewPlaylist(context, ref, track);
+    return;
+  }
+
+  final selectedId = await showDialog<int>(
+    context: context,
+    builder: (dialogContext) => ContentDialog(
+      title: const Text('Add to playlist'),
+      content: SizedBox(
+        width: 340,
+        height: playlists.length > 5 ? 300 : playlists.length * 56.0,
+        child: ListView.separated(
+          shrinkWrap: true,
+          itemCount: playlists.length,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final playlist = playlists[index];
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(dialogContext).pop(playlist.id),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 4),
+                child: Row(
+                  children: [
+                    const Icon(FluentIcons.music_in_collection, size: 19),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            playlist.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            '${playlist.tracks.length} tracks',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(FluentIcons.chevron_right, size: 14),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        WaveButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cancel'),
+        ),
+      ],
+    ),
+  );
+
+  if (selectedId != null && context.mounted) {
+    await repository.addTrack(selectedId, track);
+  }
+}
+
 Future<void> showWaveRenamePlaylist(
   BuildContext context,
   WidgetRef ref,

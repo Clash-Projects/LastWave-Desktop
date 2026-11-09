@@ -937,13 +937,39 @@ class _Appearance extends ConsumerWidget {
             ],
           ),
         ),
+        if (Platform.isIOS) ...[
+          _Group(
+            id: 'appearance.liquid_glass',
+            title: 'Liquid Glass',
+            subtitle: 'A translucent surface treatment for the mobile interface',
+            child: _SwitchRow(
+              value: prefs.liquidGlass,
+              onChanged: (value) => onUpdate((p) => p.setLiquidGlass(value)),
+              title: 'Use Liquid Glass',
+              subtitle: 'Turn off for a more solid appearance',
+            ),
+          ),
+          _Group(
+            id: 'appearance.interface_scale',
+            title: 'Interface scale',
+            subtitle: 'Automatic adjusts for iPhone and iPad',
+            child: WaveSelect<String>(
+              value: prefs.interfaceScale,
+              options: const [
+                WaveSelectOption(value: 'auto', label: 'Automatic'),
+                WaveSelectOption(value: 'compact', label: 'Compact'),
+                WaveSelectOption(value: 'standard', label: 'Standard'),
+                WaveSelectOption(value: 'large', label: 'Large'),
+              ],
+              onChanged: (value) =>
+                  onUpdate((p) => p.setInterfaceScale(value)),
+            ),
+          ),
+        ],
       ],
     );
   }
 }
-
-/// Custom theme: preset base tones, any colour through the picker, and a
-/// live preview of the generated surfaces.
 class _CustomThemeEditor extends ConsumerWidget {
   final Color base;
   const _CustomThemeEditor({required this.base});
@@ -1501,13 +1527,6 @@ class _SpotifyCard extends ConsumerWidget {
           ),
         ],
         const SizedBox(height: 8),
-        _SwitchRow(
-          value: prefs.spotifyCanvasEnabled,
-          onChanged: (v) => onUpdate((p) => p.setSpotifyCanvasEnabled(v)),
-          title: 'Spotify Canvas',
-          subtitle: 'Use Spotify\'s vertical looping video in the Canvas panel '
-              '(needs a connected account)',
-        ),
       ],
     );
   }
@@ -3728,12 +3747,6 @@ class _Experimental extends ConsumerWidget {
           : 'Opt-in visual prototypes',
       child: Column(
         children: [
-          _SwitchRow(
-            value: prefs.liquidGlass,
-            onChanged: (v) => onUpdate((p) => p.setLiquidGlass(v)),
-            title: 'Extra translucency',
-            subtitle: 'Stronger Haze on panels (may cost FPS)',
-          ),
           _SwitchRow(
             value: prefs.wavySeekbar,
             onChanged: (v) => onUpdate((p) => p.setWavySeekbar(v)),

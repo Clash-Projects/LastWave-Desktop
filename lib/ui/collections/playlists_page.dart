@@ -718,12 +718,27 @@ class _PlaylistCardState
                         Positioned(
                           right: 8,
                           top: 8,
-                          child: Icon(
-                            widget.selected
-                                ? FluentIcons.checkbox_composite
-                                : FluentIcons.checkbox,
-                            size: 18,
-                            color: Colors.white,
+                          child: Container(
+                            width: 27,
+                            height: 27,
+                            decoration: BoxDecoration(
+                              color: widget.selected
+                                  ? waveAccent(context)
+                                  : Colors.black.withValues(alpha: 0.62),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.9),
+                                width: 1.2,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              widget.selected
+                                  ? FluentIcons.check_mark
+                                  : FluentIcons.checkbox,
+                              size: 14,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       if (p.isPinned)
@@ -809,7 +824,7 @@ class _PlaylistCardState
                           .copyWith(fontSize: 12.5)),
                   Text(
                       p.isLocal
-                          ? 'On this PC · ${p.tracks.length} tracks'
+                          ? 'On this device · ${p.tracks.length} tracks'
                           : '${p.tracks.length} tracks',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -846,7 +861,7 @@ class _LocalFolders extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'ON THIS PC',
+          'ON THIS DEVICE',
           style: WaveType.overline.copyWith(color: waveAccent(context)),
         ),
         const SizedBox(height: 2),
@@ -854,7 +869,7 @@ class _LocalFolders extends ConsumerWidget {
           busy
               ? scan.label
               : (scan.label.isEmpty
-                  ? 'Play files from folders you choose. Local songs stay on this PC and are never uploaded.'
+                  ? 'Play files from folders you choose. Local songs stay on this device and are never uploaded.'
                   : scan.label),
           style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
         ),

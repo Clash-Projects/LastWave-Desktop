@@ -42,6 +42,16 @@ class StoredTrack {
     this.addedAtMillis = 0,
   });
 
+  factory StoredTrack.fromPlayable(PlayableTrack track) => StoredTrack(
+        name: track.title,
+        artist: track.artist,
+        artworkUrl: track.artworkUrl,
+        videoId: track.videoId,
+        album: track.album,
+        durationSeconds: track.duration.inSeconds,
+        playbackUrl: track.playbackUrl,
+      );
+
   Map<String, dynamic> toJson() => {
         'name': name,
         'artist': artist,

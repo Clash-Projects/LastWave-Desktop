@@ -803,13 +803,9 @@ class _ChartsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Both charts come from the on-device play log (Last.fm exposes no
-    // hourly breakdown), so say so rather than imply they match the tiles.
-    final shown = stats.dailyActivity
-        .take(14)
-        .toList()
-        .reversed
-        .toList(); // chart reads oldest -> newest
+    // Both charts come from the on-device play log. The provider supplies
+    // consecutive calendar dates, oldest first.
+    final shown = stats.dailyActivity;
     final plays = shown.fold(0, (acc, e) => acc + e.count);
 
     final activityCard = _StatsCard(

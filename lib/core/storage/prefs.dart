@@ -81,11 +81,11 @@ class Prefs {
   bool get preferLossless =>
       _sp.getBool('lw_prefer_lossless_streaming') ?? true;
   int get losslessQuality =>
-      _clampQuality(_sp.getInt('lw_lossless_quality') ?? 27);
+      _clampQuality(_sp.getInt('lw_lossless_quality') ?? 6);
   int get downloadQuality =>
-      _clampQuality(_sp.getInt('lw_download_quality') ?? 27);
+      _clampQuality(_sp.getInt('lw_download_quality') ?? 6);
 
-  static int _clampQuality(int q) => allowedQualities.contains(q) ? q : 27;
+  static int _clampQuality(int q) => allowedQualities.contains(q) ? q : 6;
 
   Future<void> setPreferLossless(bool v) =>
       _sp.setBool('lw_prefer_lossless_streaming', v);
@@ -380,8 +380,22 @@ class Prefs {
     await _sp.setString('lw_accent_mode', v);
   }
 
-  bool get liquidGlass => _sp.getBool('lw_liquid_glass') ?? false;
+  bool get liquidGlass => _sp.getBool('lw_liquid_glass') ?? true;
   Future<void> setLiquidGlass(bool v) => _sp.setBool('lw_liquid_glass', v);
+
+  String get interfaceScale {
+    final value = _sp.getString('lw_interface_scale') ?? 'auto';
+    return const {'auto', 'compact', 'standard', 'large'}.contains(value)
+        ? value
+        : 'auto';
+  }
+
+  Future<void> setInterfaceScale(String value) => _sp.setString(
+        'lw_interface_scale',
+        const {'auto', 'compact', 'standard', 'large'}.contains(value)
+            ? value
+            : 'auto',
+      );
 
   bool get wavySeekbar => _sp.getBool('lw_wavy_seekbar') ?? false;
   Future<void> setWavySeekbar(bool v) => _sp.setBool('lw_wavy_seekbar', v);

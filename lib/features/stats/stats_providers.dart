@@ -129,6 +129,16 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
   final localUniqueTracks = (local['uniqueTracks'] as int?) ?? 0;
   final localHourly = (local['hourly'] as Map<int, int>?) ?? {};
   final localDaily = (local['daily'] as List<({String date, int count})>?) ?? [];
+  final dailyCounts = <String, int>{
+    for (final day in localDaily) day.date: day.count,
+  };
+  final today = DateTime.now();
+  final todayLocal = DateTime(today.year, today.month, today.day);
+  final dailyActivity = List.generate(14, (index) {
+    final day = todayLocal.subtract(Duration(days: 13 - index));
+    final key = DateFormat('yyyy-MM-dd').format(day);
+    return (date: key, count: dailyCounts[key] ?? 0);
+  });
   final rawLocalTopArtists =
       (local['topArtists'] as List<({String name, int count})>?) ?? [];
   final rawLocalTopTracks =
@@ -363,7 +373,7 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
     topAlbums: mergedTopAlbums,
     recentPlays: localRecent,
     hourlyDistribution: localHourly,
-    dailyActivity: localDaily,
+    dailyActivity: dailyActivity,
     isLastFmConnected: isLastFm,
     lastFmUsername: lastFmUser,
     lastFmScrobbles: lastFmScrobbles,

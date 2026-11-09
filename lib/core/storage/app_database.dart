@@ -740,7 +740,7 @@ class AppDatabase {
       // Daily Activity (last 30 days)
       final dailyRows = _db.select(
         "SELECT strftime('%Y-%m-%d', played_at_millis / 1000, 'unixepoch', 'localtime') as dt, "
-        'COUNT(*) as cnt FROM local_plays $whereClause GROUP BY dt ORDER BY dt DESC LIMIT 30;',
+        'COUNT(*) as cnt FROM local_plays GROUP BY dt ORDER BY dt DESC LIMIT 30;',
       );
       final daily = dailyRows
           .map((r) => (
