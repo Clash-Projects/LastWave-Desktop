@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/window_lifecycle.dart';
+import '../../core/storage/prefs.dart';
 import '../../core/artwork/animated_artwork_service.dart';
 import 'immersive.dart';
 import '../../core/artwork/animated_artwork_session.dart';
@@ -1474,7 +1475,12 @@ class _NowAmbient extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (artworkUrl.isEmpty) return const SizedBox.shrink();
+    final dynamicArtwork = ref.watch(
+      prefsProvider.select((prefs) => prefs.dynamicNowPlaying),
+    );
+    if (!dynamicArtwork || artworkUrl.isEmpty) {
+      return const SizedBox.shrink();
+    }
     final visible = ref.watch(windowVisibleProvider);
     return TickerMode(
       enabled: visible,
