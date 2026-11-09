@@ -65,13 +65,6 @@ Dio _lrclibStubDio(String synced) {
     InterceptorsWrapper(
       onRequest: (options, handler) {
         final url = options.uri.toString();
-        if (url.contains('itunes.apple.com')) {
-          handler.resolve(Response(
-              requestOptions: options,
-              statusCode: 200,
-              data: '{"resultCount":0,"results":[]}'));
-          return;
-        }
         if (url.contains('lrclib.net/api/get')) {
           handler.reject(DioException(
               requestOptions: options,
