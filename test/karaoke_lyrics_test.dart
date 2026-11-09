@@ -430,25 +430,6 @@ void main() {
   });
 
   group('Lyrics Provider Racing & Candidate Ranking', () {
-    test('Curated streaming source (Apple Music) supersedes crowdsourced (LRCLIB)', () {
-      const lrclibRes = LyricsResult(
-        lines: [LyricLine(timeMs: 1000, text: 'Oh Anthonio')],
-        isSynced: true,
-        source: 'lrclib',
-      );
-      const appleMusicRes = LyricsResult(
-        lines: [
-          LyricLine(timeMs: 1000, text: 'Overtime and overdue'),
-          LyricLine(timeMs: 3000, text: 'Ain\'t no sleep that is old news'),
-        ],
-        isSynced: true,
-        source: 'Apple Music',
-      );
-
-      expect(LyricsRepository.isBetterCandidate(appleMusicRes, lrclibRes), isTrue);
-      expect(LyricsRepository.isBetterCandidate(lrclibRes, appleMusicRes), isFalse);
-    });
-
     test('Richer song lyrics supersedes short sample loop', () {
       final sampleLoop = LyricsResult(
         lines: List.generate(
@@ -527,13 +508,13 @@ void main() {
       );
     });
 
-    test('timed cut beats complete unsynced Apple lyrics', () {
+    test('timed cut beats complete unsynced lyrics', () {
       final complete = LyricsResult(
         lines: [
           LyricLine(timeMs: 0, text: 'full chorus ${'na ' * 80}'),
           LyricLine(timeMs: 0, text: 'full verse ${'la ' * 80}'),
         ],
-        source: 'Apple Music',
+        source: 'complete source',
       );
       final truncated = LyricsResult(
         lines: [
@@ -579,10 +560,10 @@ void main() {
         ],
         isSynced: true,
         isWordSynced: true,
-        source: 'Apple Music',
+        source: 'complete source',
       );
       final line = lyricsForDisplayMode(wordSynced, wordByWord: false);
-      expect(line.source, 'Apple Music');
+      expect(line.source, 'complete source');
       expect(line.isSynced, isTrue);
       expect(line.isWordSynced, isFalse);
       expect(line.lines.single.text, 'Overtime and overdue');
@@ -868,7 +849,7 @@ void main() {
     });
   });
 
-  group('Apple Music Lyrics Depth-of-Field Blur', () {
+  group('Karaoke Lyrics Depth-of-Field Blur', () {
     testWidgets('inactive lyric line applies ImageFiltered blur while active line stays sharp', (tester) async {
       const sampleLine = LyricLine(timeMs: 1000, text: 'Diamonds on my mind');
 
