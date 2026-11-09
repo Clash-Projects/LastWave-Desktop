@@ -1489,6 +1489,7 @@ class _NowAmbient extends ConsumerWidget {
         isFullBleed: true,
         cinematic: true,
         apple: ref.watch(ambientStyleProvider) == AmbientStyle.apple,
+        respectVisualizerToggle: false,
       ),
     );
   }
