@@ -318,7 +318,10 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
     }
     final hits = <_Hit>[];
     if (_liveQ.isNotEmpty) {
-      final songs = ref.watch(waveSearchSongsProvider(_liveQ)).valueOrNull ??
+      final songs = ref.watch(waveSearchSongsProvider((
+            query: _liveQ,
+            catalogProvider: ref.read(prefsProvider).searchCatalogProvider,
+          ))).valueOrNull ??
           const <SearchResultItem>[];
       final albums =
           ref.watch(waveSearchAlbumsProvider(_liveQ)).valueOrNull ??
