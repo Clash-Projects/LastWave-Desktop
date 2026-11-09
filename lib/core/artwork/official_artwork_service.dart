@@ -25,11 +25,10 @@ class OfficialArtworkResult {
 /// Scored album candidate from any catalog pass.
 typedef _AlbumHit = ({int score, Map<String, dynamic> item});
 
-/// Resolves official studio album artwork and album metadata from high-authority
-/// music catalog CDNs (iTunes / Apple Music store catalog).
+/// Resolves studio album artwork and album metadata from Deezer's public
+/// music catalog, with YouTube Music image fallbacks supplied by the app.
 ///
-/// Bypasses YouTube 16:9 video frame stills and provides pristine square
-/// 1400×1400 studio album covers for commercial music.
+/// Bypasses YouTube 16:9 video frame stills when a matching Deezer cover exists.
 class OfficialArtworkService {
   static final OfficialArtworkService instance = OfficialArtworkService();
 
@@ -84,19 +83,11 @@ class OfficialArtworkService {
 
   // Concurrency gate: a 30-row list view can trigger a burst of store
   // lookups at once; cap parallel network resolutions and queue the rest
-  // so we never hammer the iTunes/Deezer search APIs. Artist lookups are
-  // marked priority — artist circles otherwise wait behind dozens of
-  // track lookups and visibly show album covers in the meantime.
+  // so we never hammer the Deezer search API. Artist lookups are marked
+  // priority — artist circles otherwise wait behind dozens of track lookups.
   static const _maxParallel = 3;
   int _activeRequests = 0;
   final List<void Function()> _requestQueue = [];
-
-  // Apple Search 403s after a burst. Two strikes → skip iTunes for a
-  // while and use Deezer instead (and stop the console flood).
-  int _itunes403Streak = 0;
-  int _itunesSkipUntilMs = 0;
-  bool get _itunesOpen =>
-      DateTime.now().millisecondsSinceEpoch >= _itunesSkipUntilMs;
 
   final List<void Function()> _listeners = [];
 
@@ -224,8 +215,8 @@ class OfficialArtworkService {
       : _dio = dio ?? _createArtworkDio(),
         _db = db;
 
-  /// Dedicated client: no debug 403 logger, 4xx does not throw, browser
-  /// UA without the LastWave token (Apple Search 403s that).
+  /// Dedicated client: no debug 403 logger, 4xx does not throw, and a
+  /// browser User-Agent for public artwork endpoints.
   static Dio _createArtworkDio() {
     return Dio(
       BaseOptions(
@@ -248,8 +239,6 @@ class OfficialArtworkService {
   }
 
   static const _officialCdns = [
-    'mzstatic.com',
-    'apple.com',
     'qobuz.com',
     'scdn.co',
     'spotifycdn.com',
@@ -279,8 +268,8 @@ class OfficialArtworkService {
   }
 
   /// True only for a Deezer *artist* press photo — not an album cover
-  /// that happens to live on an official CDN (iTunes mzstatic, Qobuz,
-  /// Spotify, Deezer `/images/cover/`). Artist circles must never treat
+  /// that happens to live on an official CDN (Qobuz, Spotify, Deezer
+  /// `/images/cover/`). Artist circles must never treat
   /// a studio album sleeve as "already official".
   static bool isOfficialArtistPhoto(String url) {
     if (url.isEmpty) return false;
@@ -312,8 +301,8 @@ class OfficialArtworkService {
   static String normalizeForSearch(String text) {
     var s = text.toLowerCase();
     // Apostrophes are REMOVED (not spaced): "can't" → "cant". Spacing
-    // them out ("can t") makes iTunes tokenize "t" as a separate word
-    // and return completely unrelated results.
+    // them out ("can t") can split the final "t" into a separate token
+    // and reduce matching quality.
     s = s.replaceAll(RegExp(r"['’ʼ`´]"), '');
     s = s.replaceAll(
         RegExp(
@@ -341,10 +330,9 @@ class OfficialArtworkService {
     return s.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  /// Catalog billing aliases — iTunes often files a Madvillain track
-  /// under "MF DOOM" (or the reverse). Token overlap is empty in those
-  /// cases, so without this the exact title still fails the score bar
-  /// and a YouTube still gets cached instead of the studio cover.
+  /// Artist billing aliases — a Madvillain track may be filed under
+  /// "MF DOOM" (or the reverse). Token overlap is empty in those cases,
+  /// so without this the exact title can fail the score bar.
   static const _artistAliasGroups = <Set<String>>[
     {'madvillain', 'mf doom', 'mfdoom', 'doom', 'metal fingers'},
     {'jay z', 'jayz', 'jigga', 'shawn carter'},
@@ -557,54 +545,6 @@ class OfficialArtworkService {
   static bool _isDeezerBlank(String url) =>
       url.contains('/artist//') || url.contains('d41d8cd98f00b204e9800998ecf8427e');
 
-  /// Shared iTunes Search API round; returns the raw result list.
-  /// 403/429 do not throw (validateStatus). After a couple of blocks
-  /// we skip iTunes for 15 minutes so Home doesn't hammer Apple.
-  Future<List<Map<String, dynamic>>> _itunesSearch(
-    String term,
-    String entity,
-    String limit,
-  ) async {
-    if (!_itunesOpen) return const [];
-    try {
-      final res = await _dio.get<dynamic>(
-        'https://itunes.apple.com/search',
-        queryParameters: {
-          'term': term,
-          'entity': entity,
-          'limit': limit,
-          'media': 'music',
-          'country': 'us',
-        },
-        options: Options(responseType: ResponseType.plain),
-      );
-      final code = res.statusCode ?? 0;
-      if (code == 403 || code == 429) {
-        _itunes403Streak++;
-        if (_itunes403Streak >= 2) {
-          _itunesSkipUntilMs = DateTime.now().millisecondsSinceEpoch +
-              const Duration(minutes: 15).inMilliseconds;
-        }
-        return const [];
-      }
-      if (code != 200) return const [];
-      _itunes403Streak = 0;
-      dynamic rawData = res.data;
-      if (rawData is String && rawData.isNotEmpty) {
-        try {
-          rawData = jsonDecode(rawData);
-        } catch (_) {}
-      }
-      final data = rawData is Map ? rawData : null;
-      if (data != null && data['results'] is List) {
-        return (data['results'] as List)
-            .whereType<Map<String, dynamic>>()
-            .toList();
-      }
-    } catch (_) {}
-    return const [];
-  }
-
   Future<List<Map<String, dynamic>>> _deezerTrackHits(String query) async {
     if (query.trim().isEmpty) return const [];
     try {
@@ -614,7 +554,7 @@ class OfficialArtworkService {
       final items = data != null && data['data'] is List
           ? (data['data'] as List).whereType<Map<String, dynamic>>()
           : const <Map<String, dynamic>>[];
-      // Shape as iTunes-like maps so _findBestMatch can score them.
+      // Normalize Deezer results into the fields used by the shared scorer.
       return items.map((item) {
         final artist = item['artist'];
         final album = item['album'];
@@ -678,46 +618,6 @@ class OfficialArtworkService {
     return (score: bestScore, item: best);
   }
 
-  /// Album resolution via its TRACKS: iTunes song search matches across
-  /// collection names, and every track payload carries its album cover.
-  /// Finds albums the album-entity ranking buries (even IGOR isn't in
-  /// Tyler's top album hits) or that are missing from album search
-  /// entirely (Madvillainy). Artist support is mandatory here.
-  _AlbumHit? _matchAlbumViaSongs(
-    List<Map<String, dynamic>> items,
-    String cleanAlbum,
-    String cleanArtist,
-  ) {
-    Map<String, dynamic>? best;
-    var bestScore = -999;
-    for (final item in items) {
-      final collection =
-          normalizeForSearch(item['collectionName']?.toString() ?? '');
-      final artistName =
-          normalizeForSearch(item['artistName']?.toString() ?? '');
-      if (collection.isEmpty) continue;
-      final titleScore = artworkTitleScore(collection, cleanAlbum);
-      if (titleScore < 90) continue;
-      final artistScore = artworkArtistScore(artistName, cleanArtist);
-      if (artistScore < 80) continue;
-      var score = titleScore + artistScore;
-      final trackName =
-          normalizeForSearch(item['trackName']?.toString() ?? '');
-      final noise = '$trackName $collection';
-      if (noise.contains('instrumental') ||
-          noise.contains('karaoke') ||
-          noise.contains('tribute')) {
-        score -= 80;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        best = item;
-      }
-    }
-    if (best == null || bestScore < 150) return null;
-    return (score: bestScore, item: best);
-  }
-
   OfficialArtworkResult? _albumResultFrom(
     Map<String, dynamic> item,
     String rawAlbum,
@@ -726,8 +626,7 @@ class OfficialArtworkService {
     final rawArt = item['artworkUrl100']?.toString() ?? '';
     if (rawArt.isEmpty) return null;
     return OfficialArtworkResult(
-      artworkUrl:
-          rawArt.replaceAll(RegExp(r'\d+x\d+bb'), '1400x1400bb'),
+      artworkUrl: rawArt,
       albumTitle: item['collectionName']?.toString() ?? rawAlbum,
       artist: item['artistName']?.toString() ?? rawArtist,
     );
@@ -739,82 +638,33 @@ class OfficialArtworkService {
     String rawAlbum,
     String rawArtist,
   ) async {
-    // Gather candidates from every catalog pass, then take the GLOBAL
-    // best — an early substring hit (a fan EP like "Whole Lotta Red V1")
-    // must never beat an exact-album hit from the song pass.
-    final hits = <_AlbumHit>[];
-
-    // Pass 1 & 2: album catalog — "artist album", then bare album title.
-    for (final term in {
-      if (cleanArtist.isNotEmpty) '$cleanArtist $cleanAlbum',
-      cleanAlbum,
-    }) {
-      final hit = _matchAlbum(
-          await _itunesSearch(term, 'album', '25'), cleanAlbum, cleanArtist);
-      if (hit != null) hits.add(hit);
-    }
-
-    // Pass 3: via the album's tracks (song search matches collection
-    // names; each track payload carries the album cover).
-    if (cleanArtist.isNotEmpty) {
-      final hit = _matchAlbumViaSongs(
-        await _itunesSearch('$cleanArtist $cleanAlbum', 'song', '25'),
-        cleanAlbum,
-        cleanArtist,
-      );
-      if (hit != null) hits.add(hit);
-    }
-
-    if (hits.isNotEmpty) {
-      hits.sort((a, b) => b.score.compareTo(a.score));
-      final result = _albumResultFrom(hits.first.item, rawAlbum, rawArtist);
-      if (result != null) return result;
-    }
-
-    // Deezer album catalog when iTunes is 403'd or empty.
+    final query = cleanArtist.isNotEmpty
+        ? '$cleanArtist $cleanAlbum'
+        : cleanAlbum;
     try {
-      final q = cleanArtist.isNotEmpty
-          ? '$cleanArtist $cleanAlbum'
-          : cleanAlbum;
-      final res = await _dio.get<dynamic>(
-        'https://api.deezer.com/search/album',
-        queryParameters: {'q': q, 'limit': '10'},
+      final rawData = await _deezerGet(
+        '/search/album',
+        {'q': query, 'limit': '10'},
       );
-      if (res.statusCode == 200) {
-        dynamic rawData = res.data;
-        if (rawData is String && rawData.isNotEmpty) {
-          try {
-            rawData = jsonDecode(rawData);
-          } catch (_) {}
-        }
-        final data = rawData is Map ? rawData : null;
-        final items = data != null && data['data'] is List
-            ? (data['data'] as List).whereType<Map<String, dynamic>>()
-            : const <Map<String, dynamic>>[];
-        final mapped = items
-            .map((item) {
-              final artist = item['artist'];
-              return <String, dynamic>{
-                'collectionName': item['title']?.toString() ?? '',
-                'artistName':
-                    artist is Map ? artist['name']?.toString() ?? '' : '',
-                'artworkUrl100': (item['cover_xl'] ??
-                        item['cover_big'] ??
-                        item['cover'])
-                    ?.toString() ??
-                    '',
-              };
-            })
-            .toList();
-        final hit = _matchAlbum(mapped, cleanAlbum, cleanArtist);
-        if (hit != null) {
-          final result =
-              _albumResultFrom(hit.item, rawAlbum, rawArtist);
-          if (result != null) return result;
-        }
+      final data = rawData is Map ? rawData : null;
+      final items = data != null && data['data'] is List
+          ? (data['data'] as List).whereType<Map<String, dynamic>>()
+          : const <Map<String, dynamic>>[];
+      final mapped = items.map((item) {
+        final artist = item['artist'];
+        return <String, dynamic>{
+          'collectionName': item['title']?.toString() ?? '',
+          'artistName': artist is Map ? artist['name']?.toString() ?? '' : '',
+          'artworkUrl100':
+              (item['cover_xl'] ?? item['cover_big'] ?? item['cover'])
+                  ?.toString() ?? '',
+        };
+      }).toList();
+      final hit = _matchAlbum(mapped, cleanAlbum, cleanArtist);
+      if (hit != null) {
+        return _albumResultFrom(hit.item, rawAlbum, rawArtist);
       }
     } catch (_) {}
-
     return null;
   }
 
@@ -956,11 +806,6 @@ class OfficialArtworkService {
     final cleanPrimary = normalizeForSearch(rawPrimary);
 
     final catalogs = await Future.wait([
-      if (cleanArtist.isNotEmpty)
-        _itunesSearch('$cleanArtist $cleanTitle', 'song', '25'),
-      if (cleanPrimary.isNotEmpty && cleanPrimary != cleanArtist)
-        _itunesSearch('$cleanPrimary $cleanTitle', 'song', '25'),
-      _itunesSearch(cleanTitle, 'song', '25'),
       if (rawArtist.isNotEmpty) _deezerTrackHits('$rawArtist $rawTitle'),
       if (rawPrimary.isNotEmpty && rawPrimary != rawArtist)
         _deezerTrackHits('$rawPrimary $rawTitle'),
@@ -986,12 +831,8 @@ class OfficialArtworkService {
           match['artworkUrl60']?.toString() ??
           '';
       if (rawArt.isNotEmpty) {
-        final highResArt = rawArt.contains('mzstatic.com') ||
-                rawArt.contains('apple.com')
-            ? rawArt.replaceAll(RegExp(r'\d+x\d+bb'), '1400x1400bb')
-            : rawArt;
         return OfficialArtworkResult(
-          artworkUrl: highResArt,
+          artworkUrl: rawArt,
           albumTitle: match['collectionName']?.toString() ?? rawAlbum,
           artist: match['artistName']?.toString() ?? rawArtist,
           title: match['trackName']?.toString() ?? rawTitle,
