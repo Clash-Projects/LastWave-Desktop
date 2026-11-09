@@ -1247,6 +1247,27 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
             ),
           const SizedBox(height: 24),
         ],
+        if (showSongs && songsAsync.hasError) ...[
+          WaveEntrance(
+            index: slot(),
+            rise: 8,
+            child: WaveEmpty(
+              icon: FluentIcons.error,
+              title: widget.catalogProvider == searchCatalogAppleMusic
+                  ? 'Apple Music catalog unavailable'
+                  : 'Track catalog unavailable',
+              subtitle: songsAsync.error?.toString() ??
+                  'Could not retrieve track results.',
+              actionLabel: widget.catalogProvider == searchCatalogAppleMusic
+                  ? 'Open Integrations'
+                  : null,
+              onAction: widget.catalogProvider == searchCatalogAppleMusic
+                  ? () => context.go('/settings?section=integrations')
+                  : null,
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
         if (showAlbums && (_albums.isNotEmpty || albumsAsync.isLoading)) ...[
           WaveEntrance(
             index: slot(),
