@@ -110,7 +110,7 @@ void main() {
       isSynced: true,
       isWordSynced: true,
       plainLyrics: '',
-      source: 'Apple Music',
+      source: 'karaoke-provider',
     );
     final line = lyricsForDisplayMode(wordSynced, wordByWord: false);
     expect(line.isSynced, isTrue);
