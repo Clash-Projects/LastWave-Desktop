@@ -17,7 +17,7 @@ import 'package:lastwave_desktop/features/search/shared_providers.dart';
 import 'package:lastwave_desktop/ui/components/ambient.dart';
 import 'package:lastwave_desktop/ui/home/home_page.dart';
 
-const _art = 'https://is1-ssl.mzstatic.com/image/thumb/x.jpg';
+const _art = 'https://i.ytimg.com/vi/test-video/hqdefault.jpg';
 
 class _FakePlayback extends StateNotifier<PlayerSnapshot>
     implements PlaybackService {
