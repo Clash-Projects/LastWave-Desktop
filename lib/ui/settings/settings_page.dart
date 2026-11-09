@@ -160,22 +160,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
   Widget build(BuildContext context) {
     return SettingsSpotlight(
       activeId: _highlightId,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 640),
-                child: SettingsSearchBox(onPick: _jump),
-              ),
-            ),
-          ),
-          Expanded(child: _layout()),
-        ],
-      ),
+      child: _layout(),
     );
   }
 
@@ -194,6 +179,8 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
               physics: const ClampingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
               children: [
+                SettingsSearchBox(onPick: _jump),
+                const SizedBox(height: 16),
                 Text(
                   'SYSTEM',
                   style: WaveType.overline.copyWith(color: waveAccent(context)),
@@ -272,6 +259,8 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                   physics: const ClampingScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
                   children: [
+                    SettingsSearchBox(onPick: _jump),
+                    const SizedBox(height: 20),
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 640),
                       child: _SectionSwap(
