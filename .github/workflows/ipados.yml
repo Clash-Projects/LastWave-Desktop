@@ -1,4 +1,4 @@
-name: iPadOS unsigned build
+name: LastWave iOS v1.0.0 unsigned build
 
 on:
   push:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   build:
-    name: Analyze, test, and build unsigned iPadOS IPA
+    name: Analyze, test, and build LastWave iOS v1.0.0 IPA
     runs-on: macos-15
     timeout-minutes: 90
     steps:
@@ -93,12 +93,12 @@ jobs:
           fi
           mkdir -p package/Payload
           ditto "$APP_PATH" package/Payload/Runner.app
-          (cd package && /usr/bin/zip -qry ../LastWave-iPadOS-unsigned.ipa Payload)
+          (cd package && /usr/bin/zip -qry ../LastWave-iOS-v1.0.0-unsigned.ipa Payload)
 
       - name: Upload IPA and generated iOS platform project
         uses: actions/upload-artifact@v4
         with:
-          name: LastWave-iPadOS-unsigned
+          name: LastWave-iOS-v1.0.0-unsigned
           path: |
             LastWave-iPadOS-unsigned.ipa
             ios/
