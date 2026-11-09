@@ -6,6 +6,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../components/text_selection.dart';
 import '../components/buttons.dart' show LWTooltip, WaveLink;
 import '../components/inputs.dart';
 import '../theme/wave_icons.dart';
@@ -273,7 +274,9 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
             child: SizedBox(
               width: fieldWidth,
               child: TextBox(
-                decoration: waveInputDecoration(),
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+decoration: waveInputDecoration(),
                 controller: _controller,
                 focusNode: _focus,
                 autofocus: true,
