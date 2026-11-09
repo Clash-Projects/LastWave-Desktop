@@ -379,6 +379,7 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
             ),
             const SizedBox(height: 16),
             _CombinedResults(
+              key: ValueKey('$_submitted|$_catalogProvider|${_filter?.name}'),
               query: _submitted,
               filter: _filter,
               catalogProvider: _catalogProvider,
@@ -959,8 +960,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
   bool _show(SearchTab tab) =>
       widget.filter == null || widget.filter == tab;
 
-  Future<void> _playSongs(
-      WidgetRef ref, BuildContext context, int start) async {
+  Future<void> _playSongs(WidgetRef ref, int start) async {
     if (_songs.isEmpty) return;
     // Search rankings are not a listening queue: play ONLY the tapped
     // track and let endless radio (Settings → Playback) pick what
@@ -974,8 +974,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
     );
   }
 
-  Future<void> _playSingle(
-      WidgetRef ref, BuildContext context, SearchResultItem hero) async {
+  Future<void> _playSingle(WidgetRef ref, SearchResultItem hero) async {
     await ref.read(playbackServiceProvider.notifier).playQueue(
       [playableFromSearch(hero)],
       0,
@@ -1007,7 +1006,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
       case SearchTab.playlists:
         _openPlaylist(hero);
       case SearchTab.tracks:
-        if (hero.videoId.isNotEmpty) _playSingle(ref, context, hero);
+        _playSingle(ref, hero);
       case SearchTab.users:
         _openUser(hero);
     }
@@ -1125,7 +1124,8 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               ? 'Search failed'
               : (usersOnly ? 'No users' : 'No results'),
           subtitle: anyError
-              ? 'Check your connection and try again.'
+              ? (songsAsync.error?.toString() ??
+                  'Check your connection and try again.')
               : (usersOnly
                   ? 'No Last.fm users match that name.'
                   : 'Try a different artist, album or track.'),
@@ -1242,7 +1242,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               songs: _songs,
               // "All" shows the best five; picking Songs shows everything.
               limit: widget.filter == null ? 5 : null,
-              onPlay: (i) => _playSongs(ref, context, i),
+              onPlay: (i) => _playSongs(ref, i),
             ),
           const SizedBox(height: 24),
         ],
