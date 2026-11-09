@@ -88,7 +88,7 @@ String formatOffsetDisplay(int offsetMs) {
   return '$sign${secs}s';
 }
 
-/// Apple Music Karaoke-Style Lyrics Engine.
+/// Karaoke Lyrics Engine.
 ///
 /// Features:
 /// - Progressive syllable color wipe for word-synced lyrics.
@@ -833,7 +833,7 @@ List<KaraokeWordGroup> groupSyllablesIntoWords(
   return words;
 }
 
-/// Single Lyric Line rendering with Apple Music Karaoke progressive wipe,
+/// Single Lyric Line rendering with Karaoke progressive wipe,
 /// blur falloff, and Segoe UI typography.
 class WaveKaraokeLyricLine extends StatefulWidget {
   final LyricLine line;
@@ -1671,7 +1671,7 @@ class _KaraokeToolbar extends ConsumerWidget {
                           ? result.source
                           : 'Lyrics')
                     : result.isSynced
-                    ? 'Apple Music · Line Synced'
+                    ? 'Line Synced'
                     : result.source.isNotEmpty
                     ? result.source
                     : 'Lyrics',
@@ -2360,7 +2360,7 @@ class DesktopStanzaWidget extends StatelessWidget {
   }
 }
 
-/// Apple Music default lyrics: the whole current line is sharp and
+/// Default line-synced lyrics: the whole current line is sharp and
 /// fully lit via DesktopKaraokeLinePainter. Stanzas are grouped with
 /// nested background harmonies and spatial duet staging.
 class _AppleLineLyricsView extends StatefulWidget {
@@ -2526,7 +2526,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
             index: index,
             alignment: alignment,
             duration: waveMotion(context, const Duration(milliseconds: 400)),
-            curve: const Cubic(0.41, 0.0, 0.12, 0.99), // Apple Music Spring scroll curve
+            curve: const Cubic(0.41, 0.0, 0.12, 0.99), // Smooth spring-like scroll curve
           );
         } else {
           _scroll.jumpTo(index: index, alignment: alignment);
