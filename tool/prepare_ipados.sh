@@ -45,7 +45,7 @@ import sys
 
 pbx_path = pathlib.Path(sys.argv[1])
 plist_path = pathlib.Path(sys.argv[2])
-bundle_id = "com.lastwave.lastwaveDesktop"
+bundle_id = "com.lastwave.ios"
 
 pbx = pbx_path.read_text(encoding="utf-8")
 
@@ -87,7 +87,7 @@ if not any(
     if isinstance(item, dict)
 ):
     url_types.append({
-        "CFBundleURLName": "com.lastwave.lastwaveDesktop",
+        "CFBundleURLName": "com.lastwave.ios",
         "CFBundleURLSchemes": ["lastwave"],
     })
 info["CFBundleURLTypes"] = url_types
