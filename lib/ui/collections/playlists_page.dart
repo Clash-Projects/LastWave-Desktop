@@ -814,7 +814,6 @@ class _PlaylistCardState
                           ),
                         ),
                       ),
-                    ),
                       Positioned(
                         right: 6,
                         top: 6,
