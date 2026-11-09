@@ -30,34 +30,7 @@ void main() {
     expect(parseSpotifyEmbed('{{{broken').rows, isEmpty);
   });
 
-  test('Apple tier 1 parses title-artist rows', () {
-    final page = parseApplePage(_fixture('apple_playlist_sample.html'));
-    expect(page.source, PlaylistLinkSource.appleMusic);
-    expect(page.title, 'Sample Hits');
-    expect(page.rows.length, 2);
-    expect(page.rows[0].title, 'Alpha Song');
-    expect(page.rows[0].artist, 'Alpha Artist');
-  });
-
-  test('Apple tier 2 fallback yields artist-less rows', () {
-    const html = '<script id=schema:music-playlist type="application/ld+json">'
-        '{"@type":"MusicPlaylist","name":"Fallback Mix","track":['
-        '{"@type":"MusicRecording","name":"Gamma Song"},'
-        '{"@type":"MusicRecording","name":"Gamma Song"}]}</script>'
-        '<title>Fallback Mix - Playlist - Apple Music</title>';
-    final page = parseApplePage(html);
-    expect(page.title, 'Fallback Mix');
-    expect(page.rows.length, 1);
-    expect(page.rows.single.title, 'Gamma Song');
-    expect(page.rows.single.artist, isEmpty);
-  });
-
-  test('Apple strips branding suffix and never throws', () {
-    expect(parseApplePage('<html>nope</html>').rows, isEmpty);
-    expect(parseApplePage('<html>nope</html>').title.isNotEmpty, isTrue);
-  });
-
-  test('fetchers serve fixtures through stub Dio', () async {
+  test('fetchers serve Spotify fixture through stub Dio', () async {
     var requests = 0;
     final dio = Dio();
     dio.interceptors.add(
@@ -72,13 +45,6 @@ void main() {
                 data: _fixture('spotify_embed_sample.html')));
             return;
           }
-          if (url.contains('music.apple.com')) {
-            handler.resolve(Response(
-                requestOptions: options,
-                statusCode: 200,
-                data: _fixture('apple_playlist_sample.html')));
-            return;
-          }
           handler.reject(DioException(
               requestOptions: options, type: DioExceptionType.unknown));
         },
@@ -88,11 +54,7 @@ void main() {
         dio, 'https://open.spotify.com/playlist/ABC123');
     expect(spotify.title, 'Sample & Mix');
     expect(spotify.rows.length, 2);
-    final apple = await fetchApplePlaylist(
-        dio, 'https://music.apple.com/us/playlist/sample/pl.abc123');
-    expect(apple.title, 'Sample Hits');
-    expect(apple.rows.length, 2);
-    expect(requests, 2);
+    expect(requests, 1);
   });
 
   test('fetchers reject garbage and mixes without HTTP', () async {
@@ -139,7 +101,7 @@ void main() {
       throwsA(isA<FormatException>()),
     );
     await expectLater(
-      fetchApplePlaylist(dio, 'RDxyz'),
+      fetchSpotifyPlaylist(dio, 'RDxyz'),
       throwsA(isA<FormatException>()),
     );
     await expectLater(
