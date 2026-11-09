@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/material.dart' as material;
 import 'package:flutter/services.dart';
 
 import '../theme/tokens.dart';
@@ -133,78 +132,49 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
     if (onChanged == null || _open) return;
 
     // Fluent's anchored Flyout is ideal for mouse/keyboard on desktop, but
-    // small popup menus are difficult to target on touch screens. iOS uses
-    // a native-feeling, full-width bottom sheet with large selectable rows.
+    // a small popup is difficult to target on touch screens. iOS uses a
+    // larger Fluent dialog with full-width, generously spaced choices.
     if (Platform.isIOS) {
-      final selected = await material.showModalBottomSheet<T>(
+      final size = MediaQuery.sizeOf(context);
+      final selected = await showDialog<T>(
         context: context,
-        useSafeArea: true,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (sheetContext) {
-          final theme = FluentTheme.of(sheetContext);
-          final maxHeight = MediaQuery.sizeOf(sheetContext).height * 0.68;
-          return Container(
-            height: math.min(maxHeight, 560).toDouble(),
-            decoration: BoxDecoration(
-              color: theme.resources.cardBackgroundFillColorDefault,
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(WaveRadius.floating),
-              ),
-              border: Border.all(
-                color: theme.resources.controlStrokeColorSecondary,
-              ),
-            ),
-            child: Column(
+        builder: (dialogContext) => ContentDialog(
+          constraints: BoxConstraints(
+            maxWidth: math.min(size.width * 0.9, 520).toDouble(),
+            maxHeight: math.min(size.height * 0.72, 640).toDouble(),
+          ),
+          title: Text(widget.placeholder ?? 'Choose an option'),
+          content: SizedBox(
+            width: math.min(size.width * 0.86, 480).toDouble(),
+            height: math.min(size.height * 0.58, 520).toDouble(),
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 4),
               children: [
-                const SizedBox(height: 10),
-                Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: theme.resources.textFillColorTertiary,
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      widget.placeholder ?? 'Choose an option',
-                      style: WaveType.sectionTitle,
+                for (final option in widget.options)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: ListTile(
+                      selected: option.value == widget.value,
+                      leading: option.value == widget.value
+                          ? const Icon(FluentIcons.check_mark, size: 16)
+                          : const SizedBox(width: 16),
+                      title: Text(option.label),
+                      subtitle:
+                          option.hint == null ? null : Text(option.hint!),
+                      onPressed: () =>
+                          Navigator.of(dialogContext).pop(option.value),
                     ),
                   ),
-                ),
-                const Divider(),
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(10, 4, 10, 16),
-                    children: [
-                      for (final option in widget.options)
-                        ListTile.selectable(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: WaveRadius.controlsRadius,
-                          ),
-                          selected: option.value == widget.value,
-                          selectionMode: ListTileSelectionMode.single,
-                          leading: option.value == widget.value
-                              ? const Icon(FluentIcons.check_mark, size: 16)
-                              : const SizedBox(width: 16),
-                          title: Text(option.label),
-                          subtitle: option.hint == null
-                              ? null
-                              : Text(option.hint!),
-                          onPressed: () =>
-                              Navigator.of(sheetContext).pop(option.value),
-                        ),
-                    ],
-                  ),
-                ),
               ],
             ),
-          );
-        },
+          ),
+          actions: [
+            Button(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
       );
       if (selected != null && mounted) onChanged(selected);
       return;
