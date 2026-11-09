@@ -860,12 +860,23 @@ class _MobileMiniPlayer extends ConsumerWidget {
         position: state.position,
         buffered: state.buffered,
         duration: state.duration,
+        stream: state.stream,
       )),
     );
     final playback = ref.read(playbackServiceProvider.notifier);
     final wavySeekbar =
         ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
     final track = player.current;
+    final stream = player.stream;
+    final codec = stream == null
+        ? ''
+        : stream.audioCodec.trim().isNotEmpty
+            ? stream.audioCodec.trim().toUpperCase()
+            : stream.mimeType.split('/').last.split(';').first.toUpperCase();
+    final streamDetails = [
+      if (codec.isNotEmpty) codec,
+      if ((stream?.bitrateKbps ?? 0) > 0) '${stream!.bitrateKbps} kbps',
+    ].join(' · ');
     final durationMs = player.duration.inMilliseconds;
     final progressRatio = durationMs > 0
         ? (player.position.inMilliseconds / durationMs)
@@ -874,13 +885,20 @@ class _MobileMiniPlayer extends ConsumerWidget {
         : 0.0;
 
     return Container(
-      height: 70,
+      height: 78,
       margin: const EdgeInsets.fromLTRB(10, 7, 10, 7),
-      padding: const EdgeInsets.fromLTRB(10, 5, 10, 3),
+      padding: const EdgeInsets.fromLTRB(11, 5, 11, 4),
       decoration: BoxDecoration(
         color: waveSurfaceRaised(context),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: waveDivider(context)),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: waveDivider(context).withValues(alpha: 0.8)),
+        boxShadow: [
+          BoxShadow(
+            color: waveTextPrimary(context).withValues(alpha: 0.035),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
@@ -930,6 +948,17 @@ class _MobileMiniPlayer extends ConsumerWidget {
                             color: waveTextSecondary(context),
                           ),
                         ),
+                        if (streamDetails.isNotEmpty)
+                          Text(
+                            streamDetails,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: WaveType.meta.copyWith(
+                              fontSize: 10,
+                              letterSpacing: 0.15,
+                              color: waveTextSecondary(context).withValues(alpha: 0.82),
+                            ),
+                          ),
                       ],
                     ),
                   ),
