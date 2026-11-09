@@ -92,12 +92,25 @@ class PlayableTrack {
 
   String get mediaId {
     if (playbackUrl.isNotEmpty) return 'local:$playbackUrl';
+    if (catalogProvider != 'youtube_music') {
+      if (isrc.isNotEmpty) return 'isrc:${isrc.toUpperCase()}';
+      if (externalUrl.isNotEmpty) return '$catalogProvider:$externalUrl';
+      return 'catalog:$catalogProvider:${title.toLowerCase()}|${artist.toLowerCase()}|${duration.inSeconds}';
+    }
     if (videoId.isNotEmpty) return videoId;
     return 'query:${artist.toLowerCase()}|${title.toLowerCase()}';
   }
 
-  String get queueKey =>
-      '${title.toLowerCase()}|${artist.toLowerCase()}';
+  String get queueKey {
+    final base = '${title.toLowerCase()}|${artist.toLowerCase()}';
+    if (catalogProvider == 'youtube_music') return base;
+    final identity = isrc.isNotEmpty
+        ? isrc.toUpperCase()
+        : externalUrl.isNotEmpty
+            ? externalUrl
+            : duration.inSeconds.toString();
+    return '$base|$catalogProvider|$identity';
+  }
 
   Map<String, dynamic> toJson() => {
         'title': title,
