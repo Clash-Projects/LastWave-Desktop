@@ -1691,8 +1691,7 @@ class _SongsTable extends ConsumerWidget {
       playbackServiceProvider.select((s) => s.isPlaying),
     );
     final shown = limit == null ? songs : songs.take(limit!).toList();
-    String keyOf(SearchResultItem e) =>
-        '${e.name.toLowerCase()}|${e.artist.toLowerCase()}';
+    String keyOf(SearchResultItem e) => playableFromSearch(e).queueKey;
     return WaveDesktopTable<SearchResultItem>(
       shrinkWrap: true,
       playOnSingleTap: true,
