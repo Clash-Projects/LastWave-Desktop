@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../features/spotify/spotify_api.dart';
 import '../../features/spotify/spotify_auth.dart';
 import '../../features/spotify/spotify_web_login.dart';
+import '../../features/auth/mobile_cookie_login.dart';
 import '../components/buttons.dart';
 import '../components/inputs.dart';
 import '../theme/tokens.dart';
@@ -41,6 +42,20 @@ Future<void> spotifyConnectWithWebView(
     }
     return;
   }
+  await _finish(context, ref, cookie);
+}
+
+/// Sign in inside the iOS app and capture Spotify's authenticated
+/// `sp_dc` cookie directly from the WebView cookie store.
+Future<void> spotifyConnectWithMobileWebView(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final cookie = await showMobileCookieLogin(
+    context,
+    provider: MobileCookieLoginProvider.spotify,
+  );
+  if (!context.mounted || cookie == null || cookie.trim().isEmpty) return;
   await _finish(context, ref, cookie);
 }
 
