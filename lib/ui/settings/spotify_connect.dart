@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../components/text_selection.dart';
 import '../../features/spotify/spotify_api.dart';
 import '../../features/spotify/spotify_auth.dart';
 import '../../features/spotify/spotify_web_login.dart';
@@ -101,7 +102,9 @@ Future<void> spotifyConnectWithCookie(
           ),
           const SizedBox(height: 10),
           TextBox(
-            controller: controller,
+        selectionControls: waveTextSelectionControls,
+        contextMenuBuilder: waveTextContextMenuBuilder,
+controller: controller,
             decoration: waveInputDecoration(),
             placeholder: 'sp_dc value',
             obscureText: true,
