@@ -371,6 +371,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                     ),
                   ),
                 ),
+              ),
               ],
             ),
           ),
