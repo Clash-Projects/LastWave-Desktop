@@ -380,23 +380,6 @@ class _MobileToolbar extends StatelessWidget {
     required this.onMore,
   });
 
-  Widget _logo(BuildContext context) => Semantics(
-        label: 'LastWave',
-        image: true,
-        child: ColorFiltered(
-          colorFilter: ColorFilter.mode(
-            waveTextPrimary(context),
-            BlendMode.srcIn,
-          ),
-          child: Image.asset(
-            'assets/brand/lastwave-logo.png',
-            width: 92,
-            height: 26,
-            fit: BoxFit.contain,
-          ),
-        ),
-      );
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -414,50 +397,13 @@ class _MobileToolbar extends StatelessWidget {
               tooltip: 'Back',
               onPressed: onBack,
             ),
-          if (tabletLayout) ...[
-            _logo(context),
-            const SizedBox(width: 16),
-            Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: onSearch,
-                child: Container(
-                  height: 40,
-                  margin: const EdgeInsets.symmetric(vertical: 7),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    color: waveSurfaceRaised(context),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: waveDivider(context)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        WaveIcons.search,
-                        size: 17,
-                        color: waveTextSecondary(context),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Search',
-                        style: WaveType.body.copyWith(
-                          color: waveTextSecondary(context),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ] else ...[
-            _logo(context),
-            const Spacer(),
+          const Spacer(),
+          if (!tabletLayout)
             _TouchIconButton(
               icon: WaveIcons.search,
               tooltip: 'Search',
               onPressed: onSearch,
             ),
-          ],
           _TouchIconButton(
             icon: WaveIcons.more,
             tooltip: 'More',
