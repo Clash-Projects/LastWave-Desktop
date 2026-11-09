@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../core/artwork/artwork_cache.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/spotify/canvas_clip.dart';
@@ -170,6 +171,9 @@ class _Frame extends ConsumerWidget {
               // At opacity 0 the cover is not painted at all.
               child: CachedNetworkImage(
                 imageUrl: artworkUrl,
+                cacheManager: ArtworkCache.instance,
+                // Panel-sized decode, never the CDN master at full size.
+                memCacheWidth: 1024,
                 fit: BoxFit.cover,
                 fadeInDuration: Duration.zero,
                 errorWidget: (_, _, _) => const SizedBox.shrink(),

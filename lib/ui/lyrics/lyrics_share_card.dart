@@ -2,12 +2,12 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:palette_generator/palette_generator.dart';
 
+import '../../core/artwork/artwork_cache.dart';
 import '../../core/audio/stream_models.dart';
 
 /// Logical card size. [pixelRatio] 2 writes a 1080×1080 PNG.
@@ -175,7 +175,12 @@ Future<ImageProvider<Object>?> _loadArtwork(
 ) async {
   ImageProvider<Object>? art;
   if (url.startsWith('http')) {
-    art = CachedNetworkImageProvider(url);
+    art = ResizeImage(
+      ArtworkCache.provider(url),
+      width: 1024,
+      height: 1024,
+      policy: ResizeImagePolicy.fit,
+    );
   } else if (url.startsWith('file:')) {
     final file = File(Uri.parse(url).toFilePath());
     if (file.existsSync()) art = FileImage(file);

@@ -11,7 +11,9 @@ import '../../app/window_lifecycle.dart';
 import '../../core/artwork/animated_artwork_service.dart';
 import 'immersive.dart';
 import '../../core/artwork/animated_artwork_session.dart';
+import '../../core/artwork/artwork_cache.dart';
 import '../../core/artwork/artwork_resolver.dart';
+import '../../core/artwork/official_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
@@ -181,14 +183,27 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
         if (i + 1 < q.length) q[i + 1],
         if (i + 2 < q.length) q[i + 2],
       ];
-      final warm = [
-        current.artworkUrl,
-        ...upcoming.map((t) => t.artworkUrl),
-      ].where((u) => u.isNotEmpty).toList();
+      // Warm + pin exactly what the hero will request: the official cover
+      // when it is already known (the hero leads with it), at the hero's
+      // fixed decode extent — same URL, same ladder step, same cache key.
+      final official = OfficialArtworkService.instance;
+      String heroUrl(PlayableTrack t) =>
+          official
+              .peekDisplayTrack(title: t.title, artist: t.artist)
+              ?.artworkUrl ??
+          t.artworkUrl;
+      final warm = [current, ...upcoming]
+          .map(heroUrl)
+          .where((u) => u.isNotEmpty)
+          .toList();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (warm.isNotEmpty) {
-          ArtworkResolver.preload(context, warm, targetPx: 640);
+          final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
+          final px = kHeroArtworkExtent * dpr;
+          ArtworkResolver.preload(context, warm, targetPx: px);
+          // Survives closing the page: reopening paints from memory.
+          ArtworkResolver.pinOnly(warm, targetPx: px);
         }
       });
     }
@@ -370,6 +385,11 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
 
 /// Height of the top action bar (also the lyrics toolbar's row).
 const double _kTopBarHeight = 54;
+
+/// Logical edge the Now Playing hero cover is requested + decoded at. The
+/// on-screen size animates (340–480 desktop, ≤360 narrow); requesting at
+/// the largest keeps one cache key for the whole page.
+const double kHeroArtworkExtent = 480;
 
 class _TopActionsBar extends StatelessWidget {
   final bool lyricsVisible;
@@ -971,6 +991,11 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
             borderRadius: BorderRadius.circular(12),
             child: CachedNetworkImage(
               imageUrl: track.artworkUrl,
+              cacheManager: ArtworkCache.instance,
+              memCacheWidth: ArtworkCache.bucket(
+                kHeroArtworkExtent *
+                    (MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0),
+              ),
               fit: BoxFit.cover,
               width: w,
               height: h,
@@ -1023,6 +1048,9 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       url: track.artworkUrl,
       videoId: track.videoId,
       size: size,
+      // Fixed request size: [size] follows the animating column, and a
+      // per-frame size used to mean a per-frame URL/decode.
+      decodeExtent: kHeroArtworkExtent,
       radius: 12,
       label: track.title,
       title: track.title,

@@ -1,6 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/widgets.dart';
 
+import 'artwork_cache.dart';
+
 /// Central artwork pipeline — the ONLY place artwork URLs are normalized,
 /// sized, deduplicated, preloaded, and fallen back.
 ///
@@ -201,7 +203,10 @@ class ArtworkResolver {
 
   /// Pick an appropriate rendition for recognized patterns only.
   static String sized(String url, double targetPx) {
-    final px = targetPx.clamp(64, 1024).round();
+    // Snapped to the shared ladder: a free-running `size × dpr` here gave
+    // every layout width (and every frame of a size animation) its own
+    // URL — a new download, disk file and decode for the same cover.
+    final px = ArtworkCache.bucket(targetPx.clamp(64, 1024)) ?? 64;
     // Apple Music / iTunes: is1-ssl.mzstatic.com or apple.com /100x100bb.jpg or /{w}x{h}bb.jpg
     if (url.contains('mzstatic.com') || url.contains('apple.com')) {
       var next = url.replaceAllMapped(
@@ -255,42 +260,81 @@ class ArtworkResolver {
 
   /// Warm current + next artwork. Deduplicates identical in-flight work,
   /// never throws (preload is best-effort, off the critical path).
+  ///
+  /// [targetPx] is PHYSICAL pixels. The URL and decode size go through the
+  /// same ladder as [WaveArtwork], so the warmed entry is exactly the one
+  /// the widget will look up (it used to warm a different URL + key).
   static Future<void> preload(
       BuildContext context, Iterable<String> urls,
       {double targetPx = 300}) {
     final tasks = <Future<void>>[];
-    final px = targetPx.clamp(64, 1024).round();
+    final px = ArtworkCache.bucket(targetPx.clamp(64, 1024));
     for (final raw in urls) {
       final n = normalize(raw);
       if (n == null) continue;
       final finalUrl = sized(n, targetPx);
-      if (_inflightPreloads.containsKey(finalUrl)) {
-        tasks.add(_inflightPreloads[finalUrl]!);
+      final key = '$finalUrl|$px';
+      if (_inflightPreloads.containsKey(key)) {
+        tasks.add(_inflightPreloads[key]!);
         continue;
       }
-      final provider = CachedNetworkImageProvider(
-        finalUrl,
-        maxWidth: px,
-        maxHeight: px,
-      );
+      final provider = ArtworkCache.provider(finalUrl, decodePx: px);
       final task = precacheImage(provider, context).catchError((_) {});
-      _inflightPreloads[finalUrl] = task;
-      task.whenComplete(() => _inflightPreloads.remove(finalUrl));
+      _inflightPreloads[key] = task;
+      task.whenComplete(() => _inflightPreloads.remove(key));
       tasks.add(task);
     }
     return Future.wait(tasks).then((_) {});
   }
 
+  /// Decoded images kept resident regardless of imageCache pressure
+  /// (current + upcoming Now Playing covers), so closing and reopening the
+  /// page never re-decodes or re-downloads them. A listened image stream is
+  /// "live" to the ImageCache and is never evicted by its size budget.
+  static final Map<String, (ImageStream, ImageStreamListener)> _pins = {};
+
+  static void _unpin(String key) {
+    final pin = _pins.remove(key);
+    if (pin != null) pin.$1.removeListener(pin.$2);
+  }
+
+  /// Pin exactly [urls] at [targetPx] physical px; anything pinned before
+  /// and not in this set is released.
+  static void pinOnly(Iterable<String> urls, {required double targetPx}) {
+    final px = ArtworkCache.bucket(targetPx.clamp(64, 1024));
+    final wanted = <String, ImageProvider<Object>>{};
+    for (final raw in urls) {
+      final n = normalize(raw);
+      if (n == null) continue;
+      final finalUrl = sized(n, targetPx);
+      wanted['$finalUrl|$px'] = ArtworkCache.provider(finalUrl, decodePx: px);
+    }
+    for (final key in _pins.keys.toList()) {
+      if (!wanted.containsKey(key)) _unpin(key);
+    }
+    wanted.forEach((key, provider) {
+      if (_pins.containsKey(key)) return;
+      final stream = provider.resolve(ImageConfiguration.empty);
+      final listener = ImageStreamListener(
+        (_, _) {},
+        // A failed load must not stay pinned (or be retried forever).
+        onError: (_, _) => _unpin(key),
+      );
+      _pins[key] = (stream, listener);
+      stream.addListener(listener);
+    });
+  }
+
   static Future<void> evict(String url) async {
     try {
-      await CachedNetworkImage.evictFromCache(url);
+      await CachedNetworkImage.evictFromCache(
+        url,
+        cacheManager: ArtworkCache.instance,
+      );
     } catch (_) {}
   }
 
-  /// Hook for future disk-cache bounding. The heap dump showed 759
-  /// CacheObjects, but they are tiny metadata (~60KB total) — the RSS
-  /// win is already from the 50MiB imageCache cap in main.dart. Disk
-  /// eviction is handled by flutter_cache_manager's 200-object / 30-day
-  /// LRU on next access; no aggressive emptyCache here (would thrash).
+  /// Disk bounding lives in [ArtworkCache] (object-count LRU + 60-day
+  /// stale period). Kept as the single startup call site.
   static void trimDiskCacheIfNeeded() {}
 }

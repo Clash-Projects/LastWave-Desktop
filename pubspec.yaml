@@ -59,6 +59,11 @@ dependencies:
   url_launcher: ^6.3.2
   path_provider: ^2.1.6
   cached_network_image: ^4.0.0
+  # Dedicated artwork disk cache (lib/core/artwork/artwork_cache.dart):
+  # larger object budget than the 200-entry default, stored under app
+  # support instead of %TEMP% so Storage Sense cannot wipe it.
+  flutter_cache_manager: ^3.4.2
+  file: ^7.0.1
   palette_generator: ^0.3.3+7
   scrollable_positioned_list: ^0.3.8
   flutter_animate: ^4.5.2

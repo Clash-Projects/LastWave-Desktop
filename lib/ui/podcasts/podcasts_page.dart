@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/track_actions.dart' show formatDuration, playGenerated;
+import '../../core/artwork/artwork_cache.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
@@ -164,6 +165,8 @@ class _WidePodcastCardState extends State<_WidePodcastCard> {
                       if (widget.artworkUrl.isNotEmpty)
                         CachedNetworkImage(
                           imageUrl: widget.artworkUrl,
+                          cacheManager: ArtworkCache.instance,
+                          memCacheWidth: 512,
                           fit: BoxFit.cover,
                           errorWidget: (_, _, _) => const SizedBox.shrink(),
                         ),
@@ -718,6 +721,8 @@ class PodcastEpisodeRow extends StatelessWidget {
                         if (episode.artworkUrl.isNotEmpty)
                           CachedNetworkImage(
                             imageUrl: episode.artworkUrl,
+                            cacheManager: ArtworkCache.instance,
+                            memCacheHeight: 128,
                             fit: BoxFit.cover,
                             errorWidget: (_, _, _) => const SizedBox.shrink(),
                           ),
