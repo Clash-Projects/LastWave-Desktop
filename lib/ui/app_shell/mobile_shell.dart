@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 
 import '../../core/storage/prefs.dart';
+import '../../core/network/network_monitor.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
@@ -78,6 +79,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   bool _showMore = false;
   bool _showEqualizer = false;
   bool _showQueue = false;
+  bool _offlineNoticeDismissed = false;
 
   String get _route => waveRoutePath(widget.location);
 
@@ -153,6 +155,11 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<bool>(networkMonitorProvider, (previous, online) {
+      if (online && _offlineNoticeDismissed && mounted) {
+        setState(() => _offlineNoticeDismissed = false);
+      }
+    });
     return LayoutBuilder(
       builder: (context, constraints) {
         // Window width matters: Split View and Stage Manager can be narrower
@@ -161,6 +168,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
         final tablet = constraints.maxWidth >= 850 ||
             (viewSize.shortestSide >= 600 && constraints.maxWidth >= 760);
         final nowPlaying = _route.startsWith('/now');
+        final online = ref.watch(networkMonitorProvider);
         final activePath = waveActivePath(widget.location);
         final theme = ref.watch(themeControllerProvider);
         final scaleSetting = ref.watch(
@@ -253,6 +261,62 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                       ),
                                     ),
                                   ],
+                                ),
+                              ),
+                            ),
+                          if (!online && !_offlineNoticeDismissed)
+                            Positioned.fill(
+                              child: ColoredBox(
+                                color: Colors.black.withValues(alpha: 0.38),
+                                child: Center(
+                                  child: Container(
+                                    constraints:
+                                        const BoxConstraints(maxWidth: 360),
+                                    margin: const EdgeInsets.all(24),
+                                    padding: const EdgeInsets.all(22),
+                                    decoration: BoxDecoration(
+                                      color: waveSurfaceRaised(context),
+                                      borderRadius: BorderRadius.circular(22),
+                                      border: Border.all(
+                                        color: waveDivider(context),
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.22,
+                                          ),
+                                          blurRadius: 28,
+                                          offset: const Offset(0, 12),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          "You're offline",
+                                          textAlign: TextAlign.center,
+                                          style: WaveType.sectionTitle,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Check your internet connection. '
+                                          'Some LastWave features need to be online.',
+                                          textAlign: TextAlign.center,
+                                          style: WaveType.meta.copyWith(
+                                            color: waveTextSecondary(context),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        WaveButton(
+                                          onPressed: () => setState(
+                                            () => _offlineNoticeDismissed = true,
+                                          ),
+                                          child: const Text('Dismiss'),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),

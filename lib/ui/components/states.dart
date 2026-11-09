@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../theme/tokens.dart';
@@ -150,6 +152,42 @@ class WaveError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (Platform.isIOS) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(WaveSpacing.x24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: WaveType.sectionTitle,
+                ),
+                const SizedBox(height: WaveSpacing.x8),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: WaveType.meta.copyWith(
+                    color: waveTextSecondary(context),
+                  ),
+                ),
+                if (onRetry != null) ...[
+                  const SizedBox(height: WaveSpacing.x12),
+                  WaveButton(
+                    onPressed: onRetry,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.all(WaveSpacing.x16),
       child: InfoBar(
