@@ -122,7 +122,7 @@ Future<void> showWaveAddToPlaylist(
         child: ListView.separated(
           shrinkWrap: true,
           itemCount: playlists.length,
-          separatorBuilder: (_, __) => const Divider(height: 1),
+          separatorBuilder: (_, _) => const Divider(),
           itemBuilder: (context, index) {
             final playlist = playlists[index];
             return GestureDetector(
