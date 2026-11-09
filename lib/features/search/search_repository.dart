@@ -253,8 +253,8 @@ class SearchRepository {
           )).toList();
         }
         if (catalogProvider == searchCatalogTidal) {
-          throw const AppleMusicCatalogException(
-            'TIDAL catalog search is not enabled pending written approval for this app use.',
+          throw UnsupportedError(
+            'TIDAL catalog search is pending written approval for this app use.',
           );
         }
         final tracks = await _tube.searchSongs(q, limit: 60);
