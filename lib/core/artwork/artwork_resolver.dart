@@ -174,8 +174,8 @@ class ArtworkResolver {
     if (uri.scheme != 'http' && uri.scheme != 'https') return null;
     final host = uri.host.toLowerCase();
     if (host.isEmpty) return null;
-    // Apple Music/iTunes artwork was removed from the app's catalog sources.
-    // Reject legacy URLs so they cannot re-enter via cached/imported metadata.
+    // Removed catalog artwork hosts are rejected so legacy URLs cannot re-enter
+    // through cached or imported metadata.
     const removedAppleArtworkHosts = [
       'mzstatic.com',
       'music.apple.com',
