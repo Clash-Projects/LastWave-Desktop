@@ -147,7 +147,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     // Must live here: `_buildPage` runs inside a Builder on the Apple stage,
     // where `ref.listen` is not allowed.
     ref.listen<int>(nowPlayingActivityProvider, (_, _) => _resetIdleTimer());
-    final apple = ref.watch(ambientStyleProvider) == AmbientStyle.apple;
+    final apple = ref.watch(ambientStyleProvider) == AmbientStyle.artworkAura;
     if (!apple) return _buildPage(context);
     final accent = waveAccent(context);
     if (_stageTheme == null || _stageAccent != accent) {
@@ -1505,7 +1505,7 @@ class _NowAmbient extends ConsumerWidget {
         artworkUrl: artworkUrl,
         isFullBleed: true,
         cinematic: true,
-        apple: ref.watch(ambientStyleProvider) == AmbientStyle.apple,
+        apple: ref.watch(ambientStyleProvider) == AmbientStyle.artworkAura,
         respectVisualizerToggle: false,
       ),
     );
