@@ -81,7 +81,7 @@ void main() {
     // Preferred better (line, slow) vs apple line (fast): preferred wins.
     final repo = _StubRepo({
       'better_lyrics': _line('BetterLyrics (Line-Sync)'),
-      'apple_music': _line('Apple Music (Line-Sync)'),
+      'lrclib': _line('LRCLIB (Line-Sync)'),
     }, delays: {
       'better_lyrics': const Duration(milliseconds: 100),
     });
@@ -95,7 +95,7 @@ void main() {
     // Kugou word (slow) beats apple line (fast) in Auto.
     final auto = _StubRepo({
       'kugou': _word('Kugou KRC (Word-Sync)'),
-      'apple_music': _line('Apple Music (Line-Sync)'),
+      'lrclib': _line('LRCLIB (Line-Sync)'),
     }, delays: {
       'kugou': const Duration(milliseconds: 300),
     });
@@ -126,7 +126,7 @@ void main() {
   test('excluded provider is never attempted; best of rest wins', () async {
     final repo = _StubRepo({
       'kugou': _word('Kugou KRC (Word-Sync)'),
-      'apple_music': _line('Apple Music (Line-Sync)'),
+      'lrclib': _line('LRCLIB (Line-Sync)'),
     });
     final result = await repo.getLyrics(
       title: 'T',
@@ -134,14 +134,14 @@ void main() {
       excludeProviderIds: const {'kugou'},
     );
     expect(result.isWordSynced, isFalse);
-    expect(result.source, contains('Apple'));
+    expect(result.source, contains('LRCLIB'));
     expect(repo.calls.containsKey('kugou'), isFalse);
   });
 
   test('cache key separates preferred providers', () async {
     final repo = _StubRepo({
       'kugou': _word('Kugou KRC (Word-Sync)'),
-      'apple_music': _line('Apple Music (Line-Sync)'),
+      'lrclib': _line('LRCLIB (Line-Sync)'),
     });
     await repo.getLyrics(title: 'T', artist: 'A');
     expect(repo.calls['kugou'], 1);
@@ -160,17 +160,17 @@ void main() {
     final hanging = Completer<LyricsResult?>();
     final repo = _HangingRepo(
       hanging.future,
-      line: _line('Apple Music (Line-Sync)'),
+      line: _line('LRCLIB (Line-Sync)'),
     );
     final result = await repo.getLyrics(title: 'T', artist: 'A');
     expect(result.isEmpty, isFalse);
-    expect(result.source, contains('Apple'));
+    expect(result.source, contains('LRCLIB'));
   });
 
   test('line mode honors preferred provider and strips to lines', () async {
     final repo = _StubRepo({
       'kugou': _word('Kugou KRC (Word-Sync)'),
-      'apple_music': _line('Apple Music (Line-Sync)'),
+      'lrclib': _line('LRCLIB (Line-Sync)'),
     });
     final result = await repo.getLyrics(
       title: 'T',
@@ -185,9 +185,8 @@ void main() {
     expect(result.source, contains('Kugou'));
   });
 
-  test('line mode races Apple and LRCLIB, curated wins', () async {
+  test('line mode uses LRCLIB when no preferred source is selected', () async {
     final repo = _StubRepo({
-      'apple_music': _line('Apple Music (Line-Sync)'),
       'lrclib': _line('lrclib'),
     });
     final result = await repo.getLyrics(
@@ -195,8 +194,8 @@ void main() {
       artist: 'A',
       wordByWord: false,
     );
-    expect(result.source, contains('Apple'));
-    expect(repo.calls.containsKey('apple_music'), isTrue);
+    expect(result.isEmpty, isFalse);
+    expect(result.source, contains('lrclib'));
     expect(repo.calls.containsKey('lrclib'), isTrue);
   });
 
@@ -252,7 +251,7 @@ void main() {
       isSynced: false,
       isWordSynced: false,
       plainLyrics: 'Delta Epsilon Zeta Eta Theta Iota Kappa Lambda Mu Nu Xi Omicron',
-      source: 'Apple Music',
+      source: 'LRCLIB',
     );
     expect(
       LyricsRepository.isBetterCandidate(unsynced, synced,
@@ -283,7 +282,7 @@ void main() {
       ],
       isSynced: false,
       plainLyrics: 'A much longer complete transcript follows here and on',
-      source: 'Apple Music',
+      source: 'LRCLIB',
     );
     expect(
       LyricsRepository.isBetterCandidate(full, short,
@@ -313,7 +312,7 @@ class _HangingRepo extends LyricsRepository {
     String? videoId,
   }) {
     if (providerId == 'lrc_red') return hanging;
-    if (providerId == 'apple_music') return Future.value(line);
+    if (providerId == 'lrclib') return Future.value(line);
     return Future.value(null);
   }
 }
