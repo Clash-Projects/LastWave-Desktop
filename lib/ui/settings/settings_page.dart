@@ -24,7 +24,6 @@ import '../../features/innertube/yt_library_providers.dart';
 import '../../features/innertube/yt_session_keeper.dart';
 import '../../features/innertube/yt_web_login.dart';
 import '../../features/auth/mobile_cookie_login.dart';
-import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
 import 'yt_profile_chooser.dart';
@@ -1475,7 +1474,6 @@ class _SpotifyCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(spotifyAuthProvider);
-    final prefs = ref.watch(prefsProvider);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3958,7 +3956,6 @@ class _QualityRow extends StatelessWidget {
 
 class _SwitchRow extends StatelessWidget {
   final bool value;
-  final bool enabled;
   final ValueChanged<bool> onChanged;
   final String title;
   final String? subtitle;
@@ -3967,7 +3964,6 @@ class _SwitchRow extends StatelessWidget {
     required this.onChanged,
     required this.title,
     this.subtitle,
-    this.enabled = true,
   });
 
   @override
@@ -3996,7 +3992,7 @@ class _SwitchRow extends StatelessWidget {
             cursor: SystemMouseCursors.click,
             child: ToggleSwitch(
               checked: value,
-              onChanged: enabled ? onChanged : null,
+              onChanged: onChanged,
             ),
           ),
         ],
