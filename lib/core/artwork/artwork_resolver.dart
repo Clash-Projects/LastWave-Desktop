@@ -192,8 +192,6 @@ class ArtworkResolver {
     'dzcdn.net',
     'spotifycdn.com',
     'scdn.co',
-    'mzstatic.com',
-    'apple.com',
     'i.scdn.co',
     'qobuz.com',
     'static.qobuz.com',
@@ -202,18 +200,6 @@ class ArtworkResolver {
   /// Pick an appropriate rendition for recognized patterns only.
   static String sized(String url, double targetPx) {
     final px = targetPx.clamp(64, 1024).round();
-    // Apple Music / iTunes: is1-ssl.mzstatic.com or apple.com /100x100bb.jpg or /{w}x{h}bb.jpg
-    if (url.contains('mzstatic.com') || url.contains('apple.com')) {
-      var next = url.replaceAllMapped(
-        RegExp(r'\d+x\d+bb'),
-        (_) => '${px}x${px}bb',
-      );
-      next = next
-          .replaceAll('{w}', '$px')
-          .replaceAll('{h}', '$px')
-          .replaceAll('{f}', 'jpg');
-      return next;
-    }
     // Qobuz: static.qobuz.com/images/covers/..._\d+.jpg
     if (url.contains('qobuz.com')) {
       if (px >= 400) {
