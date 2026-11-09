@@ -135,7 +135,7 @@ final waveLyricsProvider = StreamProvider.autoDispose
   return results.stream;
 });
 
-/// Premium Apple Music Karaoke lyrics reading experience.
+/// Premium karaoke lyrics reading experience.
 ///
 /// Backed by [WaveKaraokeLyricsView] with word-level progressive syllable wipe,
 /// blur falloff, active line pop, timing offset controls, and autoscroll.
