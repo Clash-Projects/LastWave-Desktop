@@ -945,6 +945,10 @@ class WaveAmbientMesh extends ConsumerWidget {
   final double opacity;
   final bool cinematic;
 
+  /// When false, this ambient follows the Dynamic Artwork preference rather
+  /// than the separate Now Playing visualizer toggle.
+  final bool respectVisualizerToggle;
+
   /// Apple Music stage: vivid multi-colour aura and a fixed dark scrim,
   /// identical in every app theme (the caller renders white text on it).
   /// Only meaningful with [cinematic].
@@ -958,6 +962,7 @@ class WaveAmbientMesh extends ConsumerWidget {
     this.opacity = 1.0,
     this.cinematic = false,
     this.apple = false,
+    this.respectVisualizerToggle = true,
   });
 
   @override
@@ -973,8 +978,12 @@ class WaveAmbientMesh extends ConsumerWidget {
     final darkBase = waveBackground(context);
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
 
-    // Toggle is a hard show/hide: no fade animation, no retained layers.
-    if (!visualizerEnabled) return const SizedBox.shrink();
+    // The regular visualizer toggle owns motion/ambient surfaces. The
+    // explicit Dynamic Artwork setting can opt this stage out so its own
+    // preference works independently.
+    if (!visualizerEnabled && respectVisualizerToggle) {
+      return const SizedBox.shrink();
+    }
 
     if (reduceTransparency || !blurEnabled) {
       // Solid / high-contrast path: the static palette gradient gets
