@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -48,9 +49,24 @@ class ThemeState {
 
 class ThemeController extends StateNotifier<ThemeState> {
   final Prefs _prefs;
+
+  /// iPad gets a neutral white accent by default. Explicitly saved accent
+  /// choices are always respected, and iPhone keeps its existing default.
+  static int _defaultAccent(Prefs prefs) {
+    if (prefs.hasAccentColor) return prefs.accentColor;
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      final views = WidgetsBinding.instance.platformDispatcher.views;
+      final isIPad = views.any(
+        (view) =>
+            view.physicalSize.shortestSide / view.devicePixelRatio >= 600,
+      );
+      if (isIPad) return WaveColors.defaultAccent.toARGB32();
+    }
+    return prefs.accentColor;
+  }
   ThemeController(this._prefs)
       : super(ThemeState(
-          accent: Color(_prefs.accentColor),
+          accent: Color(_defaultAccent(_prefs)),
           amoled: _prefs.amoled,
           isLight: _prefs.isLight,
           isCustom: _prefs.isCustomTheme,
@@ -63,7 +79,7 @@ class ThemeController extends StateNotifier<ThemeState> {
 
   void refresh() {
     state = ThemeState(
-      accent: Color(_prefs.accentColor),
+      accent: Color(_defaultAccent(_prefs)),
       amoled: _prefs.amoled,
       isLight: _prefs.isLight,
       isCustom: _prefs.isCustomTheme,

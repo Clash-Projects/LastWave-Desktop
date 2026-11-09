@@ -342,6 +342,7 @@ class Prefs {
   String get accentMode => _sp.getString('lw_accent_mode') ?? 'manual';
   Future<void> setAccentMode(String v) => _sp.setString('lw_accent_mode', v);
 
+  bool get hasAccentColor => _sp.containsKey('lw_accent');
   int get accentColor => _sp.getInt('lw_accent') ?? 0xFFE03030;
   Future<void> setAccentColor(int v) => _sp.setInt('lw_accent', v);
 
