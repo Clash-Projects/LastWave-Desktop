@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: ipados-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -47,13 +47,13 @@ jobs:
           set -euo pipefail
           : > .env
           if [[ -n "${ADDON_CLIENT_SECRET:-}" ]]; then
-            printf 'ADDON_CLIENT_SECRET=%s\n' "$ADDON_CLIENT_SECRET" >> .env
+            printf 'ADDON_CLIENT_SECRET=%s\\n' "$ADDON_CLIENT_SECRET" >> .env
             echo "::add-mask::$ADDON_CLIENT_SECRET"
           else
             echo "::warning::ADDON_CLIENT_SECRET is not configured. The IPA can compile, but add-on authentication cannot be verified."
           fi
           if [[ -n "${LYRICS_API_KEY:-}" ]]; then
-            printf 'LYRICS_API_KEY=%s\n' "$LYRICS_API_KEY" >> .env
+            printf 'LYRICS_API_KEY=%s\\n' "$LYRICS_API_KEY" >> .env
             echo "::add-mask::$LYRICS_API_KEY"
           fi
           dart tool/obfuscate_secrets.dart
