@@ -461,12 +461,24 @@ class _TabletBottomNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        height: 66,
+        height: 78,
+        margin: const EdgeInsets.fromLTRB(18, 6, 18, 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
           color: waveSurface(context),
-          border: Border(top: BorderSide(color: waveDivider(context))),
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: waveDivider(context)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: waveIsDark(context) ? 0.24 : 0.08),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
-        child: Row(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Row(
           children: [
             for (final destination in _tabletDestinations)
               Expanded(
@@ -487,6 +499,7 @@ class _TabletBottomNavigation extends StatelessWidget {
               ),
             ),
           ],
+          ),
         ),
       );
 }
@@ -562,12 +575,24 @@ class _PhoneNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 62,
+      height: 74,
+      margin: const EdgeInsets.fromLTRB(14, 5, 14, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
         color: waveSurface(context),
-        border: Border(top: BorderSide(color: waveDivider(context))),
+        borderRadius: BorderRadius.circular(25),
+        border: Border.all(color: waveDivider(context)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: waveIsDark(context) ? 0.24 : 0.08),
+            blurRadius: 22,
+            offset: const Offset(0, 7),
+          ),
+        ],
       ),
-      child: Row(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(19),
+        child: Row(
         children: [
           for (final destination in _phoneDestinations)
             Expanded(
@@ -590,6 +615,7 @@ class _PhoneNavigation extends StatelessWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }
