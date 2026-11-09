@@ -1,5 +1,5 @@
 ﻿/// Playlist link import flow: preview a pasted link (YouTube direct,
-/// Spotify/Apple matched to YouTube) and create the local playlist.
+/// Spotify matched to YouTube) and create the local playlist.
 ///
 /// Narrow seams ([PlaylistTrackSource], [PlaylistWriter]) keep the core
 /// testable without a database or network; the public functions below
@@ -141,9 +141,7 @@ Future<PlaylistImportPreview> previewPlaylistLinkWith(
       ],
     );
   }
-  final page = detected == PlaylistLinkSource.spotify
-      ? await fetchSpotifyPlaylist(dio, rawLink)
-      : await fetchApplePlaylist(dio, rawLink);
+  final page = await fetchSpotifyPlaylist(dio, rawLink);
   if (page.rows.isEmpty) {
     throw StateError('No playable tracks found in that playlist.');
   }
