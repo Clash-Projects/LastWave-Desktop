@@ -25,6 +25,7 @@ const _phoneDestinations = <WaveDestination>[
   WaveDestination('/search', 'Search', WaveIcons.search),
   WaveDestination('/liked', 'Liked', WaveIcons.liked),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
+  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 const _tabletDestinations = <WaveDestination>[
@@ -50,7 +51,6 @@ const _phoneMoreDestinations = <WaveDestination>[
   WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
   WaveDestination('/history', 'Listening history', WaveIcons.history),
   WaveDestination('/friends', 'Friends', WaveIcons.friends),
-  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 const _tabletMoreDestinations = <WaveDestination>[
