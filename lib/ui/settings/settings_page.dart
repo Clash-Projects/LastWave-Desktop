@@ -305,7 +305,7 @@ class _SectionBody extends ConsumerWidget {
       case 'sources':
         return _Sources(onUpdate: onUpdate);
       case 'experimental':
-        return _Experimental(onUpdate: onUpdate);
+        return const _Experimental();
       default:
         return const _About();
     }
@@ -3727,11 +3727,10 @@ decoration: waveInputDecoration(),
   }
 }
 
-class _Experimental extends ConsumerWidget {
-  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _Experimental({required this.onUpdate});
+class _Experimental extends StatelessWidget {
+  const _Experimental();
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return _Group(
       id: 'experimental.main',
       title: 'Experimental',
