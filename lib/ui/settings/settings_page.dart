@@ -1673,8 +1673,8 @@ class _Ytm extends ConsumerWidget {
                         ),
                         const SizedBox(height: 10),
                         const Text(
-                          'The desktop sign-in window is unavailable on iPhone and iPad. '
-                          'Connect by importing a cookies.txt file from your Files app.',
+                          'Sign in through the in-app YouTube Music page. If Google blocks the embedded sign-in, '
+                          'you can import cookies.txt from Files instead.',
                           style: WaveType.meta,
                         ),
                         const SizedBox(height: 10),
