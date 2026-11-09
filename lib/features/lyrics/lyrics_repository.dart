@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -16,11 +15,11 @@ import 'lyrics_snapshot.dart';
 
 final _diacriticsRegex = RegExp(r'\p{M}+', unicode: true);
 
-/// Lyrics orchestrator with Apple Music lyrics via Lyrically.
+/// Lyrics orchestrator with multiple independent lyric providers.
 ///
 /// Ported from LastWave-native `LyricsRepository.kt`:
 /// - in-memory cache (word-synced entries preferred)
-/// - always fetch Apple Music via lyrics.paxsenix.org (Lyrically) so
+/// - keep a fast line-synced fallback provider in the first wave so
 ///   the correct lyrics win even when karaoke word-by-word is off;
 ///   `wordByWord` only controls syllable timings vs line display
 /// - LRCLIB is the fallback when Lyrically has no match
@@ -349,7 +348,7 @@ class LyricsRepository {
   Duration waveGap = const Duration(milliseconds: 1500);
 
   static const _raceWaves = <List<String>>[
-    ['lastwave', 'apple_music', 'lrclib'],
+    ['lastwave', 'lrclib'],
     ['lrc_red', 'better_lyrics', 'lyrics_plus', 'unison'],
     ['better_lyrics_portato', 'bini_lyrics', 'kugou'],
   ];
@@ -799,9 +798,6 @@ class LyricsRepository {
             album: album,
             durationSeconds: durationSeconds,
           );
-        case 'apple_music':
-          return await _fetchAppleWordByWord(
-              title, artist, album, durationSeconds);
         case 'better_lyrics':
           return await fetchBetterLyrics(
             _dio,
@@ -970,13 +966,6 @@ class LyricsRepository {
     if (curUnique >= (newUnique * 1.5).round() && curUnique - newUnique >= 4) {
       return false;
     }
-
-    // 8. Official curated sources (Apple Music) beat crowdsourced
-    // user submissions (lrclib)
-    final newIsCurated = newRes.source.toLowerCase().contains('apple');
-    final curIsCurated = current.source.toLowerCase().contains('apple');
-    if (newIsCurated && !curIsCurated) return true;
-    if (!newIsCurated && curIsCurated) return false;
 
     // 9. Line count: substantially richer lyrics beat short transcripts
     if (newRes.lines.length >= (current.lines.length * 1.3).round()) {
@@ -1196,246 +1185,7 @@ class LyricsRepository {
     }
   }
 
-  // -- Apple Music word-by-word (lyrics.paxsenix.org) --------------------------
 
-  /// Apple's word-by-word (syllable-timed) lyrics via lyrics.paxsenix.org.
-  ///
-  /// The endpoint requires an Apple Music track ID, resolved through the
-  /// iTunes Search API (catalog IDs match), preferring a result whose artist
-  /// and duration line up with the playing track.
-  Future<LyricsResult?> _fetchAppleWordByWord(
-    String title,
-    String artist,
-    String album,
-    int? durationSeconds,
-  ) async {
-    final cleanT = cleanSongTitle(title);
-    final cleanA = cleanSongArtist(artist);
-    var trackIds = await _resolveAppleTrackIds(cleanT, cleanA, durationSeconds);
-    if (trackIds.isEmpty && (cleanT != title || cleanA != artist)) {
-      trackIds = await _resolveAppleTrackIds(title, artist, durationSeconds);
-    }
-    if (trackIds.isEmpty) return null;
-    // Try the best-scoring candidates in order — different album pressings of
-    // the same song have separate catalog IDs and not all carry lyrics.
-    LyricsResult? fallback;
-    for (final trackId in trackIds.take(3)) {
-      try {
-        final res = await _dio.get<Map<String, dynamic>>(
-          'https://lyrics.paxsenix.org/apple-music/lyrics',
-          queryParameters: {'id': trackId},
-          options: Options(headers: {
-            'User-Agent': DioFactory.desktopUserAgent,
-            'Accept': 'application/json',
-          }),
-        );
-        final parsed = parseAppleWordByWord(res.data ?? const {});
-        if (parsed == null || parsed.isEmpty) continue;
-        if (lyricsLooksLikePlaceholder(parsed) ||
-            lyricsLooksLikeThinLoop(parsed)) {
-          fallback ??= parsed;
-          continue;
-        }
-        return parsed;
-      } catch (_) {}
-    }
-    return fallback;
-  }
-
-  /// iTunes Search API → Apple Music catalog track IDs, best match first.
-  ///
-  /// Identity is strict: the candidate must be the same title and artist.
-  /// Instrumental / karaoke / a-cappella albums and titles are skipped
-  /// unless the query itself asks for them. Covers and other songs on the
-  /// same album are never used just because the artist matched.
-  Future<List<String>> _resolveAppleTrackIds(
-    String title,
-    String artist,
-    int? durationSeconds,
-  ) async {
-    try {
-      // iTunes answers with Content-Type: text/javascript, which Dio will
-      // not auto-decode even with ResponseType.json — fetch the raw body
-      // and decode it manually.
-      final res = await _dio.get<String>(
-        'https://itunes.apple.com/search',
-        queryParameters: {
-          'term': '$artist $title',
-          'media': 'music',
-          'entity': 'song',
-          'limit': '10',
-        },
-        options: Options(
-          headers: {'User-Agent': DioFactory.desktopUserAgent},
-          responseType: ResponseType.plain,
-        ),
-      );
-      final decoded = jsonDecode(res.data ?? '');
-      var results =
-          decoded is Map<String, dynamic> ? decoded['results'] : null;
-      if (results is! List || results.isEmpty) {
-        final primaryArtist = _extractArtistEntities(artist).firstOrNull;
-        if (primaryArtist != null && primaryArtist != artist) {
-          final res2 = await _dio.get<String>(
-            'https://itunes.apple.com/search',
-            queryParameters: {
-              'term': '$primaryArtist $title',
-              'media': 'music',
-              'entity': 'song',
-              'limit': '10',
-            },
-            options: Options(
-              headers: {'User-Agent': DioFactory.desktopUserAgent},
-              responseType: ResponseType.plain,
-            ),
-          );
-          final decoded2 = jsonDecode(res2.data ?? '');
-          results =
-              decoded2 is Map<String, dynamic> ? decoded2['results'] : null;
-        }
-      }
-      if (results is! List || results.isEmpty) return const [];
-
-      final wantsAlt = lyricsIsAlternateRecording(title);
-      final targetMs = (durationSeconds ?? 0) * 1000;
-
-      final scored = <(String id, int score)>[];
-      for (final item in results) {
-        if (item is! Map<String, dynamic>) continue;
-        final id = item['trackId']?.toString() ?? '';
-        if (id.isEmpty) continue;
-        final rawTitle = item['trackName']?.toString() ?? '';
-        final rawArtist = item['artistName']?.toString() ?? '';
-        final album = item['collectionName']?.toString() ?? '';
-        if (!wantsAlt &&
-            lyricsIsAlternateRecording(rawTitle, album: album)) {
-          continue;
-        }
-        if (!lyricsTitlesMatch(title, rawTitle)) continue;
-        if (!lyricsArtistsMatch(artist, rawArtist)) continue;
-
-        var score = 10;
-        final ms = (item['trackTimeMillis'] as num?)?.toInt() ?? 0;
-        if (targetMs > 0 && ms > 0) {
-          final diff = (ms - targetMs).abs();
-          if (diff > 25000 && diff / targetMs > 0.25) continue;
-          if (diff <= 4000) {
-            score += 3;
-          } else if (diff <= 10000) {
-            score += 1;
-          }
-        }
-        scored.add((id, score));
-      }
-      // Stable sort keeps iTunes relevance order among equal scores.
-      scored.sort((a, b) => b.$2.compareTo(a.$2));
-      return scored.map((e) => e.$1).toList();
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  /// Parse the paxsenix Apple payload (`content[]` lines with per-word
-  /// `text`/`timestamp`/`duration`/`part`) into [LyricLine]s.
-  ///
-  /// `part: true` marks a word fragment that continues into the next one
-  /// without a space ("conver" + "sation" → "conversation"). Syllable text
-  /// carries no added spaces — the karaoke view's `groupSyllablesIntoWords`
-  /// re-derives word boundaries against the full line text.
-  ///
-  /// Syllables are attached ONLY for true word-by-word (`type: "Syllable"`)
-  /// payloads. Line-synced payloads (`type: "Line"`) ship one whole-line
-  /// "word" per line; keeping it would suppress the karaoke wipe, so those
-  /// lines stay syllable-free and the adapter interpolates per-word timing.
-  static LyricsResult? parseAppleWordByWord(Map<String, dynamic> json) {
-    final content = json['content'];
-    if (content is! List || content.isEmpty) return null;
-    final type = json['type']?.toString().toLowerCase() ?? '';
-    final parsed = <({
-      int start,
-      int duration,
-      String text,
-      List<LyricSyllable> syllables,
-    })>[];
-    var sawMultiWordLine = false;
-    for (final item in content) {
-      if (item is! Map<String, dynamic>) continue;
-      final start = parseLyricTimestampMs(item['timestamp']);
-      final end = parseLyricTimestampMs(item['endtime']);
-      final parsedDuration = parseLyricTimestampMs(item['duration']);
-      final duration = parsedDuration > 0
-          ? parsedDuration
-          : (end - start).clamp(0, 1 << 31);
-      final isBackground = item['background'] == true;
-      final rawWords = item['text'];
-      if (rawWords is! List) continue;
-      final words = rawWords.whereType<Map<String, dynamic>>().toList();
-      if (words.isEmpty) continue;
-      if (words.length > 1) sawMultiWordLine = true;
-      final syllables = <LyricSyllable>[];
-      final buf = StringBuffer();
-      for (var i = 0; i < words.length; i++) {
-        final w = words[i];
-        final wt = w['text']?.toString() ?? '';
-        if (wt.isEmpty) continue;
-        final ws = w.containsKey('timestamp')
-            ? parseLyricTimestampMs(w['timestamp'])
-            : start;
-        final wd = parseLyricTimestampMs(w['duration']);
-        final isPart = w['part'] == true;
-        syllables.add(LyricSyllable(
-          timeMs: ws,
-          durationMs: wd,
-          text: wt,
-          isBackground: isBackground,
-        ));
-        buf.write(wt);
-        if (!isPart && i < words.length - 1) buf.write(' ');
-      }
-      final text = buf.toString().trim();
-      if (text.isEmpty) continue;
-      parsed.add((
-        start: start,
-        duration: duration,
-        text: text,
-        syllables: syllables,
-      ));
-    }
-    final timed = parsed.any((p) => p.start > 0 || p.duration > 0);
-    final wordSynced = timed &&
-        (type == 'syllable' ||
-            type == 'word' ||
-            sawMultiWordLine ||
-            parsed.any((p) => p.syllables.length > 1));
-    final rawLines = [
-      for (final p in parsed)
-        LyricLine(
-          timeMs: p.start,
-          durationMs: p.duration,
-          text: p.text,
-          syllables: wordSynced ? p.syllables : const [],
-        ),
-    ];
-    List<LyricLine> lines;
-    if (timed) {
-      final indexed = [for (var i = 0; i < rawLines.length; i++) (i, rawLines[i])];
-      indexed.sort((a, b) {
-        final c = a.$2.timeMs.compareTo(b.$2.timeMs);
-        return c != 0 ? c : a.$1.compareTo(b.$1);
-      });
-      lines = [for (final e in indexed) e.$2];
-    } else {
-      // Keep source order. Sorting equal 0-timestamps shuffles verses.
-      lines = expandPackedLyricLines(rawLines);
-    }
-    return LyricsResult(
-      lines: lines,
-      isSynced: timed,
-      isWordSynced: wordSynced,
-      plainLyrics: json['plain']?.toString() ?? '',
-      source: 'Apple Music',
-    );
-  }
 }
 
 final lyricsRepositoryProvider = Provider<LyricsRepository>((ref) {
