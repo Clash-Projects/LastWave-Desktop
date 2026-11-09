@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -42,6 +43,7 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
   Timer? _poller;
   BuildContext? _popupContext;
   String? _pendingCookie;
+  String? _reissuedYouTubeUrl;
   String _currentUrl = '';
   bool _loading = true;
   bool _checkingCookies = false;
@@ -84,6 +86,42 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
     });
     if (controller != null) unawaited(_inspectYouTubePage(controller));
     unawaited(_captureSession());
+  }
+
+
+  /// Keeps YouTube Universal Links inside WKWebView during Google sign-in.
+  ///
+  /// iOS may hand a user-gesture navigation to m.youtube.com/signin to the
+  /// installed YouTube app. Reissuing the same first-party GET navigation
+  /// from the WebView keeps the redirect in this WebKit session so its
+  /// YouTube-scoped cookies can be observed by the existing session importer.
+  Future<NavigationActionPolicy> _handleYouTubeUniversalLink(
+    InAppWebViewController controller,
+    NavigationAction action,
+  ) async {
+    if (!_isYouTube || !Platform.isIOS || !action.isForMainFrame) {
+      return NavigationActionPolicy.ALLOW;
+    }
+
+    final request = action.request;
+    final url = request.url;
+    final host = url?.host.toLowerCase() ?? '';
+    final isYouTubeHost =
+        host == 'youtube.com' || host.endsWith('.youtube.com');
+    final method = (request.method ?? 'GET').toUpperCase();
+    if (!isYouTubeHost || method != 'GET' || url == null) {
+      return NavigationActionPolicy.ALLOW;
+    }
+
+    final urlString = url.toString();
+    if (_reissuedYouTubeUrl == urlString) {
+      _reissuedYouTubeUrl = null;
+      return NavigationActionPolicy.ALLOW;
+    }
+
+    _reissuedYouTubeUrl = urlString;
+    await controller.loadUrl(urlRequest: request);
+    return NavigationActionPolicy.CANCEL;
   }
 
   /// Reuses the page-state diagnostics from YtWebLogin in the iOS WKWebView.
@@ -231,15 +269,13 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                 initialSettings: InAppWebViewSettings(
                   javaScriptEnabled: true,
                   domStorageEnabled: true,
-                  // Keep YouTube Music in WebKit's desktop Safari content
-                  // mode. The default embedded mobile mode can trigger
-                  // YouTube Music's unsupported-browser landing page.
-                  preferredContentMode: _isYouTube
-                      ? UserPreferredContentMode.DESKTOP
-                      : UserPreferredContentMode.RECOMMENDED,
+                  preferredContentMode: UserPreferredContentMode.RECOMMENDED,
+                  useShouldOverrideUrlLoading: _isYouTube && Platform.isIOS,
                   supportMultipleWindows: false,
                   javaScriptCanOpenWindowsAutomatically: false,
                 ),
+                shouldOverrideUrlLoading: (controller, navigationAction) =>
+                    _handleYouTubeUniversalLink(controller, navigationAction),
                 onLoadStart: (controller, url) => _updateUrl(url, controller),
                 onLoadStop: (controller, url) => _updateUrl(url, controller),
                 onUpdateVisitedHistory: (controller, url, _) => _updateUrl(url, controller),
@@ -310,19 +346,16 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                       initialSettings: InAppWebViewSettings(
                         javaScriptEnabled: true,
                         domStorageEnabled: true,
-                        // Request the desktop Safari content mode instead of
-                        // WKWebView's default mobile mode. This uses the
-                        // platform's real WebKit engine; it does not spoof
-                        // Chrome or bypass Google's sign-in protections.
-                        preferredContentMode: _isYouTube
-                            ? UserPreferredContentMode.DESKTOP
-                            : UserPreferredContentMode.RECOMMENDED,
+                        preferredContentMode: UserPreferredContentMode.RECOMMENDED,
+                        useShouldOverrideUrlLoading: _isYouTube && Platform.isIOS,
                         supportZoom: true,
                         allowsInlineMediaPlayback: true,
                         mediaPlaybackRequiresUserGesture: false,
                         supportMultipleWindows: true,
                         javaScriptCanOpenWindowsAutomatically: true,
                       ),
+                      shouldOverrideUrlLoading: (controller, navigationAction) =>
+                          _handleYouTubeUniversalLink(controller, navigationAction),
                       onLoadStart: (controller, url) => _updateUrl(url, controller),
                       onCreateWindow: (_, action) => _openPopup(action),
                       onLoadStop: (controller, url) => _updateUrl(url, controller),
