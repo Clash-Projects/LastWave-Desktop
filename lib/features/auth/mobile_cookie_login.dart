@@ -69,14 +69,49 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
     super.dispose();
   }
 
-  void _updateUrl(WebUri? url) {
+  void _updateUrl(
+    WebUri? url, [
+    InAppWebViewController? controller,
+  ]) {
     if (url == null || !mounted) return;
+    final current = url.toString();
     setState(() {
-      _currentUrl = url.toString();
+      _currentUrl = current;
       _loading = false;
-      _status = 'Checking for a signed-in session…';
+      _status = YtWebLogin.isBlankUrl(current) || YtWebLogin.isErrorUrl(current)
+          ? 'The sign-in page did not load. Check your connection and reload.'
+          : 'Checking for a signed-in session…';
     });
+    if (controller != null) unawaited(_inspectYouTubePage(controller));
     unawaited(_captureSession());
+  }
+
+  /// Reuses the page-state diagnostics from YtWebLogin in the iOS WKWebView.
+  /// No User-Agent spoofing is applied: Google must see the real WebKit client.
+  Future<void> _inspectYouTubePage(InAppWebViewController controller) async {
+    if (!_isYouTube || !mounted) return;
+    try {
+      final raw = await controller.evaluateJavascript(
+        source:
+            'document.body ? document.body.innerText.slice(0, 1200) : ""',
+      ).timeout(const Duration(seconds: 5));
+      final pageText = raw?.toString() ?? '';
+      if (pageText.isEmpty || !mounted) return;
+      final blocked = YtWebLogin.isBrowserBlockedPage(pageText);
+      final unsupported = YtWebLogin.isUnsupportedBrowserPage(pageText);
+      final passkeyStalled = YtWebLogin.isPasskeyVerificationStall(pageText);
+      if (blocked || unsupported || passkeyStalled) {
+        setState(() {
+          _status = blocked
+              ? 'Google blocked this embedded sign-in. Use the cookies.txt import option.'
+              : unsupported
+                  ? 'YouTube Music says this embedded browser is unsupported. Use Safari to complete sign-in, then import the session cookies.'
+                  : 'Google sign-in is waiting for passkey verification. Complete the prompt and return to YouTube Music.';
+        });
+      }
+    } catch (_) {
+      // The document may be navigating; the next load/poll will inspect it.
+    }
   }
 
   Future<List<Cookie>> _cookiesFor(String url) async {
@@ -199,9 +234,9 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                   supportMultipleWindows: false,
                   javaScriptCanOpenWindowsAutomatically: false,
                 ),
-                onLoadStart: (_, url) => _updateUrl(url),
-                onLoadStop: (_, url) => _updateUrl(url),
-                onUpdateVisitedHistory: (_, url, _) => _updateUrl(url),
+                onLoadStart: (controller, url) => _updateUrl(url, controller),
+                onLoadStop: (controller, url) => _updateUrl(url, controller),
+                onUpdateVisitedHistory: (controller, url, _) => _updateUrl(url, controller),
                 onCloseWindow: (_) {
                   if (popupContext.mounted) {
                     Navigator.of(popupContext).maybePop();
@@ -275,10 +310,10 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                         supportMultipleWindows: true,
                         javaScriptCanOpenWindowsAutomatically: true,
                       ),
-                      onLoadStart: (_, url) => _updateUrl(url),
+                      onLoadStart: (controller, url) => _updateUrl(url, controller),
                       onCreateWindow: (_, action) => _openPopup(action),
-                      onLoadStop: (_, url) => _updateUrl(url),
-                      onUpdateVisitedHistory: (_, url, _) => _updateUrl(url),
+                      onLoadStop: (controller, url) => _updateUrl(url, controller),
+                      onUpdateVisitedHistory: (controller, url, _) => _updateUrl(url, controller),
                       onProgressChanged: (_, progress) {
                         if (mounted) setState(() => _loading = progress < 100);
                       },
