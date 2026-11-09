@@ -145,7 +145,7 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
           final theme = FluentTheme.of(sheetContext);
           final maxHeight = MediaQuery.sizeOf(sheetContext).height * 0.68;
           return Container(
-            height: math.min(maxHeight, 560),
+            height: math.min(maxHeight, 560).toDouble(),
             decoration: BoxDecoration(
               color: theme.resources.cardBackgroundFillColorDefault,
               borderRadius: BorderRadius.vertical(
