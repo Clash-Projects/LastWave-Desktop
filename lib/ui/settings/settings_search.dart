@@ -213,11 +213,18 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'addon url source lossless catalog provider server',
   ),
   SettingsSearchEntry(
+    id: 'appearance.wavy_seekbar',
+    section: 'appearance',
+    title: 'Wavy seekbar',
+    subtitle: 'Playback timeline appearance',
+    keywords: 'wavy seekbar timeline waveform playback appearance',
+  ),
+  SettingsSearchEntry(
     id: 'experimental.main',
     section: 'experimental',
     title: 'Experimental',
-    subtitle: 'Opt-in desktop prototypes',
-    keywords: 'wavy seekbar timeline prototype beta',
+    subtitle: 'Opt-in visual prototypes',
+    keywords: 'experimental prototype beta',
   ),
   SettingsSearchEntry(
     id: 'about.main',
