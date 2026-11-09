@@ -17,6 +17,7 @@ import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/settings/theme_controller.dart';
 import '../../features/podcasts/podcast_repository.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
@@ -1475,9 +1476,11 @@ class _NowAmbient extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final dynamicArtwork = ref.watch(
-      prefsProvider.select((prefs) => prefs.dynamicNowPlaying),
-    );
+    // Prefs is a read-only Provider around SharedPreferences and does not
+    // notify by itself. Settings refreshes ThemeController after each
+    // preference write, so watch its state to repaint this mounted route.
+    ref.watch(themeControllerProvider);
+    final dynamicArtwork = ref.read(prefsProvider).dynamicNowPlaying;
     if (!dynamicArtwork || artworkUrl.isEmpty) {
       return const SizedBox.shrink();
     }
