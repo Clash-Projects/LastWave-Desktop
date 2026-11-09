@@ -961,6 +961,9 @@ class _WaveContextMenuState extends State<WaveContextMenu> {
 
   @override
   Widget build(BuildContext context) {
+    // Native desktop context menus are not part of the touch-first iOS UI.
+    // Keep explicit More buttons available for actions such as downloads.
+    if (Platform.isIOS) return widget.child;
     return FlyoutTarget(
       controller: _controller,
       child: GestureDetector(
