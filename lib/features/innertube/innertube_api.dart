@@ -4827,11 +4827,9 @@ class InnerTubeMusicApi {
           final candidateArtistNorm = normalize(candidate.artist);
           final wantedArtistNorm = normalize(candidateArtist);
           final artistMatches =
-              similarity(candidate.artist, candidateArtist) >= 50 ||
-              (candidateArtistNorm.isNotEmpty &&
-                  wantedArtistNorm.isNotEmpty &&
-                  (candidateArtistNorm.contains(wantedArtistNorm) ||
-                      wantedArtistNorm.contains(candidateArtistNorm)));
+              candidateArtistNorm.isNotEmpty &&
+              wantedArtistNorm.isNotEmpty &&
+              similarity(candidate.artist, candidateArtist) >= 55;
           if (!artistMatches) continue;
 
           // A known source duration must agree within 8 seconds. If the
