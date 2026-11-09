@@ -94,10 +94,9 @@ class SearchRepository {
     this._tube,
     this._db,
     this._apiKey, {
-    AppleMusicCatalogApi? appleCatalog,
+    this._appleCatalog,
     DateTime Function()? clock,
-  })  : _appleCatalog = appleCatalog,
-        _now = clock ?? DateTime.now;
+  }) : _now = clock ?? DateTime.now;
 
   final AppleMusicCatalogApi? _appleCatalog;
   final DateTime Function() _now;
