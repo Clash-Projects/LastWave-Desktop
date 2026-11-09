@@ -3962,6 +3962,7 @@ class PrefsHandle {
   final Prefs _prefs;
   PrefsHandle(this._prefs);
   bool get preferLossless => _prefs.preferLossless;
+  bool get strictTrackMatching => _prefs.strictTrackMatching;
   int get losslessQuality => _prefs.losslessQuality;
   int get scrobblePercent => _prefs.scrobblePercent;
   bool get scrobblerEnabled => _prefs.scrobblerEnabled;
