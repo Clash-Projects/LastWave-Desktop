@@ -178,7 +178,7 @@ class LyricsResult {
 }
 
 /// Synthesize proportional word syllables across a line's duration
-/// for smooth Apple Music karaoke wipe on line-synced lyrics.
+/// for smooth karaoke wipe on line-synced lyrics.
 List<LyricSyllable> interpolateLineSyllables({
   required String text,
   required int startTimeMs,
