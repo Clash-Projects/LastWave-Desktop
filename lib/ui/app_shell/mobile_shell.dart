@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 
 import '../../core/storage/prefs.dart';
+import '../../features/settings/theme_controller.dart';
+import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/audio_output/output_controller.dart';
@@ -12,8 +14,10 @@ import '../navigation/destinations.dart';
 import '../queue/queue_panel.dart';
 import '../components/buttons.dart' show LWVolumeSlider;
 import '../player_dock/player_dock.dart' show WaveTimeline;
+import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
+import '../collections/playlist_dialogs.dart' show showWaveAddToPlaylist;
 
 const _phoneDestinations = <WaveDestination>[
   WaveDestination('/home', 'Home', WaveIcons.home),
@@ -158,6 +162,27 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
             (viewSize.shortestSide >= 600 && constraints.maxWidth >= 760);
         final nowPlaying = _route.startsWith('/now');
         final activePath = waveActivePath(widget.location);
+        final theme = ref.watch(themeControllerProvider);
+        final scaleSetting = ref.watch(
+          prefsProvider.select((prefs) => prefs.interfaceScale),
+        );
+        final systemTextScale = MediaQuery.textScalerOf(context).scale(1.0);
+        final interfaceScale = switch (scaleSetting) {
+          'compact' => 0.92,
+          'large' => 1.08,
+          'standard' => 1.0,
+          _ => tablet ? 1.0 : 0.97,
+        };
+        final material = switch (theme.hazeMaterial) {
+          'haze' => WaveMaterialMode.haze,
+          'solid' => WaveMaterialMode.solid,
+          _ => WaveMaterialMode.automatic,
+        };
+        final intensity = switch (theme.hazeIntensity) {
+          'low' => WaveHazeIntensity.low,
+          'high' => WaveHazeIntensity.high,
+          _ => WaveHazeIntensity.medium,
+        };
         final moreDestinations =
             tablet ? _tabletMoreDestinations : _phoneMoreDestinations;
         final moreActive = _showMore ||
@@ -165,101 +190,109 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                 activePath == d.path ||
                 _route.startsWith('${d.path}/'));
 
-        return ColoredBox(
-          color: waveBackground(context),
-          child: SafeArea(
-            child: Row(
-              children: [
-                if (tablet && !nowPlaying)
-                  _TabletRail(
-                    activePath: activePath,
-                    onGo: _go,
-                  ),
-                Expanded(
-                  child: Column(
-                    children: [
-                      if (!nowPlaying && !tablet)
-                        _MobileToolbar(
-                          tabletLayout: tablet,
-                          showBack: _route != '/home' && _route != '/search',
-                          onBack: _back,
-                          onSearch: () => _go('/search'),
-                          onMore: () => setState(() => _showMore = !_showMore),
-                        ),
-                      Expanded(
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            // Keep the real route mounted underneath overlays.
-                            // Opening Queue or EQ must not dispose Now Playing
-                            // and reset its lyrics/visualizer state.
-                            widget.child,
-                            if (_showMore && !nowPlaying)
-                              Positioned.fill(
-                                child: ColoredBox(
-                                  color: waveBackground(context),
-                                  child: _MorePage(
-                                    destinations: moreDestinations,
-                                    onGo: _go,
-                                  ),
-                                ),
-                              ),
-                            if (_showEqualizer && nowPlaying)
-                              Positioned.fill(
-                                child: WaveEqualizerPanel(
-                                  embedded: true,
-                                  onClose: _back,
-                                ),
-                              ),
-                            if (_showQueue && nowPlaying)
-                              Positioned.fill(
-                                child: ColoredBox(
-                                  color: waveBackground(context),
-                                  child: Column(
-                                    children: [
-                                      _MobileOverlayHeader(
-                                        title: 'Queue',
-                                        onClose: _back,
-                                      ),
-                                      Expanded(
-                                        child: WaveQueuePanel(
-                                          onClose: _back,
-                                          embedded: true,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
+        final systemMedia = MediaQuery.of(context);
+        return MediaQuery(
+          data: systemMedia.copyWith(
+            textScaler: TextScaler.linear(systemTextScale * interfaceScale),
+          ),
+          child: WaveHazeScope(
+            material: material,
+            intensity: intensity,
+            liquidGlass: theme.liquidGlass,
+            child: ColoredBox(
+              color: waveBackground(context),
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    if (!nowPlaying)
+                      _MobileToolbar(
+                        tabletLayout: tablet,
+                        showBack: _route != '/home' && _route != '/search',
+                        onBack: _back,
+                        onSearch: () => _go('/search'),
+                        onMore: () => setState(() => _showMore = !_showMore),
                       ),
-                      if (nowPlaying)
-                        _MobileTransportDock(
-                          onQueue: () => setState(() {
-                            _showQueue = !_showQueue;
-                            _showEqualizer = false;
-                          }),
-                          onEqualizer: () => setState(() {
-                            _showEqualizer = !_showEqualizer;
-                            _showQueue = false;
-                          }),
-                          queueActive: _showQueue,
-                          equalizerActive: _showEqualizer,
-                        )
-                      else
-                        _MobileMiniPlayer(onOpen: _openNowPlaying),
-                      if (!tablet && !nowPlaying)
-                        _PhoneNavigation(
-                          activePath: activePath,
-                          moreActive: moreActive,
-                          onGo: _go,
-                          onMore: () => setState(() => _showMore = !_showMore),
-                        ),
-                    ],
-                  ),
+                    if (tablet && !nowPlaying)
+                      _MobileMiniPlayer(onOpen: _openNowPlaying),
+                    Expanded(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          widget.child,
+                          if (_showMore && !nowPlaying)
+                            Positioned.fill(
+                              child: ColoredBox(
+                                color: waveBackground(context),
+                                child: _MorePage(
+                                  destinations: moreDestinations,
+                                  onGo: _go,
+                                ),
+                              ),
+                            ),
+                          if (_showEqualizer && nowPlaying)
+                            Positioned.fill(
+                              child: WaveEqualizerPanel(
+                                embedded: true,
+                                onClose: _back,
+                              ),
+                            ),
+                          if (_showQueue && nowPlaying)
+                            Positioned.fill(
+                              child: ColoredBox(
+                                color: waveBackground(context),
+                                child: Column(
+                                  children: [
+                                    _MobileOverlayHeader(
+                                      title: 'Queue',
+                                      onClose: _back,
+                                    ),
+                                    Expanded(
+                                      child: WaveQueuePanel(
+                                        onClose: _back,
+                                        embedded: true,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (nowPlaying)
+                      _MobileTransportDock(
+                        onQueue: () => setState(() {
+                          _showQueue = !_showQueue;
+                          _showEqualizer = false;
+                        }),
+                        onEqualizer: () => setState(() {
+                          _showEqualizer = !_showEqualizer;
+                          _showQueue = false;
+                        }),
+                        queueActive: _showQueue,
+                        equalizerActive: _showEqualizer,
+                      )
+                    else if (!tablet)
+                      _MobileMiniPlayer(onOpen: _openNowPlaying),
+                    if (!nowPlaying)
+                      tablet
+                          ? _TabletBottomNavigation(
+                              activePath: activePath,
+                              moreActive: moreActive,
+                              onGo: _go,
+                              onMore: () =>
+                                  setState(() => _showMore = !_showMore),
+                            )
+                          : _PhoneNavigation(
+                              activePath: activePath,
+                              moreActive: moreActive,
+                              onGo: _go,
+                              onMore: () =>
+                                  setState(() => _showMore = !_showMore),
+                            ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         );
@@ -283,6 +316,23 @@ class _MobileToolbar extends StatelessWidget {
     required this.onMore,
   });
 
+  Widget _logo(BuildContext context) => Semantics(
+        label: 'LastWave',
+        image: true,
+        child: ColorFiltered(
+          colorFilter: ColorFilter.mode(
+            waveTextPrimary(context),
+            BlendMode.srcIn,
+          ),
+          child: Image.asset(
+            'assets/brand/lastwave-logo.png',
+            width: 92,
+            height: 26,
+            fit: BoxFit.contain,
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -300,7 +350,9 @@ class _MobileToolbar extends StatelessWidget {
               tooltip: 'Back',
               onPressed: onBack,
             ),
-          if (tabletLayout)
+          if (tabletLayout) ...[
+            _logo(context),
+            const SizedBox(width: 16),
             Expanded(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -332,14 +384,9 @@ class _MobileToolbar extends StatelessWidget {
                   ),
                 ),
               ),
-            )
-          else ...[
-            const Icon(WaveIcons.visualizer, size: 24),
-            const SizedBox(width: 8),
-            Text(
-              'LastWave',
-              style: WaveType.sectionTitle.copyWith(fontSize: 18),
             ),
+          ] else ...[
+            _logo(context),
             const Spacer(),
             _TouchIconButton(
               icon: WaveIcons.search,
@@ -389,125 +436,100 @@ class _MobileOverlayHeader extends StatelessWidget {
       );
 }
 
-class _TabletRail extends StatelessWidget {
+class _TabletBottomNavigation extends StatelessWidget {
   final String activePath;
+  final bool moreActive;
   final void Function(String) onGo;
+  final VoidCallback onMore;
 
-  const _TabletRail({
+  const _TabletBottomNavigation({
     required this.activePath,
+    required this.moreActive,
     required this.onGo,
+    required this.onMore,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 76,
-      decoration: BoxDecoration(
-        color: waveSurface(context),
-        border: Border(right: BorderSide(color: waveDivider(context))),
-      ),
-      child: Column(
-        children: [
-          const SizedBox(height: 8),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              children: [
-                for (final destination in _tabletDestinations)
-                  _RailButton(
-                    destination: destination,
-                    selected: activePath == destination.path ||
-                        activePath.startsWith('${destination.path}/'),
-                    onTap: () => onGo(destination.path),
-                  ),
-              ],
+  Widget build(BuildContext context) => Container(
+        height: 66,
+        decoration: BoxDecoration(
+          color: waveSurface(context),
+          border: Border(top: BorderSide(color: waveDivider(context))),
+        ),
+        child: Row(
+          children: [
+            for (final destination in _tabletDestinations)
+              Expanded(
+                child: _TabletBottomTab(
+                  icon: destination.icon,
+                  label: destination.label,
+                  selected: activePath == destination.path ||
+                      activePath.startsWith('${destination.path}/'),
+                  onTap: () => onGo(destination.path),
+                ),
+              ),
+            Expanded(
+              child: _TabletBottomTab(
+                icon: WaveIcons.more,
+                label: 'More',
+                selected: moreActive,
+                onTap: onMore,
+              ),
             ),
-          ),
-          Container(
-            height: 1,
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            color: waveDivider(context),
-          ),
-          for (final destination in const [
-            WaveDestination('/friends', 'Friends', WaveIcons.friends),
-            WaveDestination('/settings', 'Settings', WaveIcons.settings),
-          ])
-            _RailButton(
-              destination: destination,
-              selected: activePath == destination.path,
-              onTap: () => onGo(destination.path),
-            ),
-          const SizedBox(height: 6),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 }
 
-class _RailButton extends StatelessWidget {
-  final WaveDestination destination;
+class _TabletBottomTab extends StatelessWidget {
+  final IconData icon;
+  final String label;
   final bool selected;
   final VoidCallback onTap;
 
-  const _RailButton({
-    required this.destination,
+  const _TabletBottomTab({
+    required this.icon,
+    required this.label,
     required this.selected,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      child: Tooltip(
-        message: destination.label,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 130),
-            width: 62,
-            height: 56,
-            decoration: BoxDecoration(
-              color: selected
-                  ? waveAccent(context).withValues(alpha: 0.14)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              border: selected
-                  ? Border(
-                      left: BorderSide(color: waveAccent(context), width: 3),
-                    )
-                  : null,
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  destination.icon,
-                  size: 20,
-                  color: selected
-                      ? waveTextPrimary(context)
-                      : waveTextSecondary(context),
+    final color =
+        selected ? waveTextPrimary(context) : waveTextSecondary(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected
+              ? waveAccent(context).withValues(alpha: 0.12)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 19, color: color),
+            const SizedBox(height: 3),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: WaveType.meta.copyWith(
+                  fontSize: 8.5,
+                  color: color,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
                 ),
-                const SizedBox(height: 3),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Text(
-                    destination.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: WaveType.meta.copyWith(
-                      fontSize: 9,
-                      color: selected
-                          ? waveTextPrimary(context)
-                          : waveTextSecondary(context),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -866,7 +888,16 @@ class _MobileMiniPlayer extends ConsumerWidget {
     final playback = ref.read(playbackServiceProvider.notifier);
     final wavySeekbar =
         ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
+    final playlists = ref.watch(playlistRepositoryProvider);
     final track = player.current;
+    final trackKey = track == null
+        ? ''
+        : '${track.title.toLowerCase()}|${track.artist.toLowerCase()}';
+    final isLiked = track != null && playlists.any((playlist) =>
+        playlist.isLikedSongs &&
+        playlist.tracks.any((saved) =>
+            '${saved.name.toLowerCase()}|${saved.artist.toLowerCase()}' ==
+            trackKey));
     final stream = player.stream;
     final codec = stream == null
         ? ''
@@ -874,6 +905,8 @@ class _MobileMiniPlayer extends ConsumerWidget {
             ? stream.audioCodec.trim().toUpperCase()
             : stream.mimeType.split('/').last.split(';').first.toUpperCase();
     final streamDetails = [
+      if (stream != null && stream.qualityBadge.isNotEmpty)
+        stream.qualityBadge,
       if (codec.isNotEmpty) codec,
       if ((stream?.bitrateKbps ?? 0) > 0) '${stream!.bitrateKbps} kbps',
     ].join(' · ');
@@ -963,6 +996,47 @@ class _MobileMiniPlayer extends ConsumerWidget {
                     ),
                   ),
                   _TouchIconButton(
+                    icon: isLiked ? FluentIcons.heart_fill : FluentIcons.heart,
+                    tooltip: isLiked ? 'Remove from Liked Songs' : 'Like song',
+                    width: 36,
+                    onPressed: track == null
+                        ? null
+                        : () async {
+                            final repository =
+                                ref.read(playlistRepositoryProvider.notifier);
+                            if (isLiked) {
+                              final liked = ref
+                                  .read(playlistRepositoryProvider)
+                                  .where((p) => p.isLikedSongs)
+                                  .toList();
+                              if (liked.isNotEmpty) {
+                                await repository.removeTrack(
+                                  liked.first.id,
+                                  trackKey,
+                                );
+                              }
+                            } else {
+                              final liked = await repository.ensureLikedSongs();
+                              await repository.addTrack(
+                                liked.id,
+                                StoredTrack.fromPlayable(track),
+                              );
+                            }
+                          },
+                  ),
+                  _TouchIconButton(
+                    icon: FluentIcons.add,
+                    tooltip: 'Add to playlist',
+                    width: 36,
+                    onPressed: track == null
+                        ? null
+                        : () => showWaveAddToPlaylist(
+                              context,
+                              ref,
+                              StoredTrack.fromPlayable(track),
+                            ),
+                  ),
+                  _TouchIconButton(
                     icon: player.isBuffering
                         ? WaveIcons.music
                         : player.isPlaying
@@ -970,6 +1044,7 @@ class _MobileMiniPlayer extends ConsumerWidget {
                             : WaveIcons.play,
                     tooltip: player.isPlaying ? 'Pause' : 'Play',
                     onPressed: track == null ? null : playback.toggle,
+                    width: 36,
                   ),
                   _TouchIconButton(
                     icon: WaveIcons.next,

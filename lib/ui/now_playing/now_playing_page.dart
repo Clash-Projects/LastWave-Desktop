@@ -17,6 +17,7 @@ import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/library/playlists.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/podcasts/podcast_repository.dart';
 import '../components/ambient.dart';
@@ -25,6 +26,7 @@ import '../components/artist_line.dart';
 import '../components/artwork.dart';
 import '../components/image_aspect.dart';
 import '../components/buttons.dart' show LWTooltip;
+import '../collections/playlist_dialogs.dart' show showWaveAddToPlaylist;
 import '../components/states.dart';
 import '../theme/fluent_theme.dart';
 import '../theme/haze.dart';
@@ -49,7 +51,7 @@ class WaveNowPlayingPage extends ConsumerStatefulWidget {
 }
 
 class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
-  bool _lyricsVisible = true;
+  bool _lyricsVisible = !Platform.isIOS;
   // Focus mode: lyrics only, artwork column collapsed, lyrics centered.
   bool _focusMode = false;
   bool _controlsIdle = false;
@@ -415,17 +417,18 @@ class _TopActionsBar extends StatelessWidget {
       padding: EdgeInsets.symmetric(horizontal: Platform.isIOS ? 10 : 24),
       child: Row(
         children: [
-          WaveGlass(
-            blur: false,
-            borderRadius: WaveRadius.menuRadius,
-            child: LWTooltip(
-              message: 'Back',
-              child: _FsIconButton(
-                icon: FluentIcons.chevron_left,
-                onTap: onClose,
+          if (!Platform.isIOS)
+            WaveGlass(
+              blur: false,
+              borderRadius: WaveRadius.menuRadius,
+              child: LWTooltip(
+                message: 'Back',
+                child: _FsIconButton(
+                  icon: FluentIcons.chevron_left,
+                  onTap: onClose,
+                ),
               ),
             ),
-          ),
           const Spacer(),
           WaveGlass(
             blur: false,
@@ -443,26 +446,28 @@ class _TopActionsBar extends StatelessWidget {
                     onTap: onToggleLyrics,
                   ),
                 ),
-                LWTooltip(
-                  message: focusMode ? 'Exit focus mode' : 'Focus on lyrics',
-                  child: _FsIconButton(
-                    icon: focusMode
-                        ? FluentIcons.mini_contract
-                        : WaveIcons.expand,
-                    active: focusMode,
-                    onTap: onToggleFocus,
+                if (!Platform.isIOS) ...[
+                  LWTooltip(
+                    message: focusMode ? 'Exit focus mode' : 'Focus on lyrics',
+                    child: _FsIconButton(
+                      icon: focusMode
+                          ? FluentIcons.mini_contract
+                          : WaveIcons.expand,
+                      active: focusMode,
+                      onTap: onToggleFocus,
+                    ),
                   ),
-                ),
-                LWTooltip(
-                  message: visualizerEnabled
-                      ? 'Disable visualizer'
-                      : 'Enable visualizer',
-                  child: _FsIconButton(
-                    icon: WaveIcons.visualizer,
-                    active: visualizerEnabled,
-                    onTap: onToggleVisualizer,
+                  LWTooltip(
+                    message: visualizerEnabled
+                        ? 'Disable visualizer'
+                        : 'Enable visualizer',
+                    child: _FsIconButton(
+                      icon: WaveIcons.visualizer,
+                      active: visualizerEnabled,
+                      onTap: onToggleVisualizer,
+                    ),
                   ),
-                ),
+                ],
                 LWTooltip(
                   message: 'Close (Esc)',
                   child: _FsIconButton(icon: WaveIcons.close, onTap: onClose),
@@ -1204,6 +1209,14 @@ class _TrackMetadataSection extends ConsumerWidget {
     );
     final stream = ref.watch(playbackServiceProvider.select((s) => s.stream));
     final quality = stream == null ? null : _streamQualityParts(stream);
+    final playlists = ref.watch(playlistRepositoryProvider);
+    final trackKey =
+        '${track.title.toLowerCase()}|${track.artist.toLowerCase()}';
+    final isLiked = playlists.any((playlist) =>
+        playlist.isLikedSongs &&
+        playlist.tracks.any((saved) =>
+            '${saved.name.toLowerCase()}|${saved.artist.toLowerCase()}' ==
+            trackKey));
 
     final showDistinctAlbum =
         track.album.isNotEmpty &&
@@ -1263,6 +1276,52 @@ class _TrackMetadataSection extends ConsumerWidget {
             ],
           ],
         ),
+        if (Platform.isIOS) ...[
+          const SizedBox(height: 8),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LWTooltip(
+                message: isLiked ? 'Remove from Liked Songs' : 'Like song',
+                child: _FsIconButton(
+                  icon: isLiked ? FluentIcons.heart_fill : FluentIcons.heart,
+                  active: isLiked,
+                  onTap: () async {
+                    final repository =
+                        ref.read(playlistRepositoryProvider.notifier);
+                    if (isLiked) {
+                      final liked = ref
+                          .read(playlistRepositoryProvider)
+                          .where((p) => p.isLikedSongs)
+                          .toList();
+                      if (liked.isNotEmpty) {
+                        await repository.removeTrack(liked.first.id, trackKey);
+                      }
+                    } else {
+                      final liked = await repository.ensureLikedSongs();
+                      await repository.addTrack(
+                        liked.id,
+                        StoredTrack.fromPlayable(track),
+                      );
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              LWTooltip(
+                message: 'Add to playlist',
+                child: _FsIconButton(
+                  icon: FluentIcons.add,
+                  onTap: () => showWaveAddToPlaylist(
+                    context,
+                    ref,
+                    StoredTrack.fromPlayable(track),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
         if (playerNotice != null && playerNotice.trim().isNotEmpty) ...[
           const SizedBox(height: 8),
           Text(
