@@ -177,7 +177,9 @@ List<WaveMenuEntry> waveTrackMenuItems({
       onPressed: () => downloads.downloadTrack(
         title: title,
         artist: artist,
+        album: album,
         artworkUrl: artworkUrl,
+        videoId: track.videoId,
       ),
     ),
   ];
