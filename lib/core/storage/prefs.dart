@@ -122,6 +122,13 @@ class Prefs {
   Future<void> setAutoplaySimilar(bool v) =>
       _sp.setBool('lw_autoplay_similar', v);
 
+  /// Require a reliable title + artist + duration match before using a
+  /// YouTube recording. Enabled by default to prevent silent substitutions.
+  bool get strictTrackMatching =>
+      _sp.getBool('lw_strict_track_matching') ?? true;
+  Future<void> setStrictTrackMatching(bool v) =>
+      _sp.setBool('lw_strict_track_matching', v);
+
   bool get crossfadeEnabled => _sp.getBool('lw_crossfade_enabled') ?? false;
   int get crossfadeSeconds {
     final v = _sp.getInt('lw_crossfade_seconds') ?? 5;
