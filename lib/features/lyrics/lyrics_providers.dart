@@ -24,17 +24,12 @@ enum LyricsProviderId {
   lastwave(
     'lastwave',
     'LastWave',
-    'Syllable & line-synced Apple lyrics first',
+    'Syllable & line-synced karaoke lyrics first',
   ),
   lrcRed(
     'lrc_red',
     'lrc.red',
     'ISRC-indexed syllable TTML & LRC first',
-  ),
-  appleMusic(
-    'apple_music',
-    'Apple Music',
-    'Syllable-synced Apple Music lyrics first',
   ),
   betterLyrics(
     'better_lyrics',
@@ -130,9 +125,6 @@ String? lyricsSourceToProviderId(String source) {
   final s = source.toLowerCase();
   if (s.startsWith('lastwave')) return LyricsProviderId.lastwave.id;
   if (s.startsWith('lrc.red')) return LyricsProviderId.lrcRed.id;
-  if (s.startsWith('apple music') || s.contains('apple')) {
-    return LyricsProviderId.appleMusic.id;
-  }
   if (s.startsWith('qq karaoke') || s.startsWith('portato')) {
     return LyricsProviderId.betterLyricsPortato.id;
   }
@@ -188,7 +180,7 @@ Set<String> retryLyricsExcludingCurrent({
         : {...excludes, currentId};
 
 // -- BetterLyrics (lyrics-api.boidu.dev) -----------------------------------
-// Free, no key. Apple-Music TTML with per-syllable timing; both TTML
+// Free, no key. TTML with per-syllable timing; both TTML
 // endpoints are tried, then the QQ karaoke endpoint.
 //
 // Accepted trust model: these endpoints return bare lyric documents
