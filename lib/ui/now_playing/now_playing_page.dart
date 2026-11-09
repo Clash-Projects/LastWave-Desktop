@@ -1199,6 +1199,9 @@ class _TrackMetadataSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final playerNotice = ref.watch(
+      playbackServiceProvider.select((s) => s.error),
+    );
     final stream = ref.watch(playbackServiceProvider.select((s) => s.stream));
     final quality = stream == null ? null : _streamQualityParts(stream);
 
@@ -1260,6 +1263,17 @@ class _TrackMetadataSection extends ConsumerWidget {
             ],
           ],
         ),
+        if (playerNotice != null && playerNotice.trim().isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            playerNotice,
+            textAlign: alignCenter ? TextAlign.center : TextAlign.start,
+            style: WaveType.meta.copyWith(
+              color: Colors.orange,
+              shadows: _metadataShadow,
+            ),
+          ),
+        ],
         if (quality != null) ...[
           const SizedBox(height: 10),
           _QualitySpecLine(quality: quality, centered: alignCenter),
