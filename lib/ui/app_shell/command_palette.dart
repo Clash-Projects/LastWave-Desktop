@@ -344,6 +344,7 @@ class _PaletteRow extends StatelessWidget {
 /// Search tab labels shared by the palette and the search page.
 String searchTabLabel(SearchTab tab) => switch (tab) {
       SearchTab.tracks => 'Songs',
+      SearchTab.videos => 'Videos',
       SearchTab.artists => 'Artists',
       SearchTab.albums => 'Albums',
       SearchTab.playlists => 'Playlists',
