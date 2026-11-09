@@ -533,6 +533,7 @@ class InnerTubeMusicApi {
   };
 
   static const String songsSearchFilter = 'EgWKAQIIAWoKEAkQBRAKEAMQBA==';
+  static const String videosSearchFilter = 'EgWKAQIQAWoKEAkQBRAKEAMQBA==';
   static const String artistSearchFilter = 'EgWKAQIgAWoKEAkQBRAKEAMQBA==';
   static const String albumSearchFilter = 'EgWKAQIYAWoKEAkQBRAKEAMQBA==';
   static const String playlistSearchFilter = 'Eg-KAQwIABAAGAAgACgB';
@@ -2532,6 +2533,29 @@ class InnerTubeMusicApi {
     // likely queue track is pre-resolved (see prefetchNextTrack).
     // The flag is kept for API compatibility but ignored.
     return results;
+  }
+
+  /// Searches the dedicated Videos category on YouTube Music.
+  /// This intentionally stays on the music.youtube.com InnerTube endpoint;
+  /// it does not query regular YouTube search results.
+  Future<List<YouTubeMusicTrack>> searchVideos(
+    String query, {
+    int limit = 30,
+  }) async {
+    if (query.trim().isEmpty) return const [];
+    await _ensureConfig();
+    final root = await _post(
+      '$musicApi/search?key=$_apiKey&prettyPrint=false',
+      body: {
+        'context': _webContext(_clientVersion, _visitorData),
+        'query': query.trim(),
+        'params': videosSearchFilter,
+      },
+      clientName: 'WEB_REMIX',
+      clientVersion: _clientVersion,
+      userAgent: webUserAgent,
+    );
+    return _parseSongRenderers(root).take(limit).toList();
   }
 
   /// Unfiltered YouTube Music search: songs AND videos. Last-resort pool for
