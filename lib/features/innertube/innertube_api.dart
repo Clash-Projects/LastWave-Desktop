@@ -4806,19 +4806,53 @@ class InnerTubeMusicApi {
     if (primary.isNotEmpty && normalize(primary) != normalize(requestedArtist)) {
       artists.add(primary);
     }
+    final wantedVariants = _tokens(title).intersection(_variantWords);
 
     for (final candidateArtist in artists) {
       try {
-        final match = await findBestMatch(
-          title,
-          candidateArtist,
-          excludedVideoIds: excludedVideoIds,
+        final results = await searchSongs(
+          '$title $candidateArtist',
+          limit: 30,
+          prefetchStreams: false,
         ).timeout(const Duration(seconds: 6));
-        if (expectedDurationSeconds > 0 && match.durationSeconds > 0 &&
-            (match.durationSeconds - expectedDurationSeconds).abs() > 8) {
-          continue;
+        YouTubeMusicTrack? best;
+        var bestScore = -1 << 30;
+
+        for (final candidate in results) {
+          if (candidate.videoId.isEmpty ||
+              excludedVideoIds.contains(candidate.videoId) ||
+              !_passesGates(candidate, title, candidateArtist)) {
+            continue;
+          }
+          final candidateArtistNorm = normalize(candidate.artist);
+          final wantedArtistNorm = normalize(candidateArtist);
+          final artistMatches =
+              similarity(candidate.artist, candidateArtist) >= 50 ||
+              candidateArtistNorm.contains(wantedArtistNorm) ||
+              wantedArtistNorm.contains(candidateArtistNorm);
+          if (!artistMatches) continue;
+
+          // A known source duration must agree within 8 seconds. If the
+          // candidate has no duration, it cannot be verified against a
+          // source row that does.
+          if (expectedDurationSeconds > 0 &&
+              (candidate.durationSeconds <= 0 ||
+                  (candidate.durationSeconds - expectedDurationSeconds).abs() > 8)) {
+            continue;
+          }
+          if (_featBonus(candidate.title, title) <= -600) continue;
+          if (wantedVariants.isEmpty &&
+              _tokens(candidate.title).intersection(_variantWords).isNotEmpty) {
+            continue;
+          }
+
+          final score = matchScore(candidate, title, candidateArtist);
+          if (score > bestScore) {
+            best = candidate;
+            bestScore = score;
+          }
         }
-        return match;
+        if (best != null) return best;
       } catch (_) {
         // Try only the normalized primary billing for a collaboration.
       }
