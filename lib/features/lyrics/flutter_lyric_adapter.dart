@@ -18,7 +18,7 @@ import 'package:flutter_lyric/flutter_lyric.dart';
 import 'lyrics_models.dart' as lm;
 
 /// Converts LastWave [lm.LyricsResult] into flutter_lyric [fl.LyricModel],
-/// inserting standalone Apple Music 3-dot instrumental lines ('•  •  •')
+/// inserting standalone three-dot instrumental lines ('•  •  •')
 /// into the lyrics flow for intros and breaks >= 4000ms.
 @Deprecated('Use desktop_lyrics_painter.dart GPU engine instead.')
 fl.LyricModel convertToFlutterLyricModel(
@@ -33,7 +33,7 @@ fl.LyricModel convertToFlutterLyricModel(
 
   fl.LyricLine createInstrumentalLine(int gapStartMs, int gapEndMs) {
     final gapDuration = gapEndMs - gapStartMs;
-    // In Apple Music, the 3 dots countdown during the last 3.5 to 4.5 seconds before vocal entry
+    // The three dots count down during the last 3.5 to 4.5 seconds before vocal entry
     final countdownDuration = math.min(gapDuration, 4500);
     final countdownStart = gapEndMs - countdownDuration;
     final dotDuration = (countdownDuration / 3).round();
@@ -170,8 +170,8 @@ fl.LyricModel convertToFlutterLyricModel(
   return fl.LyricModel(lines: lines);
 }
 
-/// Builds Apple Music style [LyricStyle] for [LyricView].
-LyricStyle buildAppleMusicLyricStyle(
+/// Builds the legacy karaoke style [LyricStyle] for [LyricView].
+LyricStyle buildKaraokeLyricStyle(
   BuildContext context, {
   bool compact = false,
   double? fontSize,
