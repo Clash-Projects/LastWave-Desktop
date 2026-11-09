@@ -23,6 +23,7 @@ import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
 import '../../features/innertube/yt_session_keeper.dart';
 import '../../features/innertube/yt_web_login.dart';
+import '../../features/auth/mobile_cookie_login.dart';
 import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
@@ -164,7 +165,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
             child: Align(
-              alignment: Alignment.centerLeft,
+              alignment: Alignment.centerRight,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 640),
                 child: SettingsSearchBox(onPick: _jump),
@@ -1195,8 +1196,8 @@ class _PickColorSwatch extends StatelessWidget {
   }
 }
 
-/// Opens the Fluent colour picker (spectrum ring + hex) in a dialog.
-/// Returns null when cancelled. Alpha is fixed at opaque.
+/// Opens the Fluent colour picker on desktop and a larger, touch-friendly
+/// HSL control on iOS. Alpha is fixed at opaque.
 Future<Color?> showWaveColorPicker(
   BuildContext context, {
   required String title,
@@ -1207,20 +1208,88 @@ Future<Color?> showWaveColorPicker(
     context: context,
     barrierDismissible: true,
     builder: (dialogContext) => ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 380),
+      constraints: BoxConstraints(maxWidth: Platform.isIOS ? 460 : 380),
       title: Text(title),
       content: SingleChildScrollView(
-        child: StatefulBuilder(
-          builder: (context, setState) => ColorPicker(
-            color: picked,
-            onChanged: (c) => setState(() => picked = c.withValues(alpha: 1)),
-            isAlphaEnabled: false,
-            isAlphaSliderVisible: false,
-            isAlphaTextInputVisible: false,
-            isMoreButtonVisible: false,
-            isColorChannelTextInputVisible: false,
-          ),
-        ),
+        child: Platform.isIOS
+            ? StatefulBuilder(
+                builder: (context, setState) {
+                  final hsl = HSLColor.fromColor(picked);
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: picked,
+                          borderRadius: WaveRadius.controlsRadius,
+                          border: Border.all(color: waveDivider(context)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Hue · ${hsl.hue.round()}°',
+                        style: WaveType.trackTitle,
+                      ),
+                      Slider(
+                        value: hsl.hue.clamp(0.0, 360.0).toDouble(),
+                        min: 0,
+                        max: 360,
+                        divisions: 360,
+                        onChanged: (value) => setState(() {
+                          picked = HSLColor.fromColor(picked)
+                              .withHue(value)
+                              .toColor();
+                        }),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Saturation · ${(hsl.saturation * 100).round()}%',
+                        style: WaveType.trackTitle,
+                      ),
+                      Slider(
+                        value: hsl.saturation.clamp(0.0, 1.0).toDouble(),
+                        min: 0,
+                        max: 1,
+                        divisions: 100,
+                        onChanged: (value) => setState(() {
+                          picked = HSLColor.fromColor(picked)
+                              .withSaturation(value)
+                              .toColor();
+                        }),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Lightness · ${(hsl.lightness * 100).round()}%',
+                        style: WaveType.trackTitle,
+                      ),
+                      Slider(
+                        value: hsl.lightness.clamp(0.0, 1.0).toDouble(),
+                        min: 0,
+                        max: 1,
+                        divisions: 100,
+                        onChanged: (value) => setState(() {
+                          picked = HSLColor.fromColor(picked)
+                              .withLightness(value)
+                              .toColor();
+                        }),
+                      ),
+                    ],
+                  );
+                },
+              )
+            : StatefulBuilder(
+                builder: (context, setState) => ColorPicker(
+                  color: picked,
+                  onChanged: (c) => setState(() => picked = c.withValues(alpha: 1)),
+                  isAlphaEnabled: false,
+                  isAlphaSliderVisible: false,
+                  isAlphaTextInputVisible: false,
+                  isMoreButtonVisible: false,
+                  isColorChannelTextInputVisible: false,
+                ),
+              ),
       ),
       actions: [
         Button(
@@ -1513,7 +1582,17 @@ class _SpotifyCard extends ConsumerWidget {
                 },
                 child: const Text('Disconnect'),
               )
-            else ...[
+            else if (Platform.isIOS) ...[
+              WaveFilledButton(
+                onPressed: () => spotifyConnectWithMobileWebView(context, ref),
+                child: const Text('Sign in with Spotify'),
+              ),
+              const SizedBox(width: 8),
+              WaveButton(
+                onPressed: () => spotifyConnectWithCookie(context, ref),
+                child: const Text('Use a cookie instead'),
+              ),
+            ] else ...[
               WaveFilledButton(
                 onPressed: () => spotifyConnectWithCookie(context, ref),
                 child: const Text('Login with cookies'),
@@ -1524,8 +1603,8 @@ class _SpotifyCard extends ConsumerWidget {
         if (Platform.isIOS) ...[
           const SizedBox(height: 8),
           Text(
-            'iOS uses the manual sp_dc cookie connection. LastWave cannot '
-            'read your Safari or other browser sign-in cookies automatically.',
+            'Sign in through Spotify’s page. LastWave captures the session '
+            'automatically; the cookie option remains as a fallback.',
             style: WaveType.meta.copyWith(
               color: waveTextSecondary(context),
             ),
@@ -1599,12 +1678,19 @@ class _Ytm extends ConsumerWidget {
                           style: WaveType.meta,
                         ),
                         const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: WaveFilledButton(
-                            onPressed: () => _ytConnectWithCookies(context, ref),
-                            child: const Text('Import YouTube Music cookies'),
-                          ),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            WaveFilledButton(
+                              onPressed: () => _ytConnect(context, ref),
+                              child: const Text('Sign in to YouTube Music'),
+                            ),
+                            WaveButton(
+                              onPressed: () => _ytConnectWithCookies(context, ref),
+                              child: const Text('Import cookies.txt instead'),
+                            ),
+                          ],
                         ),
                       ],
                     )
@@ -1769,6 +1855,21 @@ class _Ytm extends ConsumerWidget {
   /// WebView, waits for login, captures cookies automatically, then
   /// runs the shared roster upsert + chooser tail.
   Future<void> _ytConnect(BuildContext context, WidgetRef ref) async {
+    if (Platform.isIOS) {
+      final header = await showMobileCookieLogin(
+        context,
+        provider: MobileCookieLoginProvider.youtubeMusic,
+      );
+      if (!context.mounted || header == null || header.isEmpty) return;
+      await _ytConnectCaptured(
+        context,
+        ref,
+        header: header,
+        pageId: '',
+      );
+      return;
+    }
+
     var cancelled = false;
     // Non-blocking wait dialog — Cancel just stops listening; the
     // user closes the browser window via the native guard (hide).
@@ -3190,19 +3291,19 @@ class _AboutState extends ConsumerState<_About> {
             children: [
               WaveButton(
                 onPressed: () =>
-                    _open('https://github.com/Clash-Projects/LastWave-Desktop'),
+                    _open('https://github.com/sundaywired/LastWave-iOS'),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(FluentIcons.open_in_new_window, size: 14),
                     SizedBox(width: 6),
-                    Text('GitHub repository'),
+                    Text('GitHub project'),
                   ],
                 ),
               ),
               WaveButton(
                 onPressed: () => _open(
-                  'https://github.com/Clash-Projects/LastWave-Desktop/issues',
+                  'https://github.com/sundaywired/LastWave-iOS/issues',
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
@@ -3215,13 +3316,13 @@ class _AboutState extends ConsumerState<_About> {
               ),
               WaveButton(
                 onPressed: () =>
-                    _open('https://github.com/Clash-Projects/LastWave-Desktop'),
+                    _open('https://github.com/sundaywired/LastWave-iOS'),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(FluentIcons.favorite_star, size: 14),
                     SizedBox(width: 6),
-                    Text('Star / support the project'),
+                    Text('Star the project'),
                   ],
                 ),
               ),
