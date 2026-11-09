@@ -28,7 +28,7 @@ const _current = PlayableTrack(
   title: 'Do Numbari (From "Mirzapur The Movie")',
   artist: 'Dhanda Nyoliwala',
   album: 'Mirzapur',
-  artworkUrl: 'https://is1-ssl.mzstatic.com/image/thumb/test.jpg',
+  artworkUrl: 'https://i.ytimg.com/vi/test-video/hqdefault.jpg',
 );
 const _next = PlayableTrack(title: 'Hola Amigo', artist: 'KR\$NA');
 
