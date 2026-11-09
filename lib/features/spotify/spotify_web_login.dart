@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:desktop_webview_window/desktop_webview_window.dart';
-import 'package:flutter/foundation.dart';
 
 import '../innertube/yt_web_login.dart';
 
