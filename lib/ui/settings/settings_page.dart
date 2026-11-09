@@ -1003,7 +1003,7 @@ class _Appearance extends ConsumerWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                ref.watch(ambientStyleProvider) == AmbientStyle.apple
+                ref.watch(ambientStyleProvider) == AmbientStyle.artworkAura
                     ? 'Vivid colours from the artwork on a dark stage with '
                         'white text. Looks the same in every theme.'
                     : 'A calm tone from the artwork that follows your '
