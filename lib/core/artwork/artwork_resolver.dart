@@ -12,7 +12,7 @@ import 'package:flutter/widgets.dart';
 ///   missing scheme with known host → `https://`. Query parameters are
 ///   NEVER stripped (CDN signatures live there; stripping expires URLs).
 /// - http → https upgrade for image CDNs (ytimg, googleusercontent,
-///   last.fm, deezer, spotify, apple). Plain http kept only for
+///   last.fm, deezer, spotify). Plain http kept only for
 ///   unrecognized hosts to avoid breaking LAN servers.
 /// - redirects: left to the HTTP client (CachedNetworkImage follows them).
 /// - resolution: [sized] rewrites ONLY recognized size patterns
@@ -118,7 +118,7 @@ class ArtworkResolver {
       final host = Uri.parse(n).host;
       final isYoutube = ['ytimg.com', 'googleusercontent.com', 'ggpht.com']
           .any((domain) => host == domain || host.endsWith('.$domain'));
-      // High-authority official artwork CDNs (Apple/iTunes, Qobuz, Spotify, Deezer)
+      // High-authority official artwork CDNs (Qobuz, Spotify, Deezer)
       // take primary priority; YouTube video stills and thumbnails are fallbacks.
       final target = isYoutube ? fallback : primary;
       target.add(sized(n, request.targetPx));
@@ -174,6 +174,18 @@ class ArtworkResolver {
     if (uri.scheme != 'http' && uri.scheme != 'https') return null;
     final host = uri.host.toLowerCase();
     if (host.isEmpty) return null;
+    // Apple Music/iTunes artwork was removed from the app's catalog sources.
+    // Reject legacy URLs so they cannot re-enter via cached/imported metadata.
+    const removedAppleArtworkHosts = [
+      'mzstatic.com',
+      'music.apple.com',
+      'itunes.apple.com',
+    ];
+    if (removedAppleArtworkHosts.any(
+      (domain) => host == domain || host.endsWith('.$domain'),
+    )) {
+      return null;
+    }
     if (uri.scheme == 'http' && _tlsHosts.any(host.contains)) {
       uri = uri.replace(scheme: 'https');
     }
