@@ -154,7 +154,6 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 3),
                     child: ListTile(
-                      selected: option.value == widget.value,
                       leading: option.value == widget.value
                           ? const Icon(FluentIcons.check_mark, size: 16)
                           : const SizedBox(width: 16),
