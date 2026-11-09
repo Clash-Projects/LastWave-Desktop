@@ -49,7 +49,11 @@ Future<void> main(List<String> args) async {
     writeFatalCrumb(fatalCrumb(error, stack));
     return false;
   };
-  // Desktop image cache budget: 64 MiB / 500 images.
+  // Desktop image cache budget: 512 MiB / 500 images.
+  //
+  // Raised from 64 MiB so decoded artwork (incl. the Now Playing hero)
+  // stays resident across navigation instead of re-decoding. History of
+  // the earlier, smaller budget below.
   //
   // The previous 128 MiB was chosen when oversized tiles decoded at
   // native size; after DPR-aware decode sizing (each tile decodes at
@@ -61,7 +65,7 @@ Future<void> main(List<String> args) async {
   // re-decodes while scrolling large collections.
   PaintingBinding.instance.imageCache.maximumSize = 500;
   PaintingBinding.instance.imageCache.maximumSizeBytes =
-      64 << 20; // 64 MiB
+      512 << 20; // 512 MiB
   if (runWebViewTitleBarWidget(args)) return;
   // libmpv is deliberately NOT dlopened here. MediaKit.ensureInitialized()
   // just dlopens a multi-MB .so (media_kit's NativeLibrary) — pure
