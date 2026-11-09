@@ -1,10 +1,7 @@
-import 'dart:ui';
-
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../../../ui/theme/tokens.dart';
 
 /// ONE reusable Fluent scrollbar treatment.
 ///
@@ -26,19 +23,7 @@ class WaveThinScrollbar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return RawScrollbar(
-      controller: controller,
-      thumbVisibility: thumbVisible,
-      thickness: 6,
-      radius: const Radius.circular(WaveRadius.tiny),
-      minThumbLength: 40,
-      fadeDuration: WaveMotion.normal,
-      timeToFade: const Duration(milliseconds: 800),
-      pressDuration: Duration.zero,
-      child: child,
-    );
-  }
+  Widget build(BuildContext context) => child;
 }
 
 /// Global scroll behaviour: thin Fluent bars, smooth inertia scroll physics,
@@ -73,35 +58,12 @@ class WaveScrollBehavior extends FluentScrollBehavior {
   @override
   Widget buildScrollbar(
       BuildContext context, Widget child, ScrollableDetails details) {
-    Widget scrollbar;
-    // Horizontal carousels: deliberate scroll, no permanent bar.
-    if (details.direction == AxisDirection.left ||
-        details.direction == AxisDirection.right) {
-      scrollbar = RawScrollbar(
-        controller: details.controller,
-        thumbVisibility: false,
-        thickness: 4,
-        radius: const Radius.circular(WaveRadius.tiny),
-        fadeDuration: WaveMotion.fast,
-        timeToFade: const Duration(milliseconds: 600),
-        child: child,
-      );
-    } else {
-      scrollbar = RawScrollbar(
-        controller: details.controller,
-        thumbVisibility: false,
-        thickness: 6,
-        radius: const Radius.circular(WaveRadius.tiny),
-        minThumbLength: 40,
-        fadeDuration: WaveMotion.normal,
-        timeToFade: const Duration(milliseconds: 800),
-        child: child,
-      );
-    }
+    // Do not render a scrollbar anywhere in the application. Keep the
+    // smooth-scroll listener so mouse-wheel scrolling remains unchanged.
     return WaveSmoothScroll(
       controller: details.controller,
       direction: details.direction,
-      child: scrollbar,
+      child: child,
     );
   }
 }
