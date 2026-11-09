@@ -1,20 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/network/dio_factory.dart';
-import '../../core/storage/secure_store.dart';
-import 'apple_music_catalog.dart';
-
 import '../../core/network/lastfm_api.dart';
 import '../../core/storage/app_database.dart';
 import '../innertube/innertube_api.dart';
 import '../lastfm/auth_repository.dart';
 import 'shared_providers.dart';
 
-enum SearchTab { tracks, artists, albums, playlists, users }
-
-const String searchCatalogYoutubeMusic = 'youtube_music';
-const String searchCatalogAppleMusic = 'apple_music';
-const String searchCatalogTidal = 'tidal';
+enum SearchTab { tracks, videos, artists, albums, playlists, users }
 
 class SearchResultItem {
   final String name;
@@ -25,9 +17,6 @@ class SearchResultItem {
   final String entityId;
   final SearchTab tab;
   final int durationSeconds;
-  final String catalogProvider;
-  final String isrc;
-  final String externalUrl;
 
   const SearchResultItem({
     required this.name,
@@ -38,9 +27,6 @@ class SearchResultItem {
     this.entityId = '',
     required this.tab,
     this.durationSeconds = 0,
-    this.catalogProvider = searchCatalogYoutubeMusic,
-    this.isrc = '',
-    this.externalUrl = '',
   });
 }
 
@@ -94,11 +80,8 @@ class SearchRepository {
     this._tube,
     this._db,
     this._apiKey, {
-    this._appleCatalog,
     DateTime Function()? clock,
   }) : _now = clock ?? DateTime.now;
-
-  final AppleMusicCatalogApi? _appleCatalog;
   final DateTime Function() _now;
 
   /// Session memo for repeat queries. The result providers are autoDispose
@@ -209,53 +192,22 @@ class SearchRepository {
 
   Future<List<SearchResultItem>> search(
     SearchTab tab,
-    String query, {
-    String catalogProvider = searchCatalogYoutubeMusic,
-  }) {
+    String query,
+  ) {
     final q = query.trim();
     if (q.isEmpty) return Future.value(const []);
-    final provider = tab == SearchTab.tracks
-        ? catalogProvider
-        : searchCatalogYoutubeMusic;
     return _memoized(
-      '${tab.name}|$provider|${q.toLowerCase()}',
-      () => _search(tab, q, provider),
+      '${tab.name}|${q.toLowerCase()}',
+      () => _search(tab, q),
     );
   }
 
   Future<List<SearchResultItem>> _search(
     SearchTab tab,
     String q,
-    String catalogProvider,
   ) async {
     switch (tab) {
       case SearchTab.tracks:
-        if (catalogProvider == searchCatalogAppleMusic) {
-          final api = _appleCatalog;
-          if (api == null) {
-            throw const AppleMusicCatalogException(
-              'Apple Music catalog search is not configured in this build.',
-            );
-          }
-          final tracks = await api.searchSongs(q);
-          return tracks.map((t) => SearchResultItem(
-            name: t.title,
-            artist: t.artist,
-            artworkUrl: t.artworkUrl,
-            subtitle: t.album,
-            entityId: t.id,
-            tab: SearchTab.tracks,
-            durationSeconds: t.durationSeconds,
-            catalogProvider: searchCatalogAppleMusic,
-            isrc: t.isrc,
-            externalUrl: t.url,
-          )).toList();
-        }
-        if (catalogProvider == searchCatalogTidal) {
-          throw UnsupportedError(
-            'TIDAL catalog search is pending written approval for this app use.',
-          );
-        }
         final tracks = await _tube.searchSongs(q, limit: 60);
         return tracks
             .map((t) => SearchResultItem(
@@ -265,8 +217,22 @@ class SearchRepository {
                   subtitle: t.album,
                   videoId: t.videoId,
                   entityId: t.videoId,
-                  tab: tab,
+                  tab: SearchTab.tracks,
                   durationSeconds: t.durationSeconds,
+                ))
+            .toList();
+      case SearchTab.videos:
+        final videos = await _tube.searchVideos(q, limit: 60);
+        return videos
+            .map((v) => SearchResultItem(
+                  name: v.title,
+                  artist: v.artist,
+                  artworkUrl: v.artworkUrl,
+                  subtitle: v.album,
+                  videoId: v.videoId,
+                  entityId: v.videoId,
+                  tab: SearchTab.videos,
+                  durationSeconds: v.durationSeconds,
                 ))
             .toList();
       case SearchTab.artists:
@@ -597,15 +563,10 @@ List<SearchResultItem> rankSearchPlaylistsByTaste(
 }
 
 final searchRepositoryProvider = Provider<SearchRepository>((ref) {
-  final secureStore = ref.watch(secureStoreProvider);
   return SearchRepository(
     ref.watch(lastFmApiProvider),
     ref.watch(innerTubeProvider),
     ref.watch(databaseProvider),
     () => ref.watch(prefsApiKeyProvider),
-    appleCatalog: AppleMusicCatalogApi(
-      dio: DioFactory.create(),
-      readDeveloperToken: secureStore.readAppleMusicDeveloperToken,
-    ),
   );
 });
