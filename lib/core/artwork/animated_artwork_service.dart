@@ -474,12 +474,14 @@ class CanvasDiskCache {
 
   Future<String?> _download(String url) async {
     HttpClient? client;
+    File? tmp;
+    var committed = false;
     try {
       final target = _fileFor(url);
       if (target.existsSync() && target.lengthSync() >= _minValidBytes) {
         return target.path;
       }
-      final tmp = File('${target.path}.tmp');
+      tmp = File('${target.path}.tmp');
       client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
       final req = await client.getUrl(Uri.parse(url));
       headersForAnimatedArtworkUrl(url).forEach(req.headers.set);
@@ -507,23 +509,37 @@ class CanvasDiskCache {
         } catch (_) {}
       }
       tmp.renameSync(target.path);
+      committed = true;
       _evictIfNeeded();
       return target.path;
     } catch (_) {
       return null;
     } finally {
       client?.close(force: false);
+      // A failed/aborted download used to leave its `.tmp` behind forever
+      // (eviction only counted `.mp4`), growing the dir past the cap.
+      if (!committed) {
+        try {
+          if (tmp != null && tmp.existsSync()) tmp.deleteSync();
+        } catch (_) {}
+      }
     }
   }
 
   void _evictIfNeeded() {
     try {
       final dir = _ensureDir();
-      final files = dir
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.mp4'))
-          .toList();
+      final all = dir.listSync().whereType<File>().toList();
+      // Orphaned partials from a crash/kill mid-download: anything older
+      // than an hour is not an in-flight download any more.
+      final staleBefore = DateTime.now().subtract(const Duration(hours: 1));
+      for (final f in all) {
+        if (!f.path.endsWith('.tmp')) continue;
+        try {
+          if (f.statSync().modified.isBefore(staleBefore)) f.deleteSync();
+        } catch (_) {}
+      }
+      final files = all.where((f) => f.path.endsWith('.mp4')).toList();
       var totalBytes = 0;
       final entries = <({File file, int size, DateTime modified})>[];
       for (final file in files) {
