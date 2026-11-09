@@ -1,7 +1,6 @@
 import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
@@ -65,31 +64,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   bool _showEqualizer = false;
   bool _showQueue = false;
   bool _offlineNoticeDismissed = false;
-  Offset? _touchStart;
-
   String get _route => waveRoutePath(widget.location);
-
-  void _handleTouchStart(PointerDownEvent event) {
-    if (event.kind == PointerDeviceKind.touch) _touchStart = event.position;
-  }
-
-  void _handleTouchEnd(PointerUpEvent event) {
-    final start = _touchStart;
-    _touchStart = null;
-    if (start == null || event.kind != PointerDeviceKind.touch) return;
-    final delta = event.position - start;
-    if (delta.dx.abs() < 140 || delta.dy.abs() > 64) return;
-    final focusedContext = FocusManager.instance.primaryFocus?.context;
-    if (focusedContext?.findAncestorWidgetOfExactType<EditableText>() != null) {
-      return;
-    }
-    final playback = ref.read(playbackServiceProvider.notifier);
-    if (delta.dx < 0) {
-      playback.next();
-    } else {
-      playback.previous();
-    }
-  }
 
   @override
   void didUpdateWidget(WaveMobileShell oldWidget) {
@@ -220,11 +195,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                 ColoredBox(
                   color: waveBackground(context).withValues(alpha: 0.82),
                   child: SafeArea(
-                    child: Listener(
-                  onPointerDown: _handleTouchStart,
-                  onPointerUp: _handleTouchEnd,
-                  onPointerCancel: (_) => _touchStart = null,
-                  child: Column(
+                    child: Column(
                   children: [
                     if (!nowPlaying)
                       _MobileMiniPlayer(onOpen: _openNowPlaying),
@@ -370,7 +341,6 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                   ],
                     ),
                   ),
-                ),
               ),
               ],
             ),
