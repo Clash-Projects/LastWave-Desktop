@@ -41,7 +41,7 @@ void main() {
           ],
           isSynced: true,
           isWordSynced: true,
-          source: 'Apple Music',
+          source: 'karaoke provider',
         );
 
         final model = convertToFlutterLyricModel(
@@ -76,7 +76,7 @@ void main() {
     );
 
     test(
-      'convertToFlutterLyricModel omits word timings for Apple line lyrics',
+      'convertToFlutterLyricModel omits word timings for line-synced lyrics',
       () {
         const result = lm.LyricsResult(
           lines: [
@@ -171,20 +171,20 @@ void main() {
     });
 
     testWidgets(
-      'buildAppleMusicLyricStyle constructs valid Apple Music style',
+      'buildKaraokeLyricStyle constructs valid karaoke provider style',
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
             home: Builder(
               builder: (context) {
-                final style = buildAppleMusicLyricStyle(
+                final style = buildKaraokeLyricStyle(
                   context,
                   compact: false,
                   isDark: true,
                   isRtl: false,
                 );
 
-                // Validate Apple Music style properties
+                // Validate karaoke provider style properties
                 expect(style.activeAnchorPosition, equals(0.34));
                 // Equal to activeAnchor so flutter_lyric does not clamp
                 // short tracks to the bottom of the panel.
@@ -204,7 +204,7 @@ void main() {
                   isTrue,
                 );
 
-                final rtlStyle = buildAppleMusicLyricStyle(
+                final rtlStyle = buildKaraokeLyricStyle(
                   context,
                   compact: true,
                   isDark: false,
