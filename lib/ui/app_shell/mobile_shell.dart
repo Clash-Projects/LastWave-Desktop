@@ -12,6 +12,7 @@ import '../../features/player/playback_service.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../components/artwork.dart';
+import '../components/ambient.dart' show artworkSeedProvider;
 import '../navigation/destinations.dart';
 import '../queue/queue_panel.dart';
 import '../components/buttons.dart' show LWVolumeSlider, WaveButton;
@@ -471,22 +472,23 @@ class _PhoneNavigation extends StatelessWidget {
     return Container(
       height: 74,
       margin: const EdgeInsets.fromLTRB(14, 5, 14, 8),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      decoration: BoxDecoration(
-        color: waveSurface(context),
+      child: WaveHaze(
+        level: LwHazeLevel.l2,
+        base: waveSurface(context),
         borderRadius: BorderRadius.circular(25),
         border: Border.all(color: waveDivider(context)),
-        boxShadow: [
+        shadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: waveIsDark(context) ? 0.24 : 0.08),
             blurRadius: 22,
             offset: const Offset(0, 7),
           ),
         ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(19),
-        child: Row(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(19),
+            child: Row(
         children: [
           for (final destination in _phoneDestinations)
             Expanded(
@@ -509,7 +511,9 @@ class _PhoneNavigation extends StatelessWidget {
               ),
             ),
           ),
-        ],
+            ],
+            ),
+          ),
         ),
       ),
     );
@@ -616,6 +620,9 @@ class _MobileTransportDock extends ConsumerWidget {
     final hasDuration = duration > Duration.zero;
     final volume = snapshot.volume.clamp(0.0, 1.0).toDouble();
     final quality = snapshot.stream?.qualityBadge ?? '';
+    final artworkTint = ref
+        .watch(artworkSeedProvider(snapshot.current?.artworkUrl ?? ''))
+        .valueOrNull;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 3, 12, 8),
@@ -824,6 +831,9 @@ class _MobileMiniPlayer extends ConsumerWidget {
         ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
     final playlists = ref.watch(playlistRepositoryProvider);
     final track = player.current;
+    final artworkTint = ref
+        .watch(artworkSeedProvider(track?.artworkUrl ?? ''))
+        .valueOrNull;
     final trackKey = track == null
         ? ''
         : '${track.title.toLowerCase()}|${track.artist.toLowerCase()}';
@@ -857,6 +867,7 @@ class _MobileMiniPlayer extends ConsumerWidget {
       child: WaveHaze(
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),
+        artworkTint: artworkTint,
         borderRadius: BorderRadius.circular(16),
         border: waveIsDark(context)
             ? Border.all(color: waveDivider(context).withValues(alpha: 0.8))
