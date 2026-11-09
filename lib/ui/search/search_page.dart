@@ -14,7 +14,6 @@ import '../../app/track_actions.dart'
     show formatDuration;
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
-import '../../features/feed/feed_repository.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/player/playback_service.dart';
@@ -1222,7 +1221,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
               album:
                   rankedAlbums.isNotEmpty ? rankedAlbums.first : null,
               onPrimary: _primary,
-              onPlay: (h) => _playSingle(ref, context, h),
+              onPlay: (h) => _playSingle(ref, h),
             ),
             ),
           const SizedBox(height: 24),
