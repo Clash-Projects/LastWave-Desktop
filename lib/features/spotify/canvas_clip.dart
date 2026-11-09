@@ -10,7 +10,7 @@ import 'spotify_auth.dart';
 class CanvasPanelClip {
   final String url;
 
-  /// Provider label shown on the panel ("Spotify", "Apple Music", …).
+  /// Provider label shown on the panel ("Spotify", "TIDAL", …).
   final String source;
 
   /// True when the clip is a real vertical canvas. Square album motion
@@ -99,8 +99,7 @@ final canvasPanelClipProvider = FutureProvider.autoDispose
           clip: CanvasPanelClip(
             url: tall ? art.urlTall : art.url,
             source: switch (art.source) {
-              CanvasSource.apple => 'Apple Music',
-              CanvasSource.tidal => 'Tidal',
+              CanvasSource.tidal => 'TIDAL',
               CanvasSource.community => 'Community',
             },
             vertical: tall,
