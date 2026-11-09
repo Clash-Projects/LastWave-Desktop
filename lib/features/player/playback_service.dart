@@ -2875,19 +2875,21 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     for (var attempt = 0; attempt < 2; attempt++) {
       int matchMs = 0;
       try {
-        // Best-effort: strict → primary-artist (collab billing like
-        // "A; B; C") → title-only. Home feed tracks carry Last.fm
-        // billing that fails the strict artist gate on songs that
-        // plainly exist on YouTube. Budgets live inside (5s/tier);
-        // the outer cap is a safety net only.
+        // Strict mode never drops the artist or accepts a title-only
+        // video. The optional compatibility mode keeps the older matcher.
         final matchSw = Stopwatch()..start();
-        final match = await _tube
-            .findVerifiedMatchOrNull(
-              track.title,
-              track.artist,
-              expectedDurationSeconds: track.duration.inSeconds,
-              excludedVideoIds: excluded,
-            )
+        final match = await (_prefs.strictTrackMatching
+                ? _tube.findVerifiedMatchOrNull(
+                    track.title,
+                    track.artist,
+                    expectedDurationSeconds: track.duration.inSeconds,
+                    excludedVideoIds: excluded,
+                  )
+                : _tube.findBestEffortMatchOrNull(
+                    track.title,
+                    track.artist,
+                    excludedVideoIds: excluded,
+                  ))
             .timeout(const Duration(seconds: 20), onTimeout: () => null);
         matchSw.stop();
         matchMs = matchSw.elapsedMilliseconds;
