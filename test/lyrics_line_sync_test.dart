@@ -3,8 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_models.dart';
 import 'package:lastwave_desktop/features/lyrics/lyrics_repository.dart';
 
-/// Line-by-line reproduction: LRCLIB holds ONLY a line-synced record,
-/// Apple/iTunes holds nothing. Both display modes must yield usable lines.
+/// Line-by-line reproduction: LRCLIB holds a line-synced record that both
+/// display modes must handle.
 const _lineSyncedRecord = {
   'id': 1250,
   'trackName': 'Shape of You',
@@ -23,16 +23,6 @@ Dio _stubDio() {
     InterceptorsWrapper(
       onRequest: (options, handler) {
         final url = options.uri.toString();
-        if (url.contains('itunes.apple.com')) {
-          handler.resolve(
-            Response(
-              requestOptions: options,
-              statusCode: 200,
-              data: '{"resultCount":0,"results":[]}',
-            ),
-          );
-          return;
-        }
         if (url.contains('lrclib.net/api/get')) {
           handler.reject(
             DioException(
@@ -52,16 +42,6 @@ Dio _stubDio() {
               requestOptions: options,
               statusCode: 200,
               data: [_lineSyncedRecord],
-            ),
-          );
-          return;
-        }
-        if (url.contains('paxsenix')) {
-          handler.resolve(
-            Response(
-              requestOptions: options,
-              statusCode: 200,
-              data: <String, dynamic>{},
             ),
           );
           return;
