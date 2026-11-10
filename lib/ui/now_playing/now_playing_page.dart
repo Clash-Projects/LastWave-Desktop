@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide RepeatMode;
@@ -1542,6 +1543,9 @@ class _OutsetClipper extends CustomClipper<Rect> {
   bool shouldReclip(covariant _OutsetClipper old) => old.outset != outset;
 }
 
+/// Full-bleed blurred artwork backdrop adapted from LastWave-Native's
+/// FullPlayer artwork stage. The existing animated ambient remains an
+/// optional layer; the soft artwork haze is the stable base on iOS/iPadOS.
 class _NowAmbient extends ConsumerWidget {
   final String artworkUrl;
 
@@ -1549,24 +1553,61 @@ class _NowAmbient extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Prefs is a read-only Provider around SharedPreferences and does not
-    // notify by itself. Settings refreshes ThemeController after each
-    // preference write, so watch its state to repaint this mounted route.
+    // Prefs is read-only; ThemeController is refreshed by Settings writes.
     ref.watch(themeControllerProvider);
-    final dynamicArtwork = ref.read(prefsProvider).dynamicNowPlaying;
-    if (!dynamicArtwork || artworkUrl.isEmpty) {
+    if (artworkUrl.isEmpty || !artworkUrl.startsWith('http')) {
       return const SizedBox.shrink();
     }
+
+    final dynamicArtwork = ref.read(prefsProvider).dynamicNowPlaying;
     final visible = ref.watch(windowVisibleProvider);
-    return TickerMode(
-      enabled: visible,
-      child: WaveAmbientMesh(
-        artworkUrl: artworkUrl,
-        isFullBleed: true,
-        cinematic: true,
-        apple: ref.watch(ambientStyleProvider) == AmbientStyle.artworkAura,
-        respectVisualizerToggle: false,
-      ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Native keeps a blurred, enlarged copy of the current sleeve behind
+        // the player controls so the stage feels connected to the track.
+        ClipRect(
+          child: ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+            child: Transform.scale(
+              scale: 1.24,
+              child: CachedNetworkImage(
+                imageUrl: artworkUrl,
+                fit: BoxFit.cover,
+                fadeInDuration: Duration.zero,
+                fadeOutDuration: Duration.zero,
+                errorWidget: (_, _, _) => const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        ),
+        const ColoredBox(color: Color(0x99000000)),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0x33000000),
+                Color(0x55000000),
+                Color(0xB8000000),
+              ],
+              stops: [0.0, 0.48, 1.0],
+            ),
+          ),
+        ),
+        if (dynamicArtwork)
+          TickerMode(
+            enabled: visible,
+            child: WaveAmbientMesh(
+              artworkUrl: artworkUrl,
+              isFullBleed: true,
+              cinematic: true,
+              apple: ref.watch(ambientStyleProvider) == AmbientStyle.artworkAura,
+              respectVisualizerToggle: false,
+            ),
+          ),
+      ],
     );
   }
 }
