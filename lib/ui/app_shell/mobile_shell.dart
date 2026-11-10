@@ -799,6 +799,8 @@ class _MobileMiniPlayer extends ConsumerWidget {
         ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
     final playlists = ref.watch(playlistRepositoryProvider);
     final track = player.current;
+    // Keep secondary track actions on tablet-sized layouts only.
+    final showLibraryActions = MediaQuery.sizeOf(context).width >= 600;
     final artworkTint = ref
         .watch(artworkSeedProvider(track?.artworkUrl ?? ''))
         .valueOrNull;
@@ -910,48 +912,50 @@ class _MobileMiniPlayer extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  _MobileDownloadButton(track: track, width: 36),
-                  _TouchIconButton(
-                    icon: isLiked ? FluentIcons.heart_fill : FluentIcons.heart,
-                    tooltip: isLiked ? 'Remove from Liked Songs' : 'Like song',
-                    width: 36,
-                    onPressed: track == null
-                        ? null
-                        : () async {
-                            final repository =
-                                ref.read(playlistRepositoryProvider.notifier);
-                            if (isLiked) {
-                              final liked = ref
-                                  .read(playlistRepositoryProvider)
-                                  .where((p) => p.isLikedSongs)
-                                  .toList();
-                              if (liked.isNotEmpty) {
-                                await repository.removeTrack(
-                                  liked.first.id,
-                                  trackKey,
+                  if (showLibraryActions) ...[
+                    _MobileDownloadButton(track: track, width: 36),
+                    _TouchIconButton(
+                      icon: isLiked ? FluentIcons.heart_fill : FluentIcons.heart,
+                      tooltip: isLiked ? 'Remove from Liked Songs' : 'Like song',
+                      width: 36,
+                      onPressed: track == null
+                          ? null
+                          : () async {
+                              final repository =
+                                  ref.read(playlistRepositoryProvider.notifier);
+                              if (isLiked) {
+                                final liked = ref
+                                    .read(playlistRepositoryProvider)
+                                    .where((p) => p.isLikedSongs)
+                                    .toList();
+                                if (liked.isNotEmpty) {
+                                  await repository.removeTrack(
+                                    liked.first.id,
+                                    trackKey,
+                                  );
+                                }
+                              } else {
+                                final liked = await repository.ensureLikedSongs();
+                                await repository.addTrack(
+                                  liked.id,
+                                  StoredTrack.fromPlayable(track),
                                 );
                               }
-                            } else {
-                              final liked = await repository.ensureLikedSongs();
-                              await repository.addTrack(
-                                liked.id,
+                            },
+                    ),
+                    _TouchIconButton(
+                      icon: FluentIcons.add,
+                      tooltip: 'Add to playlist',
+                      width: 36,
+                      onPressed: track == null
+                          ? null
+                          : () => showWaveAddToPlaylist(
+                                context,
+                                ref,
                                 StoredTrack.fromPlayable(track),
-                              );
-                            }
-                          },
-                  ),
-                  _TouchIconButton(
-                    icon: FluentIcons.add,
-                    tooltip: 'Add to playlist',
-                    width: 36,
-                    onPressed: track == null
-                        ? null
-                        : () => showWaveAddToPlaylist(
-                              context,
-                              ref,
-                              StoredTrack.fromPlayable(track),
-                            ),
-                  ),
+                              ),
+                    ),
+                  ],
                   _TouchIconButton(
                     icon: WaveIcons.previous,
                     tooltip: 'Previous track',
