@@ -30,3 +30,5 @@ the separate licenses of third-party dependencies and assets.
 
 - `lib/ui/home/home_page.dart`: `My genres` and the three-track horizontal Quick Picks columns adapt `TasteStrip` and `QuickPicksRows` from `ui/feed/FeedTiles.kt`. Genre chips use the existing Last.fm/local genre provider and YouTube Music genre-track provider, with the existing playback service to start radio.
 - `lib/features/feed/home_shelf_layout.dart`: configurable Flutter shelf order now places supported Native Feed sections in Native's default sequence; greeting, Infinite Radio, and Quick Access remain structural elements.
+
+- `lib/ui/app_shell/mobile_shell.dart`: the shortcut dock is independently positioned over the page with reserved bottom content space, rather than occupying a shared bottom layout row. Search is promoted from More into the floating dock; the mini-player retains its own centered, rounded surface and separate spacing.

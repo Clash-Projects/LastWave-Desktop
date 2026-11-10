@@ -30,10 +30,10 @@ const _nativeMainDestinations = <WaveDestination>[
   WaveDestination('/home', 'Feed', WaveIcons.home),
   WaveDestination('/stats', 'Stats', WaveIcons.stats),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
+  WaveDestination('/search', 'Search', WaveIcons.search),
 ];
 
 const _phoneMoreDestinations = <WaveDestination>[
-  WaveDestination('/search', 'Search', WaveIcons.search),
   WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
   WaveDestination('/settings', 'Settings', WaveIcons.settings),
   WaveDestination('/home-layout', 'Edit Home', WaveIcons.edit),
@@ -223,7 +223,12 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          widget.child,
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: nowPlaying ? 0 : 88,
+                            ),
+                            child: widget.child,
+                          ),
                           if (_showMore && !nowPlaying)
                             Positioned.fill(
                               child: ColoredBox(
@@ -318,6 +323,20 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                 ),
                               ),
                             ),
+                          if (!nowPlaying)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: _PhoneNavigation(
+                                activePath: activePath,
+                                moreActive: moreActive,
+                                showMore: _showMore,
+                                onGo: _go,
+                                onMore: () =>
+                                    setState(() => _showMore = !_showMore),
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -333,15 +352,6 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                         }),
                         queueActive: _showQueue,
                         equalizerActive: _showEqualizer,
-                      ),
-                    if (!nowPlaying)
-                      _PhoneNavigation(
-                        activePath: activePath,
-                        moreActive: moreActive,
-                        showMore: _showMore,
-                        onGo: _go,
-                        onMore: () =>
-                            setState(() => _showMore = !_showMore),
                       ),
                   ],
                     ),
@@ -874,7 +884,7 @@ class _MobileMiniPlayer extends ConsumerWidget {
         constraints: const BoxConstraints(maxWidth: 680),
         child: Container(
       height: 82,
-      margin: const EdgeInsets.fromLTRB(14, 7, 14, 7),
+      margin: const EdgeInsets.fromLTRB(14, 9, 14, 10),
       child: WaveHaze(
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),
