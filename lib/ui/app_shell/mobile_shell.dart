@@ -634,7 +634,7 @@ class _MobileTransportDock extends ConsumerWidget {
     final volume = snapshot.volume.clamp(0.0, 1.0).toDouble();
     final quality = snapshot.stream?.qualityBadge ?? '';
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 3, 12, 8),
+      padding: const EdgeInsets.fromLTRB(10, 2, 10, 5),
       decoration: BoxDecoration(
         color: waveSurface(context),
         border: Border(top: BorderSide(color: waveDivider(context))),
@@ -644,13 +644,10 @@ class _MobileTransportDock extends ConsumerWidget {
         children: [
           Row(
             children: [
-              SizedBox(
-                width: 38,
-                child: Text(
-                  hasDuration ? _time(snapshot.position) : '--:--',
-                  style: WaveType.meta,
-                ),
-              ),
+              SizedBox(width: 34, child: Text(
+                hasDuration ? _time(snapshot.position) : '--:--',
+                style: WaveType.meta,
+              )),
               Expanded(
                 child: wavySeekbar
                     ? WaveTimeline(
@@ -659,159 +656,107 @@ class _MobileTransportDock extends ConsumerWidget {
                         total: duration,
                         showThumb: hasDuration,
                         onSeek: hasDuration ? playback.seek : null,
-                        baseColor:
-                            waveTextSecondary(context).withValues(alpha: 0.12),
-                        bufferedColor:
-                            waveTextSecondary(context).withValues(alpha: 0.18),
+                        baseColor: waveTextSecondary(context).withValues(alpha: 0.12),
+                        bufferedColor: waveTextSecondary(context).withValues(alpha: 0.18),
                         progressColor: waveTextPrimary(context),
                         thumbColor: waveTextPrimary(context),
-                        thumbGlowColor:
-                            waveAccent(context).withValues(alpha: 0.25),
+                        thumbGlowColor: waveAccent(context).withValues(alpha: 0.25),
                       )
                     : avp.ProgressBar(
                         progress: snapshot.position,
                         buffered: snapshot.buffered,
-                        total:
-                            hasDuration ? duration : const Duration(seconds: 1),
+                        total: hasDuration ? duration : const Duration(seconds: 1),
                         onSeek: hasDuration ? playback.seek : null,
                         barHeight: 3,
                         thumbRadius: hasDuration ? 5 : 0,
                         thumbColor: waveTextPrimary(context),
                         progressBarColor: waveTextPrimary(context),
-                        bufferedBarColor:
-                            waveTextSecondary(context).withValues(alpha: 0.22),
-                        baseBarColor:
-                            waveTextSecondary(context).withValues(alpha: 0.12),
+                        bufferedBarColor: waveTextSecondary(context).withValues(alpha: 0.22),
+                        baseBarColor: waveTextSecondary(context).withValues(alpha: 0.12),
                         timeLabelLocation: avp.TimeLabelLocation.none,
                       ),
               ),
-              SizedBox(
-                width: 38,
-                child: Text(
-                  hasDuration ? _time(duration) : '--:--',
-                  textAlign: TextAlign.end,
-                  style: WaveType.meta,
-                ),
-              ),
+              SizedBox(width: 34, child: Text(
+                hasDuration ? _time(duration) : '--:--',
+                textAlign: TextAlign.end,
+                style: WaveType.meta,
+              )),
             ],
           ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _TouchIconButton(
-                icon: WaveIcons.shuffle,
-                tooltip: 'Shuffle',
-                selected: snapshot.shuffleEnabled,
-                onPressed: playback.toggleShuffle,
-              ),
-              _TouchIconButton(
-                icon: WaveIcons.previous,
-                tooltip: 'Previous track',
-                onPressed: playback.previous,
-              ),
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: waveTextPrimary(context),
-                  shape: BoxShape.circle,
-                ),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: playback.toggle,
-                  child: Icon(
-                    snapshot.isPlaying ? WaveIcons.pause : WaveIcons.play,
-                    color: waveBackground(context),
-                    size: 23,
-                  ),
-                ),
-              ),
-              _TouchIconButton(
-                icon: WaveIcons.next,
-                tooltip: 'Next track',
-                onPressed: playback.next,
-              ),
-              _TouchIconButton(
-                icon: snapshot.repeatMode.name == 'one'
-                    ? WaveIcons.repeatOne
-                    : WaveIcons.repeat,
-                tooltip: 'Repeat mode',
-                selected: snapshot.repeatMode.name != 'off',
-                onPressed: playback.cycleRepeat,
-              ),
-            ],
-          ),
+          const SizedBox(height: 2),
           LayoutBuilder(
             builder: (context, constraints) {
-              final compact = constraints.maxWidth < 420;
-              return Row(
+              final compact = constraints.maxWidth < 520;
+              final buttonWidth = compact ? 44.0 : 48.0;
+              final controls = Row(
+                mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  _TouchIconButton(icon: WaveIcons.shuffle, tooltip: 'Shuffle',
+                    selected: snapshot.shuffleEnabled, width: buttonWidth,
+                    onPressed: playback.toggleShuffle),
+                  const SizedBox(width: 7),
+                  _TouchIconButton(icon: WaveIcons.previous, tooltip: 'Previous track',
+                    width: buttonWidth, onPressed: playback.previous),
+                  const SizedBox(width: 7),
+                  Container(
+                    width: 46, height: 46,
+                    decoration: BoxDecoration(color: waveTextPrimary(context), shape: BoxShape.circle),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: playback.toggle,
+                      child: Icon(snapshot.isPlaying ? WaveIcons.pause : WaveIcons.play,
+                        color: waveBackground(context), size: 22),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  _TouchIconButton(icon: WaveIcons.next, tooltip: 'Next track',
+                    width: buttonWidth, onPressed: playback.next),
+                  const SizedBox(width: 7),
                   _TouchIconButton(
-                    icon: WaveIcons.queue,
-                    tooltip: 'Queue',
-                    selected: queueActive,
-                    width: compact ? 42 : 48,
-                    onPressed: onQueue,
-                  ),
-                  _TouchIconButton(
-                    icon: WaveIcons.equalizer,
-                    tooltip: 'Equalizer',
-                    selected: equalizerActive,
-                    width: compact ? 42 : 48,
-                    onPressed: onEqualizer,
-                  ),
-                  _MobileDownloadButton(
-                    track: snapshot.current,
-                    width: compact ? 42 : 48,
-                  ),
-                  if (!compact && quality.isNotEmpty)
+                    icon: snapshot.repeatMode.name == 'one' ? WaveIcons.repeatOne : WaveIcons.repeat,
+                    tooltip: 'Repeat mode', selected: snapshot.repeatMode.name != 'off',
+                    width: buttonWidth, onPressed: playback.cycleRepeat),
+                  const SizedBox(width: compact ? 10 : 20),
+                  _TouchIconButton(icon: WaveIcons.queue, tooltip: 'Queue',
+                    selected: queueActive, width: buttonWidth, onPressed: onQueue),
+                  _TouchIconButton(icon: WaveIcons.equalizer, tooltip: 'Equalizer',
+                    selected: equalizerActive, width: buttonWidth, onPressed: onEqualizer),
+                  _MobileDownloadButton(track: snapshot.current, width: buttonWidth),
+                  if (!compact && quality.isNotEmpty) ...[
+                    const SizedBox(width: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         border: Border.all(color: waveDivider(context)),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        quality,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: WaveType.overline.copyWith(fontSize: 9),
-                      ),
-                    ),
-                  const SizedBox(width: 12),
-                  _TouchIconButton(
-                    icon: volume <= 0 ? WaveIcons.volumeMute : WaveIcons.volume,
-                    tooltip: volume <= 0
-                        ? 'Unmute'
-                        : 'Mute (${(volume * 100).round()}%)',
-                    width: compact ? 42 : 48,
-                    onPressed: output.toggleMute,
-                  ),
-                  const SizedBox(width: 2),
-                  LWVolumeSlider(
-                    value: volume,
-                    width: compact ? 64 : 88,
-                    semanticLabel: 'Playback volume',
-                    onChanged: output.setVolume,
-                  ),
-                  if (!compact) ...[
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 46,
-                      child: Text(
-                        '${(volume * 100).round()}%',
-                        maxLines: 1,
-                        softWrap: false,
-                        textAlign: TextAlign.center,
-                        style: WaveType.meta,
-                      ),
+                        borderRadius: BorderRadius.circular(8)),
+                      child: Text(quality, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: WaveType.overline.copyWith(fontSize: 9)),
                     ),
                   ],
+                  const SizedBox(width: 10),
+                  _TouchIconButton(
+                    icon: volume <= 0 ? WaveIcons.volumeMute : WaveIcons.volume,
+                    tooltip: volume <= 0 ? 'Unmute' : 'Mute (${(volume * 100).round()}%)',
+                    width: buttonWidth, onPressed: output.toggleMute),
+                  SizedBox(width: compact ? 62 : 88,
+                    child: LWVolumeSlider(value: volume, width: compact ? 62 : 88,
+                      semanticLabel: 'Playback volume', onChanged: output.setVolume)),
+                  if (!compact) ...[
+                    const SizedBox(width: 4),
+                    SizedBox(width: 42, child: Text('${(volume * 100).round()}%',
+                      maxLines: 1, softWrap: false, textAlign: TextAlign.center,
+                      style: WaveType.meta)),
+                  ],
                 ],
+              );
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: compact ? const ClampingScrollPhysics() : const NeverScrollableScrollPhysics(),
+                child: SizedBox(
+                  width: compact ? math.max(constraints.maxWidth, 620) : constraints.maxWidth,
+                  child: Center(child: controls),
+                ),
               );
             },
           ),
