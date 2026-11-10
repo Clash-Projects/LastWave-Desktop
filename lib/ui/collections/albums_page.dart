@@ -260,7 +260,15 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
     
     void play() => _open();
     void quickPlay() => _quickPlay();
-    return MouseRegion(
+    return WaveContextMenu(
+      items: () => waveTrackMenuItems(
+        context: context,
+        ref: ref,
+        title: a.title,
+        artist: a.artist,
+        artworkUrl: a.artwork,
+      ),
+      child: MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() {
@@ -339,17 +347,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
-                                  WaveOverflowButton(
-                                    tooltip: 'More',
-                                    items: waveTrackMenuItems(
-                                      context: context,
-                                      ref: ref,
-                                      title: a.title,
-                                      artist: a.artist,
-                                      artworkUrl: a.artwork,
-                                    ),
-                                  ),
+
                                 ],
                               ),
                             ),
@@ -410,7 +408,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
           ),
         ),
       ),
-    )
+      ),
     );
   }
 }
