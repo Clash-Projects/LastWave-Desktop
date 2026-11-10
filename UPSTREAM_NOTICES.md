@@ -12,3 +12,7 @@ their source headers and in this document as the migration progresses.
 The full GPL-3.0 license is included in `LICENSE`. This repository's combined
 work is distributed under GPL-3.0, subject to the terms of that license and
 the separate licenses of third-party dependencies and assets.
+
+## Adapted UI files
+
+- `lib/ui/app_shell/mobile_shell.dart`: the floating three-destination navigation dock is adapted from `app/src/main/java/com/lastwave/app/ui/shell/MainShell.kt` in LastWave-Native. The Jetpack Compose implementation was translated to Flutter/Dart.
