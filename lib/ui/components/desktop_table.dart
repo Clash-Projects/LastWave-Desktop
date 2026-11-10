@@ -44,8 +44,8 @@ enum WaveSortDir { asc, desc }
 /// - Keyboard: Up/Down move focus, Enter plays, Delete removes where
 ///   applicable. Space is global play/pause (shell-owned); row
 ///   selection is mouse-driven (Ctrl/Shift+click).
-/// - Mouse: hover wash + play overlay on art + hover-only like/more,
-///   single tap focuses/selects, double-click plays, right-click menu.
+/// - Mouse/touch: a single tap plays; Ctrl/Shift-click still supports
+///   multi-selection, with hover-only like/more and right-click menus.
 /// - Playing row: animated [WaveEqDots] + accent title; durations tabular.
 ///
 /// Home / Discover / Collections render their track lists through this so
@@ -88,10 +88,9 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
   final bool Function(T item)? isLiked;
   final Future<void> Function(T item)? onToggleLike;
 
-  /// Play the row at [index]. Single tap only focuses — pass
-  /// [playOnSingleTap] to also play on single tap (e.g. search results).
+  /// Play the row at [index]. A normal single tap plays; Ctrl/Shift-click
+  /// remains available for multi-selection.
   final void Function(int index) onPlay;
-  final bool playOnSingleTap;
   final String? removeLabel;
   final void Function(int index)? onRemove;
 
@@ -144,7 +143,6 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
     this.isPlaying,
     this.isLiked,
     this.onToggleLike,
-    this.playOnSingleTap = false,
     this.removeLabel,
     this.onRemove,
     this.menuBuilder,
@@ -315,7 +313,7 @@ class _WaveDesktopTableState<T extends Object>
       if (widget.selectable) _internalSelected = _selected;
     });
     if (widget.selectable) _setSelected({widget.keyOf(widget.items[index])});
-    if (widget.playOnSingleTap) widget.onPlay(index);
+    widget.onPlay(index);
   }
 
   KeyEventResult _onKey(KeyEvent event) {
@@ -595,7 +593,6 @@ class _WaveDesktopTableState<T extends Object>
       ),
       onTap: ({required bool ctrl, required bool shift}) =>
           _onRowTap(index, ctrl: ctrl, shift: shift),
-      onDoubleTap: () => widget.onPlay(index),
       onPlayOverlay: () => widget.onPlay(index),
       onToggleLike: widget.onToggleLike == null
           ? null
@@ -788,7 +785,6 @@ class _TableRow<T extends Object> extends StatelessWidget {
   final bool liked;
   final void Function(bool) onHover;
   final void Function({required bool ctrl, required bool shift}) onTap;
-  final VoidCallback onDoubleTap;
   final VoidCallback onPlayOverlay;
   final VoidCallback? onToggleLike;
   final List<WaveMenuEntry> Function() menuItems;
@@ -819,7 +815,6 @@ class _TableRow<T extends Object> extends StatelessWidget {
     required this.liked,
     required this.onHover,
     required this.onTap,
-    required this.onDoubleTap,
     required this.onPlayOverlay,
     required this.onToggleLike,
     required this.menuItems,
@@ -846,12 +841,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
       cursor: SystemMouseCursors.click,
       onEnter: (_) => onHover(true),
       onExit: (_) => onHover(false),
-      child: Listener(
-        // Observe row presses without joining Flutter's gesture arena.
-        // A parent tap-down recognizer otherwise wins against the nested
-        // More-button tap recognizer on touch devices, leaving the menu inert.
+      child: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onPointerDown: (_) {
+        onTap: () {
           final keys = HardwareKeyboard.instance.logicalKeysPressed;
           final ctrl = keys.contains(LogicalKeyboardKey.controlLeft) ||
               keys.contains(LogicalKeyboardKey.controlRight) ||
@@ -861,9 +853,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
               keys.contains(LogicalKeyboardKey.shiftRight);
           onTap(ctrl: ctrl, shift: shift);
         },
-        child: GestureDetector(
-          onDoubleTap: onDoubleTap,
-          child: AnimatedContainer(
+        child: AnimatedContainer(
           duration: waveMotion(context, WaveMotion.fast),
             height: WaveDensity.trackRow,
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1044,7 +1034,6 @@ class _TableRow<T extends Object> extends StatelessWidget {
                   ),
                 ),
               ],
-          ),
           ),
         ),
       ),
