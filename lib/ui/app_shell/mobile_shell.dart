@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 
 import '../../core/storage/prefs.dart';
+import '../../core/audio/stream_models.dart';
+import '../../features/downloads/download_manager.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/library/playlists.dart';
@@ -763,6 +765,10 @@ class _MobileTransportDock extends ConsumerWidget {
                     width: compact ? 42 : 48,
                     onPressed: onEqualizer,
                   ),
+                  _MobileDownloadButton(
+                    track: snapshot.current,
+                    width: compact ? 42 : 48,
+                  ),
                   if (!compact && quality.isNotEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -949,7 +955,8 @@ class _MobileMiniPlayer extends ConsumerWidget {
                     ),
                   ),
                   _TouchIconButton(
-                    icon: isLiked ? FluentIcons.heart_fill : FluentIcons.heart,
+                    icon: isLiked ? FluentIcons.heart_fill : FluentIcons.heart,                  _MobileDownloadButton(track: track, width: 36),
+
                     tooltip: isLiked ? 'Remove from Liked Songs' : 'Like song',
                     width: 36,
                     onPressed: track == null
@@ -1105,7 +1112,64 @@ class _TouchIconButton extends StatelessWidget {
   }
 }
 
-class _WaveAutoScrollText extends StatefulWidget {
+class _WaveAutoScrollText extends StatefulWidget {class _MobileDownloadButton extends ConsumerWidget {
+  final PlayableTrack? track;
+  final double width;
+
+  const _MobileDownloadButton({
+    required this.track,
+    required this.width,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = track;
+    if (current == null) {
+      return _TouchIconButton(
+        icon: FluentIcons.download,
+        tooltip: 'Download',
+        width: width,
+        onPressed: null,
+      );
+    }
+    final entries = ref.watch(downloadManagerProvider);
+    final key = DownloadManager.keyOf(current.title, current.artist);
+    DownloadEntry? entry;
+    for (final candidate in entries) {
+      if (candidate.key == key) {
+        entry = candidate;
+        break;
+      }
+    }
+    final done = entry?.status == DownloadStatus.done;
+    final downloading = entry?.status == DownloadStatus.downloading ||
+        entry?.status == DownloadStatus.queued;
+    final manager = ref.read(downloadManagerProvider.notifier);
+    return _TouchIconButton(
+      icon: done ? FluentIcons.check_mark : FluentIcons.download,
+      tooltip: done
+          ? 'Downloaded'
+          : downloading
+              ? 'Downloading…'
+              : entry?.status == DownloadStatus.error
+                  ? 'Retry download'
+                  : 'Download',
+      selected: done,
+      width: width,
+      onPressed: done || downloading
+          ? null
+          : () => manager.downloadTrack(
+                title: current.title,
+                artist: current.artist,
+                album: current.album,
+                artworkUrl: current.artworkUrl,
+                videoId: current.videoId,
+              ),
+    );
+  }
+}
+
+
   final String text;
   final TextStyle style;
 
