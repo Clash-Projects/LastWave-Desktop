@@ -1429,7 +1429,7 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
   }
 }
 
-/// Zero-allocation canvas clip painter for syllable wipe (replaces ShaderMask / saveLayer).
+/// Zero-allocation canvas clip painter for syllable wipe.
 ///
 /// Driven directly by [positionListenable] to isolate repaints to the active syllable
 /// without scheduling widget rebuilds or thrashing the element tree.
@@ -2404,28 +2404,6 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
   int _lastIndex = -1;
   bool _pinnedOpening = false;
-  Rect? _lastBounds;
-  ui.Shader? _cachedMaskShader;
-
-  ui.Shader _getMaskShader(Rect bounds) {
-    if (_lastBounds == bounds && _cachedMaskShader != null) {
-      return _cachedMaskShader!;
-    }
-    _lastBounds = bounds;
-    _cachedMaskShader = const LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        Colors.transparent,
-        Colors.black,
-        Colors.black,
-        Colors.transparent,
-      ],
-      stops: [0.0, 0.08, 0.88, 1.0],
-    ).createShader(bounds);
-    return _cachedMaskShader!;
-  }
-
   @override
   void initState() {
     super.initState();
@@ -2556,22 +2534,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
         widget.fontSize ?? (widget.compact ? 28.0 : DesktopLyricsTokens.fontSizeBase);
 
     if (untimed) {
-      return ShaderMask(
-        shaderCallback: (Rect bounds) {
-          return const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.transparent,
-              Colors.black,
-              Colors.black,
-              Colors.transparent,
-            ],
-            stops: [0.0, 0.14, 0.86, 1.0],
-          ).createShader(bounds);
-        },
-        blendMode: BlendMode.dstIn,
-        child: ScrollConfiguration(
+      return ScrollConfiguration(
           behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
           child: ListView.builder(
             physics: const ClampingScrollPhysics(),
@@ -2604,8 +2567,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
               );
             },
           ),
-        ),
-      );
+        );
     }
 
     final initialActive = widget.activeLineListenable.value;
@@ -2730,14 +2692,10 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       ),
     );
 
-    final maskedList = ShaderMask(
-      shaderCallback: _getMaskShader,
-      blendMode: BlendMode.dstIn,
-      child: ScrollConfiguration(
+    final maskedList = ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: list,
-      ),
-    );
+      );
 
     return Stack(
       children: [

@@ -1486,7 +1486,7 @@ class AmbientWash extends StatelessWidget {
             ? (palette?.primary ?? ArtworkPalette.fallback.primary)
             : (palette?.cream ?? ArtworkPalette.fallback.cream);
         final hue = Color.lerp(lead, tail, 0.3)!;
-        final alpha = ((dark ? 0.12 : 0.08) * strength).clamp(0.0, 0.20);
+        final alpha = ((dark ? 0.12 : 0.08) * strength).clamp(0.0, 0.20).toDouble();
         return IgnorePointer(
           child: AnimatedOpacity(
             opacity: palette == null ? 0 : 1,

@@ -7,7 +7,6 @@ import 'package:flutter/material.dart'
         Curves,
         EdgeInsets,
         FontWeight,
-        LinearGradient,
         MainAxisAlignment,
         TextAlign,
         TextStyle;
@@ -203,13 +202,7 @@ LyricStyle buildKaraokeLyricStyle(
       letterSpacing: -0.4,
     ),
     activeHighlightColor: highlightColor,
-    activeHighlightGradient: LinearGradient(
-      colors: [
-        highlightColor,
-        highlightColor.withValues(alpha: 0.95),
-      ],
-    ),
-    activeHighlightExtraFadeWidth: 20.0,
+    activeHighlightExtraFadeWidth: 0.0,
     translationStyle: TextStyle(
       fontSize: compact ? 13.0 : 16.0,
       fontWeight: FontWeight.w500,
@@ -232,7 +225,7 @@ LyricStyle buildKaraokeLyricStyle(
     activeAnchorPosition: 0.34,
     selectionAnchorPosition: 0.34,
     selectionAlignment: MainAxisAlignment.start,
-    fadeRange: FadeRange(top: 90, bottom: 180),
+    fadeRange: FadeRange(top: 0, bottom: 0),
     scrollDuration: const Duration(milliseconds: 380),
     scrollCurve: Curves.easeOutCubic,
     enableSwitchAnimation: false,
