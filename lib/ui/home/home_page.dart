@@ -870,22 +870,27 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 username.isNotEmpty ? '$greeting, $username' : greeting,
-                style: WaveType.pageTitle.copyWith(fontSize: 24),
+                style: WaveType.pageTitle.copyWith(
+                  fontSize: 32,
+                  height: 1.18,
+                  letterSpacing: -0.5,
+                ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
-                username.isNotEmpty
-                    ? 'For $username · $date · picked from your taste'
-                    : '$date · picked for you · connect Last.fm for more',
+                date.toUpperCase(),
                 style: WaveType.meta.copyWith(
+                  fontSize: 10,
+                  letterSpacing: 1.3,
                   color: dark
                       ? WaveColors.textSecondary
                       : WaveColors.lightTextSecondary,
@@ -904,23 +909,23 @@ class _Header extends StatelessWidget {
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
-            onTap: () => context.go('/settings?section=lastfm'),
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: dark ? Colors.white : Colors.black,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                'Connect',
-                style: WaveType.label.copyWith(
-                  color: dark ? Colors.black : Colors.white,
-                  fontSize: 12,
+              onTap: () => context.go('/settings?section=lastfm'),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: dark ? Colors.white : Colors.black,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  'Connect',
+                  style: WaveType.label.copyWith(
+                    color: dark ? Colors.black : Colors.white,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ),
-          ),
           ),
         ],
       ],
