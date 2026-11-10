@@ -200,6 +200,21 @@ class _WavePlaylistDetailPageState
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: WaveIconButton(
+                      tooltip: 'Back to playlists',
+                      icon: const Icon(WaveIcons.back, size: 18),
+                      onPressed: () {
+                        if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go('/playlists');
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   WaveCollectionHero(
                     flightKind: 'playlist',
                     flightId: '${playlist.id}',
