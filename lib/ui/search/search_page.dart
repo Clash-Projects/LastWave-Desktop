@@ -167,7 +167,23 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
     super.dispose();
   }
 
+  void _clearSearch() {
+    _controller.clear();
+    _typeDebounce?.cancel();
+    _suggestDebounce?.cancel();
+    setState(() {
+      _query = '';
+      _suggestQuery = '';
+      _submitted = '';
+      _suggestIndex = -1;
+      _suggestDismissed = false;
+    });
+    _focus.requestFocus();
+    context.go('/search');
+  }
+
   void _onChanged(String v) {
+    setState(() {});
     _suggestDismissed = false;
     _typeDebounce?.cancel();
     _typeDebounce = Timer(const Duration(milliseconds: 150), () {
@@ -289,6 +305,15 @@ decoration: waveInputDecoration(),
                           ? WaveColors.textTertiary
                           : WaveColors.lightTextTertiary),
                 ),
+                suffix: _controller.text.isNotEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: IconButton(
+                          icon: const Icon(FluentIcons.clear, size: 12),
+                          onPressed: _clearSearch,
+                        ),
+                      )
+                    : null,
                 onChanged: _onChanged,
                 onSubmitted: (v) {
                   if (showSuggestions && _suggestIndex >= 0) {
