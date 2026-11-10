@@ -32,3 +32,5 @@ the separate licenses of third-party dependencies and assets.
 - `lib/features/feed/home_shelf_layout.dart`: configurable Flutter shelf order now places supported Native Feed sections in Native's default sequence; greeting, Infinite Radio, and Quick Access remain structural elements.
 
 - `lib/ui/app_shell/mobile_shell.dart`: the shortcut dock is independently positioned over the page with reserved bottom content space, rather than occupying a shared bottom layout row. Search is promoted from More into the floating dock; the mini-player retains its own centered, rounded surface and separate spacing.
+
+- `lib/ui/app_shell/mobile_shell.dart`: the mini-player is rendered as its own top-aligned overlay surface with a reserved layout slot, while the shortcut dock is independently overlaid at the bottom. This keeps both controls floating separately without covering the page's usable content.

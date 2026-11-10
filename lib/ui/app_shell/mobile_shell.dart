@@ -202,7 +202,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                     child: Column(
                   children: [
                     if (!nowPlaying)
-                      _MobileMiniPlayer(onOpen: _openNowPlaying),
+                      const SizedBox(height: 101),
                     if (!tablet && !nowPlaying)
                       _MobileToolbar(
                         tabletLayout: tablet,
@@ -357,6 +357,13 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                     ),
                   ),
               ),
+                if (!nowPlaying)
+                  Positioned(
+                    top: MediaQuery.paddingOf(context).top,
+                    left: 0,
+                    right: 0,
+                    child: _MobileMiniPlayer(onOpen: _openNowPlaying),
+                  ),
               ],
             ),
           ),
