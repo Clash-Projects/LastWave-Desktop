@@ -600,20 +600,26 @@ class _WaveDesktopTableState<T extends Object>
       onToggleLike: widget.onToggleLike == null
           ? null
           : () => widget.onToggleLike!(item),
-      menuItems: () =>
-          widget.menuBuilder?.call(ref, item) ??
-          waveTrackMenuItems(
-            context: context,
-            ref: ref,
-            playable: widget.playableOf(item),
-            title: widget.titleOf(item),
-            artist: widget.subtitleOf(item),
-            artworkUrl: widget.artworkOf(item),
-            removeLabel: widget.removeLabel,
-            onRemove: widget.onRemove == null
-                ? null
-                : () => widget.onRemove!(index),
-          ),
+      menuItems: () {
+        final customItems = widget.menuBuilder?.call(ref, item);
+        if (customItems != null) return customItems;
+        final playable = widget.playableOf(item);
+        return waveTrackMenuItems(
+          context: context,
+          ref: ref,
+          playable: playable,
+          title: widget.titleOf(item),
+          artist: widget.subtitleOf(item),
+          artworkUrl: widget.artworkOf(item),
+          album: playable.album,
+          videoId: playable.videoId,
+          durationSeconds: playable.duration.inSeconds,
+          removeLabel: widget.removeLabel,
+          onRemove: widget.onRemove == null
+              ? null
+              : () => widget.onRemove!(index),
+        );
+      },
       ),
     );
   }
@@ -840,8 +846,12 @@ class _TableRow<T extends Object> extends StatelessWidget {
       cursor: SystemMouseCursors.click,
       onEnter: (_) => onHover(true),
       onExit: (_) => onHover(false),
-      child: GestureDetector(
-        onTapDown: (d) {
+      child: Listener(
+        // Observe row presses without joining Flutter's gesture arena.
+        // A parent tap-down recognizer otherwise wins against the nested
+        // More-button tap recognizer on touch devices, leaving the menu inert.
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) {
           final keys = HardwareKeyboard.instance.logicalKeysPressed;
           final ctrl = keys.contains(LogicalKeyboardKey.controlLeft) ||
               keys.contains(LogicalKeyboardKey.controlRight) ||
@@ -851,8 +861,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
               keys.contains(LogicalKeyboardKey.shiftRight);
           onTap(ctrl: ctrl, shift: shift);
         },
-        onDoubleTap: onDoubleTap,
-        child: AnimatedContainer(
+        child: GestureDetector(
+          onDoubleTap: onDoubleTap,
+          child: AnimatedContainer(
           duration: waveMotion(context, WaveMotion.fast),
             height: WaveDensity.trackRow,
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1033,6 +1044,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                   ),
                 ),
               ],
+          ),
           ),
         ),
       ),

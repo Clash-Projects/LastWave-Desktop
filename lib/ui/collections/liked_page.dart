@@ -286,7 +286,7 @@ class _WaveLikedPageState
               keyOf: (t) => t.key,
               titleOf: (t) => t.name,
               subtitleOf: (t) => t.artist,
-              albumOf: (_) => '',
+              albumOf: (t) => t.album,
               artworkOf: (t) => t.artworkUrl,
               playableOf: playableFromGenerated,
               durationOf: (t) => t.durationSeconds > 0
