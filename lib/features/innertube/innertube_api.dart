@@ -50,6 +50,34 @@ void _logStream(
   if (kDebugMode) debugPrint('LastWaveStream $line');
 }
 
+/// Convert YouTube's format-level bitrate into a conservative audio-only
+/// estimate for the UI. Muxed formats include video bitrate and cannot be
+/// represented as an audio bitrate. Codec ceilings prevent server-side
+/// aggregate/peak values from being presented as the audio stream's rate.
+int _youtubeAudioBitrateKbps({
+  required int reportedBitsPerSecond,
+  required String mimeType,
+  required String codec,
+}) {
+  if (reportedBitsPerSecond <= 0 ||
+      !mimeType.toLowerCase().startsWith('audio/')) {
+    return 0;
+  }
+  final normalizedCodec = codec.toLowerCase();
+  final reportedKbps = (reportedBitsPerSecond / 1000).round();
+  if (normalizedCodec.contains('opus')) {
+    return reportedKbps.clamp(0, 160);
+  }
+  if (normalizedCodec.contains('mp4a') ||
+      normalizedCodec.contains('aac') ||
+      mimeType.toLowerCase().contains('mp4')) {
+    return reportedKbps.clamp(0, 256);
+  }
+  // Unknown codecs have no trustworthy ceiling; omit the number rather
+  // than display a potentially combined or misleading bitrate.
+  return 0;
+}
+
 class InnerTubeHttpException implements Exception {
   final int responseCode;
   InnerTubeHttpException(this.responseCode);
@@ -864,7 +892,12 @@ class InnerTubeMusicApi {
           final stream = ResolvedStream(
             url: url,
             mimeType: r['mime']?.toString() ?? 'audio/webm',
-            bitrateKbps: (r['bitrate_kbps'] as num?)?.toInt() ?? 0,
+            bitrateKbps: _youtubeAudioBitrateKbps(
+              reportedBitsPerSecond:
+                  ((r['bitrate_kbps'] as num?)?.toInt() ?? 0) * 1000,
+              mimeType: r['mime']?.toString() ?? 'audio/webm',
+              codec: r['codec']?.toString() ?? 'OPUS',
+            ),
             audioCodec: r['codec']?.toString() ?? 'OPUS',
             cacheKey:
                 'youtube:$videoId:$clientProfile:$itag:$authScope:$expiresAtMs',
@@ -5605,7 +5638,11 @@ class InnerTubeMusicApi {
           stream: ResolvedStream(
             url: url,
             mimeType: cleanMime,
-            bitrateKbps: (bitrate / 1000).round(),
+            bitrateKbps: _youtubeAudioBitrateKbps(
+              reportedBitsPerSecond: bitrate,
+              mimeType: mime,
+              codec: codecLabel,
+            ),
             audioCodec: codecLabel,
             cacheKey:
                 'youtube:$videoId:${client.key}:${format['itag']}:$authScope:${expiresAt.millisecondsSinceEpoch}',
@@ -5755,8 +5792,12 @@ class InnerTubeMusicApi {
                 stream: ResolvedStream(
                   url: url,
                   mimeType: cleanMime,
-                  bitrateKbps: (bitrate / 1000).round(),
-                  audioCodec: 'AUDIO',
+                  bitrateKbps: _youtubeAudioBitrateKbps(
+                    reportedBitsPerSecond: bitrate,
+                    mimeType: mime,
+                    codec: codec ?? '',
+                  ),
+                  audioCodec: codec ?? 'AUDIO',
                   cacheKey: 'yt-dl:$videoId:${f['itag']}',
                   requestHeaders: client.streamRequestHeaders,
                   expiresAt: _urlExpiryMs(url) != null
@@ -5880,7 +5921,11 @@ class InnerTubeMusicApi {
                 stream: ResolvedStream(
                   url: url,
                   mimeType: mime.split(';').first,
-                  bitrateKbps: (bitrate / 1000).round(),
+                  bitrateKbps: _youtubeAudioBitrateKbps(
+                    reportedBitsPerSecond: bitrate,
+                    mimeType: mime,
+                    codec: codec ?? '',
+                  ),
                   audioCodec: (codec?.isNotEmpty ?? false)
                       ? codec!.toUpperCase()
                       : 'AUDIO',
