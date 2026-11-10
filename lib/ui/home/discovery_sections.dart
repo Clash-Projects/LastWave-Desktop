@@ -526,3 +526,23 @@ class _ArtistRailCardState extends State<ArtistRailCard> {
     );
   }
 }
+
+
+/// Dedicated route for the Native Feed's New Releases quick-access tile.
+class WaveNewReleasesPage extends StatelessWidget {
+  const WaveNewReleasesPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 32),
+          sliver: const SliverToBoxAdapter(
+            child: HomeNewReleasesSection(),
+          ),
+        ),
+      ],
+    );
+  }
+}

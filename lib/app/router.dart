@@ -23,6 +23,7 @@ import '../ui/podcasts/podcasts_page.dart';
 import '../ui/stats/stats_page.dart';
 import '../ui/home/home_layout_page.dart';
 import '../ui/home/home_page.dart';
+import '../ui/home/discovery_sections.dart' show WaveNewReleasesPage;
 import '../ui/jam/jam_page.dart';
 import '../ui/misc/support_pages.dart';
 import '../ui/navigation/flight.dart';
@@ -206,6 +207,11 @@ GoRouter buildRouter({required AuthGate gate}) {
                 path: '/home-layout',
                 pageBuilder: (c, s) =>
                     _page(const WaveHomeLayoutPage()),
+              ),
+              GoRoute(
+                path: '/new-releases',
+                pageBuilder: (c, s) =>
+                    _page(const WaveNewReleasesPage()),
               ),
             ],
           ),

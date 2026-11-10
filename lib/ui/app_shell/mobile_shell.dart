@@ -36,6 +36,7 @@ const _phoneMoreDestinations = <WaveDestination>[
   WaveDestination('/search', 'Search', WaveIcons.search),
   WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
   WaveDestination('/settings', 'Settings', WaveIcons.settings),
+  WaveDestination('/home-layout', 'Edit Home', WaveIcons.edit),
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
   WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),

@@ -23,3 +23,7 @@ the separate licenses of third-party dependencies and assets.
 - `lib/ui/player_dock/player_dock.dart`: the immersive transport dock exposes the live source-quality badge on wider iPad layouts, adapting the quality indicator from LastWave-Native's `ui/player/FullPlayer.kt` while keeping narrow phone controls uncluttered.
 
 - `lib/ui/app_shell/mobile_shell.dart`: the primary destination is labeled **Feed** to match `MainTab.FEED` in `ui/shell/MainShell.kt`. The mini-player is centered and constrained to the Native 680dp maximum width, with 14dp horizontal gutters, following `ui/player/MiniPlayer.kt`; existing Flutter transport and library actions are retained.
+
+- `lib/ui/home/home_page.dart`: the Feed greeting/date, centered 920dp content rail, artwork-backed Infinite Radio hero, and fixed Quick Access row are translated from `ui/feed/FeedTiles.kt` and `ui/feed/FeedScreen.kt`. The radio button uses the existing Flutter playback queue and endless-radio service.
+- `lib/ui/home/discovery_sections.dart` and `lib/app/router.dart`: the New Releases quick-access destination reuses the existing Flutter catalogue/filter implementation rather than adding a second data source.
+- `lib/ui/app_shell/mobile_shell.dart`: the Home sections editor remains accessible from More after matching Native's compact greeting header.

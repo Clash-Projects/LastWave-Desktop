@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart' show listEquals;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,7 +16,6 @@ import '../../features/feed/home_shelf_layout.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
-import '../../features/lastfm/auth_repository.dart';
 import '../../features/podcasts/podcast_models.dart';
 import '../../features/search/shared_providers.dart';
 import '../../features/podcasts/podcast_repository.dart';
@@ -45,7 +45,7 @@ class WaveHomePage extends ConsumerWidget {
 
   String get _greeting {
     final h = DateTime.now().hour;
-    if (h < 5) return 'Up late';
+    if (h < 5) return 'Good night';
     if (h < 12) return 'Good morning';
     if (h < 18) return 'Good afternoon';
     return 'Good evening';
@@ -54,44 +54,39 @@ class WaveHomePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final feed = ref.watch(feedProvider);
-    final auth = ref.watch(authRepositoryProvider);
     // Watched at build top (never inside the `when` branches): the
     // empty-state copy is honest about connectivity only when the
     // device state is actually observed.
     final online = ref.watch(networkMonitorProvider);
     final viewport = MediaQuery.sizeOf(context).width;
 
-    // Responsive shell: <900 single col, 900–1300 two col, 1300+ three col,
-    // content capped at 1280 and centered.
-    final pad = viewport < 900 ? 16.0 : viewport < 1300 ? 24.0 : 28.0;
-    final side =
-        ((viewport - WaveDensity.contentMax) / 2).clamp(0, double.infinity) +
-            pad;
-    final quickCols = viewport < 900 ? 1 : viewport < 1300 ? 2 : 3;
+    // Native FeedScreen uses a centered 920dp content rail on phones and tablets.
+    final contentWidth = viewport < 920 ? viewport : 920.0;
+    const side = 16.0;
+    final quickCols =
+        contentWidth < 600 ? 1 : contentWidth < 840 ? 2 : 3;
 
-    final username = auth.status == AuthStatus.signedIn &&
-            auth.username.isNotEmpty
-        ? auth.username
-        : '';
-    final date = DateFormat('EEEE, MMM d').format(DateTime.now());
+    final date = DateFormat('EEEE, MMMM d').format(DateTime.now());
 
     // One shared WinUI entrance timeline for the whole page: it starts
     // the moment feed data lands, so sections cascade in together and
     // lazily-built rows never replay the animation during scroll.
-    return WaveEntranceGroup(
-      start: feed.hasValue,
-      child: CustomScrollView(
-        slivers: [
+    return Align(
+      alignment: Alignment.topCenter,
+      child: SizedBox(
+        width: contentWidth,
+        child: WaveEntranceGroup(
+          start: feed.hasValue,
+          child: CustomScrollView(
+            slivers: [
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(side, 22, side, 0),
+          padding: const EdgeInsets.only(top: 12),
           sliver: SliverToBoxAdapter(
             child: WaveEntrance(
               local: true,
               child: _Header(
                 greeting: _greeting,
-                username: username,
                 date: date,
-                signedIn: auth.status == AuthStatus.signedIn,
               ),
             ),
           ),
@@ -200,9 +195,30 @@ class WaveHomePage extends ConsumerWidget {
             return _feedSlivers(context, ref, data, side, quickCols);
           },
         ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
+  }
+
+  /// Fixed FeedScreen structure: Infinite Radio, then Quick Access.
+  /// These surfaces are above the user's configurable recommendation order.
+  List<Widget> _nativeFeedPrelude(
+    BuildContext context,
+    WidgetRef ref,
+    List<GeneratedTrack> tracks,
+  ) {
+    final hasHero = tracks.isNotEmpty;
+    return [
+      if (hasHero)
+        SliverToBoxAdapter(
+          child: _InfiniteRadioHero(tracks: tracks),
+        ),
+      SliverToBoxAdapter(
+        child: _NativeQuickAccess(hasHero: hasHero),
+      ),
+    ];
   }
 
   /// Home while YouTube Music is connected: YouTube's layout and shelves,
@@ -303,55 +319,13 @@ class WaveHomePage extends ConsumerWidget {
       ];
     }
 
-    // Featured hero with Play / Radio at the very top (as in the plain
-    // feed): the YouTube Music mix when there is one, else the best pick.
-    {
-      GeneratedTrack? hero;
-      List<GeneratedTrack> companions = const [];
-      List<GeneratedTrack> heroQueue = const [];
-      var heroKicker = 'FOR YOU · FEATURED MIX';
-      final mix = ref.watch(personalMixProvider).valueOrNull;
-      if (mix != null && mix.tracks.isNotEmpty) {
-        hero = mix.seed;
-        heroQueue = [mix.seed, ...mix.tracks];
-        companions = mix.tracks.take(3).toList();
-        heroKicker = 'FOR YOU · YOUTUBE MUSIC MIX';
-      } else {
-        final pool = <GeneratedTrack>[
-          ...blend.quickPicks,
-          ...data.heavyRotation,
-          ...data.quickPicks,
-          ...data.charts,
-        ];
-        if (pool.isNotEmpty) {
-          hero = pool.first;
-          companions = pool.skip(1).take(3).toList();
-        }
-      }
-      if (hero != null) {
-        final heroTrack = hero;
-        final heroUpNext = companions;
-        final heroAll = heroQueue;
-        final kicker = heroKicker;
-        sections[HomeShelfId.mixes] = [
-          const SliverToBoxAdapter(child: SizedBox(height: 18)),
-          SliverPadding(
-            padding: EdgeInsets.symmetric(horizontal: side),
-            sliver: SliverToBoxAdapter(
-              child: WaveEntrance(
-                index: slot++,
-                child: _FeaturedHero(
-                  track: heroTrack,
-                  upNext: heroUpNext,
-                  kicker: kicker,
-                  queueAll: heroAll,
-                ),
-              ),
-            ),
-          ),
-        ];
-      }
-    }
+    final personalMix = ref.watch(personalMixProvider).valueOrNull;
+    final infiniteRadioTracks = personalMix != null &&
+            personalMix.tracks.isNotEmpty
+        ? <GeneratedTrack>[personalMix.seed, ...personalMix.tracks]
+        : blend.quickPicks;
+    sections[HomeShelfId.mixes] =
+        _nativeFeedPrelude(context, ref, infiniteRadioTracks);
     if (blend.quickPicks.isNotEmpty) {
       // A whole number of rows, so the grid never ends on a gap.
       final count = (blend.quickPicks.length ~/ quickCols) * quickCols;
@@ -432,9 +406,12 @@ class WaveHomePage extends ConsumerWidget {
     // Untouched layout: the connected order. Edited: the user's order wins.
     final edited = !listEquals(layout.order, HomeShelfCatalog.defaults);
     final order = edited ? layout.order : HomeShelfCatalog.connected;
+    final prelude = sections.remove(HomeShelfId.mixes) ?? const <Widget>[];
     return SliverMainAxisGroup(slivers: [
+      ...prelude,
       for (final id in order)
-        if (!layout.hidden.contains(id)) ...?sections[id],
+        if (id != HomeShelfId.mixes && !layout.hidden.contains(id))
+          ...?sections[id],
       const SliverToBoxAdapter(child: SizedBox(height: 28)),
     ]);
   }
@@ -456,57 +433,13 @@ class WaveHomePage extends ConsumerWidget {
     var e = 0;
     int slot() => e++;
 
-    // Editorial hero: large personal pick (35–45% artwork) + 2–4 compact
-    // companions on the right. Structure, not one giant banner.
-    //
-    // YouTube Music personal mix wins when available: hero = mix seed,
-    // Play queues the whole radio list (coherent Up Next at last) —
-    // otherwise the Last.fm chart-top fallback below.
-    GeneratedTrack? hero;
-    List<GeneratedTrack> companions = const [];
-    List<GeneratedTrack> heroQueue = const [];
-    String heroKicker = 'FOR YOU · FEATURED MIX';
-    final mix = ref.watch(personalMixProvider).valueOrNull;
-    if (mix != null && mix.tracks.isNotEmpty) {
-      hero = mix.seed;
-      heroQueue = [mix.seed, ...mix.tracks];
-      companions = mix.tracks.take(3).toList();
-      heroKicker = 'FOR YOU · YOUTUBE MUSIC MIX';
-    } else if (data.heavyRotation.isNotEmpty) {
-      hero = data.heavyRotation.first;
-      companions = [
-        ...data.quickPicks.take(2),
-        ...data.charts.take(2),
-      ].take(3).toList();
-    } else if (data.quickPicks.isNotEmpty) {
-      hero = data.quickPicks.first;
-      companions = [
-        ...data.quickPicks.skip(1).take(2),
-        ...data.charts.take(2),
-      ].take(3).toList();
-    } else if (data.charts.isNotEmpty) {
-      hero = data.charts.first;
-      companions = data.charts.skip(1).take(3).toList();
-    }
+    final personalMix = ref.watch(personalMixProvider).valueOrNull;
+    final infiniteRadioTracks = personalMix != null &&
+            personalMix.tracks.isNotEmpty
+        ? <GeneratedTrack>[personalMix.seed, ...personalMix.tracks]
+        : data.quickPicks;
     use(HomeShelfId.mixes);
-    if (hero != null) {
-      gap(18);
-      final heroTrack = hero;
-      sink.add(SliverPadding(
-        padding: EdgeInsets.only(left: side, right: side),
-        sliver: SliverToBoxAdapter(
-          child: WaveEntrance(
-            index: slot(),
-            child: _FeaturedHero(
-              track: heroTrack,
-              upNext: companions,
-              kicker: heroKicker,
-              queueAll: heroQueue,
-            ),
-          ),
-        ),
-      ));
-    }
+    sink.addAll(_nativeFeedPrelude(context, ref, infiniteRadioTracks));
 
     use(HomeShelfId.quickPicks);
     if (data.quickPicks.isNotEmpty) {
@@ -844,91 +777,341 @@ class WaveHomePage extends ConsumerWidget {
       ));
       gap(26);
     }
+    final prelude = sections.remove(HomeShelfId.mixes) ?? const <Widget>[];
     final slivers = <Widget>[
+      ...prelude,
       for (final id in layout.order)
-        if (!layout.hidden.contains(id)) ...?sections[id],
+        if (id != HomeShelfId.mixes && !layout.hidden.contains(id))
+          ...?sections[id],
       const SliverToBoxAdapter(child: SizedBox(height: 6)),
     ];
     return SliverMainAxisGroup(slivers: slivers);
   }
 }
 
-/// Greeting header: 24px time-aware greeting + For {username} + date.
+/// Native FeedScreen's expressive greeting header: greeting and uppercase date only.
 class _Header extends StatelessWidget {
   final String greeting;
-  final String username;
   final String date;
-  final bool signedIn;
+
   const _Header({
     required this.greeting,
-    required this.username,
     required this.date,
-    required this.signedIn,
   });
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                username.isNotEmpty ? '$greeting, $username' : greeting,
-                style: WaveType.pageTitle.copyWith(
-                  fontSize: 32,
-                  height: 1.18,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                date.toUpperCase(),
-                style: WaveType.meta.copyWith(
-                  fontSize: 10,
-                  letterSpacing: 1.3,
-                  color: dark
-                      ? WaveColors.textSecondary
-                      : WaveColors.lightTextSecondary,
-                ),
-              ),
-            ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            greeting,
+            style: WaveType.pageTitle.copyWith(
+              fontSize: 32,
+              height: 38 / 32,
+              letterSpacing: -0.5,
+            ),
           ),
-        ),
-        WaveGhostButton(
-          label: 'Edit home',
-          icon: WaveIcons.edit,
-          onPressed: () => context.go('/home-layout'),
-        ),
-        if (!signedIn) ...[
-          const SizedBox(width: 8),
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () => context.go('/settings?section=lastfm'),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: dark ? Colors.white : Colors.black,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'Connect',
-                  style: WaveType.label.copyWith(
-                    color: dark ? Colors.black : Colors.white,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
+          const SizedBox(height: 2),
+          Text(
+            date.toUpperCase(),
+            style: WaveType.meta.copyWith(
+              fontSize: 10,
+              letterSpacing: 1.3,
+              color: waveTextSecondary(context).withValues(alpha: 0.85),
             ),
           ),
         ],
-      ],
+      ),
+    );
+  }
+}
+
+/// Artwork-backed 208dp Infinite Radio hero adapted from Native FeedTiles.kt.
+class _InfiniteRadioHero extends ConsumerWidget {
+  final List<GeneratedTrack> tracks;
+
+  const _InfiniteRadioHero({required this.tracks});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final artwork = tracks.firstWhere(
+      (track) => track.artworkUrl.isNotEmpty,
+      orElse: () => tracks.first,
+    ).artworkUrl;
+    final colors = [
+      waveAccent(context).withValues(alpha: 0.22),
+      waveSurfaceRaised(context).withValues(alpha: 0.55),
+      waveSurfaceRaised(context),
+    ];
+
+    return Container(
+      height: 208,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 3),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: waveSurfaceRaised(context).withValues(alpha: 0.5),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(28),
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (artwork.isNotEmpty)
+            Opacity(
+              opacity: 0.32,
+              child: CachedNetworkImage(
+                imageUrl: artwork,
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: colors,
+                stops: const [0, 0.52, 1],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: waveAccent(context).withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        WaveIcons.mixes,
+                        size: 12,
+                        color: waveAccent(context),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        'MADE FOR YOU',
+                        style: WaveType.overline.copyWith(
+                          fontSize: 9,
+                          letterSpacing: 1.1,
+                          fontWeight: FontWeight.w800,
+                          color: waveTextPrimary(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Infinite Radio',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.pageTitle.copyWith(
+                        fontSize: 24,
+                        letterSpacing: -0.4,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'An endless station shaped by your listening',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.meta.copyWith(
+                        color: waveTextSecondary(context),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    WavePlayPill(
+                      onTap: () => ref
+                          .read(playbackServiceProvider.notifier)
+                          .playQueue(
+                            tracks.map(playableFromGenerated).toList(),
+                            0,
+                            sourceLabel: 'Infinite Radio',
+                            endlessRadio: true,
+                          ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Native QuickTilesGrid translated to a horizontal, independently scrollable rail.
+class _NativeQuickAccess extends StatelessWidget {
+  final bool hasHero;
+
+  const _NativeQuickAccess({required this.hasHero});
+
+  @override
+  Widget build(BuildContext context) {
+    final topRadius = hasHero ? 0.0 : 28.0;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 3),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: waveSurfaceRaised(context).withValues(alpha: 0.5),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(topRadius),
+          topRight: Radius.circular(topRadius),
+          bottomLeft: const Radius.circular(28),
+          bottomRight: const Radius.circular(28),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Quick access',
+              style: WaveType.sectionTitle.copyWith(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 194,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: const [
+                _NativeQuickAccessTile(
+                  title: 'Liked Songs',
+                  subtitle: 'Your favorites',
+                  route: '/liked',
+                  icon: WaveIcons.liked,
+                  tint: WaveColors.danger,
+                ),
+                SizedBox(width: 10),
+                _NativeQuickAccessTile(
+                  title: 'Mix Lab',
+                  subtitle: 'Made for you',
+                  route: '/mixes',
+                  icon: WaveIcons.mixes,
+                  tint: WaveColors.defaultAccent,
+                ),
+                SizedBox(width: 10),
+                _NativeQuickAccessTile(
+                  title: 'New Releases',
+                  subtitle: 'Fresh drops',
+                  route: '/new-releases',
+                  icon: WaveIcons.albums,
+                  tint: WaveColors.success,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NativeQuickAccessTile extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String route;
+  final IconData icon;
+  final Color tint;
+
+  const _NativeQuickAccessTile({
+    required this.title,
+    required this.subtitle,
+    required this.route,
+    required this.icon,
+    required this.tint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => context.go(route),
+      child: Container(
+        width: 136,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: waveSurface(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: waveDivider(context).withValues(alpha: 0.18),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 116,
+              height: 116,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    tint.withValues(alpha: 0.22),
+                    tint.withValues(alpha: 0.52),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              alignment: Alignment.center,
+              child: Icon(
+                icon,
+                size: 36,
+                color: waveTextPrimary(context),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: WaveType.trackTitle.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                height: 1.2,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: WaveType.meta.copyWith(
+                fontSize: 11,
+                color: waveTextSecondary(context).withValues(alpha: 0.8),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
