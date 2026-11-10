@@ -720,8 +720,10 @@ class _MobileTransportDock extends ConsumerWidget {
                   const SizedBox(width: compact ? 10 : 20),
                   _TouchIconButton(icon: WaveIcons.queue, tooltip: 'Queue',
                     selected: queueActive, width: buttonWidth, onPressed: onQueue),
+                  const SizedBox(width: 5),
                   _TouchIconButton(icon: WaveIcons.equalizer, tooltip: 'Equalizer',
                     selected: equalizerActive, width: buttonWidth, onPressed: onEqualizer),
+                  const SizedBox(width: 5),
                   _MobileDownloadButton(track: snapshot.current, width: buttonWidth),
                   if (!compact && quality.isNotEmpty) ...[
                     const SizedBox(width: 6),
@@ -754,7 +756,7 @@ class _MobileTransportDock extends ConsumerWidget {
                 scrollDirection: Axis.horizontal,
                 physics: compact ? const ClampingScrollPhysics() : const NeverScrollableScrollPhysics(),
                 child: SizedBox(
-                  width: compact ? math.max(constraints.maxWidth, 620) : constraints.maxWidth,
+                  width: compact && constraints.maxWidth < 620 ? 620 : constraints.maxWidth,
                   child: Center(child: controls),
                 ),
               );
