@@ -438,6 +438,7 @@ class _PhoneNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 480;
     String? selectedPath;
     if (!moreActive) {
       for (final destination in _nativeMainDestinations) {
@@ -450,7 +451,12 @@ class _PhoneNavigation extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 5, 16, 12),
+      padding: EdgeInsets.fromLTRB(
+        compact ? 10 : 16,
+        5,
+        compact ? 10 : 16,
+        12,
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
@@ -471,7 +477,10 @@ class _PhoneNavigation extends StatelessWidget {
               ),
             ],
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 5 : 7,
+                vertical: 6,
+              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -479,13 +488,14 @@ class _PhoneNavigation extends StatelessWidget {
                     _NativeFloatingNavItem(
                       destination: destination,
                       selected: selectedPath == destination.path,
+                      compact: compact,
                       onTap: () => onGo(destination.path),
                     ),
                 ],
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          SizedBox(width: compact ? 8 : 10),
           Tooltip(
             message: 'More',
             child: GestureDetector(
@@ -507,8 +517,8 @@ class _PhoneNavigation extends StatelessWidget {
                   ),
                 ],
                 child: SizedBox(
-                  width: 56,
-                  height: 56,
+                  width: compact ? 48 : 56,
+                  height: compact ? 48 : 56,
                   child: Icon(
                     showMore ? WaveIcons.close : WaveIcons.more,
                     size: 23,
@@ -529,11 +539,13 @@ class _PhoneNavigation extends StatelessWidget {
 class _NativeFloatingNavItem extends StatelessWidget {
   final WaveDestination destination;
   final bool selected;
+  final bool compact;
   final VoidCallback onTap;
 
   const _NativeFloatingNavItem({
     required this.destination,
     required this.selected,
+    required this.compact,
     required this.onTap,
   });
 
@@ -543,14 +555,18 @@ class _NativeFloatingNavItem extends StatelessWidget {
         ? waveTextPrimary(context)
         : waveTextSecondary(context);
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: AnimatedContainer(
+    return Tooltip(
+      message: destination.label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        height: 48,
-        padding: EdgeInsets.symmetric(horizontal: selected ? 17 : 13),
+        height: compact ? 44 : 48,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 9 : selected ? 17 : 13,
+        ),
         decoration: BoxDecoration(
           color: selected
               ? waveAccent(context).withValues(alpha: 0.16)
@@ -565,7 +581,7 @@ class _NativeFloatingNavItem extends StatelessWidget {
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOutCubic,
               alignment: Alignment.centerLeft,
-              child: selected
+              child: selected && !compact
                   ? Padding(
                       padding: const EdgeInsets.only(left: 8),
                       child: Text(
