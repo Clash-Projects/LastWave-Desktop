@@ -20,6 +20,10 @@ final nowPlayingControlsIdleProvider = StateProvider<bool>((_) => false);
 /// pointer that is busy on the seek bar.
 final nowPlayingActivityProvider = StateProvider<int>((_) => 0);
 
+/// Requests a secondary action from the Now Playing toolbar. The mobile shell
+/// owns these overlays so they remain coordinated with navigation.
+final nowPlayingOverlayRequestProvider = StateProvider<String?>((_) => null);
+
 /// The player dock as a floating overlay along the bottom edge of the
 /// immersive Now Playing stage. Fades out with the page's other controls
 /// and ignores pointer and focus while hidden, so a hidden dock can't eat

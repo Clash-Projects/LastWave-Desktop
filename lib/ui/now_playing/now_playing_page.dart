@@ -18,6 +18,7 @@ import '../../core/artwork/artwork_resolver.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/downloads/download_manager.dart';
 import '../../features/library/playlists.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/podcasts/podcast_repository.dart';
@@ -350,6 +351,17 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                                     if (_focusMode) _lyricsVisible = true;
                                   });
                                 },
+                                onQueue: () => ref.read(nowPlayingOverlayRequestProvider.notifier).state = 'queue',
+                                onEqualizer: () => ref.read(nowPlayingOverlayRequestProvider.notifier).state = 'equalizer',
+                                onDownload: () {
+                                  ref.read(downloadManagerProvider.notifier).downloadTrack(
+                                    title: current.title,
+                                    artist: current.artist,
+                                    album: current.album,
+                                    artworkUrl: current.artworkUrl,
+                                    videoId: current.videoId,
+                                  );
+                                },
                                 onToggleVisualizer: () {
                                   _resetIdleTimer();
                                   ref
@@ -399,6 +411,9 @@ class _TopActionsBar extends StatelessWidget {
   final VoidCallback onToggleLyrics;
   final VoidCallback onToggleFocus;
   final VoidCallback onToggleVisualizer;
+  final VoidCallback onQueue;
+  final VoidCallback onEqualizer;
+  final VoidCallback onDownload;
   final VoidCallback onClose;
 
   const _TopActionsBar({
@@ -408,6 +423,9 @@ class _TopActionsBar extends StatelessWidget {
     required this.onToggleLyrics,
     required this.onToggleFocus,
     required this.onToggleVisualizer,
+    required this.onQueue,
+    required this.onEqualizer,
+    required this.onDownload,
     required this.onClose,
   });
 
@@ -431,22 +449,41 @@ class _TopActionsBar extends StatelessWidget {
               ),
             ),
           const Spacer(),
-          WaveGlass(
-            blur: false,
+          WaveHaze(
+            level: LwHazeLevel.l2,
+            base: waveSurfaceRaised(context),
+            fillAlpha: 0.38,
             borderRadius: WaveRadius.menuRadius,
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            child: Row(
-              spacing: 5,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LWTooltip(
-                  message: lyricsVisible ? 'Hide lyrics' : 'Show lyrics',
-                  child: _FsIconButton(
-                    icon: WaveIcons.lyrics,
-                    active: lyricsVisible,
-                    onTap: onToggleLyrics,
+            border: Border.all(color: waveDivider(context)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+              child: Row(
+                spacing: 4,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (Platform.isIOS) ...[
+                    LWTooltip(
+                      message: 'Download',
+                      child: _FsIconButton(icon: FluentIcons.download, onTap: onDownload),
+                    ),
+                    LWTooltip(
+                      message: 'Equalizer',
+                      child: _FsIconButton(icon: WaveIcons.equalizer, onTap: onEqualizer),
+                    ),
+                    LWTooltip(
+                      message: 'Queue',
+                      child: _FsIconButton(icon: WaveIcons.queue, onTap: onQueue),
+                    ),
+                    Container(width: 1, height: 22, color: waveDivider(context)),
+                  ],
+                  LWTooltip(
+                    message: lyricsVisible ? 'Hide lyrics' : 'Show lyrics',
+                    child: _FsIconButton(
+                      icon: WaveIcons.lyrics,
+                      active: lyricsVisible,
+                      onTap: onToggleLyrics,
+                    ),
                   ),
-                ),
                 if (!Platform.isIOS) ...[
                   LWTooltip(
                     message: focusMode ? 'Exit focus mode' : 'Focus on lyrics',
@@ -469,11 +506,12 @@ class _TopActionsBar extends StatelessWidget {
                     ),
                   ),
                 ],
-                LWTooltip(
-                  message: 'Close (Esc)',
-                  child: _FsIconButton(icon: WaveIcons.close, onTap: onClose),
-                ),
-              ],
+                  LWTooltip(
+                    message: 'Close (Esc)',
+                    child: _FsIconButton(icon: WaveIcons.close, onTap: onClose),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

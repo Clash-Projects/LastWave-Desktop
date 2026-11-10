@@ -174,11 +174,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
               children: [
                 SettingsSearchBox(onPick: _jump),
                 const SizedBox(height: 16),
-                Text(
-                  'SYSTEM',
-                  style: WaveType.overline.copyWith(color: waveAccent(context)),
-                ),
-                const Text('Settings', style: WaveType.pageTitle),
+const Text('Settings', style: WaveType.pageTitle),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 6,
@@ -214,13 +210,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        'SYSTEM',
-                        style: WaveType.overline.copyWith(
-                          color: waveAccent(context),
-                        ),
-                      ),
-                      const Text('Settings', style: WaveType.pageTitle),
+const Text('Settings', style: WaveType.pageTitle),
                       const SizedBox(height: 12),
                       for (final s in _settingsSections)
                         ListTile.selectable(
