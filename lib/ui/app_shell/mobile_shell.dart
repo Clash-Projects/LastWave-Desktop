@@ -204,16 +204,16 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
               fit: StackFit.expand,
               children: [
                 if (!nowPlaying) _AmbientArtworkBackdrop(),
-                ColoredBox(
-                  color: waveBackground(context).withValues(alpha: nowPlaying ? 0.52 : 0.68),
-                  child: SafeArea(
-                    child: Column(
-                  children: [
-                    if (!nowPlaying)
-                      _MobileMiniPlayer(onOpen: _openNowPlaying),
-                    Expanded(
-                      child: Stack(
-                        fit: StackFit.expand,
+                SafeArea(
+                  child: Column(
+                    children: [
+                      if (!nowPlaying)
+                        _MobileMiniPlayer(onOpen: _openNowPlaying),
+                      Expanded(
+                        child: ColoredBox(
+                          color: waveBackground(context).withValues(alpha: nowPlaying ? 0.52 : 0.68),
+                          child: Stack(
+                            fit: StackFit.expand,
                         children: [
                           widget.child,
                           if (_showMore && !nowPlaying)
@@ -310,10 +310,11 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                 ),
                               ),
                             ),
-                        ],
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                    if (nowPlaying) const _MobileTransportDock(),
+                      if (nowPlaying) const _MobileTransportDock(),
                     if (!nowPlaying)
                       _PhoneNavigation(
                         activePath: activePath,
@@ -322,10 +323,9 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                         onGo: _go,
                         onMore: () => setState(() => _showMore = !_showMore),
                       ),
-                  ],
-                    ),
+                    ],
                   ),
-              ),
+                ),
               ],
             ),
           ),
@@ -437,80 +437,63 @@ class _PhoneNavigation extends StatelessWidget {
         compact ? 10 : 16,
         12,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          WaveHaze(
-            level: LwHazeLevel.l2,
-            base: waveSurfaceRaised(context),
-            fillAlpha: 0.46,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: waveDivider(context)),
-            shadow: [
-              BoxShadow(
-                color: Colors.black.withValues(
-                  alpha: waveIsDark(context) ? 0.24 : 0.08,
-                ),
-                blurRadius: 22,
-                offset: const Offset(0, 7),
-              ),
-            ],
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: compact ? 5 : 7,
-                vertical: 6,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final destination in _nativeMainDestinations)
-                    _NativeFloatingNavItem(
-                      destination: destination,
-                      selected: selectedPath == destination.path,
-                      compact: compact,
-                      onTap: () => onGo(destination.path),
-                    ),
-                ],
-              ),
-            ),
+      child: Center(
+        child: WaveHaze(
+          level: LwHazeLevel.l2,
+          base: waveSurfaceRaised(context),
+          fillAlpha: 0.38,
+          borderRadius: BorderRadius.circular(32),
+          border: Border.all(
+            color: (waveIsDark(context) ? Colors.white : Colors.black)
+                .withValues(alpha: waveIsDark(context) ? 0.18 : 0.10),
           ),
-          SizedBox(width: compact ? 8 : 10),
-          Tooltip(
-            message: 'More',
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onMore,
-              child: WaveHaze(
-                level: LwHazeLevel.l2,
-                base: waveSurfaceRaised(context),
-                fillAlpha: 0.46,
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: waveDivider(context)),
-                shadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: waveIsDark(context) ? 0.24 : 0.08,
-                    ),
-                    blurRadius: 22,
-                    offset: const Offset(0, 7),
+          shadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: waveIsDark(context) ? 0.24 : 0.08,
+              ),
+              blurRadius: 22,
+              offset: const Offset(0, 7),
+            ),
+          ],
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 5 : 7,
+              vertical: 6,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final destination in _nativeMainDestinations)
+                  _NativeFloatingNavItem(
+                    destination: destination,
+                    selected: selectedPath == destination.path,
+                    compact: compact,
+                    onTap: () => onGo(destination.path),
                   ),
-                ],
-                child: SizedBox(
-                  width: compact ? 48 : 56,
-                  height: compact ? 48 : 56,
-                  child: Icon(
-                    showMore ? WaveIcons.close : WaveIcons.more,
-                    size: 23,
-                    color: moreActive
-                        ? waveAccent(context)
-                        : waveTextSecondary(context),
+                SizedBox(width: compact ? 2 : 4),
+                Tooltip(
+                  message: 'More',
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onMore,
+                    child: SizedBox(
+                      width: compact ? 48 : 56,
+                      height: compact ? 48 : 56,
+                      child: Icon(
+                        showMore ? WaveIcons.close : WaveIcons.more,
+                        size: 23,
+                        color: moreActive
+                            ? waveAccent(context)
+                            : waveTextSecondary(context),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -832,9 +815,10 @@ class _MobileMiniPlayer extends ConsumerWidget {
         artworkTint: artworkTint,
         fillAlpha: 0.46,
         borderRadius: BorderRadius.circular(24),
-        border: waveIsDark(context)
-            ? Border.all(color: waveDivider(context).withValues(alpha: 0.8))
-            : null,
+        border: Border.all(
+          color: (waveIsDark(context) ? Colors.white : Colors.black)
+              .withValues(alpha: waveIsDark(context) ? 0.18 : 0.10),
+        ),
         shadow: [
           BoxShadow(
             color: waveTextPrimary(context).withValues(alpha: 0.035),
