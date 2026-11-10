@@ -200,20 +200,13 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                   child: SafeArea(
                     child: Column(
                   children: [
+                    if (!nowPlaying)
+                      _MobileMiniPlayer(onOpen: _openNowPlaying),
                     Expanded(
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          Padding(
-                            // Keep the first page controls below the floating
-                            // mini-player instead of allowing it to cover them.
-                            padding: EdgeInsets.only(
-                              top: nowPlaying
-                                  ? 0
-                                  : _mobileMiniPlayerReservedHeight,
-                            ),
-                            child: widget.child,
-                          ),
+                          widget.child,
                           if (_showMore && !nowPlaying)
                             Positioned.fill(
                               child: ColoredBox(
@@ -324,30 +317,18 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                         queueActive: _showQueue,
                         equalizerActive: _showEqualizer,
                       ),
+                    if (!nowPlaying)
+                      _PhoneNavigation(
+                        activePath: activePath,
+                        moreActive: moreActive,
+                        showMore: _showMore,
+                        onGo: _go,
+                        onMore: () => setState(() => _showMore = !_showMore),
+                      ),
                   ],
                     ),
                   ),
               ),
-                if (!nowPlaying)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: MediaQuery.paddingOf(context).bottom,
-                    child: _PhoneNavigation(
-                      activePath: activePath,
-                      moreActive: moreActive,
-                      showMore: _showMore,
-                      onGo: _go,
-                      onMore: () => setState(() => _showMore = !_showMore),
-                    ),
-                  ),
-                if (!nowPlaying)
-                  Positioned(
-                    top: MediaQuery.paddingOf(context).top,
-                    left: 0,
-                    right: 0,
-                    child: _MobileMiniPlayer(onOpen: _openNowPlaying),
-                  ),
               ],
             ),
           ),
@@ -786,10 +767,6 @@ class _MobileTransportDock extends ConsumerWidget {
 const double _mobileMiniPlayerCardHeight = 82;
 const double _mobileMiniPlayerTopMargin = 9;
 const double _mobileMiniPlayerBottomMargin = 10;
-const double _mobileMiniPlayerReservedHeight =
-    _mobileMiniPlayerCardHeight +
-    _mobileMiniPlayerTopMargin +
-    _mobileMiniPlayerBottomMargin;
 
 /// Mini-player proportions and single-card hierarchy adapted from
 /// LastWave-Native's ui/player/MiniPlayer.kt, translated to Flutter.

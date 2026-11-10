@@ -1276,6 +1276,13 @@ class _SpotifyCard extends ConsumerWidget {
                 style: WaveType.trackTitle,
               ),
             ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
             if (auth.connected)
               WaveButton(
                 onPressed: () async {
@@ -1289,17 +1296,15 @@ class _SpotifyCard extends ConsumerWidget {
                 onPressed: () => spotifyConnectWithMobileWebView(context, ref),
                 child: const Text('Sign in with Spotify'),
               ),
-              const SizedBox(width: 8),
               WaveButton(
                 onPressed: () => spotifyConnectWithCookie(context, ref),
                 child: const Text('Use a cookie instead'),
               ),
-            ] else ...[
+            ] else
               WaveFilledButton(
                 onPressed: () => spotifyConnectWithCookie(context, ref),
                 child: const Text('Login with cookies'),
               ),
-            ],
           ],
         ),
         if (Platform.isIOS) ...[
