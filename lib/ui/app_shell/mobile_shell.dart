@@ -337,6 +337,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                       _PhoneNavigation(
                         activePath: activePath,
                         moreActive: moreActive,
+                        showMore: _showMore,
                         onGo: _go,
                         onMore: () =>
                             setState(() => _showMore = !_showMore),
@@ -473,12 +474,14 @@ class _MobileOverlayHeader extends StatelessWidget {
 class _PhoneNavigation extends StatelessWidget {
   final String activePath;
   final bool moreActive;
+  final bool showMore;
   final void Function(String) onGo;
   final VoidCallback onMore;
 
   const _PhoneNavigation({
     required this.activePath,
     required this.moreActive,
+    required this.showMore,
     required this.onGo,
     required this.onMore,
   });
@@ -555,7 +558,7 @@ class _PhoneNavigation extends StatelessWidget {
                   width: 56,
                   height: 56,
                   child: Icon(
-                    moreActive ? WaveIcons.close : WaveIcons.more,
+                    showMore ? WaveIcons.close : WaveIcons.more,
                     size: 23,
                     color: moreActive
                         ? waveAccent(context)
