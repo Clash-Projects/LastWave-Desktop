@@ -39,51 +39,11 @@ class _WavePlaylistsPageState
     extends ConsumerState<WavePlaylistsPage> {
   final _filter = TextEditingController();
   String _q = '';
-  bool _selecting = false;
-  final Set<int> _selected = {};
 
   @override
   void dispose() {
     _filter.dispose();
     super.dispose();
-  }
-
-  Future<void> _deleteSelected() async {
-    final doomed = ref
-        .read(playlistRepositoryProvider)
-        .where((p) =>
-            _selected.contains(p.id) && !p.isLikedSongs && !p.isLocal)
-        .toList();
-    if (doomed.isEmpty || !mounted) return;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Delete playlists?'),
-        content: Text(
-          '${doomed.length} playlist${doomed.length == 1 ? '' : 's'} will be removed, including any copy on YouTube Music. Liked Songs and Local songs stay.',
-        ),
-        actions: [
-          WaveButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          WaveFilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
-    final repo = ref.read(playlistRepositoryProvider.notifier);
-    for (final playlist in doomed) {
-      await repo.delete(playlist.id);
-    }
-    if (!mounted) return;
-    setState(() {
-      _selecting = false;
-      _selected.clear();
-    });
   }
 
   @override
@@ -169,28 +129,7 @@ class _WavePlaylistsPageState
                       ref,
                     ),
                   ),
-                  if (_selecting) ...[
-                    WaveGhostButton(
-                      label: 'Delete',
-                      icon: FluentIcons.delete,
-                      onPressed:
-                          _selected.isEmpty ? null : _deleteSelected,
-                    ),
-                    WaveGhostButton(
-                      label: 'Done',
-                      icon: FluentIcons.check_mark,
-                      onPressed: () => setState(() {
-                        _selecting = false;
-                        _selected.clear();
-                      }),
-                    ),
-                  ] else
-                    WaveGhostButton(
-                      label: 'Select',
-                      icon: FluentIcons.multi_select,
-                      onPressed: () =>
-                          setState(() => _selecting = true),
-                    ),
+
                 ],
               ),
               ),
@@ -237,21 +176,12 @@ class _WavePlaylistsPageState
                     itemCount: shown.length,
                     itemBuilder: (context, i) {
                       final playlist = shown[i];
-                      final protected =
-                          playlist.isLikedSongs || playlist.isLocal;
                       return WaveEntrance(
                       index: i,
                       rise: 10,
                       child: _PlaylistCard(
                         playlist: playlist,
                         artSize: 160,
-                        selecting: _selecting && !protected,
-                        selected: _selected.contains(playlist.id),
-                        onSelect: () => setState(() {
-                          if (!_selected.add(playlist.id)) {
-                            _selected.remove(playlist.id);
-                          }
-                        }),
                       ),
                     );
                     },
@@ -599,8 +529,7 @@ class _PlaylistCard extends ConsumerStatefulWidget {
       _PlaylistCardState();
 }
 
-class _PlaylistCardState
-    extends ConsumerState<_PlaylistCard> {
+class _PlaylistCardState extends ConsumerState<_PlaylistCard> {
   bool _hover = false;
   bool _pressed = false;
 
@@ -620,7 +549,7 @@ class _PlaylistCardState
             onPressed: () => Navigator.of(dialogContext).pop('rename'),
             child: const Text('Rename'),
           ),
-          if (!playlist.isLikedSongs && !playlist.isLocal)
+          if (!playlist.isLikedSongs)
             WaveFilledButton(
               onPressed: () => Navigator.of(dialogContext).pop('delete'),
               child: const Text('Delete'),
@@ -630,261 +559,120 @@ class _PlaylistCardState
     );
     if (!mounted || action == null) return;
     if (action == 'rename') {
-      showWaveRenamePlaylist(context, ref, playlist);
+      await showWaveRenamePlaylist(context, ref, playlist);
     } else if (action == 'delete') {
-      showWaveDeletePlaylist(context, ref, playlist);
+      await showWaveDeletePlaylist(context, ref, playlist);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final p = widget.playlist;
+    final playlist = widget.playlist;
     final dark = waveIsDark(context);
-    final cover = _coverOf(p);
-    void open() => context.go('/playlists/${p.id}');
-    void play() {
-      if (widget.selecting) {
-        widget.onSelect?.call();
-        return;
-      }
-      open();
-    }
-    return WaveContextMenu(
-      items: () => [
-        WaveMenuAction(
-          leading:
-              const Icon(FluentIcons.play, size: 13),
-          label: 'Open',
-          onPressed: open,
-        ),
-        WaveMenuAction(
-          leading: Icon(
-              p.isPinned
-                  ? FluentIcons.pinned
-                  : FluentIcons.pin,
-              size: 13),
-          label: p.isPinned ? 'Unpin' : 'Pin',
-          onPressed: () => ref
-              .read(playlistRepositoryProvider.notifier)
-              .setPinned(p.id, !p.isPinned),
-        ),
-        WaveMenuAction(
-          leading:
-              const Icon(FluentIcons.edit, size: 13),
-          label: 'Rename',
-          onPressed: () => showWaveRenamePlaylist(
-              context, ref, p),
-        ),
-        if (!p.isLikedSongs && !p.isLocal)
-          WaveMenuAction(
-            leading: const Icon(FluentIcons.delete,
-                size: 13),
-            label: 'Delete',
-            onPressed: () => showWaveDeletePlaylist(
-                context, ref, p),
-          ),
-      ],
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() {
-          _hover = false;
-          _pressed = false;
-        }),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            GestureDetector(
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapUp: (_) => setState(() => _pressed = false),
-          onTapCancel: () => setState(() => _pressed = false),
-          onTap: play,
-          onLongPress: _showLongPressActions,
-          child: AnimatedScale(
-            scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
-            duration: waveMotion(context, WaveMotion.fast),
+    final cover = _coverOf(playlist);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: () => context.go('/playlists/${playlist.id}'),
+        onLongPress: _showLongPressActions,
+        child: AnimatedScale(
+          scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+          duration: waveMotion(context, WaveMotion.fast),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: waveMotion(context, WaveMotion.normal),
             curve: Curves.easeOutCubic,
-            child: AnimatedContainer(
-              duration: waveMotion(context, WaveMotion.normal),
-              curve: Curves.easeOutCubic,
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: _hover
-                    ? (waveIsDark(context)
-                            ? Colors.white
-                            : Colors.black)
-                        .withValues(alpha: 0.05)
-                    : Colors.transparent,
-                borderRadius: WaveRadius.artworkRadius,
-                border: widget.selected
-                    ? Border.all(color: waveAccent(context), width: 2)
-                    : null,
-                boxShadow: [
-                  if (_hover) ...WaveElevation.lift(dark),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                children: [
-                  Stack(
-                    children: [
-                      WaveArtwork(
-                          url: cover ?? '',
-                          size: widget.artSize,
-                          radius: WaveRadius.artwork,
-                          label: p.title),
-                      if (widget.selecting)
-                        Positioned(
-                          right: 8,
-                          top: 8,
-                          child: Container(
-                            width: 27,
-                            height: 27,
-                            decoration: BoxDecoration(
-                              color: widget.selected
-                                  ? waveAccent(context)
-                                  : Colors.black.withValues(alpha: 0.62),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.9),
-                                width: 1.2,
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Icon(
-                              widget.selected
-                                  ? FluentIcons.check_mark
-                                  : FluentIcons.checkbox,
-                              size: 14,
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: _hover
+                  ? (dark ? Colors.white : Colors.black)
+                      .withValues(alpha: 0.05)
+                  : Colors.transparent,
+              borderRadius: WaveRadius.artworkRadius,
+              boxShadow: [if (_hover) ...WaveElevation.lift(dark)],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    WaveArtwork(
+                      url: cover ?? '',
+                      size: widget.artSize,
+                      radius: WaveRadius.artwork,
+                      label: playlist.title,
+                    ),
+                    if (playlist.isPinned)
+                      Positioned(
+                        left: 6,
+                        top: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Text(
+                            'PINNED',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.6,
                               color: Colors.white,
                             ),
                           ),
                         ),
-                      if (p.isPinned)
-                        Positioned(
-                          left: 6,
-                          top: 6,
-                          child: Container(
-                            padding:
-                                const EdgeInsets.symmetric(
-                                    horizontal: 7,
-                                    vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(
-                                  alpha: 0.7),
-                              borderRadius:
-                                  BorderRadius.circular(
-                                      999),
-                            ),
-                            child: const Text('PINNED',
-                                style: TextStyle(
-                                    fontSize: 9,
-                                    fontWeight:
-                                        FontWeight.w700,
-                                    letterSpacing: 0.6,
-                                    color: Colors.white)),
+                      ),
+                    Positioned.fill(
+                      child: AnimatedOpacity(
+                        opacity: _hover ? 1 : 0,
+                        duration: waveMotion(context, WaveMotion.fast),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: WaveRadius.artworkRadius,
                           ),
-                        ),
-                      Positioned.fill(
-                        child: AnimatedOpacity(
-                          opacity: _hover ? 1 : 0,
-                          duration: waveMotion(context, WaveMotion.fast),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.55),
-                              borderRadius: WaveRadius.artworkRadius,
-                            ),
-                            child: Center(
-                              child: AnimatedScale(
-                                scale: _hover ? 1.0 : 0.70,
-                                duration: waveMotion(context, WaveMotion.fast),
-                                curve: Curves.easeOutBack,
-                                child: GestureDetector(
-                                  onTap: play,
-                                  child: Container(
-                                    width: 44,
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: waveAccent(context),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black
-                                              .withValues(alpha: 0.4),
-                                          blurRadius: 12,
-                                        ),
-                                      ],
-                                    ),
-                                    child: Icon(
-                                        WaveIcons.play,
-                                        size: 18,
-                                        color: waveOnAccent(context)),
-                                  ),
-                                ),
-                              ),
+                          child: Center(
+                            child: Icon(
+                              WaveIcons.play,
+                              size: 22,
+                              color: Colors.white,
                             ),
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(p.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.trackTitle
-                          .copyWith(fontSize: 12.5)),
-                  Text(
-                      p.isLocal
-                          ? 'On this device · ${p.tracks.length} tracks'
-                          : '${p.tracks.length} tracks',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.meta
-                          .copyWith(fontSize: 11.5)),
-                ],
-              ),
-            ),
-          ),
-        ),
-            if (!widget.selecting)
-              Positioned(
-                right: 10,
-                top: 10,
-                child: WaveOverflowButton(
-                  tooltip: 'Playlist options',
-                  items: [
-                    WaveMenuAction(
-                      leading: const Icon(FluentIcons.play, size: 15),
-                      label: 'Open',
-                      onPressed: open,
                     ),
-                    WaveMenuAction(
-                      leading: Icon(
-                        p.isPinned ? FluentIcons.pinned : FluentIcons.pin,
-                        size: 15,
-                      ),
-                      label: p.isPinned ? 'Unpin' : 'Pin',
-                      onPressed: () => ref
-                          .read(playlistRepositoryProvider.notifier)
-                          .setPinned(p.id, !p.isPinned),
-                    ),
-                    WaveMenuAction(
-                      leading: const Icon(FluentIcons.edit, size: 15),
-                      label: 'Rename',
-                      onPressed: () => showWaveRenamePlaylist(context, ref, p),
-                    ),
-                    if (!p.isLikedSongs && !p.isLocal)
-                      WaveMenuAction(
-                        leading: const Icon(FluentIcons.delete, size: 15),
-                        label: 'Delete',
-                        onPressed: () => showWaveDeletePlaylist(context, ref, p),
-                      ),
                   ],
                 ),
-              ),
-          ],
+                const SizedBox(height: 6),
+                Text(
+                  playlist.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WaveType.trackTitle.copyWith(fontSize: 12.5),
+                ),
+                Text(
+                  playlist.isLocal
+                      ? 'On this device · ${playlist.tracks.length} tracks'
+                      : '${playlist.tracks.length} tracks',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WaveType.meta.copyWith(fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

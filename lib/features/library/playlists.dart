@@ -105,7 +105,7 @@ class SavedPlaylist {
   final String customCoverUri;
 
   static const String localMode = 'local';
-  static const String localTitle = 'Local songs';
+  static const String localTitle = 'Local Songs';
 
   const SavedPlaylist({
     required this.id,
@@ -374,7 +374,18 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
 
   Future<SavedPlaylist> ensureLocalSongs() async {
     final existing = state.where((p) => p.isLocal);
-    if (existing.isNotEmpty) return existing.first;
+    if (existing.isNotEmpty) {
+      final playlist = existing.first;
+      if (playlist.title != SavedPlaylist.localTitle) {
+        _db.raw.execute(
+          'UPDATE saved_playlists SET title = ? WHERE id = ?;',
+          [SavedPlaylist.localTitle, playlist.id],
+        );
+        refresh();
+        return state.firstWhere((p) => p.id == playlist.id);
+      }
+      return playlist;
+    }
     final id = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
     _db.raw.execute(
