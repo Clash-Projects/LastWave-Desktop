@@ -96,7 +96,7 @@ FluentThemeData buildWaveFluentTheme({
       scaffoldBackgroundColor: page,
       micaBackgroundColor: page,
       cardColor: card,
-      menuColor: card,
+      menuColor: custom?.surface ?? WaveColors.lightSurfaceRaised,
       activeColor: WaveColors.lightTextPrimary,
       inactiveColor: WaveColors.lightTextSecondary,
       selectionColor: safeAccent.withValues(alpha: 0.25),

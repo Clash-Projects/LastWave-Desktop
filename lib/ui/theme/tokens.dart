@@ -57,14 +57,14 @@ class WaveColors {
   // Light — Windows 11 neutral, NOT beige.
   // Base app: #F3F3F3 Mica-like · nav: #ECECEC tinted · content: #F9F9F9
   // clean · player: #FFFFFF elevated · flyouts: white acrylic.
-  static const lightBackground = Color(0xFFF3F3F3);
-  static const lightNavBackground = Color(0xFFECECEC);
-  static const lightContent = Color(0xFFF9F9F9);
+  static const lightBackground = Color(0xFFFFFFFF);
+  static const lightNavBackground = Color(0xFFF8F8F8);
+  static const lightContent = Color(0xFFFFFFFF);
   static const lightSurface = Color(0xFFFFFFFF);
-  static const lightSurfaceRaised = Color(0xFFFFFFFF);
-  static const lightOverlay = Color(0xFFEDEBE9);
-  static const lightOutline = Color(0xFFE1DFDD);
-  static const lightOutlineSoft = Color(0xFFEDEBE9);
+  static const lightSurfaceRaised = Color(0xFFF8F8F8);
+  static const lightOverlay = Color(0xFFF1F1F1);
+  static const lightOutline = Color(0xFFE5E5E5);
+  static const lightOutlineSoft = Color(0xFFE5E5E5);
   static const lightTextPrimary = Color(0xFF1B1A19);
   static const lightTextSecondary = Color(0xFF605E5C);
 

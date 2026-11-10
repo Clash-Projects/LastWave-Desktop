@@ -198,21 +198,16 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
 
     // Custom theme: one generated palette, published as the dark or the
     // light theme depending on how bright its base is.
-    final custom = theme.customSurfaces;
-    final customLight = custom != null && theme.effectiveLight;
-    final activeSurfaces = theme.effectiveLight
-        ? (customLight ? custom : WaveSurfaces.graphite)
-        : (custom ?? (theme.amoled ? WaveSurfaces.amoled : WaveSurfaces.graphite));
+    final activeSurfaces = WaveSurfaces.graphite;
     final darkTheme = buildWaveFluentTheme(
       accent: accent,
       isLight: false,
-      amoled: theme.amoled,
-      custom: customLight ? null : custom,
+      amoled: false,
     );
     final lightTheme = buildWaveFluentTheme(
       accent: accent,
       isLight: true,
-      custom: customLight ? custom : null,
+      custom: null,
     );
 
     return WaveHazeScope(

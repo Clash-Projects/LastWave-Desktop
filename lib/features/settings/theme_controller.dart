@@ -38,13 +38,10 @@ class ThemeState {
   });
 
   /// The palette for the Custom theme, or null for Midnight / Pearl.
-  WaveSurfaces? get customSurfaces =>
-      isCustom ? WaveSurfaces.fromCustomBase(customBase) : null;
+  WaveSurfaces? get customSurfaces => null;
 
-  /// Brightness actually rendered: Pearl, or a Custom theme on a light
-  /// base.
-  bool get effectiveLight =>
-      isLight || (isCustom && WaveSurfaces.isLightBase(customBase));
+  /// Brightness of the two supported base themes.
+  bool get effectiveLight => isLight;
 }
 
 class ThemeController extends StateNotifier<ThemeState> {
@@ -67,9 +64,9 @@ class ThemeController extends StateNotifier<ThemeState> {
   ThemeController(this._prefs)
       : super(ThemeState(
           accent: Color(_defaultAccent(_prefs)),
-          amoled: _prefs.amoled,
+          amoled: false,
           isLight: _prefs.isLight,
-          isCustom: _prefs.isCustomTheme,
+          isCustom: false,
           customBase: Color(_prefs.customThemeBase),
           hazeMaterial: _prefs.hazeMaterial,
           hazeIntensity: _prefs.hazeIntensity,
@@ -80,9 +77,9 @@ class ThemeController extends StateNotifier<ThemeState> {
   void refresh() {
     state = ThemeState(
       accent: Color(_defaultAccent(_prefs)),
-      amoled: _prefs.amoled,
+      amoled: false,
       isLight: _prefs.isLight,
-      isCustom: _prefs.isCustomTheme,
+      isCustom: false,
       customBase: Color(_prefs.customThemeBase),
       hazeMaterial: _prefs.hazeMaterial,
       hazeIntensity: _prefs.hazeIntensity,
@@ -91,16 +88,10 @@ class ThemeController extends StateNotifier<ThemeState> {
     );
   }
 
-  /// 'dark' (Midnight), 'light' (Pearl) or 'custom'.
+  /// Only Midnight ('dark') and White ('light') are supported.
+  /// Legacy saved values such as 'custom' are safely treated as Midnight.
   Future<void> setThemeMode(String mode) async {
-    await _prefs.setThemeMode(mode);
-    refresh();
-  }
-
-  /// Picks the Custom theme's base colour and switches to it.
-  Future<void> setCustomBase(Color base) async {
-    await _prefs.setCustomThemeBase(base.withValues(alpha: 1).toARGB32());
-    await _prefs.setThemeMode('custom');
+    await _prefs.setThemeMode(mode == 'light' ? 'light' : 'dark');
     refresh();
   }
 }
