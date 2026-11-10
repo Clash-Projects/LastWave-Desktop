@@ -138,6 +138,7 @@ class WavePlayerDock extends ConsumerWidget {
                   dockW: dockW,
                   narrow: narrow,
                   current: current,
+                  stream: player.stream,
                   isPlaying: player.isPlaying,
                   isBuffering: player.isBuffering,
                   jamLocked: jamLocked,
@@ -439,6 +440,7 @@ class WavePlayerDock extends ConsumerWidget {
     required double dockW,
     required bool narrow,
     required PlayableTrack? current,
+    required ResolvedStream? stream,
     required bool isPlaying,
     required bool isBuffering,
     required bool jamLocked,
@@ -475,6 +477,13 @@ class WavePlayerDock extends ConsumerWidget {
               child: RepaintBoundary(child: _DockProgress(compact: narrow)),
             ),
             const SizedBox(width: 8),
+            // Native's full player keeps source quality visible beside the
+            // transport controls. On roomy iPad layouts, surface the same
+            // live stream details without crowding the phone-sized dock.
+            if (stream != null && dockW >= 620) ...[
+              _QualityFlyout(stream: stream),
+              const SizedBox(width: 8),
+            ],
             if (dockW >= 700)
               const _VolumeSection()
             else
