@@ -27,3 +27,6 @@ the separate licenses of third-party dependencies and assets.
 - `lib/ui/home/home_page.dart`: the Feed greeting/date, centered 920dp content rail, artwork-backed Infinite Radio hero, and fixed Quick Access row are translated from `ui/feed/FeedTiles.kt` and `ui/feed/FeedScreen.kt`. The radio button uses the existing Flutter playback queue and endless-radio service.
 - `lib/ui/home/discovery_sections.dart` and `lib/app/router.dart`: the New Releases quick-access destination reuses the existing Flutter catalogue/filter implementation rather than adding a second data source.
 - `lib/ui/app_shell/mobile_shell.dart`: the Home sections editor remains accessible from More after matching Native's compact greeting header.
+
+- `lib/ui/home/home_page.dart`: `My genres` and the three-track horizontal Quick Picks columns adapt `TasteStrip` and `QuickPicksRows` from `ui/feed/FeedTiles.kt`. Genre chips use the existing Last.fm/local genre provider and YouTube Music genre-track provider, with the existing playback service to start radio.
+- `lib/features/feed/home_shelf_layout.dart`: configurable Flutter shelf order now places supported Native Feed sections in Native's default sequence; greeting, Infinite Radio, and Quick Access remain structural elements.

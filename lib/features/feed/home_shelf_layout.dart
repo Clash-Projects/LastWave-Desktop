@@ -14,6 +14,7 @@ const homeShelfLayoutKey = 'home_shelf_layout';
 /// people who already saved a layout: [resolveHomeShelfOrder] leaves any
 /// id the save never mentioned in its default slot.
 abstract final class HomeShelfId {
+  static const taste = 'taste';
   static const mixes = 'mixes';
   static const youtube = 'youtube';
   static const youtubeMore = 'youtube_more';
@@ -33,37 +34,29 @@ abstract final class HomeShelfId {
 abstract final class HomeShelfCatalog {
   /// Visual order on a fresh Home, top to bottom.
   static const defaults = <String>[
-    HomeShelfId.mixes,
-    HomeShelfId.youtube,
+    HomeShelfId.taste,
     HomeShelfId.quickPicks,
-    HomeShelfId.continueListening,
     HomeShelfId.because,
-    HomeShelfId.albums,
-    HomeShelfId.artists,
-    HomeShelfId.friends,
-    HomeShelfId.charts,
     HomeShelfId.fresh,
+    HomeShelfId.continueListening,
+    HomeShelfId.youtube,
+    HomeShelfId.artists,
+    HomeShelfId.albums,
+    HomeShelfId.charts,
     HomeShelfId.releases,
-    HomeShelfId.popular,
+    HomeShelfId.friends,
     HomeShelfId.podcasts,
+    HomeShelfId.popular,
     HomeShelfId.youtubeMore,
   ];
 
   /// Top to bottom when YouTube Music is connected and the layout was never
   /// edited: what you play most first, broad browsing last. Podcasts and the
   /// taste-only shelves are left out unless a saved layout asks for them.
-  static const connected = <String>[
-    HomeShelfId.mixes,
-    HomeShelfId.quickPicks,
-    HomeShelfId.continueListening,
-    HomeShelfId.youtube,
-    HomeShelfId.because,
-    HomeShelfId.artists,
-    HomeShelfId.youtubeMore,
-    HomeShelfId.friends,
-  ];
+  static const connected = defaults;
 
   static const labels = <String, String>{
+    HomeShelfId.taste: 'My genres',
     HomeShelfId.mixes: 'Mixes',
     HomeShelfId.youtube: 'YouTube Music',
     HomeShelfId.youtubeMore: 'More from YouTube Music',

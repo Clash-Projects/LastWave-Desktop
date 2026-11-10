@@ -12,6 +12,8 @@ import '../../core/artwork/official_artwork_service.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/feed/home_blend.dart';
+import '../../features/feed/genre_source.dart' show genreChartProvider;
+import '../../features/feed/genre_browse.dart' show genreTracksProvider;
 import '../../features/feed/home_shelf_layout.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
@@ -192,7 +194,7 @@ class WaveHomePage extends ConsumerWidget {
                 ),
               );
             }
-            return _feedSlivers(context, ref, data, side, quickCols);
+            return _feedSlivers(context, ref, data, side);
           },
         ),
             ],
@@ -326,14 +328,14 @@ class WaveHomePage extends ConsumerWidget {
         : blend.quickPicks;
     sections[HomeShelfId.mixes] =
         _nativeFeedPrelude(context, ref, infiniteRadioTracks);
+    sections[HomeShelfId.taste] = [
+      SliverToBoxAdapter(child: _NativeTasteStrip()),
+    ];
     if (blend.quickPicks.isNotEmpty) {
-      // A whole number of rows, so the grid never ends on a gap.
-      final count = (blend.quickPicks.length ~/ quickCols) * quickCols;
       sections[HomeShelfId.quickPicks] = [
-        ...header(title: 'Quick picks'),
-        songGrid(blend.quickPicks
-            .take(count == 0 ? blend.quickPicks.length : count)
-            .toList()),
+        SliverToBoxAdapter(
+          child: _NativeQuickPicksPanel(tracks: blend.quickPicks),
+        ),
       ];
     }
     if (blend.listenAgain.isNotEmpty) {
@@ -417,7 +419,7 @@ class WaveHomePage extends ConsumerWidget {
   }
 
   Widget _feedSlivers(BuildContext context, WidgetRef ref, FeedData data,
-      double side, int quickCols) {
+      double side) {
     final layout = ref.watch(homeShelfLayoutProvider);
     final sections = <String, List<Widget>>{};
     var sink = <Widget>[];
@@ -441,43 +443,16 @@ class WaveHomePage extends ConsumerWidget {
     use(HomeShelfId.mixes);
     sink.addAll(_nativeFeedPrelude(context, ref, infiniteRadioTracks));
 
+    use(HomeShelfId.taste);
+    sink.add(SliverToBoxAdapter(child: _NativeTasteStrip()));
+
     use(HomeShelfId.quickPicks);
     if (data.quickPicks.isNotEmpty) {
-      gap(26);
-      final picks = data.quickPicks.take(6).toList();
-      sink.add(SliverPadding(
-        padding: EdgeInsets.only(left: side, right: side),
-        sliver: SliverToBoxAdapter(
-          child: WaveEntrance(
-            index: slot(),
-            rise: 8,
-            child: LWSectionHeader(
-              overline: 'Jump back in',
-              title: 'Quick Picks',
-              count: picks.length,
-            ),
-          ),
+      sink.add(
+        SliverToBoxAdapter(
+          child: _NativeQuickPicksPanel(tracks: data.quickPicks),
         ),
-      ));
-      sink.add(SliverPadding(
-        padding: EdgeInsets.only(left: side, right: side, top: 10),
-        sliver: SliverGrid(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: quickCols,
-            mainAxisSpacing: 4,
-            crossAxisSpacing: 8,
-            mainAxisExtent: 56,
-          ),
-          delegate: SliverChildBuilderDelegate(
-            (context, i) => WaveEntrance(
-              index: i,
-              rise: 10,
-              child: _QuickTile(track: picks[i]),
-            ),
-            childCount: picks.length,
-          ),
-        ),
-      ));
+      );
     }
 
     use(HomeShelfId.continueListening);
@@ -786,6 +761,297 @@ class WaveHomePage extends ConsumerWidget {
       const SliverToBoxAdapter(child: SizedBox(height: 6)),
     ];
     return SliverMainAxisGroup(slivers: slivers);
+  }
+}
+
+/// Native TasteStrip adapted from LastWave-Native FeedTiles.kt.
+class _NativeTasteStrip extends ConsumerStatefulWidget {
+  const _NativeTasteStrip();
+
+  @override
+  ConsumerState<_NativeTasteStrip> createState() => _NativeTasteStripState();
+}
+
+class _NativeTasteStripState extends ConsumerState<_NativeTasteStrip> {
+  String? _launching;
+  static const _fallbackGenres = [
+    'Rock', 'Indie', 'Pop', 'Electronic', 'Hip-Hop', 'R&B',
+    'Synthwave', 'Alternative',
+  ];
+
+  Future<void> _startRadio(String genre) async {
+    if (_launching != null) return;
+    setState(() => _launching = genre);
+    try {
+      final tracks = await ref.read(genreTracksProvider(genre).future);
+      if (!mounted) return;
+      if (tracks.isEmpty) {
+        context.go('/genre/${Uri.encodeComponent(genre)}?name=${Uri.encodeComponent(genre)}');
+        return;
+      }
+      await ref.read(playbackServiceProvider.notifier).playQueue(
+        tracks.map(playableFromGenerated).toList(), 0,
+        sourceLabel: '$genre Radio', endlessRadio: true,
+      );
+    } catch (_) {
+      if (mounted) {
+        context.go('/genre/${Uri.encodeComponent(genre)}?name=${Uri.encodeComponent(genre)}');
+      }
+    } finally {
+      if (mounted) setState(() => _launching = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final chart = ref.watch(genreChartProvider('overall'));
+    final loaded = chart.valueOrNull?.bars.map((genre) => genre.name).toList()
+        ?? const <String>[];
+    final genres = loaded.isNotEmpty ? loaded : _fallbackGenres;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 3),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: waveSurfaceRaised(context).withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('My genres', style: WaveType.sectionTitle.copyWith(
+                  fontSize: 20, fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                )),
+                const SizedBox(height: 2),
+                Text('Tap a vibe to start instant radio',
+                  style: WaveType.meta.copyWith(
+                    fontSize: 12,
+                    color: waveTextSecondary(context).withValues(alpha: 0.8),
+                  )),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 38,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: genres.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final genre = genres[index];
+                final launching = _launching == genre;
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _launching == null ? () => _startRadio(genre) : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: waveSurfaceRaised(context).withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: waveDivider(context).withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(width: 8, height: 8, decoration: BoxDecoration(
+                          color: waveAccent(context), shape: BoxShape.circle,
+                        )),
+                        const SizedBox(width: 7),
+                        Text(genre, style: WaveType.trackTitle.copyWith(
+                          fontSize: 13, fontWeight: FontWeight.w700,
+                        )),
+                        if (launching) ...[
+                          const SizedBox(width: 7),
+                          Icon(FluentIcons.refresh, size: 14, color: waveAccent(context)),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Native QuickPicksRows: three compact tracks stacked per horizontal column.
+class _NativeQuickPicksPanel extends ConsumerWidget {
+  final List<GeneratedTrack> tracks;
+  const _NativeQuickPicksPanel({required this.tracks});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (tracks.isEmpty) return const SizedBox.shrink();
+    final width = MediaQuery.sizeOf(context).width;
+    final fraction = width < 600 ? 0.88 : width < 840 ? 0.48 : 0.32;
+    final currentKey = ref.watch(
+      playbackServiceProvider.select((state) => state.current?.queueKey),
+    );
+    final columns = (tracks.length + 2) ~/ 3;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 3),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: waveSurfaceRaised(context).withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Quick picks', style: WaveType.sectionTitle.copyWith(
+                  fontSize: 20, fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                )),
+                const SizedBox(height: 2),
+                Text('Trending songs worth playing now',
+                  style: WaveType.meta.copyWith(
+                    fontSize: 12,
+                    color: waveTextSecondary(context).withValues(alpha: 0.8),
+                  )),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 212,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: columns,
+              separatorBuilder: (_, _) => const SizedBox(width: 14),
+              itemBuilder: (context, columnIndex) {
+                final start = columnIndex * 3;
+                final end = (start + 3).clamp(0, tracks.length).toInt();
+                return SizedBox(
+                  width: width * fraction,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var index = start; index < end; index++)
+                        Padding(
+                          padding: EdgeInsets.only(bottom: index == end - 1 ? 0 : 10),
+                          child: _NativeQuickPickRow(
+                            track: tracks[index], index: index, queue: tracks,
+                            isCurrent: currentKey == tracks[index].key,
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NativeQuickPickRow extends ConsumerWidget {
+  final GeneratedTrack track;
+  final int index;
+  final List<GeneratedTrack> queue;
+  final bool isCurrent;
+
+  const _NativeQuickPickRow({
+    required this.track, required this.index, required this.queue,
+    required this.isCurrent,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final playing = ref.watch(
+      playbackServiceProvider.select((state) => state.isPlaying),
+    );
+    final accent = waveAccent(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => playGenerated(
+        ref, context, track, sourceLabel: 'Quick picks',
+        queueAll: queue, startIndex: index,
+      ),
+      child: Container(
+        height: 64,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isCurrent ? accent.withValues(alpha: 0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Stack(
+              children: [
+                WaveArtwork(
+                  url: track.artworkUrl, videoId: track.videoId, size: 48,
+                  radius: 12, title: track.name, artist: track.artist,
+                  label: track.name,
+                ),
+                if (isCurrent && playing)
+                  Positioned(
+                    right: 2, bottom: 2,
+                    child: Container(
+                      width: 20, height: 16,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.72),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(WaveIcons.music, size: 12, color: Colors.white),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(track.name, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: WaveType.trackTitle.copyWith(
+                      fontSize: 15.5, fontWeight: FontWeight.w600,
+                      color: isCurrent ? accent : null,
+                    )),
+                  const SizedBox(height: 3),
+                  Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: WaveType.meta.copyWith(
+                      fontSize: 13,
+                      color: waveTextSecondary(context).withValues(alpha: 0.8),
+                    )),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            WaveOverflowButton(
+              tooltip: 'Track actions',
+              items: waveTrackMenuItems(
+                context: context, ref: ref, title: track.name,
+                artist: track.artist, artworkUrl: track.artworkUrl,
+                videoId: track.videoId, album: track.album,
+                durationSeconds: track.durationSeconds,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
