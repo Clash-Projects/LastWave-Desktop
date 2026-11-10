@@ -812,6 +812,8 @@ class _MobileTransportDock extends ConsumerWidget {
   }
 }
 
+/// Mini-player proportions and single-card hierarchy adapted from
+/// LastWave-Native's ui/player/MiniPlayer.kt, translated to Flutter.
 class _MobileMiniPlayer extends ConsumerWidget {
   final VoidCallback onOpen;
 
@@ -866,13 +868,13 @@ class _MobileMiniPlayer extends ConsumerWidget {
         : 0.0;
 
     return Container(
-      height: 78,
+      height: 82,
       margin: const EdgeInsets.fromLTRB(10, 7, 10, 7),
       child: WaveHaze(
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),
         artworkTint: artworkTint,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         border: waveIsDark(context)
             ? Border.all(color: waveDivider(context).withValues(alpha: 0.8))
             : null,
@@ -897,19 +899,19 @@ class _MobileMiniPlayer extends ConsumerWidget {
                     WaveArtwork(
                       url: track.artworkUrl,
                       videoId: track.videoId,
-                      size: 44,
-                      radius: 7,
+                      size: 52,
+                      radius: 14,
                       label: track.title,
                       title: track.title,
                       artist: track.artist,
                     )
                   else
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: 52,
+                      height: 52,
                       decoration: BoxDecoration(
                         color: waveSurface(context),
-                        borderRadius: BorderRadius.circular(7),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       child: const Icon(WaveIcons.music, size: 20),
                     ),
