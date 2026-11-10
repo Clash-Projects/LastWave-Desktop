@@ -34,6 +34,7 @@ class DownloadEntry {
   final String key;
   final String title;
   final String artist;
+  final String album;
   final DownloadStatus status;
   final double progress;
   final String badge;
@@ -52,6 +53,7 @@ class DownloadEntry {
     required this.key,
     required this.title,
     required this.artist,
+    this.album = '',
     this.status = DownloadStatus.queued,
     this.progress = 0,
     this.badge = '',
@@ -73,6 +75,7 @@ class DownloadEntry {
         key: key,
         title: title,
         artist: artist,
+        album: album,
         artworkUrl: artworkUrl,
         status: status ?? this.status,
         progress: progress ?? this.progress,
@@ -157,6 +160,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
               key: r['track_key'] as String? ?? '',
               title: r['title'] as String? ?? '',
               artist: r['artist'] as String? ?? '',
+              album: r['album'] as String? ?? '',
               status: DownloadStatus.done,
               progress: 1,
               badge: r['format_badge'] as String? ?? '',
@@ -417,6 +421,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
             key: key,
             title: title,
             artist: artist,
+            album: album,
             status: DownloadStatus.downloading,
             progress: received / total,
             badge: badge,
@@ -497,6 +502,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       key: key,
       title: title,
       artist: artist,
+      album: album,
       status: DownloadStatus.downloading,
     ));
     String? writtenPath;
@@ -771,6 +777,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         key: key,
         title: title,
         artist: artist,
+        album: album,
         status: DownloadStatus.done,
         progress: 1,
         badge: badge,
@@ -795,6 +802,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
           key: key,
           title: title,
           artist: artist,
+          album: album,
           status: DownloadStatus.error,
           error: e.toString(),
         ));

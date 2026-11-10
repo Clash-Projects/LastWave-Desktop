@@ -142,6 +142,7 @@ class _Body extends ConsumerWidget {
           (t) => GeneratedTrack(
             name: t.title,
             artist: t.artist,
+            album: t.album,
             artworkUrl: t.artworkUrl,
             videoId: t.videoId,
             durationSeconds: t.durationSeconds,
@@ -255,6 +256,7 @@ class _Body extends ConsumerWidget {
                                   manager.downloadTrack(
                                     title: t.name,
                                     artist: t.artist,
+                                    album: t.album,
                                     artworkUrl:
                                         t.artworkUrl,
                                   );
@@ -312,7 +314,7 @@ class _Body extends ConsumerWidget {
                 keyOf: (t) => t.key,
                 titleOf: (t) => t.name,
                 subtitleOf: (t) => t.artist,
-                albumOf: (_) => '',
+                albumOf: (t) => t.album,
                 artworkOf: (t) => t.artworkUrl,
                 playableOf: playableFromGenerated,
                 durationOf: (t) => t.durationSeconds > 0

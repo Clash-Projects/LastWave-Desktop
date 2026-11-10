@@ -431,7 +431,9 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
                                   'Download failed — retry from the track menu')
                               : queued
                                   ? 'Waiting…'
-                                  : e.artist,
+                                  : [e.artist, e.album]
+                                      .where((value) => value.trim().isNotEmpty)
+                                      .join(' · '),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: WaveType.meta.copyWith(

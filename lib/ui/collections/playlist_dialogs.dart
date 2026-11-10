@@ -388,8 +388,8 @@ Future<void> showWaveImportPlaylist(
         }
 
         final ready = preview;
-        final dialogWidth = (MediaQuery.sizeOf(context).width - 48)
-            .clamp(280.0, 520.0)
+        final dialogWidth = (MediaQuery.sizeOf(context).width - 32)
+            .clamp(280.0, 640.0)
             .toDouble();
         return ContentDialog(
           title: const Text('Import playlist'),
@@ -454,9 +454,12 @@ decoration: waveInputDecoration(),
             ),
           ),
           actions: [
-            WaveButton(
-              onPressed: busy ? null : fromFile,
-              child: const Text('From file...'),
+            SizedBox(
+              width: 124,
+              child: WaveButton(
+                onPressed: busy ? null : fromFile,
+                child: const Text('From file...', maxLines: 1, softWrap: false),
+              ),
             ),
             WaveButton(
               onPressed: () => Navigator.of(context).pop(),

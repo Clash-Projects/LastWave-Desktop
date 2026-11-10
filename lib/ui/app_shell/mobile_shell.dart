@@ -32,10 +32,10 @@ const _nativeMainDestinations = <WaveDestination>[
   WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
   WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
+  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 const _phoneMoreDestinations = <WaveDestination>[
-  WaveDestination('/settings', 'Settings', WaveIcons.settings),
   WaveDestination('/home-layout', 'Edit Home', WaveIcons.edit),
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
@@ -200,18 +200,11 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                   child: SafeArea(
                     child: Column(
                   children: [
-                    if (!nowPlaying)
-                      const SizedBox(height: 101),
                     Expanded(
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          Padding(
-                            padding: EdgeInsets.only(
-                              bottom: nowPlaying ? 0 : 88,
-                            ),
-                            child: widget.child,
-                          ),
+                          widget.child,
                           if (_showMore && !nowPlaying)
                             Positioned.fill(
                               child: ColoredBox(
@@ -565,7 +558,7 @@ class _NativeFloatingNavItem extends StatelessWidget {
         curve: Curves.easeOutCubic,
         height: compact ? 44 : 48,
         padding: EdgeInsets.symmetric(
-          horizontal: compact ? 9 : selected ? 17 : 13,
+          horizontal: compact ? 7 : selected ? 17 : 13,
         ),
         decoration: BoxDecoration(
           color: selected

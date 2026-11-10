@@ -19,7 +19,7 @@ import '../audio/artist_parser.dart';
 /// Migrations are additive and never drop user data (no destructive
 /// fallback, unlike the temporary Android `fallbackToDestructiveMigration`).
 class AppDatabase {
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
 
   final Database _db;
 
@@ -83,6 +83,10 @@ class AppDatabase {
     if (version < 9) {
       _createV9();
       _db.execute('PRAGMA user_version=9;');
+    }
+    if (version < 10) {
+      _createV10();
+      _db.execute('PRAGMA user_version=10;');
     }
   }
 
@@ -376,6 +380,28 @@ class AppDatabase {
     _db.execute('DELETE FROM local_folders WHERE path = ?;', [path]);
   }
 
+  List<String> localFiles() {
+    return _db
+        .select(
+          'SELECT path FROM local_files ORDER BY added_at_millis ASC;',
+        )
+        .map((r) => (r['path'] as String?) ?? '')
+        .where((path) => path.isNotEmpty)
+        .toList();
+  }
+
+  void addLocalFile(String path) {
+    _db.execute(
+      'INSERT INTO local_files(path, added_at_millis) VALUES(?, ?) '
+      'ON CONFLICT(path) DO NOTHING;',
+      [path, DateTime.now().millisecondsSinceEpoch],
+    );
+  }
+
+  void removeLocalFile(String path) {
+    _db.execute('DELETE FROM local_files WHERE path = ?;', [path]);
+  }
+
   // -- playback session -------------------------------------------------
 
   Map<String, dynamic> loadPlaybackSession() {
@@ -545,6 +571,16 @@ class AppDatabase {
         _db.execute('DELETE FROM kv_store WHERE k LIKE ?;', ['$prefix%']);
       } catch (_) {}
     }
+  }
+
+  /// v10: explicitly selected local audio files.
+  void _createV10() {
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS local_files (
+        path TEXT PRIMARY KEY,
+        added_at_millis INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
   }
 
   // -- snapshot cache --------------------------------------------------------

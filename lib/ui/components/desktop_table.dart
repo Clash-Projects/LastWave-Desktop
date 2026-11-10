@@ -22,7 +22,7 @@ const _kRowActions = 60.0;
 
 // two_dimensional_scrollables evaluation (Agent 6):
 // NOT added. The table scrolls on one axis only (vertical); columns are
-// flex-proportioned and collapse responsively (Album <1000px, Quality
+// flex-proportioned and collapse responsively (Album <680px, Quality
 // <800px) instead of scrolling horizontally. super_sliver_list (already in
 // pubspec) covers virtualization for 10k+ row lists. A 2-D table would add
 // sticky-column complexity with no product need — revisit only if a
@@ -40,7 +40,7 @@ enum WaveSortDir { asc, desc }
 /// - Virtualized via [SuperSliverList] (standalone) or [SuperListView]
 ///   (shrink-wrapped embed) — never a giant [Column].
 /// - Header tap sorts when a `*SortOf` callback is provided (arrow indicator).
-/// - Responsive: Album hides <1000px, Quality hides <800px.
+/// - Responsive: Album hides below 680px, Quality hides below 800px.
 /// - Keyboard: Up/Down move focus, Enter plays, Delete removes where
 ///   applicable. Space is global play/pause (shell-owned); row
 ///   selection is mouse-driven (Ctrl/Shift+click).
@@ -366,7 +366,7 @@ class _WaveDesktopTableState<T extends Object>
     // are illegal in `slivers:`).
     if (widget.sliver) {
       final w = MediaQuery.sizeOf(context).width;
-      final showAlbum = w >= 1000;
+      final showAlbum = w >= 680;
       final showQuality = widget.qualityOf != null && w >= 800;
       final showAdded = widget.dateAddedOf != null && w >= 1100;
       final showArtist = widget.showArtistColumn && w >= 640;
@@ -399,7 +399,7 @@ class _WaveDesktopTableState<T extends Object>
       builder: (context, constraints) {
         final w = constraints.maxWidth;
         // Responsive: collapse secondary columns instead of h-scrolling.
-        final showAlbum = w >= 1000;
+        final showAlbum = w >= 680;
         final showQuality =
             widget.qualityOf != null && w >= 800;
         final showAdded = widget.dateAddedOf != null && w >= 1100;
@@ -927,6 +927,13 @@ class _TableRow<T extends Object> extends StatelessWidget {
                                 ? WaveColors.textSecondary
                                 : WaveColors.lightTextSecondary,
                           ),
+                        ),
+                      if (!showAlbum && album.isNotEmpty)
+                        Text(
+                          album,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.meta.copyWith(color: tertiary),
                         ),
                     ],
                   ),

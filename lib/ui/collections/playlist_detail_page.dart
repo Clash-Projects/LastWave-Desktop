@@ -147,8 +147,7 @@ class _WavePlaylistDetailPageState
     }
     // Reverses whichever sort is active (custom order, date, title, artist).
     if (!_asc) tracks = tracks.reversed.toList();
-    // Note: Album/Duration sorts are intentionally omitted — local
-    // playlist tracks carry no album or duration metadata.
+    // Album and duration metadata are shown whenever local tags contain them.
     final playingKey = ref.watch(
       playbackServiceProvider.select((s) => s.current?.queueKey),
     );
@@ -397,7 +396,7 @@ class _WavePlaylistDetailPageState
               keyOf: (t) => t.key,
               titleOf: (t) => t.name,
               subtitleOf: (t) => t.artist,
-              albumOf: (_) => '',
+              albumOf: (t) => t.album,
               artworkOf: (t) => t.artworkUrl,
               playableOf: playableFromGenerated,
               durationOf: (t) => t.durationSeconds > 0

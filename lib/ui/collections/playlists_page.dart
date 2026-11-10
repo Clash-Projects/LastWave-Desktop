@@ -604,6 +604,38 @@ class _PlaylistCardState
   bool _hover = false;
   bool _pressed = false;
 
+  Future<void> _showLongPressActions() async {
+    final playlist = widget.playlist;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => ContentDialog(
+        title: Text(playlist.title),
+        content: const Text('Choose an action for this playlist.'),
+        actions: [
+          WaveButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          WaveButton(
+            onPressed: () => Navigator.of(dialogContext).pop('rename'),
+            child: const Text('Rename'),
+          ),
+          if (!playlist.isLikedSongs && !playlist.isLocal)
+            WaveFilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop('delete'),
+              child: const Text('Delete'),
+            ),
+        ],
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'rename') {
+      showWaveRenamePlaylist(context, ref, playlist);
+    } else if (action == 'delete') {
+      showWaveDeletePlaylist(context, ref, playlist);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = widget.playlist;
@@ -667,6 +699,7 @@ class _PlaylistCardState
           onTapUp: (_) => setState(() => _pressed = false),
           onTapCancel: () => setState(() => _pressed = false),
           onTap: play,
+          onLongPress: _showLongPressActions,
           child: AnimatedScale(
             scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
             duration: waveMotion(context, WaveMotion.fast),
@@ -863,16 +896,35 @@ class _LocalFolders extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final folders = ref.watch(databaseProvider).localFolders();
+    final database = ref.watch(databaseProvider);
+    final folders = database.localFolders();
+    final files = database.localFiles();
     final scan = ref.watch(localScanProvider);
     final busy = scan.running;
 
-    Future<void> add() async {
+    Future<void> addFolder() async {
       final path = await FilePicker.getDirectoryPath(
         dialogTitle: 'Add a music folder',
       );
       if (path == null || path.trim().isEmpty) return;
       await ref.read(localMusicLibraryProvider).addFolder(path.trim());
+    }
+
+    Future<void> addFiles() async {
+      final selection = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: localAudioExtensions.toList(),
+        allowMultiple: true,
+      );
+      if (selection == null) return;
+      final paths = selection.files
+          .map((file) => file.path)
+          .whereType<String>()
+          .where((path) => path.isNotEmpty)
+          .toList();
+      if (paths.isNotEmpty) {
+        await ref.read(localMusicLibraryProvider).addFiles(paths);
+      }
     }
 
     return Column(
@@ -887,7 +939,7 @@ class _LocalFolders extends ConsumerWidget {
           busy
               ? scan.label
               : (scan.label.isEmpty
-                  ? 'Play files from folders you choose. Local songs stay on this device and are never uploaded.'
+                  ? 'Add a music folder or individual audio files. Local songs stay on this device and are never uploaded.'
                   : scan.label),
           style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
         ),
@@ -916,6 +968,30 @@ class _LocalFolders extends ConsumerWidget {
               ],
             ),
           ),
+        for (final file in files)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    file,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.meta,
+                  ),
+                ),
+                WaveGhostButton(
+                  label: 'Forget',
+                  onPressed: busy
+                      ? null
+                      : () => ref
+                          .read(localMusicLibraryProvider)
+                          .forgetFile(file),
+                ),
+              ],
+            ),
+          ),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -924,7 +1000,12 @@ class _LocalFolders extends ConsumerWidget {
             WaveGhostButton(
               label: 'Add folder',
               icon: FluentIcons.add,
-              onPressed: busy ? null : add,
+              onPressed: busy ? null : addFolder,
+            ),
+            WaveGhostButton(
+              label: 'Add files',
+              icon: FluentIcons.music_note,
+              onPressed: busy ? null : addFiles,
             ),
             WaveGhostButton(
               label: 'Rescan',
