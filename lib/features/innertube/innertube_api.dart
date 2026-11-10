@@ -66,12 +66,12 @@ int _youtubeAudioBitrateKbps({
   final normalizedCodec = codec.toLowerCase();
   final reportedKbps = (reportedBitsPerSecond / 1000).round();
   if (normalizedCodec.contains('opus')) {
-    return reportedKbps.clamp(0, 160);
+    return reportedKbps.clamp(0, 160).toInt();
   }
   if (normalizedCodec.contains('mp4a') ||
       normalizedCodec.contains('aac') ||
       mimeType.toLowerCase().contains('mp4')) {
-    return reportedKbps.clamp(0, 256);
+    return reportedKbps.clamp(0, 256).toInt();
   }
   // Unknown codecs have no trustworthy ceiling; omit the number rather
   // than display a potentially combined or misleading bitrate.
