@@ -999,7 +999,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                       style: WaveType.meta.copyWith(color: tertiary),
                     ),
                   ),
-                // Hover-only like + more.
+                // Hover-only like action; the full action menu opens on long-press.
                 SizedBox(
                   width: _kRowActions,
                   child: AnimatedOpacity(
@@ -1016,11 +1016,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                           active: liked,
                           onTap: onToggleLike!,
                         ),
-                      _HoverGlyph(
-                        tooltip: 'More',
-                        icon: WaveIcons.more,
-                        menuItems: menuItems(),
-                      ),
+
                     ],
                   ),
                 ),

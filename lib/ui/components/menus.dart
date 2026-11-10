@@ -960,17 +960,14 @@ class _WaveContextMenuState extends State<WaveContextMenu> {
 
   @override
   Widget build(BuildContext context) {
-    // Native desktop context menus are not part of the touch-first iOS UI.
-    // Keep explicit More buttons available for actions such as downloads.
-    if (Platform.isIOS) return widget.child;
+    final touchPlatform = Platform.isIOS || Platform.isAndroid;
     return FlyoutTarget(
       controller: _controller,
       child: GestureDetector(
-        // On release, like native Windows menus: opening on press leaves the
-        // right button held under the new menu, and Flutter sends no hover
-        // events while a button is down, so rows only lit up after a focus.
-        onSecondaryTapUp: (_) => _open(),
-        onLongPressStart: (_) => _open(),
+        // Touch devices use a deliberate long-press; desktop keeps the
+        // native right-click interaction.
+        onSecondaryTapUp: touchPlatform ? null : (_) => _open(),
+        onLongPressStart: touchPlatform ? (_) => _open() : null,
         child: widget.child,
       ),
     );
