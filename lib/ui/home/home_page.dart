@@ -20,7 +20,6 @@ import '../../features/podcasts/podcast_models.dart';
 import '../../features/search/shared_providers.dart';
 import '../../features/podcasts/podcast_repository.dart';
 import '../../features/player/playback_service.dart';
-import '../components/ambient.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/artist_line.dart';
