@@ -377,7 +377,7 @@ class _AmbientArtworkBackdrop extends ConsumerWidget {
               width: double.infinity,
               height: double.infinity,
               gaplessPlayback: true,
-              errorBuilder: (_, __, ___) => const SizedBox.expand(),
+              errorBuilder: (_, _, _) => const SizedBox.expand(),
             ),
           ),
         ),
@@ -633,10 +633,6 @@ class _MobileTransportDock extends ConsumerWidget {
     final hasDuration = duration > Duration.zero;
     final volume = snapshot.volume.clamp(0.0, 1.0).toDouble();
     final quality = snapshot.stream?.qualityBadge ?? '';
-    final artworkTint = ref
-        .watch(artworkSeedProvider(snapshot.current?.artworkUrl ?? ''))
-        .valueOrNull;
-
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 3, 12, 8),
       decoration: BoxDecoration(
@@ -954,9 +950,9 @@ class _MobileMiniPlayer extends ConsumerWidget {
                       ],
                     ),
                   ),
+                  _MobileDownloadButton(track: track, width: 36),
                   _TouchIconButton(
-                    icon: isLiked ? FluentIcons.heart_fill : FluentIcons.heart,                  _MobileDownloadButton(track: track, width: 36),
-
+                    icon: isLiked ? FluentIcons.heart_fill : FluentIcons.heart,
                     tooltip: isLiked ? 'Remove from Liked Songs' : 'Like song',
                     width: 36,
                     onPressed: track == null
@@ -1112,7 +1108,7 @@ class _TouchIconButton extends StatelessWidget {
   }
 }
 
-class _WaveAutoScrollText extends StatefulWidget {class _MobileDownloadButton extends ConsumerWidget {
+class _MobileDownloadButton extends ConsumerWidget {
   final PlayableTrack? track;
   final double width;
 
@@ -1169,7 +1165,7 @@ class _WaveAutoScrollText extends StatefulWidget {class _MobileDownloadButton ex
   }
 }
 
-
+class _WaveAutoScrollText extends StatefulWidget {
   final String text;
   final TextStyle style;
 
