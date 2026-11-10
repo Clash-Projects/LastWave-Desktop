@@ -38,6 +38,15 @@ class _MobileCookieLoginDialog extends StatefulWidget {
 }
 
 class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
+  // YouTube Music rejects the default WKWebView/Safari identity on some iOS
+  // releases. Present a current desktop Chrome-compatible identity while
+  // retaining WebKit's native cookie store for session capture. This is a
+  // compatibility hint only; it does not replace the underlying WebKit engine.
+  static const _youtubeUserAgent =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+      'AppleWebKit/537.36 (KHTML, like Gecko) '
+      'Chrome/143.0.0.0 Safari/537.36';
+
   static const _pollInterval = Duration(seconds: 2);
 
   Timer? _poller;
@@ -272,6 +281,7 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                   preferredContentMode: _isYouTube
                             ? UserPreferredContentMode.DESKTOP
                             : UserPreferredContentMode.RECOMMENDED,
+                  userAgent: _isYouTube ? _youtubeUserAgent : null,
                   useShouldOverrideUrlLoading: _isYouTube && Platform.isIOS,
                   supportMultipleWindows: false,
                   javaScriptCanOpenWindowsAutomatically: false,
@@ -351,6 +361,7 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                         preferredContentMode: _isYouTube
                             ? UserPreferredContentMode.DESKTOP
                             : UserPreferredContentMode.RECOMMENDED,
+                  userAgent: _isYouTube ? _youtubeUserAgent : null,
                         useShouldOverrideUrlLoading: _isYouTube && Platform.isIOS,
                         supportZoom: true,
                         allowsInlineMediaPlayback: true,
