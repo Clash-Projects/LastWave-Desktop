@@ -1706,7 +1706,6 @@ class _SongsTable extends ConsumerWidget {
     String keyOf(SearchResultItem e) => playableFromSearch(e).queueKey;
     return WaveDesktopTable<SearchResultItem>(
       shrinkWrap: true,
-      playOnSingleTap: true,
       showArtistColumn: false,
       items: shown,
       keyOf: keyOf,

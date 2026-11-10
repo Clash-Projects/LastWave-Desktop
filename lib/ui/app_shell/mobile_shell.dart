@@ -717,7 +717,7 @@ class _MobileTransportDock extends ConsumerWidget {
                     icon: snapshot.repeatMode.name == 'one' ? WaveIcons.repeatOne : WaveIcons.repeat,
                     tooltip: 'Repeat mode', selected: snapshot.repeatMode.name != 'off',
                     width: buttonWidth, onPressed: playback.cycleRepeat),
-                  const SizedBox(width: compact ? 10 : 20),
+                  SizedBox(width: compact ? 10 : 20),
                   _TouchIconButton(icon: WaveIcons.queue, tooltip: 'Queue',
                     selected: queueActive, width: buttonWidth, onPressed: onQueue),
                   const SizedBox(width: 5),
