@@ -16,3 +16,5 @@ the separate licenses of third-party dependencies and assets.
 ## Adapted UI files
 
 - `lib/ui/app_shell/mobile_shell.dart`: the floating three-destination navigation dock is adapted from `app/src/main/java/com/lastwave/app/ui/shell/MainShell.kt` in LastWave-Native. The Jetpack Compose implementation was translated to Flutter/Dart.
+
+- `lib/ui/home/home_page.dart`: the greeting/date header adapts the typography and hierarchy of LastWave-Native's `ui/feed/FeedTiles.kt` `ExpressiveGreetingHeader`; translated to Flutter while retaining LastWave-iOS's existing Edit Home and Last.fm connection actions.
