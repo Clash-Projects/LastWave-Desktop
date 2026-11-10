@@ -526,6 +526,7 @@ class _PhoneNavigation extends StatelessWidget {
           WaveHaze(
             level: LwHazeLevel.l2,
             base: waveSurfaceRaised(context),
+            fillAlpha: 0.46,
             borderRadius: BorderRadius.circular(32),
             border: Border.all(color: waveDivider(context)),
             shadow: [
@@ -561,6 +562,7 @@ class _PhoneNavigation extends StatelessWidget {
               child: WaveHaze(
                 level: LwHazeLevel.l2,
                 base: waveSurfaceRaised(context),
+                fillAlpha: 0.46,
                 borderRadius: BorderRadius.circular(28),
                 border: Border.all(color: waveDivider(context)),
                 shadow: [
@@ -896,6 +898,7 @@ class _MobileMiniPlayer extends ConsumerWidget {
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),
         artworkTint: artworkTint,
+        fillAlpha: 0.46,
         borderRadius: BorderRadius.circular(24),
         border: waveIsDark(context)
             ? Border.all(color: waveDivider(context).withValues(alpha: 0.8))
