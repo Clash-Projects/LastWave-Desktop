@@ -346,9 +346,18 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
         ),
         const WaveMenuSeparator(),
         WaveMenuAction(
-          leading: const Icon(FluentIcons.delete, size: 13),
-          label: 'Delete download',
-          onPressed: () => manager.delete(e.key),
+          leading: Icon(
+            downloading || queued ? FluentIcons.cancel : FluentIcons.delete,
+            size: 13,
+          ),
+          label: downloading || queued ? 'Cancel download' : 'Delete download',
+          onPressed: () {
+            if (downloading || queued) {
+              manager.cancelDownload(e.key);
+            } else {
+              manager.delete(e.key);
+            }
+          },
         ),
       ],
       child: MouseRegion(

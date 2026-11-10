@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -108,6 +109,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   /// of the same track is not skipped.
   final Map<String, int> _cancelGeneration = {};
   final Map<String, CancelToken> _tokens = {};
+  final Map<String, Completer<void>> _jobs = {};
   // Keys that must never raise a "Download complete" InfoBar: everything
   // restored from the registry at boot (otherwise the last download
   // re-announces on every launch — dismissal is widget-local and resets
@@ -201,8 +203,12 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
 
   /// Stops [key] if it is downloading. A finished file is left alone.
   void cancelDownload(String key) {
+    if (!_active.contains(key)) return;
     _cancelGeneration[key] = (_cancelGeneration[key] ?? 0) + 1;
     _tokens.remove(key)?.cancel('cancelled');
+    // Remove the visible progress row immediately; the job's finally block
+    // still owns cleanup and releases the key for a future retry.
+    _dropInProgress(key);
   }
 
   /// Stops every download that is still running.
@@ -494,6 +500,8 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     if (cancelled()) return;
     if (_active.contains(key) || isDownloaded(title, artist)) return;
     _active.add(key);
+    final finished = Completer<void>();
+    _jobs[key] = finished;
     final token = CancelToken();
     _tokens[key] = token;
     // A fresh download is news again, even if an old entry for this
@@ -724,6 +732,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         } catch (_) {}
       }
 
+      if (cancelled()) throw const DownloadCancelled();
       final stat = await file.stat();
       try {
         _db.raw.execute(
@@ -812,10 +821,18 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     } finally {
       _active.remove(key);
       if (identical(_tokens[key], token)) _tokens.remove(key);
+      if (identical(_jobs[key], finished)) _jobs.remove(key);
+      if (!finished.isCompleted) finished.complete();
     }
   }
 
   Future<void> delete(String key) async {
+    // Deleting an active item must cancel and await its writer first, or the
+    // in-flight job could recreate the file/registry row after deletion.
+    if (_active.contains(key)) {
+      cancelDownload(key);
+      await _jobs[key]?.future;
+    }
     final entry = state.where((e) => e.key == key).firstOrNull;
     final filePath = entry?.filePath;
     if (filePath != null) {

@@ -383,13 +383,26 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                                 onQueue: () => ref.read(nowPlayingOverlayRequestProvider.notifier).state = 'queue',
                                 onEqualizer: () => ref.read(nowPlayingOverlayRequestProvider.notifier).state = 'equalizer',
                                 onDownload: () {
-                                  ref.read(downloadManagerProvider.notifier).downloadTrack(
-                                    title: current.title,
-                                    artist: current.artist,
-                                    album: current.album,
-                                    artworkUrl: current.artworkUrl,
-                                    videoId: current.videoId,
+                                  final manager = ref.read(
+                                    downloadManagerProvider.notifier,
                                   );
+                                  final key = DownloadManager.keyOf(
+                                    current.title,
+                                    current.artist,
+                                  );
+                                  if (downloadInProgress) {
+                                    manager.cancelDownload(key);
+                                  } else if (downloaded) {
+                                    manager.delete(key);
+                                  } else {
+                                    manager.downloadTrack(
+                                      title: current.title,
+                                      artist: current.artist,
+                                      album: current.album,
+                                      artworkUrl: current.artworkUrl,
+                                      videoId: current.videoId,
+                                    );
+                                  }
                                 },
                                 onToggleVisualizer: () {
                                   _resetIdleTimer();
@@ -502,10 +515,10 @@ class _TopActionsBar extends StatelessWidget {
                     LWTooltip(
                       message: downloadInProgress
                           ? (downloadProgress > 0
-                              ? 'Downloading ${(downloadProgress * 100).round()}%'
-                              : 'Downloading…')
+                              ? 'Cancel download · ${(downloadProgress * 100).round()}%'
+                              : 'Cancel download')
                           : downloaded
-                              ? 'Downloaded'
+                              ? 'Delete download'
                               : downloadFailed
                                   ? 'Download failed — tap to retry'
                                   : 'Download',
@@ -513,7 +526,7 @@ class _TopActionsBar extends StatelessWidget {
                         icon: downloadFailed
                             ? Icons.error_outline_rounded
                             : downloaded
-                                ? Icons.check_circle_rounded
+                                ? Icons.delete_outline_rounded
                                 : FluentIcons.download,
                         active: downloaded || downloadFailed,
                         loading: downloadInProgress,
