@@ -599,6 +599,7 @@ class _NativeFloatingNavItem extends StatelessWidget {
           ],
         ),
       ),
+      ),
     );
   }
 }

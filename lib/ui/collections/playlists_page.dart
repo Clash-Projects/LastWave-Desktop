@@ -813,6 +813,8 @@ class _PlaylistCardState
                 ],
               ),
             ),
+          ),
+        ),
             if (!widget.selecting)
               Positioned(
                 right: 10,

@@ -21,7 +21,7 @@ class ThemeState {
   final String hazeIntensity;
   final String accentSource;
 
-  /// Experimental: the dock timeline is drawn as a wave instead of a bar.
+  /// Whether the dock timeline uses the optional wave styling.
   final bool wavySeekbar;
 
   const ThemeState({
