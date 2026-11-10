@@ -33,6 +33,9 @@ const _nativeMainDestinations = <WaveDestination>[
 ];
 
 const _phoneMoreDestinations = <WaveDestination>[
+  WaveDestination('/search', 'Search', WaveIcons.search),
+  WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
+  WaveDestination('/settings', 'Settings', WaveIcons.settings),
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
   WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
@@ -482,14 +485,16 @@ class _PhoneNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedPath = moreActive
-        ? null
-        : _nativeMainDestinations
-            .where((destination) =>
-                activePath == destination.path ||
-                activePath.startsWith('${destination.path}/'))
-            .map((destination) => destination.path)
-            .firstOrNull;
+    String? selectedPath;
+    if (!moreActive) {
+      for (final destination in _nativeMainDestinations) {
+        if (activePath == destination.path ||
+            activePath.startsWith('${destination.path}/')) {
+          selectedPath = destination.path;
+          break;
+        }
+      }
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 5, 16, 12),
