@@ -279,7 +279,7 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
 decoration: waveInputDecoration(),
                 controller: _controller,
                 focusNode: _focus,
-                autofocus: true,
+                autofocus: false,
                 placeholder: 'Songs, artists, albums, users…',
                 prefix: Padding(
                   padding: const EdgeInsets.only(left: 8),

@@ -764,6 +764,31 @@ class _MobileTransportDock extends ConsumerWidget {
   }
 }
 
+String _mobileStreamDetails(ResolvedStream? stream) {
+  if (stream == null) return '';
+  final badge = stream.qualityBadge.trim();
+  final codec = stream.audioCodec.trim();
+  final badgeUpper = badge.toUpperCase();
+  final codecUpper = codec.toUpperCase();
+  String? codecDetail;
+  if (codec.isNotEmpty && codecUpper != badgeUpper) {
+    if (badgeUpper.isNotEmpty && codecUpper.contains(badgeUpper)) {
+      final remainder = codec
+          .replaceFirst(RegExp(RegExp.escape(badge), caseSensitive: false), '')
+          .replaceFirst(RegExp(r'^[\s·\-]+'), '')
+          .trim();
+      if (remainder.isNotEmpty) codecDetail = remainder;
+    } else if (badgeUpper.isEmpty || !badgeUpper.contains(codecUpper)) {
+      codecDetail = codec;
+    }
+  }
+  return [
+    if (badge.isNotEmpty) badge,
+    if (codecDetail != null) codecDetail,
+    if (stream.bitrateKbps > 0) '${stream.bitrateKbps} kbps',
+  ].join(' · ');
+}
+
 const double _mobileMiniPlayerCardHeight = 82;
 const double _mobileMiniPlayerTopMargin = 9;
 const double _mobileMiniPlayerBottomMargin = 10;
@@ -807,17 +832,7 @@ class _MobileMiniPlayer extends ConsumerWidget {
             '${saved.name.toLowerCase()}|${saved.artist.toLowerCase()}' ==
             trackKey));
     final stream = player.stream;
-    final codec = stream == null
-        ? ''
-        : stream.audioCodec.trim().isNotEmpty
-            ? stream.audioCodec.trim().toUpperCase()
-            : stream.mimeType.split('/').last.split(';').first.toUpperCase();
-    final streamDetails = [
-      if (stream != null && stream.qualityBadge.isNotEmpty)
-        stream.qualityBadge,
-      if (codec.isNotEmpty) codec,
-      if ((stream?.bitrateKbps ?? 0) > 0) '${stream!.bitrateKbps} kbps',
-    ].join(' · ');
+    final streamDetails = _mobileStreamDetails(stream);
     final durationMs = player.duration.inMilliseconds;
     final progressRatio = durationMs > 0
         ? (player.position.inMilliseconds / durationMs)

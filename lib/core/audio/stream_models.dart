@@ -175,7 +175,7 @@ class ResolvedStream {
   const ResolvedStream({
     required this.url,
     this.mimeType = 'audio/webm',
-    this.bitrateKbps = 160,
+    this.bitrateKbps = 0,
     this.audioCodec = 'OPUS',
     this.cacheKey = '',
     this.requestHeaders = const {},

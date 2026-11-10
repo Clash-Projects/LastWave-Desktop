@@ -1183,13 +1183,9 @@ class AddonApi implements LosslessSource {
     final sampleRate = isStreamAtmos
         ? 48.0
         : khzFromServerSampleRate(data['sampleRate'], hiRes: hiRes);
-    final bitrateKbps = isStreamAtmos
-        ? ((data['bitrate'] as num?)?.toInt() ?? 768)
-        : mp3
-            ? 320
-            : hiRes
-                ? (bitDepth * sampleRate * 2).toInt()
-                : 1411;
+    final bitrateKbps = ((data['bitrate'] as num?)?.toInt() ?? 0)
+        .clamp(0, 100000)
+        .toInt();
     final codec = isStreamAtmos
         ? 'DOLBY ATMOS'
         : mp3

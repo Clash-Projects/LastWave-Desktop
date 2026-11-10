@@ -269,7 +269,9 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                 initialSettings: InAppWebViewSettings(
                   javaScriptEnabled: true,
                   domStorageEnabled: true,
-                  preferredContentMode: UserPreferredContentMode.RECOMMENDED,
+                  preferredContentMode: _isYouTube
+                            ? UserPreferredContentMode.DESKTOP
+                            : UserPreferredContentMode.RECOMMENDED,
                   useShouldOverrideUrlLoading: _isYouTube && Platform.isIOS,
                   supportMultipleWindows: false,
                   javaScriptCanOpenWindowsAutomatically: false,
@@ -346,7 +348,9 @@ class _MobileCookieLoginDialogState extends State<_MobileCookieLoginDialog> {
                       initialSettings: InAppWebViewSettings(
                         javaScriptEnabled: true,
                         domStorageEnabled: true,
-                        preferredContentMode: UserPreferredContentMode.RECOMMENDED,
+                        preferredContentMode: _isYouTube
+                            ? UserPreferredContentMode.DESKTOP
+                            : UserPreferredContentMode.RECOMMENDED,
                         useShouldOverrideUrlLoading: _isYouTube && Platform.isIOS,
                         supportZoom: true,
                         allowsInlineMediaPlayback: true,
