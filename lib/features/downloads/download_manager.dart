@@ -393,7 +393,8 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     String key,
     String title,
     String artist,
-    String badge, {
+    String badge,
+    String album, {
     CancelToken? cancelToken,
     bool Function()? cancelled,
   }) async {
@@ -566,6 +567,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         title,
         artist,
         badge,
+        album,
         cancelToken: token,
         cancelled: cancelled,
       );

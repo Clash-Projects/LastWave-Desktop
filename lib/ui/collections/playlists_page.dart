@@ -911,13 +911,12 @@ class _LocalFolders extends ConsumerWidget {
     }
 
     Future<void> addFiles() async {
-      final selection = await FilePicker.platform.pickFiles(
+      final selection = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: localAudioExtensions.toList(),
-        allowMultiple: true,
       );
-      if (selection == null) return;
-      final paths = selection.files
+      if (selection.isEmpty) return;
+      final paths = selection
           .map((file) => file.path)
           .whereType<String>()
           .where((path) => path.isNotEmpty)
