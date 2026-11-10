@@ -25,19 +25,17 @@ import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import '../collections/playlist_dialogs.dart' show showWaveAddToPlaylist;
 
-const _phoneDestinations = <WaveDestination>[
+// Main destinations follow LastWave-Native's three-item floating dock.
+const _nativeMainDestinations = <WaveDestination>[
   WaveDestination('/home', 'Home', WaveIcons.home),
-  WaveDestination('/search', 'Search', WaveIcons.search),
-  WaveDestination('/liked', 'Liked', WaveIcons.liked),
+  WaveDestination('/stats', 'Stats', WaveIcons.stats),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
-  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 const _phoneMoreDestinations = <WaveDestination>[
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
   WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
-  WaveDestination('/stats', 'Listening statistics', WaveIcons.stats),
   WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
   WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
   WaveDestination('/history', 'Listening history', WaveIcons.history),
@@ -467,6 +465,8 @@ class _MobileOverlayHeader extends StatelessWidget {
       );
 }
 
+/// Floating three-destination dock adapted from LastWave-Native's
+/// MainShell/FloatingNavBar, translated from Compose to Flutter.
 class _PhoneNavigation extends StatelessWidget {
   final String activePath;
   final bool moreActive;
@@ -482,111 +482,147 @@ class _PhoneNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 74,
-      margin: const EdgeInsets.fromLTRB(14, 5, 14, 8),
-      child: WaveHaze(
-        level: LwHazeLevel.l2,
-        base: waveSurface(context),
-        borderRadius: BorderRadius.circular(25),
-        border: Border.all(color: waveDivider(context)),
-        shadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: waveIsDark(context) ? 0.24 : 0.08),
-            blurRadius: 22,
-            offset: const Offset(0, 7),
-          ),
-        ],
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(19),
-            child: Row(
+    final selectedPath = moreActive
+        ? null
+        : _nativeMainDestinations
+            .where((destination) =>
+                activePath == destination.path ||
+                activePath.startsWith('${destination.path}/'))
+            .map((destination) => destination.path)
+            .firstOrNull;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 5, 16, 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          for (final destination in _phoneDestinations)
-            Expanded(
-              child: _PhoneTab(
-                destination: destination,
-                selected: !moreActive &&
-                    (activePath == destination.path ||
-                        activePath.startsWith('${destination.path}/')),
-                onTap: () => onGo(destination.path),
+          WaveHaze(
+            level: LwHazeLevel.l2,
+            base: waveSurfaceRaised(context),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: waveDivider(context)),
+            shadow: [
+              BoxShadow(
+                color: Colors.black.withValues(
+                  alpha: waveIsDark(context) ? 0.24 : 0.08,
+                ),
+                blurRadius: 22,
+                offset: const Offset(0, 7),
+              ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final destination in _nativeMainDestinations)
+                    _NativeFloatingNavItem(
+                      destination: destination,
+                      selected: selectedPath == destination.path,
+                      onTap: () => onGo(destination.path),
+                    ),
+                ],
               ),
             ),
-          Expanded(
+          ),
+          const SizedBox(width: 10),
+          Tooltip(
+            message: 'More',
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: onMore,
-              child: _PhoneTabContent(
-                icon: WaveIcons.more,
-                label: 'More',
-                selected: moreActive,
+              child: WaveHaze(
+                level: LwHazeLevel.l2,
+                base: waveSurfaceRaised(context),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: waveDivider(context)),
+                shadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: waveIsDark(context) ? 0.24 : 0.08,
+                    ),
+                    blurRadius: 22,
+                    offset: const Offset(0, 7),
+                  ),
+                ],
+                child: SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: Icon(
+                    moreActive ? WaveIcons.close : WaveIcons.more,
+                    size: 23,
+                    color: moreActive
+                        ? waveAccent(context)
+                        : waveTextSecondary(context),
+                  ),
+                ),
               ),
             ),
           ),
-            ],
-            ),
-          ),
-        ),
+        ],
       ),
     );
   }
 }
 
-class _PhoneTab extends StatelessWidget {
+class _NativeFloatingNavItem extends StatelessWidget {
   final WaveDestination destination;
   final bool selected;
   final VoidCallback onTap;
 
-  const _PhoneTab({
+  const _NativeFloatingNavItem({
     required this.destination,
     required this.selected,
     required this.onTap,
   });
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: _PhoneTabContent(
-          icon: destination.icon,
-          label: destination.label,
-          selected: selected,
-        ),
-      );
-}
-
-class _PhoneTabContent extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool selected;
-
-  const _PhoneTabContent({
-    required this.icon,
-    required this.label,
-    required this.selected,
-  });
-
-  @override
   Widget build(BuildContext context) {
-    final color =
-        selected ? waveTextPrimary(context) : waveTextSecondary(context);
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, size: 21, color: color),
-        const SizedBox(height: 3),
-        Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: WaveType.meta.copyWith(
-            fontSize: 10,
-            color: color,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-          ),
+    final contentColor = selected
+        ? waveTextPrimary(context)
+        : waveTextSecondary(context);
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        height: 48,
+        padding: EdgeInsets.symmetric(horizontal: selected ? 17 : 13),
+        decoration: BoxDecoration(
+          color: selected
+              ? waveAccent(context).withValues(alpha: 0.16)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
         ),
-      ],
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(destination.icon, size: 23, color: contentColor),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.centerLeft,
+              child: selected
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Text(
+                        destination.label,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: WaveType.label.copyWith(
+                          color: contentColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  : const SizedBox(width: 0, height: 0),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
