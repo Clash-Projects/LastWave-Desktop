@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/ipados-port-foundation
+      - codex/native-ui-port
   pull_request:
     branches:
       - main
