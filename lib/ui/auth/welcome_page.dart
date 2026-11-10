@@ -123,8 +123,6 @@ class _WaveWelcomePageState
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    final accent = waveAccent(context);
     return Mica(
       backgroundColor: waveBackground(context),
       child: Column(
@@ -133,14 +131,7 @@ class _WaveWelcomePageState
           Expanded(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0, -0.35),
-                  radius: 0.9,
-                  colors: [
-                    accent.withValues(alpha: dark ? 0.12 : 0.08),
-                    Colors.transparent,
-                  ],
-                ),
+                color: Colors.transparent,
               ),
               child: _CenterScroll(
                 child: Center(
@@ -203,6 +194,7 @@ class _WelcomeChrome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (Platform.isIOS) return const SizedBox.shrink();
     return DragToMoveArea(
       child: SizedBox(
         height: WaveDensity.titleBar,

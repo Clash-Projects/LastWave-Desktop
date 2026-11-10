@@ -395,14 +395,7 @@ class _YtCardState extends ConsumerState<_YtCard> {
                         duration: waveMotion(context, WaveMotion.fast),
                         child: Container(
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.transparent,
-                                Colors.black.withValues(alpha: 0.55),
-                              ],
-                            ),
+                            color: Colors.black.withValues(alpha: 0.55),
                             borderRadius: WaveRadius.artworkRadius,
                           ),
                           child: Center(
@@ -554,14 +547,7 @@ class _SpotifyCardState extends State<_SpotifyCard> {
                         height: widget.artSize,
                         decoration: BoxDecoration(
                           borderRadius: WaveRadius.artworkRadius,
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              waveAccent(context),
-                              waveAccent(context).withValues(alpha: 0.45),
-                            ],
-                          ),
+                          color: waveAccent(context),
                         ),
                         child: Icon(
                           WaveIcons.likedFill,
@@ -772,14 +758,7 @@ class _PlaylistCardState
                           duration: waveMotion(context, WaveMotion.fast),
                           child: Container(
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black.withValues(alpha: 0.55),
-                                ],
-                              ),
+                              color: Colors.black.withValues(alpha: 0.55),
                               borderRadius: WaveRadius.artworkRadius,
                             ),
                             child: Center(

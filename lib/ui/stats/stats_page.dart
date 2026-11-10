@@ -432,14 +432,7 @@ class _LastFmProfileHub extends StatelessWidget {
             color: const Color(0xFFE0506A).withValues(alpha: 0.25),
             width: 0.9,
           ),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFFE0506A).withValues(alpha: dark ? 0.08 : 0.04),
-              Colors.transparent,
-            ],
-          ),
+          
         ),
         child: Row(
           children: [
@@ -718,8 +711,6 @@ class _MetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-
     final accent = waveAccent(context);
     final base = waveSurface(context);
     return Container(
@@ -727,14 +718,7 @@ class _MetricTile extends StatelessWidget {
       decoration: BoxDecoration(
         // A faint accent wash from the corner: lifts the tile off the page
         // without adding a colour block.
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.alphaBlend(accent.withValues(alpha: dark ? 0.07 : 0.05), base),
-            base,
-          ],
-        ),
+        color: base,
         borderRadius: WaveRadius.floatingRadius,
         border: Border.all(color: waveDivider(context), width: 0.8),
       ),
@@ -1047,25 +1031,12 @@ class _StatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-
     final base = waveSurface(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       decoration: BoxDecoration(
         // Barely-there top-down sheen so the cards read as surfaces.
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color.alphaBlend(
-              (dark ? Colors.white : Colors.black)
-                  .withValues(alpha: dark ? 0.025 : 0.015),
-              base,
-            ),
-            base,
-          ],
-        ),
+        color: base,
         borderRadius: WaveRadius.floatingRadius,
         border: Border.all(color: waveDivider(context), width: 0.8),
       ),

@@ -1191,14 +1191,7 @@ class _ArtistAlbumCardState extends State<_ArtistAlbumCard> {
                             duration: waveMotion(context, WaveMotion.fast),
                             child: Container(
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Colors.transparent,
-                                    Colors.black.withValues(alpha: 0.55),
-                                  ],
-                                ),
+                                color: Colors.black.withValues(alpha: 0.55),
                                 borderRadius:
                                     BorderRadius.circular(WaveRadius.artwork),
                               ),

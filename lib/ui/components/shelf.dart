@@ -376,14 +376,7 @@ class _WaveMediaCardState extends ConsumerState<WaveMediaCard> {
                           child: Container(
                             decoration: BoxDecoration(
                               borderRadius: WaveRadius.artworkRadius,
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black.withValues(alpha: 0.55),
-                                ],
-                              ),
+                              color: Colors.black.withValues(alpha: 0.55),
                             ),
                             child: Center(
                               child: AnimatedScale(

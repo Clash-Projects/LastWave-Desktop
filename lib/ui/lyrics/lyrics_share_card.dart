@@ -97,11 +97,7 @@ Future<void> exportLyricsShareCard(
                           height: 28,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [s.top, s.bottom],
-                            ),
+                            color: s.top,
                             border: Border.all(
                               color: identical(s, selected)
                                   ? FluentTheme.of(context).accentColor
@@ -291,11 +287,7 @@ class _LyricsShareCard extends StatelessWidget {
       height: _kCardLogical,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [style.top, style.bottom],
-          ),
+          color: style.top,
         ),
         child: Padding(
           padding: const EdgeInsets.all(36),

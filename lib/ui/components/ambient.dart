@@ -151,19 +151,10 @@ class _StageScrim extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final b = boost.clamp(0.0, 1.0);
-    final topAlpha = (isDark ? 0.06 : 0.16) + b * 0.28;
     final bottomAlpha = (isDark ? 0.34 : 0.40) + b * 0.30;
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            (isDark ? Colors.black : Colors.white)
-                .withValues(alpha: topAlpha),
-            waveBackground(context).withValues(alpha: bottomAlpha),
-          ],
-        ),
+        color: waveBackground(context).withValues(alpha: bottomAlpha),
       ),
       // Painted after the decoration above, so the noise dithers the scrim's
       // contours rather than being darkened by them. Still under page content.
@@ -189,14 +180,7 @@ class _AppleScrim extends StatelessWidget {
     final b = boost.clamp(0.0, 1.0);
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.black.withValues(alpha: 0.06 + b * 0.30),
-            Colors.black.withValues(alpha: 0.22 + b * 0.32),
-          ],
-        ),
+        color: Colors.black.withValues(alpha: 0.22 + b * 0.32),
       ),
       child: const CustomPaint(
         painter: _DitherPainter(),
@@ -896,15 +880,7 @@ final auraTexturesProvider =
   spriteCanvas.drawImage(baseImg, Offset.zero, Paint());
   final maskPaint = Paint()
     ..blendMode = BlendMode.dstIn
-    ..shader = const RadialGradient(
-      colors: [
-        Color(0xFFFFFFFF),
-        Color(0xE0FFFFFF),
-        Color(0x66FFFFFF),
-        Color(0x00FFFFFF),
-      ],
-      stops: [0.0, 0.42, 0.74, 1.0],
-    ).createShader(rect);
+    ..color = const Color(0x88FFFFFF);
   spriteCanvas.drawRect(rect, maskPaint);
   final spritePic = spriteRecorder.endRecording();
   late final ui.Image spriteImg;
@@ -999,17 +975,7 @@ class WaveAmbientMesh extends ConsumerWidget {
               Container(
                 height: isFullBleed ? null : height,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      palette.shadow,
-                      palette.darkMuted,
-                      palette.cream,
-                      palette.lightVibrant,
-                    ],
-                    stops: const [0.0, 0.28, 0.68, 1.0],
-                  ),
+                  color: palette.darkMuted,
                 ),
               ),
               Positioned.fill(
@@ -1139,72 +1105,6 @@ class _AuraLayersState extends State<_AuraLayers>
   Ticker? _ticker;
   final ValueNotifier<double> _phaseNotifier = ValueNotifier<double>(0.0);
   Duration _lastTick = Duration.zero;
-
-  Size? _shaderSize;
-  ArtworkPalette? _shaderPalette;
-  ui.Shader? _appleVignetteShader;
-  ui.Shader? _tonalLinearShader;
-  ui.Shader? _tonalVignetteShader;
-  ui.Shader? _tonalBloomShader;
-
-  void _updateShaders(Size half, ArtworkPalette palette, bool apple) {
-    if (_shaderSize == half && _shaderPalette == palette) return;
-    _shaderSize = half;
-    _shaderPalette = palette;
-    final rect = Offset.zero & half;
-    final w = half.width;
-    final h = half.height;
-    final maxDim = math.max(w, h);
-
-    if (apple) {
-      _appleVignetteShader = const RadialGradient(
-        center: Alignment.center,
-        radius: 1.05,
-        colors: [
-          Color(0x00000000),
-          Color(0x00000000),
-          Color(0x47000000),
-        ],
-        stops: [0.0, 0.55, 1.0],
-      ).createShader(rect);
-    } else {
-      _tonalBloomShader = RadialGradient(
-        colors: [
-          palette.primary.withValues(alpha: 0.22),
-          palette.primary.withValues(alpha: 0.22 * 0.45),
-          const Color(0x00000000),
-        ],
-        stops: const [0.0, 0.48, 1.0],
-      ).createShader(Rect.fromCircle(
-        center: Offset(w * 0.30, h * 0.30),
-        radius: maxDim * 0.85,
-      ));
-
-      _tonalLinearShader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Color(0x00000000),
-          Color(0x00000000),
-          Color(0x66000000),
-          Color(0xB3000000),
-        ],
-        stops: [0.0, 0.38, 0.72, 1.0],
-      ).createShader(rect);
-
-      _tonalVignetteShader = const RadialGradient(
-        center: Alignment.center,
-        radius: 1.1,
-        colors: [
-          Color(0x00000000),
-          Color(0x00000000),
-          Color(0x4D000000),
-        ],
-        stops: [0.0, 0.62, 1.0],
-      ).createShader(rect);
-    }
-  }
-
   bool _shouldAnimate(BuildContext context) {
     final isTest =
         WidgetsBinding.instance.runtimeType.toString().contains('Test');
@@ -1267,7 +1167,6 @@ class _AuraLayersState extends State<_AuraLayers>
           return const SizedBox.expand();
         }
         final half = Size(size.width / 2, size.height / 2);
-        _updateShaders(half, widget.palette, widget.apple);
         return SizedBox.expand(
           child: FittedBox(
             fit: BoxFit.cover,
@@ -1283,10 +1182,6 @@ class _AuraLayersState extends State<_AuraLayers>
                     canvasSize: half,
                     phaseNotifier: _phaseNotifier,
                     apple: widget.apple,
-                    appleVignetteShader: _appleVignetteShader,
-                    tonalBloomShader: _tonalBloomShader,
-                    tonalLinearShader: _tonalLinearShader,
-                    tonalVignetteShader: _tonalVignetteShader,
                   ),
                 ),
               ),
@@ -1304,11 +1199,6 @@ class _AuraPainter extends CustomPainter {
   final Size canvasSize;
   final ValueListenable<double> phaseNotifier;
   final bool apple;
-  final ui.Shader? appleVignetteShader;
-  final ui.Shader? tonalBloomShader;
-  final ui.Shader? tonalLinearShader;
-  final ui.Shader? tonalVignetteShader;
-
   static final ColorFilter _appleBaseFilter = _alphaFilter(0.92, 1.15);
   static final ColorFilter _appleSpriteFilter = _alphaFilter(0.80, 1.25);
   static final ColorFilter _tonalBaseFilter = _alphaFilter(0.62, 0.72);
@@ -1320,10 +1210,6 @@ class _AuraPainter extends CustomPainter {
     required this.canvasSize,
     required this.phaseNotifier,
     this.apple = false,
-    this.appleVignetteShader,
-    this.tonalBloomShader,
-    this.tonalLinearShader,
-    this.tonalVignetteShader,
   }) : super(repaint: phaseNotifier);
 
   /// Alpha plus saturation in one matrix (1 = as baked, <1 = more muted).
@@ -1370,30 +1256,6 @@ class _AuraPainter extends CustomPainter {
     canvas.restore();
   }
 
-  void _drawPaletteBloom(
-    Canvas canvas,
-    Rect rect, {
-    required Offset center,
-    required double radius,
-    required Color color,
-    required double alpha,
-    BlendMode blendMode = BlendMode.srcOver,
-    ui.Shader? cachedShader,
-  }) {
-    final paint = Paint()
-      ..blendMode = blendMode
-      ..shader = cachedShader ??
-          RadialGradient(
-            colors: [
-              color.withValues(alpha: alpha.clamp(0.0, 1.0)),
-              color.withValues(alpha: (alpha * 0.45).clamp(0.0, 1.0)),
-              color.withValues(alpha: 0.0),
-            ],
-            stops: const [0.0, 0.48, 1.0],
-          ).createShader(Rect.fromCircle(center: center, radius: radius));
-    canvas.drawRect(rect, paint);
-  }
-
   /// Artwork Aura stage: the cover's own colours as large soft fields that
   /// drift past each other, mid-dark everywhere (no fall-off to black), so
   /// white text reads anywhere on the page.
@@ -1405,16 +1267,15 @@ class _AuraPainter extends CustomPainter {
   /// and a soft vignette. Same cost as the tonal stage: 5 drawImageRects at
   /// half resolution, no per-frame filters or layers.
   void _paintApple(Canvas canvas, Size size, double phase) {
+
     final w = size.width;
     final h = size.height;
     final rect = Offset.zero & size;
     final maxDim = math.max(w, h);
-
     final ground =
         Color.lerp(const Color(0xFF05070B), palette.darkMuted, 0.65) ??
             palette.darkMuted;
     canvas.drawRect(rect, Paint()..color = ground);
-
     _drawRotatedTexture(
       canvas,
       textures.base,
@@ -1423,9 +1284,6 @@ class _AuraPainter extends CustomPainter {
       angle: phase * 0.08,
       filter: _appleBaseFilter,
     );
-
-    // (x, y, spin rate, phase offset): spread so each corner gets its own
-    // part of the cover.
     const sprites = <(double, double, double, double)>[
       (0.18, 0.22, 0.30, 0.0),
       (0.84, 0.28, -0.24, 2.1),
@@ -1445,28 +1303,12 @@ class _AuraPainter extends CustomPainter {
         filter: _appleSpriteFilter,
       );
     }
-
-    // Uniform dim: keeps the colours but brings the whole stage into the
-    // range white text needs. Pale covers get more from [_AppleScrim].
     canvas.drawRect(rect, Paint()..color = const Color(0x4D000000));
-
-    final vignetteShader = appleVignetteShader ??
-        const RadialGradient(
-          center: Alignment.center,
-          radius: 1.05,
-          colors: [
-            Color(0x00000000),
-            Color(0x00000000),
-            Color(0x47000000),
-          ],
-          stops: [0.0, 0.55, 1.0],
-        ).createShader(rect);
-
-    canvas.drawRect(rect, Paint()..shader = vignetteShader);
   }
 
   @override
   void paint(Canvas canvas, Size size) {
+
     if (size.width <= 0 || size.height <= 0) return;
     final phase = phaseNotifier.value;
     if (apple) {
@@ -1477,18 +1319,11 @@ class _AuraPainter extends CustomPainter {
     final h = size.height;
     final rect = Offset.zero & size;
     final maxDim = math.max(w, h);
-
-    // Calm, tonal stage (modern player style): one dominant hue of
-    // the cover, deep and low-contrast. No hot spots, no competing blobs —
-    // just a soft light source on a dark ground that fades out downward.
     final tint = Color.lerp(palette.darkMuted, palette.primary, 0.55) ??
         palette.primary;
     final ground =
         Color.lerp(const Color(0xFF05070B), tint, 0.50) ?? tint;
     canvas.drawRect(rect, Paint()..color = ground);
-
-    // Heavily blurred cover wash, muted and slow: carries the cover's real
-    // colour distribution without any visible shape.
     _drawRotatedTexture(
       canvas,
       textures.base,
@@ -1497,7 +1332,6 @@ class _AuraPainter extends CustomPainter {
       angle: phase * 0.10,
       filter: _tonalBaseFilter,
     );
-    // One feathered sprite drifting very slowly gives the stage life.
     _drawRotatedTexture(
       canvas,
       textures.sprite,
@@ -1509,48 +1343,7 @@ class _AuraPainter extends CustomPainter {
       angle: -phase * 0.20,
       filter: _tonalSpriteFilter,
     );
-
-    // Soft light source, upper left of centre (where the cover sits).
-    _drawPaletteBloom(
-      canvas,
-      rect,
-      center: Offset(w * 0.30, h * 0.30),
-      radius: maxDim * 0.85,
-      color: palette.primary,
-      alpha: 0.22,
-      cachedShader: tonalBloomShader,
-    );
-
-    // Depth: light at the top, falling away to near-black at the bottom.
-    final linearShader = tonalLinearShader ??
-        const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0x00000000),
-            Color(0x00000000),
-            Color(0x66000000),
-            Color(0xB3000000),
-          ],
-          stops: [0.0, 0.38, 0.72, 1.0],
-        ).createShader(rect);
-
-    canvas.drawRect(rect, Paint()..shader = linearShader);
-
-    // Gentle vignette so the edges settle into the page.
-    final vignetteShader = tonalVignetteShader ??
-        const RadialGradient(
-          center: Alignment.center,
-          radius: 1.1,
-          colors: [
-            Color(0x00000000),
-            Color(0x00000000),
-            Color(0x4D000000),
-          ],
-          stops: [0.0, 0.62, 1.0],
-        ).createShader(rect);
-
-    canvas.drawRect(rect, Paint()..shader = vignetteShader);
+    canvas.drawRect(rect, Paint()..color = const Color(0x55000000));
   }
   @override
   bool shouldRepaint(covariant _AuraPainter old) {
@@ -1577,69 +1370,25 @@ class _AmbientMeshPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+
     if (size.width <= 0 || size.height <= 0) return;
-
     final rect = Offset.zero & size;
-    final maxDim = math.max(size.width, size.height);
-    final alphaScale = (isDark ? 0.38 : 0.22) * opacity;
-
-    void paintOrb({
-      required Offset center,
-      required Color color,
-      required double radius,
-      required double strength,
-    }) {
-      final paint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            color.withValues(alpha: (alphaScale * strength).clamp(0.0, 1.0)),
-            color.withValues(
-                alpha: (alphaScale * strength * 0.48).clamp(0.0, 1.0)),
-            color.withValues(alpha: 0.0),
-          ],
-          stops: const [0.0, 0.46, 1.0],
-        ).createShader(Rect.fromCircle(center: center, radius: radius));
-      canvas.drawRect(rect, paint);
+    final alphaScale = (isDark ? 0.12 : 0.08) * opacity;
+    for (final color in [
+      palette.primary,
+      palette.vibrant,
+      palette.lightVibrant,
+      palette.darkMuted,
+    ]) {
+      canvas.drawRect(
+        rect,
+        Paint()..color = color.withValues(alpha: alphaScale),
+      );
     }
-
-    // Fixed orb layout: identical composition to the old animated stage
-    // at phase zero, painted once instead of 30×/sec.
-    paintOrb(
-      center: Offset(size.width * 0.24, size.height * 0.22),
-      color: palette.primary,
-      radius: maxDim * 0.65,
-      strength: 1.1,
+    canvas.drawRect(
+      rect,
+      Paint()..color = darkBase.withValues(alpha: isDark ? 0.55 : 0.60),
     );
-    paintOrb(
-      center: Offset(size.width * 0.80, size.height * 0.32),
-      color: palette.vibrant,
-      radius: maxDim * 0.60,
-      strength: 0.95,
-    );
-    paintOrb(
-      center: Offset(size.width * 0.28, size.height * 0.80),
-      color: palette.lightVibrant,
-      radius: maxDim * 0.58,
-      strength: 0.85,
-    );
-    paintOrb(
-      center: Offset(size.width * 0.76, size.height * 0.74),
-      color: palette.darkMuted,
-      radius: maxDim * 0.70,
-      strength: 0.80,
-    );
-
-    final scrimPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          (isDark ? Colors.black : Colors.white)
-              .withValues(alpha: isDark ? 0.35 : 0.40),
-          darkBase.withValues(alpha: isDark ? 0.55 : 0.60),
-        ],
-      ).createShader(rect);
-    canvas.drawRect(rect, scrimPaint);
   }
 
   @override
@@ -1692,51 +1441,6 @@ class WaveAmbientBand extends StatelessWidget {
   }
 }
 
-/// Smoothstep on [0, 1] (clamped): zero slope at both ends, so gradients
-/// built from it have no visible start or stop line.
-double _smooth(double x) {
-  final t = x.clamp(0.0, 1.0);
-  return t * t * (3 - 2 * t);
-}
-
-/// Stretches a radial gradient horizontally about its own centre, turning
-/// the circle (radius = shortest side) into an ellipse across a wide band.
-class _StretchX extends GradientTransform {
-  final double sx;
-  final double cx;
-  const _StretchX(this.sx, this.cx);
-
-  @override
-  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
-    final x = bounds.left + bounds.width * cx;
-    return Matrix4.identity()
-      ..translateByDouble(x, 0, 0, 1)
-      ..scaleByDouble(sx, 1, 1, 1)
-      ..translateByDouble(-x, 0, 0, 1);
-  }
-}
-
-/// One eased elliptical glow, centred at [at] (alignment in the band).
-Widget _glow(
-    Color color, double alpha, Alignment at, double radius, double stretch) {
-  const n = 14;
-  final ts = [for (var i = 0; i <= n; i++) i / n];
-  return DecoratedBox(
-    decoration: BoxDecoration(
-      gradient: RadialGradient(
-        center: at,
-        radius: radius,
-        colors: [
-          for (final t in ts)
-            color.withValues(alpha: alpha * (1 - _smooth(t))),
-        ],
-        stops: ts,
-        transform: _StretchX(stretch, (at.x + 1) / 2),
-      ),
-    ),
-  );
-}
-
 /// Artwork-derived ambient wash for editorial headers and containers.
 class AmbientWash extends StatelessWidget {
   final String artworkUrl;
@@ -1759,6 +1463,7 @@ class AmbientWash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
     if (dynamicMesh) {
       return WaveAmbientMesh(
         artworkUrl: artworkUrl,
@@ -1767,18 +1472,11 @@ class AmbientWash extends StatelessWidget {
         opacity: 0.9,
       );
     }
-
     final dark = Theme.of(context).brightness == Brightness.dark;
     final reduceT = MediaQuery.maybeOf(context)?.highContrast ?? false;
     if (reduceT) return const SizedBox.shrink();
-
     return Consumer(
       builder: (context, ref, _) {
-        // Palette, not the single seed: one flat colour at low alpha is
-        // what made an earlier header band invisible against #0E0E0E. Two
-        // stops off the artwork's own vivid/primary read as light on the
-        // surface. Null until the palette answers, so nothing is painted
-        // in a wrong colour — the band simply fades up.
         final palette =
             ref.watch(artworkPaletteProvider(artworkUrl)).valueOrNull;
         final lead = dark
@@ -1787,64 +1485,16 @@ class AmbientWash extends StatelessWidget {
         final tail = dark
             ? (palette?.primary ?? ArtworkPalette.fallback.primary)
             : (palette?.cream ?? ArtworkPalette.fallback.cream);
-        final a = ((dark ? 0.44 : 0.32) * strength).clamp(0.0, 0.92);
-        // One hue, not lead + tail: two glows in different colours read as
-        // two separate blobs. Tail only tints the lead.
         final hue = Color.lerp(lead, tail, 0.3)!;
-
-        // Soft elliptical glows with an eased falloff, so there is no
-        // visible banding. Two masks take the wash to zero at the sides,
-        // top and foot: the band has no edge at all — it just lifts the
-        // header's own surface.
+        final alpha = ((dark ? 0.12 : 0.08) * strength).clamp(0.0, 0.20);
         return IgnorePointer(
           child: AnimatedOpacity(
             opacity: palette == null ? 0 : 1,
             duration: waveMotion(context, WaveMotion.slow),
             curve: WaveMotion.standard,
-            child: ShaderMask(
-              blendMode: BlendMode.dstIn,
-              // Side fade: without it the glow is cut flat at the band's
-              // left edge, right behind the portrait.
-              shaderCallback: (bounds) {
-                const n = 12;
-                final ts = [for (var i = 0; i <= n; i++) i / n];
-                return LinearGradient(
-                  colors: [
-                    for (final t in ts)
-                      Colors.white.withValues(
-                          alpha: _smooth(t / 0.16) *
-                              (1 - _smooth((t - 0.8) / 0.2))),
-                  ],
-                  stops: ts,
-                ).createShader(bounds);
-              },
-              child: ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (bounds) {
-                  const n = 16;
-                  final ts = [for (var i = 0; i <= n; i++) i / n];
-                  return LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      for (final t in ts)
-                        Colors.white.withValues(
-                            alpha: _smooth(t / 0.3) *
-                                (1 - _smooth((t - 0.7) / 0.3))),
-                    ],
-                    stops: ts,
-                  ).createShader(bounds);
-                },
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    // Wide, faint fill so the band reads as one lit surface.
-                    _glow(hue, a * 0.38, const Alignment(0.0, 0.2), 1.3, 2.4),
-                    // Main glow, hugging the portrait and easing out right.
-                    _glow(hue, a * 1.15, const Alignment(-0.85, 0.1), 1.0, 3.0),
-                  ],
-                ),
-              ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(color: hue.withValues(alpha: alpha)),
+              child: const SizedBox.expand(),
             ),
           ),
         );

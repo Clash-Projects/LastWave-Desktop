@@ -1165,14 +1165,7 @@ class _EqCurvePainter extends CustomPainter {
             : Colors.black.withValues(alpha: 0.38));
 
     final fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          accentColor.withValues(alpha: active ? 0.28 : 0.08),
-          accentColor.withValues(alpha: 0.0),
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, w, h));
+      ..color = accentColor.withValues(alpha: active ? 0.14 : 0.04);
     canvas.drawPath(fillPath, fillPaint);
 
     // Draw stroke line

@@ -231,14 +231,7 @@ class LwAmbientWash extends StatelessWidget {
       child: Container(
         height: height,
         decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: center,
-            radius: 1.1,
-            colors: [
-              seed!.withValues(alpha: dark ? 0.28 : 0.18),
-              seed!.withValues(alpha: 0.0),
-            ],
-          ),
+          color: seed!.withValues(alpha: dark ? 0.28 : 0.18),
         ),
       ),
     );

@@ -203,14 +203,7 @@ class _Frame extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 6, 18),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.6),
-                    Colors.transparent,
-                  ],
-                ),
+                color: Colors.black.withValues(alpha: 0.42),
               ),
               child: Row(
                 children: [
@@ -248,14 +241,7 @@ class _Frame extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.fromLTRB(14, 28, 14, 14),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.75),
-                  ],
-                ),
+                color: Colors.black.withValues(alpha: 0.58),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,

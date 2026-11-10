@@ -80,20 +80,7 @@ class WaveEmpty extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius:
                       BorderRadius.circular(WaveRadius.artwork),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      (dark
-                              ? Colors.white
-                              : Colors.black)
-                          .withValues(alpha: 0.08),
-                      (dark
-                              ? Colors.white
-                              : Colors.black)
-                          .withValues(alpha: 0.03),
-                    ],
-                  ),
+                  color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.05),
                   border: Border.all(
                     color: dark
                         ? waveOutlineSoft(context)

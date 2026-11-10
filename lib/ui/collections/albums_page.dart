@@ -309,14 +309,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                         duration: waveMotion(context, WaveMotion.fast),
                         child: Container(
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.transparent,
-                                Colors.black.withValues(alpha: 0.55),
-                              ],
-                            ),
+                            color: Colors.black.withValues(alpha: 0.55),
                             borderRadius: WaveRadius.artworkRadius,
                           ),
                           child: Center(

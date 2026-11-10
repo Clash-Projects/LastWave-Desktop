@@ -813,15 +813,7 @@ class _BrowseTileState extends ConsumerState<_BrowseTile> {
                 // the label so the name stays readable.
                 DecoratedBox(
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        widget.tint.withValues(alpha: 0.45),
-                        Color.lerp(widget.tint, Colors.black, 0.55)!
-                            .withValues(alpha: 0.80),
-                      ],
-                    ),
+                    color: Color.lerp(widget.tint, Colors.black, 0.55)!.withValues(alpha: 0.80),
                   ),
                 ),
                 Positioned(

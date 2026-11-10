@@ -1036,21 +1036,12 @@ class _FeaturedHero extends ConsumerWidget {
     final dark = waveIsDark(context);
     final width = MediaQuery.sizeOf(context).width;
     final narrow = width < 860;
-    final tint = ref.watch(artworkPaletteProvider(track.artworkUrl));
-    final palette = tint.valueOrNull;
-    // The glow is the cover's most vivid tone, not its dominant one: dominant
-    // is dark for most artwork, which is why a fill seeded from it vanished
-    // into the page.
-    final glow = dark
-        ? (palette?.vibrant ?? ArtworkPalette.fallback.vibrant)
-        : (palette?.lightVibrant ?? ArtworkPalette.fallback.lightVibrant);
     // The panel is structure only. Any tint anchored to its edges leaves a
     // straight line of colour wherever the box ends — that was the stain.
     final panel = dark
         ? Colors.white.withValues(alpha: 0.035)
         : Colors.black.withValues(alpha: 0.025);
     final artSize = narrow ? 132.0 : 176.0;
-    final halo = artSize + 150;
 
     final left = Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -1061,34 +1052,7 @@ class _FeaturedHero extends ConsumerWidget {
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              // Halo: bigger than the cell and allowed to paint outside it, so
-              // the light spills past the panel instead of stopping at an edge.
-              Positioned(
-                left: -(halo - artSize) / 2,
-                top: -(halo - artSize) / 2,
-                width: halo,
-                height: halo,
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    opacity: palette == null ? 0 : 1,
-                    duration: waveMotion(context, WaveMotion.slow),
-                    curve: WaveMotion.standard,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          stops: const [0, 0.55, 1],
-                          colors: [
-                            glow.withValues(alpha: 0.34),
-                            glow.withValues(alpha: 0.12),
-                            glow.withValues(alpha: 0),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+
               Positioned.fill(
                 child: Container(
                   decoration: BoxDecoration(
@@ -1611,15 +1575,7 @@ class _CoverCardState extends ConsumerState<_CoverCard> {
                               decoration: BoxDecoration(
                                 borderRadius:
                                     WaveRadius.artworkRadius,
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Colors.transparent,
-                                    Colors.black
-                                        .withValues(alpha: 0.55),
-                                  ],
-                                ),
+                                color: Colors.black.withValues(alpha: 0.55),
                               ),
                               child: Center(
                                 child: AnimatedScale(
@@ -1798,15 +1754,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                           child: Container(
                             decoration: BoxDecoration(
                               borderRadius: WaveRadius.artworkRadius,
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black.withValues(alpha: 0.72),
-                                ],
-                                stops: const [0.45, 1.0],
-                              ),
+                              color: Colors.black.withValues(alpha: 0.72),
                             ),
                           ),
                         ),
@@ -1841,14 +1789,7 @@ class _MixCardState extends ConsumerState<_MixCard> {
                             duration: waveMotion(context, WaveMotion.fast),
                             child: Container(
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Colors.transparent,
-                                    Colors.black.withValues(alpha: 0.55),
-                                  ],
-                                ),
+                                color: Colors.black.withValues(alpha: 0.55),
                                 borderRadius: WaveRadius.artworkRadius,
                               ),
                               child: Center(
@@ -2010,14 +1951,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                           duration: waveMotion(context, WaveMotion.fast),
                           child: Container(
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black.withValues(alpha: 0.55),
-                                ],
-                              ),
+                              color: Colors.black.withValues(alpha: 0.55),
                               borderRadius: WaveRadius.artworkRadius,
                             ),
                             child: Center(

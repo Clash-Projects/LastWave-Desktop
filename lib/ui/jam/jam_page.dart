@@ -800,23 +800,11 @@ class _Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
     final base = waveSurface(context);
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color.alphaBlend(
-              (dark ? Colors.white : Colors.black)
-                  .withValues(alpha: dark ? 0.025 : 0.015),
-              base,
-            ),
-            base,
-          ],
-        ),
+        color: base,
         borderRadius: BorderRadius.circular(WaveRadius.floating),
         border: Border.all(color: waveDivider(context), width: 0.8),
       ),

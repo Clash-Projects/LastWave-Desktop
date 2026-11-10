@@ -447,23 +447,13 @@ class _WaveArtworkState extends State<WaveArtwork> {
       dark ? 0.22 : 0.28,
       dark ? 0.22 : 0.82,
     ).toColor();
-    final deep = HSLColor.fromAHSL(
-      1.0,
-      (hue + 28) % 360,
-      dark ? 0.26 : 0.30,
-      dark ? 0.14 : 0.72,
-    ).toColor();
     return AnimatedContainer(
       duration: waveMotion(context, WaveMotion.normal),
       curve: WaveMotion.standard,
       width: widget.size,
       height: widget.size,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [base, deep],
-        ),
+        color: base,
         borderRadius:
             widget.isCircle ? null : BorderRadius.circular(widget.radius),
         shape: widget.isCircle ? BoxShape.circle : BoxShape.rectangle,
