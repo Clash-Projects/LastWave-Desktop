@@ -27,7 +27,7 @@ import '../collections/playlist_dialogs.dart' show showWaveAddToPlaylist;
 
 // Main destinations follow LastWave-Native's three-item floating dock.
 const _nativeMainDestinations = <WaveDestination>[
-  WaveDestination('/home', 'Home', WaveIcons.home),
+  WaveDestination('/home', 'Feed', WaveIcons.home),
   WaveDestination('/stats', 'Stats', WaveIcons.stats),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
 ];
@@ -867,9 +867,13 @@ class _MobileMiniPlayer extends ConsumerWidget {
             .toDouble()
         : 0.0;
 
-    return Container(
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680),
+        child: Container(
       height: 82,
-      margin: const EdgeInsets.fromLTRB(10, 7, 10, 7),
+      margin: const EdgeInsets.fromLTRB(14, 7, 14, 7),
       child: WaveHaze(
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),
@@ -1047,6 +1051,8 @@ class _MobileMiniPlayer extends ConsumerWidget {
             ),
           ],
           ),
+        ),
+      ),
         ),
       ),
     );
