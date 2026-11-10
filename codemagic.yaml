@@ -16,6 +16,9 @@ workflows:
         - pattern: codex/ipados-port-foundation
           include: true
           source: true
+        - pattern: codex/native-ui-port
+          include: true
+          source: true
 
     scripts:
       - name: Prepare build-time secrets
