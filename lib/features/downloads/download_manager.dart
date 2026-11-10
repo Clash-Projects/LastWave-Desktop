@@ -111,6 +111,18 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
   // on relaunch) plus anything the user already dismissed this session.
   final Set<String> _muted = {};
 
+  static Dio _createDownloadDio() {
+    final dio = DioFactory.create();
+    // A whole audio file is downloaded as one byte response. The shared
+    // API client's 15-second receive timeout is too short for larger
+    // lossless files or slower mobile connections.
+    dio.options
+      ..connectTimeout = const Duration(seconds: 30)
+      ..receiveTimeout = const Duration(minutes: 10)
+      ..sendTimeout = const Duration(seconds: 30);
+    return dio;
+  }
+
   DownloadManager(
     this._db,
     this._prefs,
@@ -118,7 +130,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     this._tube,
     this._lyrics, [
     Dio? dio,
-  ])  : _dio = dio ?? DioFactory.create(),
+  ])  : _dio = dio ?? _createDownloadDio(),
         super(const []) {
     _loadExisting();
   }
