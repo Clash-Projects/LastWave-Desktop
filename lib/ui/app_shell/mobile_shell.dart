@@ -758,7 +758,7 @@ String _mobileStreamDetails(ResolvedStream? stream) {
   }
   return [
     if (badge.isNotEmpty) badge,
-    if (codecDetail != null) codecDetail,
+    ?codecDetail,
     if (stream.bitrateKbps > 0) '${stream.bitrateKbps} kbps',
   ].join(' · ');
 }

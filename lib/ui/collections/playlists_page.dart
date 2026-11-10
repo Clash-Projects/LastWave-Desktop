@@ -13,7 +13,6 @@ import '../../features/spotify/spotify_api.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/hero.dart';
-import '../components/menus.dart';
 import '../components/states.dart';
 import 'playlist_dialogs.dart'
     show
@@ -514,15 +513,9 @@ class _SpotifyCardState extends State<_SpotifyCard> {
 class _PlaylistCard extends ConsumerStatefulWidget {
   final SavedPlaylist playlist;
   final double artSize;
-  final bool selecting;
-  final bool selected;
-  final VoidCallback? onSelect;
   const _PlaylistCard({
     required this.playlist,
     this.artSize = 150,
-    this.selecting = false,
-    this.selected = false,
-    this.onSelect,
   });
   @override
   ConsumerState<_PlaylistCard> createState() =>
