@@ -31,6 +31,10 @@ void main() {
     expect(titles('theme').first, 'Theme');
   });
 
+  test('the removed Experimental section is not searchable', () {
+    expect(titles('experimental'), isEmpty);
+  });
+
   test('is case-insensitive', () {
     expect(titles('LASTFM'), isNotEmpty);
     expect(titles('Equalizer'), contains('Equalizer & Sound FX'));
@@ -73,7 +77,6 @@ void main() {
       'lastfm',
       'integrations',
       'sources',
-      'experimental',
       'about',
     };
     for (final e in settingsSearchEntries) {

@@ -67,12 +67,9 @@ const _waveSettingsSections = [
   ('lastfm', 'Last.fm', WaveIcons.liked),
   ('integrations', 'Integrations', FluentIcons.link),
   ('sources', 'Sources', FluentIcons.cloud),
-  ('experimental', 'Experimental', FluentIcons.bug),
   ('about', 'About', FluentIcons.info),
 ];
 
-/// Experimental settings remain available on mobile when their controls
-/// operate on the app itself (for example, the waveform seek bar).
 List<(String, String, IconData)> get _settingsSections => _waveSettingsSections;
 
 /// Fluent settings: left nav list + right form.
@@ -304,8 +301,6 @@ class _SectionBody extends ConsumerWidget {
         return _Ytm(onUpdate: onUpdate);
       case 'sources':
         return _Sources(onUpdate: onUpdate);
-      case 'experimental':
-        return const _Experimental();
       default:
         return const _About();
     }
@@ -822,17 +817,7 @@ class _Appearance extends ConsumerWidget {
                       onChanged: (_) => ref
                           .read(themeControllerProvider.notifier)
                           .setThemeMode('dark'),
-                      child: const Text('Midnight'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ToggleButton(
-                      checked: theme.isLight,
-                      onChanged: (_) => ref
-                          .read(themeControllerProvider.notifier)
-                          .setThemeMode('light'),
-                      child: const Text('White'),
+                      child: const Text('Dark'),
                     ),
                   ),
                 ],
@@ -2991,7 +2976,7 @@ class _AboutState extends ConsumerState<_About> {
             children: [
               Text(
                 Platform.isIOS
-                    ? 'LastWave for iOS · v$appVersion'
+                    ? 'LastWave for iOS - sundaywired'
                     : 'LastWave Desktop · v$appVersion',
                 style: WaveType.trackTitle,
               ),
@@ -3537,24 +3522,6 @@ decoration: waveInputDecoration(),
             style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Experimental extends StatelessWidget {
-  const _Experimental();
-  @override
-  Widget build(BuildContext context) {
-    return _Group(
-      id: 'experimental.main',
-      title: 'Experimental',
-      subtitle: Platform.isIOS
-          ? 'Optional visual experiments supported by LastWave'
-          : 'Opt-in visual prototypes',
-      child: Text(
-        'There are no experimental settings available right now.',
-        style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
       ),
     );
   }

@@ -5,14 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/storage/prefs.dart';
 import '../../ui/theme/tokens.dart';
 
-/// App theme state (accent + AMOLED + White/Midnight/custom mode + Haze
-/// prefs).
+/// App theme state (accent + Dark appearance + Haze preferences).
 class ThemeState {
   final Color accent;
   final bool amoled;
 
-  /// White is selected. False for Midnight and for Custom (see
-  /// [effectiveLight] for the brightness actually rendered).
+  /// Retained for compatibility with existing UI consumers; Dark is the
+  /// only available appearance, so this is always false.
   final bool isLight;
 
   /// The Custom theme is selected; surfaces come from [customBase].
@@ -37,7 +36,7 @@ class ThemeState {
     this.wavySeekbar = false,
   });
 
-  /// The palette for the Custom theme, or null for Midnight / Pearl.
+  /// Legacy palette slot; Dark uses the graphite surface set.
   WaveSurfaces? get customSurfaces => null;
 
   /// Brightness of the two supported base themes.
@@ -65,7 +64,7 @@ class ThemeController extends StateNotifier<ThemeState> {
       : super(ThemeState(
           accent: Color(_defaultAccent(_prefs)),
           amoled: false,
-          isLight: _prefs.isLight,
+          isLight: false,
           isCustom: false,
           customBase: Color(_prefs.customThemeBase),
           hazeMaterial: _prefs.hazeMaterial,
@@ -78,7 +77,7 @@ class ThemeController extends StateNotifier<ThemeState> {
     state = ThemeState(
       accent: Color(_defaultAccent(_prefs)),
       amoled: false,
-      isLight: _prefs.isLight,
+      isLight: false,
       isCustom: false,
       customBase: Color(_prefs.customThemeBase),
       hazeMaterial: _prefs.hazeMaterial,
@@ -88,10 +87,10 @@ class ThemeController extends StateNotifier<ThemeState> {
     );
   }
 
-  /// Only Midnight ('dark') and White ('light') are supported.
-  /// Legacy saved values such as 'custom' are safely treated as Midnight.
-  Future<void> setThemeMode(String mode) async {
-    await _prefs.setThemeMode(mode == 'light' ? 'light' : 'dark');
+  /// Dark is the only supported base appearance. Legacy light/custom
+  /// preference values are ignored.
+  Future<void> setThemeMode(String _) async {
+    await _prefs.setThemeMode('dark');
     refresh();
   }
 }

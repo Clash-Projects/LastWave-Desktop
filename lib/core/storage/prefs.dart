@@ -331,7 +331,7 @@ class Prefs {
   /// (surfaces generated from [customThemeBase]).
   String get themeMode => _sp.getString('lw_theme_mode') ?? 'dark';
   Future<void> setThemeMode(String v) => _sp.setString('lw_theme_mode', v);
-  bool get isLight => themeMode == 'light';
+  bool get isLight => false;
   bool get isCustomTheme => themeMode == 'custom';
 
   /// Base colour (ARGB) of the Custom theme. Default: the Ocean preset.

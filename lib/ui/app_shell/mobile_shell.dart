@@ -27,19 +27,18 @@ import '../collections/playlist_dialogs.dart' show showWaveAddToPlaylist;
 
 // Main destinations follow LastWave-Native's three-item floating dock.
 const _nativeMainDestinations = <WaveDestination>[
-  WaveDestination('/home', 'Feed', WaveIcons.home),
-  WaveDestination('/stats', 'Stats', WaveIcons.stats),
-  WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
+  WaveDestination('/home', 'Home', WaveIcons.home),
   WaveDestination('/search', 'Search', WaveIcons.search),
+  WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
+  WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
+  WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
 ];
 
 const _phoneMoreDestinations = <WaveDestination>[
-  WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
   WaveDestination('/settings', 'Settings', WaveIcons.settings),
   WaveDestination('/home-layout', 'Edit Home', WaveIcons.edit),
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
-  WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
   WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
   WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
   WaveDestination('/history', 'Listening history', WaveIcons.history),
@@ -203,22 +202,6 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                   children: [
                     if (!nowPlaying)
                       const SizedBox(height: 101),
-                    if (!tablet && !nowPlaying)
-                      _MobileToolbar(
-                        tabletLayout: tablet,
-                        showBack: _route != '/home' && _route != '/search',
-                        onBack: _back,
-                        onSearch: () => _go('/search'),
-                        onMore: () => setState(() => _showMore = !_showMore),
-                      ),
-                    if (tablet && moreActive && !_showMore && !nowPlaying)
-                      _MobileToolbar(
-                        tabletLayout: true,
-                        showBack: true,
-                        onBack: _back,
-                        onSearch: () => _go('/search'),
-                        onMore: () => setState(() => _showMore = true),
-                      ),
                     Expanded(
                       child: Stack(
                         fit: StackFit.expand,
@@ -323,20 +306,6 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                 ),
                               ),
                             ),
-                          if (!nowPlaying)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: _PhoneNavigation(
-                                activePath: activePath,
-                                moreActive: moreActive,
-                                showMore: _showMore,
-                                onGo: _go,
-                                onMore: () =>
-                                    setState(() => _showMore = !_showMore),
-                              ),
-                            ),
                         ],
                       ),
                     ),
@@ -357,6 +326,19 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                     ),
                   ),
               ),
+                if (!nowPlaying)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: MediaQuery.paddingOf(context).bottom,
+                    child: _PhoneNavigation(
+                      activePath: activePath,
+                      moreActive: moreActive,
+                      showMore: _showMore,
+                      onGo: _go,
+                      onMore: () => setState(() => _showMore = !_showMore),
+                    ),
+                  ),
                 if (!nowPlaying)
                   Positioned(
                     top: MediaQuery.paddingOf(context).top,
@@ -406,56 +388,6 @@ class _AmbientArtworkBackdrop extends ConsumerWidget {
   }
 }
 
-class _MobileToolbar extends StatelessWidget {
-  final bool tabletLayout;
-  final bool showBack;
-  final VoidCallback onBack;
-  final VoidCallback onSearch;
-  final VoidCallback onMore;
-
-  const _MobileToolbar({
-    required this.tabletLayout,
-    required this.showBack,
-    required this.onBack,
-    required this.onSearch,
-    required this.onMore,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: waveBackground(context),
-        border: Border(bottom: BorderSide(color: waveDivider(context))),
-      ),
-      child: Row(
-        children: [
-          if (showBack)
-            _TouchIconButton(
-              icon: WaveIcons.back,
-              tooltip: 'Back',
-              onPressed: onBack,
-            ),
-          const Spacer(),
-          if (!tabletLayout)
-            _TouchIconButton(
-              icon: WaveIcons.search,
-              tooltip: 'Search',
-              onPressed: onSearch,
-            ),
-          _TouchIconButton(
-            icon: WaveIcons.more,
-            tooltip: 'More',
-            onPressed: onMore,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _MobileOverlayHeader extends StatelessWidget {
   final String title;
   final VoidCallback onClose;
@@ -487,7 +419,7 @@ class _MobileOverlayHeader extends StatelessWidget {
       );
 }
 
-/// Floating three-destination dock adapted from LastWave-Native's
+/// Floating five-shortcut dock adapted from LastWave-Native's
 /// MainShell/FloatingNavBar, translated from Compose to Flutter.
 class _PhoneNavigation extends StatelessWidget {
   final String activePath;

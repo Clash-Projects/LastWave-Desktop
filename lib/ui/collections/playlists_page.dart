@@ -137,10 +137,8 @@ class _WavePlaylistsPageState
       child: ListView(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
         children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: double.infinity,
-          ),
+        SizedBox(
+          width: double.infinity,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -661,7 +659,10 @@ class _PlaylistCardState
           _hover = false;
           _pressed = false;
         }),
-        child: GestureDetector(
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            GestureDetector(
           onTapDown: (_) => setState(() => _pressed = true),
           onTapUp: (_) => setState(() => _pressed = false),
           onTapCancel: () => setState(() => _pressed = false),
@@ -793,49 +794,6 @@ class _PlaylistCardState
                           ),
                         ),
                       ),
-                      Positioned(
-                        right: 6,
-                        top: 6,
-                        child: WaveOverflowButton(
-                          tooltip: 'Playlist options',
-                          items: [
-                            WaveMenuAction(
-                              leading: const Icon(FluentIcons.play, size: 15),
-                              label: 'Open',
-                              onPressed: open,
-                            ),
-                            WaveMenuAction(
-                              leading: Icon(
-                                p.isPinned ? FluentIcons.pinned : FluentIcons.pin,
-                                size: 15,
-                              ),
-                              label: p.isPinned ? 'Unpin' : 'Pin',
-                              onPressed: () => ref
-                                  .read(playlistRepositoryProvider.notifier)
-                                  .setPinned(p.id, !p.isPinned),
-                            ),
-                            WaveMenuAction(
-                              leading: const Icon(FluentIcons.edit, size: 15),
-                              label: 'Rename',
-                              onPressed: () => showWaveRenamePlaylist(
-                                context,
-                                ref,
-                                p,
-                              ),
-                            ),
-                            if (!p.isLikedSongs && !p.isLocal)
-                              WaveMenuAction(
-                                leading: const Icon(FluentIcons.delete, size: 15),
-                                label: 'Delete',
-                                onPressed: () => showWaveDeletePlaylist(
-                                  context,
-                                  ref,
-                                  p,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
@@ -855,7 +813,43 @@ class _PlaylistCardState
                 ],
               ),
             ),
-          ),
+            if (!widget.selecting)
+              Positioned(
+                right: 10,
+                top: 10,
+                child: WaveOverflowButton(
+                  tooltip: 'Playlist options',
+                  items: [
+                    WaveMenuAction(
+                      leading: const Icon(FluentIcons.play, size: 15),
+                      label: 'Open',
+                      onPressed: open,
+                    ),
+                    WaveMenuAction(
+                      leading: Icon(
+                        p.isPinned ? FluentIcons.pinned : FluentIcons.pin,
+                        size: 15,
+                      ),
+                      label: p.isPinned ? 'Unpin' : 'Pin',
+                      onPressed: () => ref
+                          .read(playlistRepositoryProvider.notifier)
+                          .setPinned(p.id, !p.isPinned),
+                    ),
+                    WaveMenuAction(
+                      leading: const Icon(FluentIcons.edit, size: 15),
+                      label: 'Rename',
+                      onPressed: () => showWaveRenamePlaylist(context, ref, p),
+                    ),
+                    if (!p.isLikedSongs && !p.isLocal)
+                      WaveMenuAction(
+                        leading: const Icon(FluentIcons.delete, size: 15),
+                        label: 'Delete',
+                        onPressed: () => showWaveDeletePlaylist(context, ref, p),
+                      ),
+                  ],
+                ),
+              ),
+          ],
         ),
       ),
     );

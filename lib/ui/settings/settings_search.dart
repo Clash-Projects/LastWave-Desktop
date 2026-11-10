@@ -220,13 +220,6 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'wavy seekbar timeline waveform playback appearance',
   ),
   SettingsSearchEntry(
-    id: 'experimental.main',
-    section: 'experimental',
-    title: 'Experimental',
-    subtitle: 'Opt-in visual prototypes',
-    keywords: 'experimental prototype beta',
-  ),
-  SettingsSearchEntry(
     id: 'about.main',
     section: 'about',
     title: 'About LastWave',
