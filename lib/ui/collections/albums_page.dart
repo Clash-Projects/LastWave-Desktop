@@ -409,6 +409,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
         ),
       ),
       ),
+      ),
     );
   }
 }

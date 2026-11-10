@@ -1210,13 +1210,11 @@ class _HoverGlyph extends StatefulWidget {
   final IconData icon;
   final bool active;
   final VoidCallback? onTap;
-  final List<WaveMenuEntry>? menuItems;
   const _HoverGlyph({
     required this.tooltip,
     required this.icon,
     this.active = false,
     this.onTap,
-    this.menuItems,
   });
   @override
   State<_HoverGlyph> createState() => _HoverGlyphState();
@@ -1255,18 +1253,6 @@ class _HoverGlyphState extends State<_HoverGlyph> {
       onExit: (_) => setState(() => _hover = false),
       child: glyph,
     );
-    if (widget.menuItems != null) {
-      return LWTooltip(
-        message: widget.tooltip,
-        child: WaveMenuButton(
-          entries: widget.menuItems!,
-          buttonBuilder: (context, onOpen) => GestureDetector(
-            onTap: onOpen,
-            child: hovered,
-          ),
-        ),
-      );
-    }
     return LWTooltip(
       message: widget.tooltip,
       child: GestureDetector(
