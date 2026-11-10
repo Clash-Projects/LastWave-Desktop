@@ -278,6 +278,20 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
               ),
             ),
 
+            // Full-screen frosted-glass layer. This uses the same L2 haze
+            // material as the floating mini-player and shortcuts dock, so
+            // the artwork ambience remains visible through a soft, consistent
+            // translucent surface across the entire Now Playing stage.
+            Positioned.fill(
+              child: WaveHaze(
+                level: LwHazeLevel.l2,
+                base: waveSurfaceRaised(context),
+                fillAlpha: 0.30,
+                borderRadius: BorderRadius.zero,
+                child: const SizedBox.expand(),
+              ),
+            ),
+
             // Main Layout Content
             AnimatedPositioned(
               duration: waveMotion(context, WaveMotion.normal),
