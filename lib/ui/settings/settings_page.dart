@@ -11,9 +11,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../features/auth/google_oauth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
+
+import '../../features/auth/google_oauth.dart';
 
 import '../../app/auth_gate.dart';
 import '../../core/app_info.dart';
