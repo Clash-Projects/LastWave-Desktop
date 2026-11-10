@@ -204,7 +204,16 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          widget.child,
+                          Padding(
+                            // Keep the first page controls below the floating
+                            // mini-player instead of allowing it to cover them.
+                            padding: EdgeInsets.only(
+                              top: nowPlaying
+                                  ? 0
+                                  : _mobileMiniPlayerReservedHeight,
+                            ),
+                            child: widget.child,
+                          ),
                           if (_showMore && !nowPlaying)
                             Positioned.fill(
                               child: ColoredBox(
@@ -774,6 +783,14 @@ class _MobileTransportDock extends ConsumerWidget {
   }
 }
 
+const double _mobileMiniPlayerCardHeight = 82;
+const double _mobileMiniPlayerTopMargin = 9;
+const double _mobileMiniPlayerBottomMargin = 10;
+const double _mobileMiniPlayerReservedHeight =
+    _mobileMiniPlayerCardHeight +
+    _mobileMiniPlayerTopMargin +
+    _mobileMiniPlayerBottomMargin;
+
 /// Mini-player proportions and single-card hierarchy adapted from
 /// LastWave-Native's ui/player/MiniPlayer.kt, translated to Flutter.
 class _MobileMiniPlayer extends ConsumerWidget {
@@ -836,8 +853,13 @@ class _MobileMiniPlayer extends ConsumerWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 680),
         child: Container(
-      height: 82,
-      margin: const EdgeInsets.fromLTRB(14, 9, 14, 10),
+      height: _mobileMiniPlayerCardHeight,
+      margin: const EdgeInsets.fromLTRB(
+        14,
+        _mobileMiniPlayerTopMargin,
+        14,
+        _mobileMiniPlayerBottomMargin,
+      ),
       child: WaveHaze(
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),

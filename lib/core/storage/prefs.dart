@@ -110,10 +110,10 @@ class Prefs {
   Future<void> setAutoplaySimilar(bool v) =>
       _sp.setBool('lw_autoplay_similar', v);
 
-  /// Require a reliable title + artist + duration match before using a
-  /// YouTube recording. Enabled by default to prevent silent substitutions.
+  /// Require a reliable title + artist + duration match only when enabled.
+  /// The legacy best-effort matcher is used by default.
   bool get strictTrackMatching =>
-      _sp.getBool('lw_strict_track_matching') ?? true;
+      _sp.getBool('lw_strict_track_matching') ?? false;
   Future<void> setStrictTrackMatching(bool v) =>
       _sp.setBool('lw_strict_track_matching', v);
 
