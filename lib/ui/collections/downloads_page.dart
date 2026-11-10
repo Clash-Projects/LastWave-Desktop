@@ -1,4 +1,8 @@
+import 'dart:io';
+
+import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
@@ -506,12 +510,34 @@ class _DownloadRowState extends ConsumerState<_DownloadRow> {
 
   Future<void> _openLocation(
       BuildContext context, String filePath) async {
-    // Best-effort: reveal the file in Explorer/Finder/Files.
     try {
-      final uri = Uri.file(filePath);
-      // url_launcher handles file:// on desktop; failure is silent.
-      final ok = await canLaunchUrl(uri);
-      if (ok) await launchUrl(uri);
-    } catch (_) {}
+      if (Platform.isIOS) {
+        // iOS apps cannot reveal another app's sandbox directory in Files.
+        // Share the downloaded file so the user can choose "Save to Files".
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [XFile(filePath)],
+            subject: 'LastWave download: ${widget.entry.title}',
+          ),
+        );
+        return;
+      }
+
+      final folderUri = Uri.directory(File(filePath).parent.path);
+      if (await canLaunchUrl(folderUri)) {
+        await launchUrl(folderUri);
+      }
+    } catch (error) {
+      if (context.mounted) {
+        displayInfoBar(
+          context,
+          builder: (context, close) => InfoBar(
+            title: const Text('Could not open download location'),
+            content: Text(error.toString()),
+            severity: InfoBarSeverity.warning,
+          ),
+        );
+      }
+    }
   }
 }

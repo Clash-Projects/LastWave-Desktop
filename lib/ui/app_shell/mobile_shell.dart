@@ -195,7 +195,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
               children: [
                 _AmbientArtworkBackdrop(),
                 ColoredBox(
-                  color: waveBackground(context).withValues(alpha: 0.82),
+                  color: waveBackground(context).withValues(alpha: nowPlaying ? 0.52 : 0.68),
                   child: SafeArea(
                     child: Column(
                   children: [
