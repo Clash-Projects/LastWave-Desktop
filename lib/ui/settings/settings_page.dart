@@ -10,6 +10,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../features/auth/google_oauth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -1363,8 +1365,8 @@ class _Ytm extends ConsumerWidget {
                         ),
                         const SizedBox(height: 10),
                         const Text(
-                          'Sign in through the in-app YouTube Music page. If Google blocks the embedded sign-in, '
-                          'you can import cookies.txt from Files instead.',
+                          'Sign in with Google using the secure iOS sign-in flow. This confirms your Google account; '
+                          'private YouTube Music library and playback access may still require a separate session.',
                           style: WaveType.meta,
                         ),
                         const SizedBox(height: 10),
@@ -1373,12 +1375,12 @@ class _Ytm extends ConsumerWidget {
                           runSpacing: 8,
                           children: [
                             WaveFilledButton(
-                              onPressed: () => _ytConnect(context, ref),
-                              child: const Text('Sign in to YouTube Music'),
+                              onPressed: () => _ytConnectWithGoogleOAuth(context),
+                              child: const Text('Sign in with Google'),
                             ),
                             WaveButton(
                               onPressed: () => _ytConnectWithCookies(context, ref),
-                              child: const Text('Import cookies.txt instead'),
+                              child: const Text('Import cookies.txt'),
                             ),
                           ],
                         ),
@@ -1539,6 +1541,50 @@ class _Ytm extends ConsumerWidget {
         const _CardActions(),
       ],
     );
+  }
+
+  /// Uses the official Google Sign-In SDK instead of an embedded WebView.
+  /// OAuth confirms the Google identity but does not mint the private
+  /// YouTube Music InnerTube cookie used by the current library/playback API.
+  Future<void> _ytConnectWithGoogleOAuth(BuildContext context) async {
+    try {
+      final account = await YtGoogleOAuth.signIn();
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => ContentDialog(
+          title: const Text('Google account authorized'),
+          content: Text(
+            'Signed in as ${account.email}. Google sign-in is now using the secure iOS flow. '
+            'The current private YouTube Music library and playback integration still needs its own session, '
+            'so this does not yet mark YouTube Music as connected.',
+          ),
+          actions: [
+            WaveFilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => ContentDialog(
+          title: const Text('Google sign-in could not finish'),
+          content: const Text(
+            'Check that the Google OAuth consent screen is configured and this account is allowed to test the app, then try again.',
+          ),
+          actions: [
+            WaveFilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   /// In-app Google sign-in: opens music.youtube.com in a system

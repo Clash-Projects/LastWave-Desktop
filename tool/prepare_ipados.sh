@@ -90,6 +90,18 @@ if not any(
         "CFBundleURLName": "com.lastwave.ios",
         "CFBundleURLSchemes": ["lastwave"],
     })
+# Configure the Google iOS OAuth client and its reversed-client-ID callback scheme.
+info["GIDClientID"] = "991393004481-hngkr0vlfqd3jqqgh0qs3dfeoqssvbgp.apps.googleusercontent.com"
+google_scheme = "com.googleusercontent.apps.991393004481-hngkr0vlfqd3jqqgh0qs3dfeoqssvbgp"
+if not any(
+    google_scheme in item.get("CFBundleURLSchemes", [])
+    for item in url_types
+    if isinstance(item, dict)
+):
+    url_types.append({
+        "CFBundleURLName": "Google Sign-In",
+        "CFBundleURLSchemes": [google_scheme],
+    })
 info["CFBundleURLTypes"] = url_types
 
 # Permit continuous audio playback while the application is backgrounded.
