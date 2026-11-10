@@ -168,6 +168,14 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     final current = ref.watch(playbackServiceProvider.select((s) => s.current));
 
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
+    final downloadEntry = ref.watch(downloadManagerProvider.select((entries) {
+      if (current == null) return null;
+      final key = DownloadManager.keyOf(current.title, current.artist);
+      for (final entry in entries) {
+        if (entry.key == key) return entry;
+      }
+      return null;
+    }));
 
     if (current == null) {
       // Same stage as the playing page, for the same reason: this route must
@@ -351,6 +359,12 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                                 lyricsVisible: _lyricsVisible,
                                 focusMode: _focusMode,
                                 visualizerEnabled: visualizerEnabled,
+                                downloadInProgress: downloadEntry != null &&
+                                    (downloadEntry.status == DownloadStatus.queued ||
+                                        downloadEntry.status == DownloadStatus.downloading),
+                                downloadProgress: downloadEntry?.progress ?? 0,
+                                downloaded: downloadEntry?.status == DownloadStatus.done,
+                                downloadFailed: downloadEntry?.status == DownloadStatus.error,
                                 onToggleLyrics: () {
                                   _resetIdleTimer();
                                   setState(() {
@@ -422,6 +436,10 @@ class _TopActionsBar extends StatelessWidget {
   final bool lyricsVisible;
   final bool focusMode;
   final bool visualizerEnabled;
+  final bool downloadInProgress;
+  final double downloadProgress;
+  final bool downloaded;
+  final bool downloadFailed;
   final VoidCallback onToggleLyrics;
   final VoidCallback onToggleFocus;
   final VoidCallback onToggleVisualizer;
@@ -434,6 +452,10 @@ class _TopActionsBar extends StatelessWidget {
     required this.lyricsVisible,
     required this.focusMode,
     required this.visualizerEnabled,
+    required this.downloadInProgress,
+    required this.downloadProgress,
+    required this.downloaded,
+    required this.downloadFailed,
     required this.onToggleLyrics,
     required this.onToggleFocus,
     required this.onToggleVisualizer,
@@ -477,8 +499,26 @@ class _TopActionsBar extends StatelessWidget {
                 children: [
                   if (Platform.isIOS) ...[
                     LWTooltip(
-                      message: 'Download',
-                      child: _FsIconButton(icon: FluentIcons.download, onTap: onDownload),
+                      message: downloadInProgress
+                          ? (downloadProgress > 0
+                              ? 'Downloading ${(downloadProgress * 100).round()}%'
+                              : 'Downloading…')
+                          : downloaded
+                              ? 'Downloaded'
+                              : downloadFailed
+                                  ? 'Download failed — tap to retry'
+                                  : 'Download',
+                      child: _FsIconButton(
+                        icon: downloadFailed
+                            ? Icons.error_outline_rounded
+                            : downloaded
+                                ? Icons.check_circle_rounded
+                                : FluentIcons.download,
+                        active: downloaded || downloadFailed,
+                        loading: downloadInProgress,
+                        progress: downloadProgress,
+                        onTap: onDownload,
+                      ),
                     ),
                     LWTooltip(
                       message: 'Equalizer',
@@ -537,11 +577,15 @@ class _TopActionsBar extends StatelessWidget {
 class _FsIconButton extends StatefulWidget {
   final IconData icon;
   final bool active;
+  final bool loading;
+  final double progress;
   final VoidCallback onTap;
 
   const _FsIconButton({
     required this.icon,
     this.active = false,
+    this.loading = false,
+    this.progress = 0,
     required this.onTap,
   });
 
@@ -585,7 +629,23 @@ class _FsIconButtonState extends State<_FsIconButton> {
                   : Colors.transparent,
             ),
           ),
-          child: Center(child: Icon(widget.icon, size: Platform.isIOS ? 18 : 16, color: color)),
+          child: Center(
+            child: widget.loading
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      value: widget.progress > 0 ? widget.progress : null,
+                      strokeWidth: 2,
+                      color: waveAccent(context),
+                    ),
+                  )
+                : Icon(
+                    widget.icon,
+                    size: Platform.isIOS ? 18 : 16,
+                    color: color,
+                  ),
+          ),
         ),
       ),
     );
