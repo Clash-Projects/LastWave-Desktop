@@ -85,12 +85,10 @@ jobs:
           ditto "$APP_PATH" package/Payload/Runner.app
           (cd package && /usr/bin/zip -qry ../LastWave-iOS-v1.0.0-unsigned.ipa Payload)
 
-      - name: Upload IPA and generated iOS platform project
+      - name: Upload downloadable unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: LastWave-iOS-v1.0.0-unsigned
-          path: |
-            LastWave-iOS-v1.0.0-unsigned.ipa
-            ios/
+          name: LastWave-iOS-v1.0.0-unsigned-IPA
+          path: LastWave-iOS-v1.0.0-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
