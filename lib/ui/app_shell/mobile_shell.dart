@@ -31,6 +31,7 @@ const _nativeMainDestinations = <WaveDestination>[
   WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
   WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
+  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 const _phoneMoreDestinations = <WaveDestination>[
@@ -42,7 +43,6 @@ const _phoneMoreDestinations = <WaveDestination>[
   WaveDestination('/history', 'Listening history', WaveIcons.history),
   WaveDestination('/friends', 'Friends', WaveIcons.friends),
   WaveDestination('/stats', 'Stats', WaveIcons.stats),
-  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 /// Touch-first shell for iPhone and iPad. It reuses the existing routes,
@@ -440,7 +440,7 @@ class _MobileOverlayHeader extends StatelessWidget {
       );
 }
 
-/// Floating five-shortcut dock adapted from LastWave-Native's
+/// Floating shortcut dock adapted from LastWave-Native's
 /// MainShell/FloatingNavBar, translated from Compose to Flutter.
 class _PhoneNavigation extends StatelessWidget {
   final String activePath;
