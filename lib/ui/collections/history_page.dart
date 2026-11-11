@@ -12,6 +12,7 @@ import '../../features/lastfm/home_repository.dart';
 import '../../features/lastfm/lastfm_snapshot.dart';
 import '../../features/player/playback_service.dart';
 import '../components/states.dart';
+import '../components/hero.dart' show WavePageHeader;
 import '../components/track_row.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -101,31 +102,19 @@ class WaveHistoryPage extends ConsumerWidget {
                 child: WaveEntrance(
                   rise: 10,
                   child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'LAST.FM',
-                      style: WaveType.overline.copyWith(
-                        color: waveAccent(context),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      WavePageHeader(
+                        overline: 'Last.fm',
+                        title: 'History',
+                        subtitle:
+                            '${tracks.length} scrobbles · most recent first',
                       ),
-                    ),
-                    const Text(
-                      'History',
-                      style: WaveType.pageTitle,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${tracks.length} scrobbles · most recent first',
-                      style: WaveType.body.copyWith(
-                        color: waveTextSecondary(context),
+                      const SizedBox(height: 8),
+                      const WaveTrackTableHeader(
+                        showAlbum: false,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    const WaveTrackTableHeader(
-                      showAlbum: false,
-                    ),
-                  ],
+                    ],
                   ),
                 ),
               ),

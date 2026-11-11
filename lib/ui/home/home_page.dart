@@ -27,6 +27,7 @@ import '../components/buttons.dart';
 import '../components/artist_line.dart';
 import '../components/menus.dart';
 import '../components/shelf.dart';
+import '../components/hero.dart' show WavePageHeader;
 import '../collections/yt_shelf_page.dart';
 import '../components/states.dart';
 import '../navigation/wave_nav.dart';
@@ -1075,40 +1076,14 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  greeting,
-                  style: WaveType.pageTitle.copyWith(
-                    fontSize: 32,
-                    height: 38 / 32,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  date.toUpperCase(),
-                  style: WaveType.meta.copyWith(
-                    fontSize: 10,
-                    letterSpacing: 1.3,
-                    color: waveTextSecondary(context).withValues(alpha: 0.85),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          WaveIconButton(
-            tooltip: 'Refresh home feed',
-            icon: const Icon(FluentIcons.refresh, size: 14),
-            onPressed: onRefresh,
-          ),
-        ],
+      child: WavePageHeader(
+        overline: date,
+        title: greeting,
+        action: WaveIconButton(
+          tooltip: 'Refresh home feed',
+          icon: const Icon(FluentIcons.refresh, size: 14),
+          onPressed: onRefresh,
+        ),
       ),
     );
   }

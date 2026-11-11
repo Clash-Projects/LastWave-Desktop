@@ -15,7 +15,7 @@ import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../components/buttons.dart';
 import '../components/desktop_table.dart';
-import '../components/hero.dart';
+import '../components/hero.dart' show WaveCollectionHero, WavePageHeader;
 import '../components/select.dart';
 import '../components/states.dart';
 import '../theme/motion.dart';
@@ -156,18 +156,11 @@ class _WaveLikedPageState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('PLAYLIST',
-                    style: WaveType.overline.copyWith(
-                        fontSize: 10,
-                        color: waveTextTertiary(context))),
-                const SizedBox(height: 4),
-                Text('Liked Songs',
-                    style: WaveType.pageTitle
-                        .copyWith(fontSize: 28)),
-                const SizedBox(height: 4),
-                Text('0 tracks',
-                    style: WaveType.meta.copyWith(
-                        color: waveTextTertiary(context))),
+                const WavePageHeader(
+                  overline: 'Playlist',
+                  title: 'Liked Songs',
+                  subtitle: '0 tracks',
+                ),
                 const SizedBox(height: 8),
                 const WaveEmpty(
                   icon: WaveIcons.liked,
