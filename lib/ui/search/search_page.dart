@@ -25,6 +25,7 @@ import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../components/desktop_table.dart';
 import '../components/states.dart';
+import '../components/hero.dart' show WavePageHeader;
 import '../podcasts/podcasts_page.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
@@ -281,8 +282,10 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
         children: [
           WaveEntrance(
             rise: 10,
-            child: Text('Search',
-                style: WaveType.pageTitle.copyWith(fontSize: 22)),
+            child: const WavePageHeader(
+              overline: 'Discover',
+              title: 'Search',
+            ),
           ),
           const SizedBox(height: 12),
           Align(

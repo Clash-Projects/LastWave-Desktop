@@ -1,6 +1,7 @@
 import '../components/text_selection.dart';
 import '../components/buttons.dart';
 import '../components/inputs.dart';
+import '../components/hero.dart' show WavePageHeader;
 
 import 'dart:async';
 import 'dart:convert';
@@ -177,7 +178,10 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
               children: [
                 SettingsSearchBox(onPick: _jump),
                 const SizedBox(height: 16),
-const Text('Settings', style: WaveType.pageTitle),
+const WavePageHeader(
+                  overline: 'Preferences',
+                  title: 'Settings',
+                ),
                 const SizedBox(height: 10),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
