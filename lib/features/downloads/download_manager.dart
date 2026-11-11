@@ -123,7 +123,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     // lossless files or slower mobile connections.
     dio.options
       ..connectTimeout = const Duration(seconds: 30)
-      ..receiveTimeout = const Duration(minutes: 10)
+      ..receiveTimeout = const Duration(minutes: 30)
       ..sendTimeout = const Duration(seconds: 30);
     return dio;
   }
@@ -199,6 +199,20 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       return true;
     }
     return false;
+  }
+
+  /// Only retry failures that are plausibly temporary. HTTP authorization
+  /// and unavailable-media responses are deliberately not retried.
+  bool _isRetryableDownloadError(Object error) {
+    if (error is! DioException) return false;
+    if (error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.receiveTimeout ||
+        error.type == DioExceptionType.sendTimeout) {
+      return true;
+    }
+    final code = error.response?.statusCode;
+    return code == 408 || code == 429 || (code != null && code >= 500);
   }
 
   /// Stops [key] if it is downloading. A finished file is left alone.
@@ -411,33 +425,49 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       if (cancelled?.call() == true) throw const DownloadCancelled();
       return bytes;
     }
-    final res = await _dio.get<List<int>>(
-      stream.url,
-      cancelToken: cancelToken,
-      options: Options(
-        responseType: ResponseType.bytes,
-        headers: stream.requestHeaders,
-      ),
-      onReceiveProgress: (received, total) {
-        if (cancelled?.call() == true) {
-          cancelToken?.cancel();
-          return;
-        }
-        if (total > 0) {
-          _upsert(DownloadEntry(
-            key: key,
-            title: title,
-            artist: artist,
-            album: album,
-            status: DownloadStatus.downloading,
-            progress: received / total,
-            badge: badge,
-          ));
-        }
-      },
+    // Stream the response straight to a temporary file instead of asking
+    // Dio to buffer the complete audio payload in its response transformer.
+    // Tagging still reads the finished file as bytes afterwards, but network
+    // reception stays bounded and progress remains available on large tracks.
+    final tempPath = p.join(
+      Directory.systemTemp.path,
+      'lastwave-download-${key.hashCode}-${DateTime.now().microsecondsSinceEpoch}.part',
     );
-    if (cancelled?.call() == true) throw const DownloadCancelled();
-    return Uint8List.fromList(res.data ?? const <int>[]);
+    final tempFile = File(tempPath);
+    try {
+      await _dio.download(
+        stream.url,
+        tempPath,
+        cancelToken: cancelToken,
+        options: Options(
+          headers: stream.requestHeaders,
+          receiveTimeout: const Duration(minutes: 30),
+        ),
+        onReceiveProgress: (received, total) {
+          if (cancelled?.call() == true) {
+            cancelToken?.cancel();
+            return;
+          }
+          if (total > 0) {
+            _upsert(DownloadEntry(
+              key: key,
+              title: title,
+              artist: artist,
+              album: album,
+              status: DownloadStatus.downloading,
+              progress: received / total,
+              badge: badge,
+            ));
+          }
+        },
+      );
+      if (cancelled?.call() == true) throw const DownloadCancelled();
+      return Uint8List.fromList(await tempFile.readAsBytes());
+    } finally {
+      try {
+        if (await tempFile.exists()) await tempFile.delete();
+      } catch (_) {}
+    }
   }
 
   /// Cover bytes for the container tag: the caller's artwork URL when
@@ -523,6 +553,7 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       var isLossless = false;
       var fromAddon = false;
       var ytCodecHint = '';
+      var resolvedVideoId = videoId.trim();
 
       if (_prefs.preferLossless &&
           _prefs.downloadQuality !=
@@ -550,7 +581,6 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         // Search results already carry the exact YouTube Music video ID.
         // Prefer it so downloading a specific Videos-tab result cannot
         // silently resolve to a different recording with the same title.
-        var resolvedVideoId = videoId.trim();
         if (resolvedVideoId.isEmpty) {
           final match = await _tube.findBestMatchOrNull(title, artist);
           resolvedVideoId = match?.videoId ?? '';
@@ -568,17 +598,49 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       }
 
       if (cancelled()) throw const DownloadCancelled();
-      // Audio bytes (progress surfaced on the entry for http sources).
-      final audioBytes = await _fetchAudioBytes(
-        stream,
-        key,
-        title,
-        artist,
-        badge,
-        album,
-        cancelToken: token,
-        cancelled: cancelled,
-      );
+      // Retry transient YouTube delivery failures with a newly resolved
+      // media URL. YouTube's signed URLs are temporary, so retrying the same
+      // URL can simply repeat an expired-link failure.
+      var downloadStream = stream;
+      late Uint8List audioBytes;
+      var downloadAttempt = 0;
+      while (true) {
+        downloadAttempt++;
+        try {
+          audioBytes = await _fetchAudioBytes(
+            downloadStream,
+            key,
+            title,
+            artist,
+            badge,
+            album,
+            cancelToken: token,
+            cancelled: cancelled,
+          );
+          break;
+        } on DioException catch (e) {
+          if (fromAddon ||
+              downloadAttempt >= 3 ||
+              !_isRetryableDownloadError(e)) {
+            rethrow;
+          }
+          if (cancelled()) throw const DownloadCancelled();
+          await Future<void>.delayed(
+            Duration(seconds: downloadAttempt),
+          );
+          if (cancelled()) throw const DownloadCancelled();
+          final refreshedOpus =
+              await _tube.resolveOpusDownloadStream(resolvedVideoId);
+          final refreshed = refreshedOpus ??
+              await _tube.resolveAudioStream(
+                resolvedVideoId,
+                forceRefresh: true,
+              );
+          if (refreshed == null) rethrow;
+          downloadStream = refreshed;
+          ytCodecHint = refreshed.audioCodec.toUpperCase();
+        }
+      }
       if (cancelled()) throw const DownloadCancelled();
       if (audioBytes.isEmpty) throw Exception('Empty audio payload');
 
