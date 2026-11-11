@@ -1,5 +1,3 @@
-import 'dart:ui' as ui;
-
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -203,7 +201,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (!nowPlaying) _AmbientArtworkBackdrop(),
+                _AmbientArtworkBackdrop(showArtworkGlow: !nowPlaying),
                 SafeArea(
                   child: Column(
                     children: [
@@ -211,7 +209,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                         _MobileMiniPlayer(onOpen: _openNowPlaying),
                       Expanded(
                         child: ColoredBox(
-                          color: waveBackground(context).withValues(alpha: nowPlaying ? 0.52 : 0.68),
+                          color: waveBackground(context),
                           child: Stack(
                             fit: StackFit.expand,
                         children: [
@@ -335,33 +333,47 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
   }
 }
 
+/// Shared neutral canvas with a restrained, cached artwork glow.
+///
+/// The previous full-window image blur let bright album covers wash through
+/// every route and the navigation chrome. Keep artwork atmosphere subtle and
+/// keep the actual frosted blur bounded to the floating controls.
 class _AmbientArtworkBackdrop extends ConsumerWidget {
-  const _AmbientArtworkBackdrop();
+  final bool showArtworkGlow;
+
+  const _AmbientArtworkBackdrop({this.showArtworkGlow = true});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final base = waveBackground(context);
     final artworkUrl = ref.watch(
       playbackServiceProvider.select(
         (snapshot) => snapshot.current?.artworkUrl ?? '',
       ),
     );
-    if (artworkUrl.isEmpty) return const SizedBox.expand();
+    final tint = showArtworkGlow && artworkUrl.isNotEmpty
+        ? ref.watch(artworkSeedProvider(artworkUrl)).valueOrNull
+        : null;
+    final glow = tint == null
+        ? base
+        : Color.lerp(
+            base,
+            tint,
+            waveIsDark(context) ? 0.10 : 0.06,
+          )!;
 
     return Positioned.fill(
-      child: ClipRect(
-        child: Transform.scale(
-          scale: 1.22,
-          child: ImageFiltered(
-            imageFilter: ui.ImageFilter.blur(sigmaX: 38, sigmaY: 38),
-            child: Image.network(
-              artworkUrl,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: double.infinity,
-              gaplessPlayback: true,
-              errorBuilder: (_, _, _) => const SizedBox.expand(),
-            ),
-          ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: base,
+          gradient: tint == null
+              ? null
+              : RadialGradient(
+                  center: const Alignment(0, -0.85),
+                  radius: 1.3,
+                  colors: [glow, base],
+                  stops: const [0, 1],
+                ),
         ),
       ),
     );
@@ -441,12 +453,8 @@ class _PhoneNavigation extends StatelessWidget {
         child: WaveHaze(
           level: LwHazeLevel.l2,
           base: waveSurfaceRaised(context),
-          fillAlpha: 0.38,
           borderRadius: BorderRadius.circular(32),
-          border: Border.all(
-            color: (waveIsDark(context) ? Colors.white : Colors.black)
-                .withValues(alpha: waveIsDark(context) ? 0.18 : 0.10),
-          ),
+          border: Border.all(color: waveDivider(context)),
           shadow: [
             BoxShadow(
               color: Colors.black.withValues(
@@ -601,7 +609,6 @@ class _MobileTransportDock extends ConsumerWidget {
       child: WaveHaze(
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),
-        fillAlpha: 0.42,
         borderRadius: BorderRadius.circular(26),
         border: Border.all(color: waveDivider(context)),
         shadow: [
@@ -813,12 +820,8 @@ class _MobileMiniPlayer extends ConsumerWidget {
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),
         artworkTint: artworkTint,
-        fillAlpha: 0.46,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: (waveIsDark(context) ? Colors.white : Colors.black)
-              .withValues(alpha: waveIsDark(context) ? 0.18 : 0.10),
-        ),
+        border: Border.all(color: waveDivider(context)),
         shadow: [
           BoxShadow(
             color: waveTextPrimary(context).withValues(alpha: 0.035),
