@@ -118,9 +118,9 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
 
   static Dio _createDownloadDio() {
     final dio = DioFactory.create();
-    // A whole audio file is downloaded as one byte response. The shared
-    // API client's 15-second receive timeout is too short for larger
-    // lossless files or slower mobile connections.
+    // Audio payloads use a file-backed streaming transfer. Keep a generous
+    // download-only timeout so slow media hosts do not inherit the shared
+    // API client's short response timeout.
     dio.options
       ..connectTimeout = const Duration(seconds: 30)
       ..receiveTimeout = const Duration(minutes: 30)
