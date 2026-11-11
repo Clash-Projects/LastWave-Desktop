@@ -179,17 +179,23 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                 const SizedBox(height: 16),
 const Text('Settings', style: WaveType.pageTitle),
                 const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final s in _settingsSections)
-                      ToggleButton(
-                        checked: _section == s.$1,
-                        onChanged: (_) => setState(() => _section = s.$1),
-                        child: Text(s.$2),
-                      ),
-                  ],
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: [
+                      for (final s in _settingsSections)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ToggleButton(
+                            checked: _section == s.$1,
+                            onChanged: (_) =>
+                                setState(() => _section = s.$1),
+                            child: Text(s.$2),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 _SectionSwap(
