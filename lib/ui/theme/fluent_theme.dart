@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import 'tokens.dart';
@@ -51,16 +53,19 @@ ButtonThemeData _waveButtonTheme() {
 }
 
 ContentDialogThemeData _waveDialogTheme({required Color surface}) {
+  // Touch dialogs share the floating-chrome radius (tab bar, mini-player,
+  // sheets) so a dialog reads as part of the same family; desktop keeps the
+  // 10px Fluent corner.
+  final radius = Platform.isIOS ? WaveRadius.hero : WaveRadius.floating;
   return ContentDialogThemeData(
     decoration: BoxDecoration(
       color: surface,
-      borderRadius:
-          BorderRadius.circular(WaveRadius.floating), // 10px max.
+      borderRadius: BorderRadius.circular(radius),
     ),
     actionsDecoration: BoxDecoration(
       color: surface,
-      borderRadius: const BorderRadius.vertical(
-        bottom: Radius.circular(WaveRadius.floating),
+      borderRadius: BorderRadius.vertical(
+        bottom: Radius.circular(radius),
       ),
     ),
   );

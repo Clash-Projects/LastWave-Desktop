@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -201,21 +202,24 @@ class _WavePlaylistDetailPageState
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: WaveIconButton(
-                      tooltip: 'Back to playlists',
-                      icon: const Icon(WaveIcons.back, size: 18),
-                      onPressed: () {
-                        if (context.canPop()) {
-                          context.pop();
-                        } else {
-                          context.go('/playlists');
-                        }
-                      },
+                  // iOS: the touch shell's back chip already covers this.
+                  if (!Platform.isIOS) ...[
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: WaveIconButton(
+                        tooltip: 'Back to playlists',
+                        icon: const Icon(WaveIcons.back, size: 18),
+                        onPressed: () {
+                          if (context.canPop()) {
+                            context.pop();
+                          } else {
+                            context.go('/playlists');
+                          }
+                        },
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
+                    const SizedBox(height: 8),
+                  ],
                   WaveCollectionHero(
                     flightKind: 'playlist',
                     flightId: '${playlist.id}',
