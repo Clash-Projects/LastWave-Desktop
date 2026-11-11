@@ -19,6 +19,9 @@ workflows:
         - pattern: codex/native-ui-port
           include: true
           source: true
+        - pattern: codex/ui-graphite-soundstage
+          include: true
+          source: true
 
     scripts:
       - name: Prepare build-time secrets

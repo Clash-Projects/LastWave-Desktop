@@ -5,6 +5,7 @@ on:
     branches:
       - codex/ipados-port-foundation
       - codex/native-ui-port
+      - codex/ui-graphite-soundstage
   pull_request:
     branches:
       - main
