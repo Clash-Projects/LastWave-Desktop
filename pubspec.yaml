@@ -76,6 +76,7 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
@@ -83,3 +84,9 @@ flutter:
     - assets/po_token.html
     - assets/icons/
     - assets/brand/
+
+flutter_launcher_icons:
+  image_path: "assets/brand/app_icon.png"
+  ios: true
+  android: false
+  remove_alpha_ios: true
