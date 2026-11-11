@@ -177,6 +177,10 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
       }
       return null;
     }));
+    final downloadInProgress = downloadEntry != null &&
+        (downloadEntry.status == DownloadStatus.queued ||
+            downloadEntry.status == DownloadStatus.downloading);
+    final downloaded = downloadEntry?.status == DownloadStatus.done;
 
     if (current == null) {
       // Same stage as the playing page, for the same reason: this route must
