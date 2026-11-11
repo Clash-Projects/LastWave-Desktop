@@ -5,7 +5,6 @@ import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 
 import '../../core/storage/prefs.dart';
 import '../../core/audio/stream_models.dart';
-import '../../features/downloads/download_manager.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/player/playback_service.dart';
@@ -1013,63 +1012,6 @@ class _TouchIconButton extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _MobileDownloadButton extends ConsumerWidget {
-  final PlayableTrack? track;
-  final double width;
-
-  const _MobileDownloadButton({
-    required this.track,
-    required this.width,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final current = track;
-    if (current == null) {
-      return _TouchIconButton(
-        icon: FluentIcons.download,
-        tooltip: 'Download',
-        width: width,
-        onPressed: null,
-      );
-    }
-    final entries = ref.watch(downloadManagerProvider);
-    final key = DownloadManager.keyOf(current.title, current.artist);
-    DownloadEntry? entry;
-    for (final candidate in entries) {
-      if (candidate.key == key) {
-        entry = candidate;
-        break;
-      }
-    }
-    final done = entry?.status == DownloadStatus.done;
-    final downloading = entry?.status == DownloadStatus.downloading ||
-        entry?.status == DownloadStatus.queued;
-    final manager = ref.read(downloadManagerProvider.notifier);
-    return _TouchIconButton(
-      icon: done ? FluentIcons.check_mark : FluentIcons.download,
-      tooltip: done
-          ? 'Downloaded'
-          : downloading
-              ? 'Downloading…'
-              : entry?.status == DownloadStatus.error
-                  ? 'Retry download'
-                  : 'Download',
-      selected: done,
-      width: width,
-      onPressed: done || downloading
-          ? null
-          : () => manager.downloadTrack(
-                title: current.title,
-                artist: current.artist,
-                album: current.album,
-                artworkUrl: current.artworkUrl,
-                videoId: current.videoId,
-              ),
     );
   }
 }
