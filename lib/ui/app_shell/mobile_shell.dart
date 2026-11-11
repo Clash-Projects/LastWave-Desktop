@@ -8,7 +8,6 @@ import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/settings/theme_controller.dart';
-import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/audio_output/output_controller.dart';
@@ -22,7 +21,6 @@ import '../now_playing/immersive.dart' show nowPlayingOverlayRequestProvider;
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
-import '../collections/playlist_dialogs.dart' show showWaveAddToPlaylist;
 
 // Main destinations follow LastWave-Native's three-item floating dock.
 const _nativeMainDestinations = <WaveDestination>[
@@ -772,7 +770,6 @@ String _mobileStreamDetails(ResolvedStream? stream) {
   return [
     if (badge.isNotEmpty) badge,
     ?codecDetail,
-    if (stream.bitrateKbps > 0) '${stream.bitrateKbps} kbps',
   ].join(' · ');
 }
 
@@ -804,21 +801,10 @@ class _MobileMiniPlayer extends ConsumerWidget {
     final playback = ref.read(playbackServiceProvider.notifier);
     final wavySeekbar =
         ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
-    final playlists = ref.watch(playlistRepositoryProvider);
     final track = player.current;
-    // Keep secondary track actions on tablet-sized layouts only.
-    final showLibraryActions = MediaQuery.sizeOf(context).width >= 600;
     final artworkTint = ref
         .watch(artworkSeedProvider(track?.artworkUrl ?? ''))
         .valueOrNull;
-    final trackKey = track == null
-        ? ''
-        : '${track.title.toLowerCase()}|${track.artist.toLowerCase()}';
-    final isLiked = track != null && playlists.any((playlist) =>
-        playlist.isLikedSongs &&
-        playlist.tracks.any((saved) =>
-            '${saved.name.toLowerCase()}|${saved.artist.toLowerCase()}' ==
-            trackKey));
     final stream = player.stream;
     final streamDetails = _mobileStreamDetails(stream);
     final durationMs = player.duration.inMilliseconds;
@@ -913,50 +899,6 @@ class _MobileMiniPlayer extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  if (showLibraryActions) ...[
-                    _MobileDownloadButton(track: track, width: 36),
-                    _TouchIconButton(
-                      icon: isLiked ? FluentIcons.heart_fill : FluentIcons.heart,
-                      tooltip: isLiked ? 'Remove from Liked Songs' : 'Like song',
-                      width: 36,
-                      onPressed: track == null
-                          ? null
-                          : () async {
-                              final repository =
-                                  ref.read(playlistRepositoryProvider.notifier);
-                              if (isLiked) {
-                                final liked = ref
-                                    .read(playlistRepositoryProvider)
-                                    .where((p) => p.isLikedSongs)
-                                    .toList();
-                                if (liked.isNotEmpty) {
-                                  await repository.removeTrack(
-                                    liked.first.id,
-                                    trackKey,
-                                  );
-                                }
-                              } else {
-                                final liked = await repository.ensureLikedSongs();
-                                await repository.addTrack(
-                                  liked.id,
-                                  StoredTrack.fromPlayable(track),
-                                );
-                              }
-                            },
-                    ),
-                    _TouchIconButton(
-                      icon: FluentIcons.add,
-                      tooltip: 'Add to playlist',
-                      width: 36,
-                      onPressed: track == null
-                          ? null
-                          : () => showWaveAddToPlaylist(
-                                context,
-                                ref,
-                                StoredTrack.fromPlayable(track),
-                              ),
-                    ),
-                  ],
                   _TouchIconButton(
                     icon: WaveIcons.previous,
                     tooltip: 'Previous track',
