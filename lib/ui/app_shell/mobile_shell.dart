@@ -31,7 +31,6 @@ const _nativeMainDestinations = <WaveDestination>[
   WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
   WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
-  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 const _phoneMoreDestinations = <WaveDestination>[
@@ -42,6 +41,8 @@ const _phoneMoreDestinations = <WaveDestination>[
   WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
   WaveDestination('/history', 'Listening history', WaveIcons.history),
   WaveDestination('/friends', 'Friends', WaveIcons.friends),
+  WaveDestination('/stats', 'Stats', WaveIcons.stats),
+  WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
 /// Touch-first shell for iPhone and iPad. It reuses the existing routes,
@@ -203,124 +204,152 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
               children: [
                 _AmbientArtworkBackdrop(showArtworkGlow: !nowPlaying),
                 SafeArea(
-                  child: Column(
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      if (!nowPlaying)
-                        _MobileMiniPlayer(onOpen: _openNowPlaying),
-                      Expanded(
+                      Padding(
+                        padding: EdgeInsets.only(
+                          top: nowPlaying
+                              ? 0
+                              : WaveMobileChrome.miniPlayerContentInset,
+                          bottom: nowPlaying
+                              ? WaveMobileChrome.transportContentInset
+                              : WaveMobileChrome.navigationContentInset,
+                        ),
                         child: ColoredBox(
                           color: waveBackground(context),
                           child: Stack(
                             fit: StackFit.expand,
-                        children: [
-                          widget.child,
-                          if (_showMore && !nowPlaying)
-                            Positioned.fill(
-                              child: ColoredBox(
-                                color: waveBackground(context),
-                                child: _MorePage(
-                                  destinations: moreDestinations,
-                                  onGo: _go,
-                                  onBack: () => setState(() => _showMore = false),
+                            children: [
+                              widget.child,
+                              if (_showMore && !nowPlaying)
+                                Positioned.fill(
+                                  child: ColoredBox(
+                                    color: waveBackground(context),
+                                    child: _MorePage(
+                                      destinations: moreDestinations,
+                                      onGo: _go,
+                                      onBack: () =>
+                                          setState(() => _showMore = false),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                          if (_showEqualizer && nowPlaying)
-                            Positioned.fill(
-                              child: WaveEqualizerPanel(
-                                embedded: true,
-                                onClose: _back,
-                              ),
-                            ),
-                          if (_showQueue && nowPlaying)
-                            Positioned.fill(
-                              child: ColoredBox(
-                                color: waveBackground(context),
-                                child: Column(
-                                  children: [
-                                    _MobileOverlayHeader(
-                                      title: 'Queue',
-                                      onClose: _back,
-                                    ),
-                                    Expanded(
-                                      child: WaveQueuePanel(
-                                        onClose: _back,
-                                        embedded: true,
-                                      ),
-                                    ),
-                                  ],
+                              if (_showEqualizer && nowPlaying)
+                                Positioned.fill(
+                                  child: WaveEqualizerPanel(
+                                    embedded: true,
+                                    onClose: _back,
+                                  ),
                                 ),
-                              ),
-                            ),
-                          if (!online && !_offlineNoticeDismissed)
-                            Positioned.fill(
-                              child: ColoredBox(
-                                color: Colors.black.withValues(alpha: 0.38),
-                                child: Center(
-                                  child: Container(
-                                    constraints:
-                                        const BoxConstraints(maxWidth: 360),
-                                    margin: const EdgeInsets.all(24),
-                                    padding: const EdgeInsets.all(22),
-                                    decoration: BoxDecoration(
-                                      color: waveSurfaceRaised(context),
-                                      borderRadius: BorderRadius.circular(22),
-                                      border: Border.all(
-                                        color: waveDivider(context),
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.22,
-                                          ),
-                                          blurRadius: 28,
-                                          offset: const Offset(0, 12),
-                                        ),
-                                      ],
-                                    ),
+                              if (_showQueue && nowPlaying)
+                                Positioned.fill(
+                                  child: ColoredBox(
+                                    color: waveBackground(context),
                                     child: Column(
-                                      mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Text(
-                                          "You're offline",
-                                          textAlign: TextAlign.center,
-                                          style: WaveType.sectionTitle,
+                                        _MobileOverlayHeader(
+                                          title: 'Queue',
+                                          onClose: _back,
                                         ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Check your internet connection. '
-                                          'Some LastWave features need to be online.',
-                                          textAlign: TextAlign.center,
-                                          style: WaveType.meta.copyWith(
-                                            color: waveTextSecondary(context),
+                                        Expanded(
+                                          child: WaveQueuePanel(
+                                            onClose: _back,
+                                            embedded: true,
                                           ),
-                                        ),
-                                        const SizedBox(height: 16),
-                                        WaveButton(
-                                          onPressed: () => setState(
-                                            () => _offlineNoticeDismissed = true,
-                                          ),
-                                          child: const Text('Dismiss'),
                                         ),
                                       ],
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
+                              if (!online && !_offlineNoticeDismissed)
+                                Positioned.fill(
+                                  child: ColoredBox(
+                                    color: Colors.black.withValues(alpha: 0.38),
+                                    child: Center(
+                                      child: Container(
+                                        constraints: const BoxConstraints(
+                                          maxWidth: 360,
+                                        ),
+                                        margin: const EdgeInsets.all(24),
+                                        padding: const EdgeInsets.all(22),
+                                        decoration: BoxDecoration(
+                                          color: waveSurfaceRaised(context),
+                                          borderRadius:
+                                              WaveRadius.floatingRadius,
+                                          border: Border.all(
+                                            color: waveDivider(context),
+                                          ),
+                                          boxShadow: WaveElevation.flyout(
+                                            waveIsDark(context),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              "You're offline",
+                                              textAlign: TextAlign.center,
+                                              style: WaveType.sectionTitle,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'Check your internet connection. '
+                                              'Some LastWave features need to be online.',
+                                              textAlign: TextAlign.center,
+                                              style: WaveType.meta.copyWith(
+                                                color:
+                                                    waveTextSecondary(context),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 16),
+                                            WaveButton(
+                                              onPressed: () => setState(
+                                                () => _offlineNoticeDismissed =
+                                                    true,
+                                              ),
+                                              child: const Text('Dismiss'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
                       ),
-                      if (nowPlaying) const _MobileTransportDock(),
-                    if (!nowPlaying)
-                      _PhoneNavigation(
-                        activePath: activePath,
-                        moreActive: moreActive,
-                        showMore: _showMore,
-                        onGo: _go,
-                        onMore: () => setState(() => _showMore = !_showMore),
-                      ),
+                      if (!nowPlaying)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: WaveMobileChrome.miniPlayerContentInset,
+                          child: _MobileMiniPlayer(
+                            onOpen: _openNowPlaying,
+                          ),
+                        ),
+                      if (nowPlaying)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: WaveMobileChrome.transportBottomInset,
+                          child: const _MobileTransportDock(),
+                        ),
+                      if (!nowPlaying)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: _PhoneNavigation(
+                            activePath: activePath,
+                            moreActive: moreActive,
+                            showMore: _showMore,
+                            onGo: _go,
+                            onMore: () =>
+                                setState(() => _showMore = !_showMore),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -444,26 +473,22 @@ class _PhoneNavigation extends StatelessWidget {
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        compact ? 10 : 16,
-        5,
-        compact ? 10 : 16,
-        12,
+        compact
+            ? WaveMobileChrome.navigationSideInsetCompact
+            : WaveMobileChrome.navigationSideInsetRegular,
+        WaveMobileChrome.navigationTopGap,
+        compact
+            ? WaveMobileChrome.navigationSideInsetCompact
+            : WaveMobileChrome.navigationSideInsetRegular,
+        WaveMobileChrome.navigationBottomInset,
       ),
       child: Center(
         child: WaveHaze(
           level: LwHazeLevel.l2,
           base: waveSurfaceRaised(context),
-          borderRadius: BorderRadius.circular(32),
+          borderRadius: WaveRadius.floatingRadius,
           border: Border.all(color: waveDivider(context)),
-          shadow: [
-            BoxShadow(
-              color: Colors.black.withValues(
-                alpha: waveIsDark(context) ? 0.24 : 0.08,
-              ),
-              blurRadius: 22,
-              offset: const Offset(0, 7),
-            ),
-          ],
+          shadow: WaveElevation.lift(waveIsDark(context)),
           child: Padding(
             padding: EdgeInsets.symmetric(
               horizontal: compact ? 5 : 7,
@@ -486,8 +511,12 @@ class _PhoneNavigation extends StatelessWidget {
                     behavior: HitTestBehavior.opaque,
                     onTap: onMore,
                     child: SizedBox(
-                      width: compact ? 48 : 56,
-                      height: compact ? 48 : 56,
+                      width: compact
+                          ? WaveMobileChrome.navigationCompactItemExtent
+                          : WaveMobileChrome.navigationRegularItemExtent,
+                      height: compact
+                          ? WaveMobileChrome.navigationCompactItemExtent
+                          : WaveMobileChrome.navigationRegularItemExtent,
                       child: Icon(
                         showMore ? WaveIcons.close : WaveIcons.more,
                         size: 23,
@@ -542,7 +571,7 @@ class _NativeFloatingNavItem extends StatelessWidget {
           color: selected
               ? waveAccent(context).withValues(alpha: 0.16)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: WaveRadius.controlsRadius,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -609,15 +638,9 @@ class _MobileTransportDock extends ConsumerWidget {
       child: WaveHaze(
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: WaveRadius.floatingRadius,
         border: Border.all(color: waveDivider(context)),
-        shadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: waveIsDark(context) ? 0.28 : 0.10),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        shadow: WaveElevation.lift(waveIsDark(context)),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           child: Column(
@@ -753,9 +776,10 @@ String _mobileStreamDetails(ResolvedStream? stream) {
   ].join(' · ');
 }
 
-const double _mobileMiniPlayerCardHeight = 82;
-const double _mobileMiniPlayerTopMargin = 9;
-const double _mobileMiniPlayerBottomMargin = 10;
+const double _mobileMiniPlayerCardHeight = WaveMobileChrome.miniPlayerHeight;
+const double _mobileMiniPlayerTopMargin = WaveMobileChrome.miniPlayerTopInset;
+const double _mobileMiniPlayerBottomMargin =
+    WaveMobileChrome.miniPlayerBottomGap;
 
 /// Mini-player proportions and single-card hierarchy adapted from
 /// LastWave-Native's ui/player/MiniPlayer.kt, translated to Flutter.
@@ -807,7 +831,9 @@ class _MobileMiniPlayer extends ConsumerWidget {
     return Align(
       alignment: Alignment.topCenter,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 680),
+        constraints: const BoxConstraints(
+          maxWidth: WaveMobileChrome.miniPlayerMaxWidth,
+        ),
         child: Container(
       height: _mobileMiniPlayerCardHeight,
       margin: const EdgeInsets.fromLTRB(
@@ -820,7 +846,7 @@ class _MobileMiniPlayer extends ConsumerWidget {
         level: LwHazeLevel.l2,
         base: waveSurfaceRaised(context),
         artworkTint: artworkTint,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: WaveRadius.heroRadius,
         border: Border.all(color: waveDivider(context)),
         shadow: [
           BoxShadow(
@@ -1031,7 +1057,7 @@ class _TouchIconButton extends StatelessWidget {
               color: selected
                   ? waveAccent(context).withValues(alpha: 0.14)
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: WaveRadius.controlsRadius,
             ),
             child: Icon(
               icon,
@@ -1247,7 +1273,7 @@ class _MorePage extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       decoration: BoxDecoration(
                         color: waveSurface(context),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: WaveRadius.floatingRadius,
                         border: Border.all(color: waveDivider(context)),
                       ),
                       child: Row(

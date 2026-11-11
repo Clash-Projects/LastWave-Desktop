@@ -659,6 +659,36 @@ Color waveDivider(BuildContext context) {
       : Colors.black.withValues(alpha: 0.10);
 }
 
+/// Canonical geometry for the touch-first iOS shell.
+///
+/// These values describe the reserved content insets as well as the visible
+/// floating chrome. Keeping both in the token layer prevents the shell and
+/// its controls from drifting apart as the layout evolves.
+class WaveMobileChrome {
+  WaveMobileChrome._();
+
+  static const miniPlayerHeight = 82.0;
+  static const miniPlayerTopInset = 9.0;
+  static const miniPlayerBottomGap = 10.0;
+  static const miniPlayerContentGap = 8.0;
+  static const miniPlayerMaxWidth = 720.0;
+  static const miniPlayerContentInset = miniPlayerHeight +
+      miniPlayerTopInset +
+      miniPlayerBottomGap +
+      miniPlayerContentGap;
+
+  static const navigationTopGap = 5.0;
+  static const navigationBottomInset = 12.0;
+  static const navigationSideInsetCompact = 10.0;
+  static const navigationSideInsetRegular = 16.0;
+  static const navigationContentInset = 92.0;
+  static const navigationCompactItemExtent = 48.0;
+  static const navigationRegularItemExtent = 56.0;
+
+  static const transportBottomInset = 10.0;
+  static const transportContentInset = 148.0;
+}
+
 /// Elevation ladder for surfaces that float over the page.
 ///
 /// Dark mode leans on value — three distinct surface tones — and a deep
