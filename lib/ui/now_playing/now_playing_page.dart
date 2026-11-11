@@ -485,6 +485,8 @@ class _TopActionsBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compactPhone =
+        Platform.isIOS && MediaQuery.sizeOf(context).shortestSide < 600;
     return Container(
       height: _kTopBarHeight,
       padding: EdgeInsets.symmetric(horizontal: Platform.isIOS ? 10 : 24),
@@ -515,7 +517,7 @@ class _TopActionsBar extends StatelessWidget {
                 spacing: 4,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (Platform.isIOS) ...[
+                  if (Platform.isIOS && !compactPhone) ...[
                     LWTooltip(
                       message: downloadInProgress
                           ? (downloadProgress > 0
