@@ -21,6 +21,7 @@ import '../collections/playlist_dialogs.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip, WaveButton, WaveFilledButton;
+import 'touch_kit.dart';
 import '../theme/wave_icons.dart';
 
 /// Snappy flyout entrance shared by every DropDownButton/menu in the
@@ -961,6 +962,20 @@ class _WaveContextMenuState extends State<WaveContextMenu> {
   @override
   Widget build(BuildContext context) {
     final touchPlatform = Platform.isIOS || Platform.isAndroid;
+    // Touch: long-press opens the same entries as a bottom sheet (there is
+    // no right-click, and a cursor-anchored popover is wrong for a thumb).
+    if (Platform.isIOS) {
+      return GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onLongPress: () {
+          final entries = widget.items();
+          if (entries.isEmpty) return;
+          HapticFeedback.mediumImpact();
+          showWaveMenuSheet(context, entries);
+        },
+        child: widget.child,
+      );
+    }
     return FlyoutTarget(
       controller: _controller,
       child: GestureDetector(
@@ -1013,6 +1028,12 @@ class _WaveMenuButtonState extends State<WaveMenuButton> {
 
   void _open() {
     if (widget.entries.isEmpty) return;
+    // Touch: a desktop popover anchored to a small button is the wrong shape
+    // for a thumb. Present the same entries as a bottom sheet.
+    if (Platform.isIOS) {
+      showWaveMenuSheet(context, widget.entries);
+      return;
+    }
     _controller.showFlyout(
       barrierColor: Colors.transparent,
       placementMode: widget.placement,
@@ -1058,14 +1079,14 @@ class WaveOverflowButton extends StatelessWidget {
         entries: items,
         placement: FlyoutPlacementMode.bottomRight,
         buttonBuilder: (context, onOpen) => SizedBox(
-          width: WaveDensity.hitArea,
-          height: WaveDensity.hitArea,
+          width: Platform.isIOS ? WaveTouch.hit : WaveDensity.hitArea,
+          height: Platform.isIOS ? WaveTouch.hit : WaveDensity.hitArea,
           child: MouseRegion(
             cursor: SystemMouseCursors.click,
             child: IconButton(
             icon: Icon(
               icon,
-              size: 15,
+              size: Platform.isIOS ? 20 : 15,
               color: dark
                   ? WaveColors.textSecondary
                   : WaveColors.lightTextSecondary,
@@ -1219,4 +1240,253 @@ Future<bool> waveToggleLike(
           durationSeconds: durationSeconds,
         ),
       );
+}
+
+/// Presents [entries] as an iOS-style bottom sheet.
+///
+/// Same data model as [WaveFlyoutPanel] ([WaveMenuAction] /
+/// [WaveMenuSeparator] / [WaveMenuSubmenu]) so every existing menu works
+/// unchanged; only the presentation differs. Submenus drill down inside the
+/// sheet (with a back button) instead of cascading sideways, rows are at
+/// least 52pt tall, and the sheet is centred and capped at 560pt on iPad.
+Future<void> showWaveMenuSheet(
+  BuildContext context,
+  List<WaveMenuEntry> entries,
+) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Dismiss menu',
+    barrierColor: Colors.black.withValues(alpha: 0.45),
+    transitionDuration:
+        waveMotion(context, const Duration(milliseconds: 260)),
+    pageBuilder: (context, animation, secondaryAnimation) =>
+        _WaveMenuSheet(entries: entries),
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 1),
+          end: Offset.zero,
+        ).animate(curved),
+        child: child,
+      );
+    },
+  );
+}
+
+class _WaveMenuSheet extends StatefulWidget {
+  final List<WaveMenuEntry> entries;
+
+  const _WaveMenuSheet({required this.entries});
+
+  @override
+  State<_WaveMenuSheet> createState() => _WaveMenuSheetState();
+}
+
+class _WaveMenuSheetState extends State<_WaveMenuSheet> {
+  /// Submenu drill-down: each level keeps its title and entries.
+  final List<({String title, List<WaveMenuEntry> entries})> _stack = [];
+
+  List<WaveMenuEntry> get _entries =>
+      _stack.isEmpty ? widget.entries : _stack.last.entries;
+
+  Widget _row(
+    BuildContext context, {
+    Widget? leading,
+    required String label,
+    String? hint,
+    bool chevron = false,
+    VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+    final color =
+        waveTextPrimary(context).withValues(alpha: enabled ? 1.0 : 0.4);
+    return WavePressable(
+      onTap: onTap,
+      haptic: true,
+      pressedScale: 0.98,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 52),
+        padding: const EdgeInsets.symmetric(horizontal: WaveSpacing.x8),
+        child: Row(
+          children: [
+            if (leading != null) ...[
+              IconTheme(
+                data: IconThemeData(size: 22, color: color),
+                child: SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: FittedBox(child: leading),
+                ),
+              ),
+              const SizedBox(width: WaveSpacing.x8),
+            ],
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WaveTouchType.rowTitle.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: color,
+                ),
+              ),
+            ),
+            if (hint != null)
+              Text(
+                hint,
+                style: WaveTouchType.rowMeta.copyWith(
+                  color: waveTextTertiary(context),
+                ),
+              ),
+            if (chevron)
+              Icon(
+                WaveIcons.chevronRight,
+                size: 16,
+                color: waveTextTertiary(context),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _entry(BuildContext context, WaveMenuEntry entry) {
+    if (entry is WaveMenuSeparator) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(
+          vertical: WaveSpacing.x2,
+          horizontal: WaveSpacing.x4,
+        ),
+        child: SizedBox(
+          height: 1,
+          child: ColoredBox(color: waveDivider(context)),
+        ),
+      );
+    }
+    if (entry is WaveMenuSubmenu) {
+      return _row(
+        context,
+        leading: entry.leading,
+        label: entry.label,
+        chevron: true,
+        onTap: () => setState(
+          () => _stack.add((title: entry.label, entries: entry.items())),
+        ),
+      );
+    }
+    if (entry is WaveMenuAction) {
+      final onPressed = entry.onPressed;
+      return _row(
+        context,
+        leading: entry.leading,
+        label: entry.label,
+        hint: entry.hint,
+        onTap: onPressed == null
+            ? null
+            : () {
+                Navigator.of(context).pop();
+                onPressed();
+              },
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.75;
+    return DefaultTextStyle(
+      // The dialog route has no Material ancestor: pin a text style so rows
+      // never fall back to the framework's debug underline.
+      style: WaveTouchType.rowTitle.copyWith(
+        color: waveTextPrimary(context),
+        decoration: TextDecoration.none,
+      ),
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 560, maxHeight: maxHeight),
+          child: Container(
+            decoration: BoxDecoration(
+              color: waveSurfaceRaised(context),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(WaveRadius.hero),
+              ),
+              border: Border.all(color: waveDivider(context)),
+              boxShadow: WaveElevation.floating(dark),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: WaveSpacing.x4),
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: waveWash(context, 0.22),
+                      borderRadius: WaveRadius.tinyRadius,
+                    ),
+                  ),
+                  if (_stack.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        WaveSpacing.x4,
+                        WaveSpacing.x4,
+                        WaveSpacing.x12,
+                        0,
+                      ),
+                      child: Row(
+                        children: [
+                          WaveTouchIconButton(
+                            icon: WaveIcons.back,
+                            label: 'Back',
+                            onPressed: () =>
+                                setState(() => _stack.removeLast()),
+                          ),
+                          Expanded(
+                            child: Text(
+                              _stack.last.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: WaveTouchType.rowTitle.copyWith(
+                                color: waveTextPrimary(context),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: WaveSpacing.x2),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.fromLTRB(
+                        WaveSpacing.x8,
+                        0,
+                        WaveSpacing.x8,
+                        WaveSpacing.x8,
+                      ),
+                      children: [
+                        for (final entry in _entries) _entry(context, entry),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
