@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +7,7 @@ import 'package:audio_video_progress_bar/audio_video_progress_bar.dart' as avp;
 
 import '../../core/storage/prefs.dart';
 import '../../core/audio/stream_models.dart';
+import '../../features/downloads/download_manager.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/settings/theme_controller.dart';
 import '../../features/player/playback_service.dart';
@@ -12,6 +15,7 @@ import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/audio_output/output_controller.dart';
 import '../components/artwork.dart';
 import '../components/ambient.dart' show artworkSeedProvider;
+import '../components/touch_kit.dart';
 import '../navigation/destinations.dart';
 import '../queue/queue_panel.dart';
 import '../components/buttons.dart' show LWVolumeSlider, WaveButton;
@@ -21,13 +25,13 @@ import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
-// Main destinations follow LastWave-Native's three-item floating dock.
-const _nativeMainDestinations = <WaveDestination>[
+/// iPhone tab bar: five destinations plus More, so every tab keeps an icon
+/// *and* a label at one-handed thumb size. Everything else lives in More.
+const _phoneDestinations = <WaveDestination>[
   WaveDestination('/home', 'Home', WaveIcons.home),
   WaveDestination('/search', 'Search', WaveIcons.search),
-  WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
+  WaveDestination('/liked', 'Liked', WaveIcons.liked),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
-  WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
   WaveDestination('/settings', 'Settings', WaveIcons.settings),
 ];
 
@@ -35,16 +39,49 @@ const _phoneMoreDestinations = <WaveDestination>[
   WaveDestination('/home-layout', 'Edit Home', WaveIcons.edit),
   WaveDestination('/albums', 'Albums', WaveIcons.albums),
   WaveDestination('/artists', 'Artists', WaveIcons.artists),
+  WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
+  WaveDestination('/stats', 'Stats', WaveIcons.stats),
   WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
   WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
   WaveDestination('/history', 'Listening history', WaveIcons.history),
   WaveDestination('/friends', 'Friends', WaveIcons.friends),
+];
+
+/// iPad floating top bar: a tablet has the width for Albums and Downloads
+/// in the bar itself.
+const _tabletDestinations = <WaveDestination>[
+  WaveDestination('/home', 'Home', WaveIcons.home),
+  WaveDestination('/search', 'Search', WaveIcons.search),
+  WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
+  WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
+  WaveDestination('/albums', 'Albums', WaveIcons.albums),
+  WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
+  WaveDestination('/settings', 'Settings', WaveIcons.settings),
+];
+
+const _tabletMoreDestinations = <WaveDestination>[
+  WaveDestination('/home-layout', 'Edit Home', WaveIcons.edit),
+  WaveDestination('/artists', 'Artists', WaveIcons.artists),
   WaveDestination('/stats', 'Stats', WaveIcons.stats),
+  WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
+  WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
+  WaveDestination('/history', 'Listening history', WaveIcons.history),
+  WaveDestination('/friends', 'Friends', WaveIcons.friends),
 ];
 
 /// Touch-first shell for iPhone and iPad. It reuses the existing routes,
 /// page widgets, playback service, and settings state; only the app chrome
 /// changes from the desktop WaveShell.
+///
+/// Chrome model ("floating glass over artwork aura"):
+/// - The page always fills the screen between a slim top zone and the
+///   bottom dock; chrome never sits flush against an edge.
+/// - iPhone: a floating mini-player above a floating tab bar.
+/// - iPad: a floating icon-led navigation capsule at the top (no side rail)
+///   and a floating mini-player at the bottom, both capped at
+///   [WaveTouch.floatMaxWidth] and centred so they stay composed in Split
+///   View, Stage Manager and landscape.
+/// - Now Playing replaces the dock with one floating control tray.
 class WaveMobileShell extends ConsumerStatefulWidget {
   final String location;
   final Widget child;
@@ -120,7 +157,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
     if (!_route.startsWith('/now')) context.push('/now');
   }
 
-  void _back() {
+  void _back(List<WaveDestination> more) {
     if (_showEqualizer || _showQueue) {
       setState(() {
         _showEqualizer = false;
@@ -131,6 +168,9 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
     setState(() => _showMore = false);
     if (context.canPop()) {
       context.pop();
+    } else if (more.any((d) => d.path == _route)) {
+      // A library page reached from the More list goes back to that list.
+      setState(() => _showMore = true);
     } else {
       _go('/home');
     }
@@ -138,9 +178,11 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Now Playing's top bar asks the shell to open the queue / equalizer.
     ref.listen<String?>(nowPlayingOverlayRequestProvider, (previous, action) {
       if (action == null || !mounted) return;
       setState(() {
+        _showMore = false;
         _showQueue = action == 'queue';
         _showEqualizer = action == 'equalizer';
       });
@@ -182,11 +224,17 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
           'high' => WaveHazeIntensity.high,
           _ => WaveHazeIntensity.medium,
         };
-        final moreDestinations = _phoneMoreDestinations;
+        final tabs = tablet ? _tabletDestinations : _phoneDestinations;
+        final moreDestinations =
+            tablet ? _tabletMoreDestinations : _phoneMoreDestinations;
         final moreActive = _showMore ||
             moreDestinations.any((d) =>
                 activePath == d.path ||
                 _route.startsWith('${d.path}/'));
+        // Tab roots have nothing to go back to; every other page does.
+        final showBack = !nowPlaying &&
+            !_showMore &&
+            !tabs.any((d) => d.path == _route);
 
         final systemMedia = MediaQuery.of(context);
         return MediaQuery(
@@ -201,21 +249,28 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
               children: [
                 _AmbientArtworkBackdrop(showArtworkGlow: !nowPlaying),
                 SafeArea(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Padding(
-                        padding: EdgeInsets.only(
-                          top: nowPlaying
-                              ? 0
-                              : WaveMobileChrome.miniPlayerContentInset,
-                          bottom: nowPlaying
-                              ? WaveMobileChrome.transportContentInset
-                              : WaveMobileChrome.navigationContentInset,
-                        ),
-                        child: ColoredBox(
-                          color: waveBackground(context),
-                          child: Stack(
+                  child: Column(
+                      children: [
+                        if (tablet && !nowPlaying)
+                          _TabletTopBar(
+                            destinations: tabs,
+                            activePath: activePath,
+                            moreActive: moreActive,
+                            showBack: showBack,
+                            showLabels: constraints.maxWidth >= 1000,
+                            onGo: _go,
+                            onMore: () =>
+                                setState(() => _showMore = !_showMore),
+                            onBack: () => _back(moreDestinations),
+                          ),
+                        if (!tablet && showBack)
+                          _BackHeader(
+                            onBack: () => _back(moreDestinations),
+                          ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: waveBackground(context),
+                            child: Stack(
                             fit: StackFit.expand,
                             children: [
                               widget.child,
@@ -235,7 +290,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                 Positioned.fill(
                                   child: WaveEqualizerPanel(
                                     embedded: true,
-                                    onClose: _back,
+                                    onClose: () => _back(moreDestinations),
                                   ),
                                 ),
                               if (_showQueue && nowPlaying)
@@ -246,11 +301,13 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                       children: [
                                         _MobileOverlayHeader(
                                           title: 'Queue',
-                                          onClose: _back,
+                                          onClose: () =>
+                                              _back(moreDestinations),
                                         ),
                                         Expanded(
                                           child: WaveQueuePanel(
-                                            onClose: _back,
+                                            onClose: () =>
+                                                _back(moreDestinations),
                                             embedded: true,
                                           ),
                                         ),
@@ -264,11 +321,14 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                     color: Colors.black.withValues(alpha: 0.38),
                                     child: Center(
                                       child: Container(
-                                        constraints: const BoxConstraints(
-                                          maxWidth: 360,
+                                        constraints:
+                                            const BoxConstraints(maxWidth: 360),
+                                        margin: const EdgeInsets.all(
+                                          WaveSpacing.x20,
                                         ),
-                                        margin: const EdgeInsets.all(24),
-                                        padding: const EdgeInsets.all(22),
+                                        padding: const EdgeInsets.all(
+                                          WaveSpacing.x20,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: waveSurfaceRaised(context),
                                           borderRadius:
@@ -276,7 +336,7 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                           border: Border.all(
                                             color: waveDivider(context),
                                           ),
-                                          boxShadow: WaveElevation.flyout(
+                                          boxShadow: WaveElevation.floating(
                                             waveIsDark(context),
                                           ),
                                         ),
@@ -286,19 +346,28 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                             Text(
                                               "You're offline",
                                               textAlign: TextAlign.center,
-                                              style: WaveType.sectionTitle,
+                                              style: WaveTouchType.rowTitle
+                                                  .copyWith(
+                                                color:
+                                                    waveTextPrimary(context),
+                                              ),
                                             ),
-                                            const SizedBox(height: 8),
+                                            const SizedBox(
+                                              height: WaveSpacing.x4,
+                                            ),
                                             Text(
                                               'Check your internet connection. '
                                               'Some LastWave features need to be online.',
                                               textAlign: TextAlign.center,
-                                              style: WaveType.meta.copyWith(
+                                              style:
+                                                  WaveTouchType.rowMeta.copyWith(
                                                 color:
                                                     waveTextSecondary(context),
                                               ),
                                             ),
-                                            const SizedBox(height: 16),
+                                            const SizedBox(
+                                              height: WaveSpacing.x12,
+                                            ),
                                             WaveButton(
                                               onPressed: () => setState(
                                                 () => _offlineNoticeDismissed =
@@ -314,47 +383,84 @@ class _WaveMobileShellState extends ConsumerState<WaveMobileShell> {
                                 ),
                             ],
                           ),
-                        ),
-                      ),
-                      if (!nowPlaying)
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          height: WaveMobileChrome.miniPlayerContentInset,
-                          child: _MobileMiniPlayer(
-                            onOpen: _openNowPlaying,
                           ),
                         ),
-                      if (nowPlaying)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: WaveMobileChrome.transportBottomInset,
-                          child: const _MobileTransportDock(),
-                        ),
-                      if (!nowPlaying)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: _PhoneNavigation(
-                            activePath: activePath,
-                            moreActive: moreActive,
-                            showMore: _showMore,
-                            onGo: _go,
-                            onMore: () =>
-                                setState(() => _showMore = !_showMore),
+                        if (nowPlaying)
+                          _DockFrame(
+                            child: _MobileTransportDock(
+                              // iPad keeps queue / equalizer / download in
+                              // the Now Playing top bar; on a compact phone
+                              // that bar has no room, so the tray carries them.
+                              showUtilities:
+                                  Platform.isIOS && viewSize.shortestSide < 600,
+                              onQueue: () => setState(() {
+                                _showQueue = !_showQueue;
+                                _showEqualizer = false;
+                              }),
+                              onEqualizer: () => setState(() {
+                                _showEqualizer = !_showEqualizer;
+                                _showQueue = false;
+                              }),
+                              queueActive: _showQueue,
+                              equalizerActive: _showEqualizer,
+                            ),
+                          )
+                        else
+                          _DockFrame(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _MobileMiniPlayer(onOpen: _openNowPlaying),
+                                if (!tablet) ...[
+                                  const SizedBox(height: WaveTouch.floatGap),
+                                  _PhoneTabBar(
+                                    destinations: tabs,
+                                    activePath: activePath,
+                                    moreActive: moreActive,
+                                    onGo: _go,
+                                    onMore: () => setState(
+                                      () => _showMore = !_showMore,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
-                        ),
-                    ],
-                  ),
+                      ],
+                    ),
                 ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Positions floating bottom chrome: inset from the screen edge, centred and
+/// capped at [WaveTouch.floatMaxWidth] so it stays composed on iPad.
+class _DockFrame extends StatelessWidget {
+  final Widget child;
+
+  const _DockFrame({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        WaveTouch.floatInset,
+        0,
+        WaveTouch.floatInset,
+        WaveTouch.floatGap,
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints:
+              const BoxConstraints(maxWidth: WaveTouch.floatMaxWidth),
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -406,6 +512,70 @@ class _AmbientArtworkBackdrop extends ConsumerWidget {
   }
 }
 
+/// Glass square back chip used by the phone header and the iPad top bar.
+class _BackChip extends StatelessWidget {
+  final VoidCallback onBack;
+
+  const _BackChip({required this.onBack});
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    return Semantics(
+      button: true,
+      label: 'Back',
+      excludeSemantics: true,
+      child: WavePressable(
+        onTap: onBack,
+        haptic: true,
+        child: Container(
+          width: WaveTouch.hit,
+          height: WaveTouch.hit,
+          decoration: BoxDecoration(
+            color: waveSurface(context).withValues(alpha: 0.78),
+            borderRadius: WaveRadius.menuRadius,
+            border: Border.all(
+              color: (dark ? Colors.white : Colors.black)
+                  .withValues(alpha: dark ? 0.09 : 0.08),
+            ),
+          ),
+          child: Center(
+            child: Icon(
+              WaveIcons.back,
+              size: WaveTouch.iconSecondary,
+              color: waveTextPrimary(context),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// iPhone header: present only on pages with somewhere to go back to, so tab
+/// roots get their full height back.
+class _BackHeader extends StatelessWidget {
+  final VoidCallback onBack;
+
+  const _BackHeader({required this.onBack});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        WaveTouch.floatInset,
+        WaveSpacing.x2,
+        WaveTouch.floatInset,
+        WaveSpacing.x2,
+      ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: _BackChip(onBack: onBack),
+      ),
+    );
+  }
+}
+
 class _MobileOverlayHeader extends StatelessWidget {
   final String title;
   final VoidCallback onClose;
@@ -416,116 +586,73 @@ class _MobileOverlayHeader extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-        height: 54,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: waveSurface(context),
-          border: Border(bottom: BorderSide(color: waveDivider(context))),
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(
+          WaveTouch.floatInset,
+          WaveSpacing.x2,
+          WaveTouch.floatInset,
+          WaveSpacing.x4,
         ),
         child: Row(
           children: [
-            _TouchIconButton(
-              icon: WaveIcons.back,
-              tooltip: 'Back to Now Playing',
-              onPressed: onClose,
+            _BackChip(onBack: onClose),
+            const SizedBox(width: WaveSpacing.x8),
+            Text(
+              title,
+              style: WaveTouchType.rowTitle.copyWith(
+                color: waveTextPrimary(context),
+              ),
             ),
-            const SizedBox(width: 8),
-            Text(title, style: WaveType.trackTitle),
           ],
         ),
       );
 }
 
-/// Floating shortcut dock adapted from LastWave-Native's
-/// MainShell/FloatingNavBar, translated from Compose to Flutter.
-class _PhoneNavigation extends StatelessWidget {
+/// iPhone floating tab bar.
+class _PhoneTabBar extends StatelessWidget {
+  final List<WaveDestination> destinations;
   final String activePath;
   final bool moreActive;
-  final bool showMore;
   final void Function(String) onGo;
   final VoidCallback onMore;
 
-  const _PhoneNavigation({
+  const _PhoneTabBar({
+    required this.destinations,
     required this.activePath,
     required this.moreActive,
-    required this.showMore,
     required this.onGo,
     required this.onMore,
   });
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 480;
-    String? selectedPath;
-    if (!moreActive) {
-      for (final destination in _nativeMainDestinations) {
-        if (activePath == destination.path ||
-            activePath.startsWith('${destination.path}/')) {
-          selectedPath = destination.path;
-          break;
-        }
-      }
-    }
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        compact
-            ? WaveMobileChrome.navigationSideInsetCompact
-            : WaveMobileChrome.navigationSideInsetRegular,
-        WaveMobileChrome.navigationTopGap,
-        compact
-            ? WaveMobileChrome.navigationSideInsetCompact
-            : WaveMobileChrome.navigationSideInsetRegular,
-        WaveMobileChrome.navigationBottomInset,
-      ),
-      child: Center(
-        child: WaveHaze(
-          level: LwHazeLevel.l2,
-          base: waveSurfaceRaised(context),
-          borderRadius: WaveRadius.floatingRadius,
-          border: Border.all(color: waveDivider(context)),
-          shadow: WaveElevation.lift(waveIsDark(context)),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 5 : 7,
-              vertical: 6,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final destination in _nativeMainDestinations)
-                  _NativeFloatingNavItem(
-                    destination: destination,
-                    selected: selectedPath == destination.path,
-                    compact: compact,
+    return WaveFloatingSurface(
+      child: SizedBox(
+        height: WaveTouch.tabBarHeight,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: WaveSpacing.x2),
+          child: Row(
+            children: [
+              for (final destination in destinations)
+                Expanded(
+                  child: _PhoneTab(
+                    icon: destination.icon,
+                    label: destination.label,
+                    selected: !moreActive &&
+                        (activePath == destination.path ||
+                            activePath.startsWith('${destination.path}/')),
                     onTap: () => onGo(destination.path),
                   ),
-                SizedBox(width: compact ? 2 : 4),
-                Tooltip(
-                  message: 'More',
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: onMore,
-                    child: SizedBox(
-                      width: compact
-                          ? WaveMobileChrome.navigationCompactItemExtent
-                          : WaveMobileChrome.navigationRegularItemExtent,
-                      height: compact
-                          ? WaveMobileChrome.navigationCompactItemExtent
-                          : WaveMobileChrome.navigationRegularItemExtent,
-                      child: Icon(
-                        showMore ? WaveIcons.close : WaveIcons.more,
-                        size: 23,
-                        color: moreActive
-                            ? waveAccent(context)
-                            : waveTextSecondary(context),
-                      ),
-                    ),
-                  ),
                 ),
-              ],
-            ),
+              Expanded(
+                child: _PhoneTab(
+                  icon: WaveIcons.more,
+                  label: 'More',
+                  selected: moreActive,
+                  onTap: onMore,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -533,76 +660,238 @@ class _PhoneNavigation extends StatelessWidget {
   }
 }
 
-class _NativeFloatingNavItem extends StatelessWidget {
-  final WaveDestination destination;
+class _PhoneTab extends StatelessWidget {
+  final IconData icon;
+  final String label;
   final bool selected;
-  final bool compact;
   final VoidCallback onTap;
 
-  const _NativeFloatingNavItem({
-    required this.destination,
+  const _PhoneTab({
+    required this.icon,
+    required this.label,
     required this.selected,
-    required this.compact,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final contentColor = selected
-        ? waveTextPrimary(context)
-        : waveTextSecondary(context);
-
-    return Tooltip(
-      message: destination.label,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+    final color =
+        selected ? waveTextPrimary(context) : waveTextTertiary(context);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      excludeSemantics: true,
+      child: WavePressable(
         onTap: onTap,
+        haptic: true,
         child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        height: compact ? 44 : 48,
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 7 : selected ? 17 : 13,
+          duration: waveMotion(context, WaveMotion.normal),
+          curve: WaveMotion.standard,
+          margin: const EdgeInsets.symmetric(
+            horizontal: WaveSpacing.x2,
+            vertical: WaveSpacing.x4,
+          ),
+          decoration: BoxDecoration(
+            color: selected ? waveWash(context, 0.10) : Colors.transparent,
+            borderRadius: WaveRadius.menuRadius,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: WaveTouch.iconPrimary - 2, color: color),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WaveTouchType.tabLabel.copyWith(
+                  color: color,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
-        decoration: BoxDecoration(
-          color: selected
-              ? waveAccent(context).withValues(alpha: 0.16)
-              : Colors.transparent,
-          borderRadius: WaveRadius.controlsRadius,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(destination.icon, size: 23, color: contentColor),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOutCubic,
-              alignment: Alignment.centerLeft,
-              child: selected && !compact
-                  ? Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Text(
-                        destination.label,
-                        maxLines: 1,
-                        softWrap: false,
-                        style: WaveType.label.copyWith(
-                          color: contentColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    )
-                  : const SizedBox(width: 0, height: 0),
-            ),
-          ],
-        ),
-      ),
       ),
     );
   }
 }
 
+/// iPad floating navigation capsule, centred at the top of the window.
+///
+/// Icon-led: the selected destination expands to show its label (every
+/// destination does once the window is wide enough). Back, when the page has
+/// somewhere to go back to, sits at the leading edge.
+class _TabletTopBar extends StatelessWidget {
+  final List<WaveDestination> destinations;
+  final String activePath;
+  final bool moreActive;
+  final bool showBack;
+  final bool showLabels;
+  final void Function(String) onGo;
+  final VoidCallback onMore;
+  final VoidCallback onBack;
+
+  const _TabletTopBar({
+    required this.destinations,
+    required this.activePath,
+    required this.moreActive,
+    required this.showBack,
+    required this.showLabels,
+    required this.onGo,
+    required this.onMore,
+    required this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        WaveTouch.floatInset,
+        WaveSpacing.x4,
+        WaveTouch.floatInset,
+        WaveSpacing.x2,
+      ),
+      child: SizedBox(
+        height: WaveTouch.tabletBarHeight,
+        child: Stack(
+          children: [
+            if (showBack)
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                child: Center(child: _BackChip(onBack: onBack)),
+              ),
+            Center(
+              // Scale-down is a safety net for very narrow Split View
+              // windows: the capsule shrinks instead of overflowing.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: WaveFloatingSurface(
+                  borderRadius: BorderRadius.circular(WaveRadius.hero),
+                  child: Padding(
+                    padding: const EdgeInsets.all(WaveSpacing.x2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final destination in destinations)
+                          _TabletTab(
+                            icon: destination.icon,
+                            label: destination.label,
+                            showLabel: showLabels ||
+                                (!moreActive &&
+                                    (activePath == destination.path ||
+                                        activePath.startsWith(
+                                            '${destination.path}/'))),
+                            selected: !moreActive &&
+                                (activePath == destination.path ||
+                                    activePath
+                                        .startsWith('${destination.path}/')),
+                            onTap: () => onGo(destination.path),
+                          ),
+                        _TabletTab(
+                          icon: WaveIcons.more,
+                          label: 'More',
+                          showLabel: showLabels || moreActive,
+                          selected: moreActive,
+                          onTap: onMore,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TabletTab extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool showLabel;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _TabletTab({
+    required this.icon,
+    required this.label,
+    required this.showLabel,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        selected ? waveTextPrimary(context) : waveTextSecondary(context);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      excludeSemantics: true,
+      child: WavePressable(
+        onTap: onTap,
+        haptic: true,
+        child: AnimatedContainer(
+          duration: waveMotion(context, WaveMotion.normal),
+          curve: WaveMotion.standard,
+          height: WaveTouch.hit,
+          constraints: const BoxConstraints(minWidth: WaveTouch.hit),
+          padding: EdgeInsets.symmetric(
+            horizontal: showLabel ? WaveSpacing.x8 : WaveSpacing.x4,
+          ),
+          decoration: BoxDecoration(
+            color: selected ? waveWash(context, 0.12) : Colors.transparent,
+            borderRadius: WaveRadius.menuRadius,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: WaveTouch.iconSecondary, color: color),
+              if (showLabel) ...[
+                const SizedBox(width: WaveSpacing.x4 - 2),
+                Text(
+                  label,
+                  maxLines: 1,
+                  style: WaveTouchType.rowMeta.copyWith(
+                    color: color,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Now Playing control tray: one floating surface holding the seek bar,
+/// transport, and utility actions. Nothing scrolls — the transport row is a
+/// fixed five-control layout, and the utility row gives the volume slider
+/// whatever width is left, so it adapts from a 320pt phone to a 13" iPad.
 class _MobileTransportDock extends ConsumerWidget {
-  const _MobileTransportDock();
+  final bool showUtilities;
+  final bool queueActive;
+  final bool equalizerActive;
+  final VoidCallback onQueue;
+  final VoidCallback onEqualizer;
+
+  const _MobileTransportDock({
+    required this.showUtilities,
+    required this.onQueue,
+    required this.onEqualizer,
+    required this.queueActive,
+    required this.equalizerActive,
+  });
 
   String _time(Duration value) {
     final minutes = value.inMinutes;
@@ -614,7 +903,9 @@ class _MobileTransportDock extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final snapshot = ref.watch(
       playbackServiceProvider.select((state) => (
+        current: state.current,
         isPlaying: state.isPlaying,
+        isBuffering: state.isBuffering,
         position: state.position,
         buffered: state.buffered,
         duration: state.duration,
@@ -625,123 +916,156 @@ class _MobileTransportDock extends ConsumerWidget {
     );
     final playback = ref.read(playbackServiceProvider.notifier);
     final output = ref.read(audioOutputProvider.notifier);
-    final wavySeekbar = ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
+    final wavySeekbar =
+        ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
     final duration = snapshot.duration;
     final hasDuration = duration > Duration.zero;
     final volume = snapshot.volume.clamp(0.0, 1.0).toDouble();
+    final captionStyle = WaveTouchType.caption.copyWith(
+      color: waveTextSecondary(context),
+    );
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-      child: WaveHaze(
-        level: LwHazeLevel.l2,
-        base: waveSurfaceRaised(context),
-        borderRadius: WaveRadius.floatingRadius,
-        border: Border.all(color: waveDivider(context)),
-        shadow: WaveElevation.lift(waveIsDark(context)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  SizedBox(
-                    width: 38,
-                    child: Text(hasDuration ? _time(snapshot.position) : '--:--',
-                      style: WaveType.meta.copyWith(fontSize: 10)),
+    return WaveFloatingSurface(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          WaveSpacing.x12,
+          WaveSpacing.x8,
+          WaveSpacing.x12,
+          WaveSpacing.x4,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 28,
+              child: wavySeekbar
+                  ? WaveTimeline(
+                      progress: snapshot.position,
+                      buffered: snapshot.buffered,
+                      total: duration,
+                      showThumb: hasDuration,
+                      onSeek: hasDuration ? playback.seek : null,
+                      baseColor:
+                          waveTextSecondary(context).withValues(alpha: 0.12),
+                      bufferedColor:
+                          waveTextSecondary(context).withValues(alpha: 0.18),
+                      progressColor: waveTextPrimary(context),
+                      thumbColor: waveTextPrimary(context),
+                      thumbGlowColor:
+                          waveAccent(context).withValues(alpha: 0.25),
+                    )
+                  : avp.ProgressBar(
+                      progress: snapshot.position,
+                      buffered: snapshot.buffered,
+                      total:
+                          hasDuration ? duration : const Duration(seconds: 1),
+                      onSeek: hasDuration ? playback.seek : null,
+                      barHeight: 4,
+                      thumbRadius: hasDuration ? 6 : 0,
+                      thumbColor: waveTextPrimary(context),
+                      progressBarColor: waveTextPrimary(context),
+                      bufferedBarColor:
+                          waveTextSecondary(context).withValues(alpha: 0.22),
+                      baseBarColor:
+                          waveTextSecondary(context).withValues(alpha: 0.12),
+                      timeLabelLocation: avp.TimeLabelLocation.none,
+                    ),
+            ),
+            Row(
+              children: [
+                Text(
+                  hasDuration ? _time(snapshot.position) : '--:--',
+                  style: captionStyle,
+                ),
+                const Spacer(),
+                Text(
+                  hasDuration ? _time(duration) : '--:--',
+                  style: captionStyle,
+                ),
+              ],
+            ),
+            const SizedBox(height: WaveSpacing.x2),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                WaveTouchIconButton(
+                  icon: WaveIcons.shuffle,
+                  label: 'Shuffle',
+                  selected: snapshot.shuffleEnabled,
+                  onPressed: playback.toggleShuffle,
+                ),
+                WaveTouchIconButton(
+                  icon: WaveIcons.previous,
+                  label: 'Previous track',
+                  size: WaveTouch.transportButton,
+                  iconSize: WaveTouch.iconPrimary + 2,
+                  color: waveTextPrimary(context),
+                  onPressed: playback.previous,
+                ),
+                WavePlayDisc(
+                  playing: snapshot.isPlaying,
+                  busy: snapshot.isBuffering,
+                  onPressed: playback.toggle,
+                ),
+                WaveTouchIconButton(
+                  icon: WaveIcons.next,
+                  label: 'Next track',
+                  size: WaveTouch.transportButton,
+                  iconSize: WaveTouch.iconPrimary + 2,
+                  color: waveTextPrimary(context),
+                  onPressed: playback.next,
+                ),
+                WaveTouchIconButton(
+                  icon: snapshot.repeatMode.name == 'one'
+                      ? WaveIcons.repeatOne
+                      : WaveIcons.repeat,
+                  label: 'Repeat mode',
+                  selected: snapshot.repeatMode.name != 'off',
+                  onPressed: playback.cycleRepeat,
+                ),
+              ],
+            ),
+            const SizedBox(height: WaveSpacing.x2),
+            Row(
+              children: [
+                if (showUtilities) ...[
+                  WaveTouchIconButton(
+                    icon: WaveIcons.queue,
+                    label: 'Queue',
+                    selected: queueActive,
+                    onPressed: onQueue,
                   ),
-                  Expanded(
-                    child: wavySeekbar
-                        ? WaveTimeline(
-                            progress: snapshot.position,
-                            buffered: snapshot.buffered,
-                            total: duration,
-                            showThumb: hasDuration,
-                            onSeek: hasDuration ? playback.seek : null,
-                            baseColor: waveTextSecondary(context).withValues(alpha: 0.12),
-                            bufferedColor: waveTextSecondary(context).withValues(alpha: 0.18),
-                            progressColor: waveTextPrimary(context),
-                            thumbColor: waveTextPrimary(context),
-                            thumbGlowColor: waveAccent(context).withValues(alpha: 0.25),
-                          )
-                        : avp.ProgressBar(
-                            progress: snapshot.position,
-                            buffered: snapshot.buffered,
-                            total: hasDuration ? duration : const Duration(seconds: 1),
-                            onSeek: hasDuration ? playback.seek : null,
-                            barHeight: 3,
-                            thumbRadius: hasDuration ? 5 : 0,
-                            thumbColor: waveTextPrimary(context),
-                            progressBarColor: waveTextPrimary(context),
-                            bufferedBarColor: waveTextSecondary(context).withValues(alpha: 0.22),
-                            baseBarColor: waveTextSecondary(context).withValues(alpha: 0.12),
-                            timeLabelLocation: avp.TimeLabelLocation.none,
-                          ),
+                  WaveTouchIconButton(
+                    icon: WaveIcons.equalizer,
+                    label: 'Equalizer',
+                    selected: equalizerActive,
+                    onPressed: onEqualizer,
                   ),
-                  SizedBox(
-                    width: 38,
-                    child: Text(hasDuration ? _time(duration) : '--:--',
-                      textAlign: TextAlign.end,
-                      style: WaveType.meta.copyWith(fontSize: 10)),
-                  ),
+                  _MobileDownloadButton(track: snapshot.current),
+                  const SizedBox(width: WaveSpacing.x4),
                 ],
-              ),
-              const SizedBox(height: 7),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final compact = constraints.maxWidth < 560;
-                  final iconWidth = compact ? 32.0 : 44.0;
-                  final gap = compact ? 1.0 : 9.0;
-                  final sliderWidth = compact ? 54.0 : 104.0;
-                  return Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _TouchIconButton(icon: WaveIcons.shuffle, tooltip: 'Shuffle',
-                        selected: snapshot.shuffleEnabled, width: iconWidth,
-                        onPressed: playback.toggleShuffle),
-                      SizedBox(width: gap),
-                      _TouchIconButton(icon: WaveIcons.previous, tooltip: 'Previous track',
-                        width: iconWidth, onPressed: playback.previous),
-                      SizedBox(width: gap),
-                      Container(
-                        width: compact ? 42 : 48,
-                        height: compact ? 42 : 48,
-                        decoration: BoxDecoration(
-                          color: waveTextPrimary(context), shape: BoxShape.circle),
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: playback.toggle,
-                          child: Icon(snapshot.isPlaying ? WaveIcons.pause : WaveIcons.play,
-                            color: waveBackground(context), size: 22),
-                        ),
-                      ),
-                      SizedBox(width: gap),
-                      _TouchIconButton(icon: WaveIcons.next, tooltip: 'Next track',
-                        width: iconWidth, onPressed: playback.next),
-                      SizedBox(width: gap),
-                      _TouchIconButton(
-                        icon: snapshot.repeatMode.name == 'one' ? WaveIcons.repeatOne : WaveIcons.repeat,
-                        tooltip: 'Repeat mode',
-                        selected: snapshot.repeatMode.name != 'off',
-                        width: iconWidth,
-                        onPressed: playback.cycleRepeat),
-                      SizedBox(width: compact ? 5 : 18),
-                      _TouchIconButton(
-                        icon: volume <= 0 ? WaveIcons.volumeMute : WaveIcons.volume,
-                        tooltip: volume <= 0 ? 'Unmute' : 'Mute volume',
-                        width: compact ? 30 : 38,
-                        onPressed: output.toggleMute),
-                      SizedBox(
-                        width: sliderWidth,
-                        child: LWVolumeSlider(value: volume, width: sliderWidth,
-                          semanticLabel: 'Playback volume', onChanged: output.setVolume),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
+                WaveTouchIconButton(
+                  icon: volume <= 0
+                      ? WaveIcons.volumeMute
+                      : WaveIcons.volume,
+                  label: volume <= 0
+                      ? 'Unmute'
+                      : 'Mute (${(volume * 100).round()}%)',
+                  onPressed: output.toggleMute,
+                ),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => LWVolumeSlider(
+                      value: volume,
+                      width: constraints.maxWidth,
+                      semanticLabel: 'Playback volume',
+                      onChanged: output.setVolume,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -772,13 +1096,11 @@ String _mobileStreamDetails(ResolvedStream? stream) {
   ].join(' · ');
 }
 
-const double _mobileMiniPlayerCardHeight = WaveMobileChrome.miniPlayerHeight;
-const double _mobileMiniPlayerTopMargin = WaveMobileChrome.miniPlayerTopInset;
-const double _mobileMiniPlayerBottomMargin =
-    WaveMobileChrome.miniPlayerBottomGap;
-
-/// Mini-player proportions and single-card hierarchy adapted from
-/// LastWave-Native's ui/player/MiniPlayer.kt, translated to Flutter.
+/// Floating mini-player: artwork, title / artist, play-pause and next, with a
+/// hairline progress along the bottom edge. Tap opens Now Playing; swiping
+/// left or right skips to the next or previous track. Everything else (like,
+/// add to playlist, download, quality) lives on Now Playing, where it has room.
+/// Hidden entirely while nothing is loaded.
 class _MobileMiniPlayer extends ConsumerWidget {
   final VoidCallback onOpen;
 
@@ -791,227 +1113,245 @@ class _MobileMiniPlayer extends ConsumerWidget {
         current: state.current,
         isPlaying: state.isPlaying,
         isBuffering: state.isBuffering,
-        position: state.position,
-        buffered: state.buffered,
-        duration: state.duration,
         stream: state.stream,
       )),
     );
-    final playback = ref.read(playbackServiceProvider.notifier);
-    final wavySeekbar =
-        ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
     final track = player.current;
-    final artworkTint = ref
-        .watch(artworkSeedProvider(track?.artworkUrl ?? ''))
-        .valueOrNull;
-    final stream = player.stream;
-    final streamDetails = _mobileStreamDetails(stream);
-    final durationMs = player.duration.inMilliseconds;
-    final progressRatio = durationMs > 0
-        ? (player.position.inMilliseconds / durationMs)
-            .clamp(0.0, 1.0)
-            .toDouble()
-        : 0.0;
+    if (track == null) return const SizedBox.shrink();
+    final streamDetails = _mobileStreamDetails(player.stream);
+    final playback = ref.read(playbackServiceProvider.notifier);
+    final artworkTint =
+        ref.watch(artworkSeedProvider(track.artworkUrl)).valueOrNull;
 
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: WaveMobileChrome.miniPlayerMaxWidth,
-        ),
-        child: Container(
-      height: _mobileMiniPlayerCardHeight,
-      margin: const EdgeInsets.fromLTRB(
-        14,
-        _mobileMiniPlayerTopMargin,
-        14,
-        _mobileMiniPlayerBottomMargin,
-      ),
-      child: WaveHaze(
-        level: LwHazeLevel.l2,
-        base: waveSurfaceRaised(context),
-        artworkTint: artworkTint,
-        borderRadius: WaveRadius.heroRadius,
-        border: Border.all(color: waveDivider(context)),
-        shadow: [
-          BoxShadow(
-            color: waveTextPrimary(context).withValues(alpha: 0.035),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(11, 5, 11, 4),
-          child: Column(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: track == null ? null : onOpen,
-              child: Row(
-                children: [
-                  if (track != null)
-                    WaveArtwork(
-                      url: track.artworkUrl,
-                      videoId: track.videoId,
-                      size: 52,
-                      radius: 14,
-                      label: track.title,
-                      title: track.title,
-                      artist: track.artist,
-                    )
-                  else
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: waveSurface(context),
-                        borderRadius: BorderRadius.circular(14),
+    return Semantics(
+      container: true,
+      label: 'Now playing: ${track.title} by ${track.artist}',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragEnd: (details) {
+          final velocity = details.primaryVelocity ?? 0;
+          if (velocity < -300) {
+            playback.next();
+          } else if (velocity > 300) {
+            playback.previous();
+          }
+        },
+        child: WaveFloatingSurface(
+          artworkTint: artworkTint,
+          base: waveSurfaceRaised(context),
+          child: SizedBox(
+            height: WaveTouch.miniPlayerHeight,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Row(
+                  children: [
+                    Expanded(
+                      child: WavePressable(
+                        onTap: onOpen,
+                        pressedScale: 0.98,
+                        child: Padding(
+                          padding: const EdgeInsets.only(
+                            left: WaveSpacing.x4,
+                            right: WaveSpacing.x2,
+                          ),
+                          child: Row(
+                            children: [
+                              WaveArtwork(
+                                url: track.artworkUrl,
+                                videoId: track.videoId,
+                                size: WaveTouch.miniArtwork,
+                                radius: WaveRadius.controls,
+                                label: track.title,
+                                title: track.title,
+                                artist: track.artist,
+                              ),
+                              const SizedBox(width: WaveSpacing.x8),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _WaveAutoScrollText(
+                                      text: track.title,
+                                      style: WaveTouchType.rowTitle.copyWith(
+                                        color: waveTextPrimary(context),
+                                      ),
+                                    ),
+                                    _WaveAutoScrollText(
+                                      text: track.artist,
+                                      style: WaveTouchType.rowMeta.copyWith(
+                                        color: waveTextSecondary(context),
+                                      ),
+                                    ),
+                                    if (streamDetails.isNotEmpty)
+                                      _WaveAutoScrollText(
+                                        text: streamDetails,
+                                        style: WaveTouchType.tabLabel.copyWith(
+                                          color: waveTextTertiary(context),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      child: const Icon(WaveIcons.music, size: 20),
                     ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _WaveAutoScrollText(
-                          text: track?.title ?? 'Nothing playing',
-                          style: WaveType.trackTitle,
-                        ),
-                        _WaveAutoScrollText(
-                          text: track?.artist ?? 'Choose music from your library',
-                          style: WaveType.meta.copyWith(
-                            color: waveTextSecondary(context),
-                          ),
-                        ),
-                        if (streamDetails.isNotEmpty)
-                          _WaveAutoScrollText(
-                            text: streamDetails,
-                            style: WaveType.meta.copyWith(
-                              fontSize: 10,
-                              letterSpacing: 0.15,
-                              color: waveTextSecondary(context).withValues(alpha: 0.82),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  _TouchIconButton(
-                    icon: WaveIcons.previous,
-                    tooltip: 'Previous track',
-                    width: 36,
-                    onPressed: track == null ? null : playback.previous,
-                  ),
-                  _TouchIconButton(
-                    icon: player.isBuffering
-                        ? WaveIcons.music
-                        : player.isPlaying
-                            ? WaveIcons.pause
-                            : WaveIcons.play,
-                    tooltip: player.isPlaying ? 'Pause' : 'Play',
-                    onPressed: track == null ? null : playback.toggle,
-                    width: 36,
-                  ),
-                  _TouchIconButton(
-                    icon: WaveIcons.next,
-                    tooltip: 'Next track',
-                    onPressed: track == null ? null : playback.next,
-                    width: 36,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (wavySeekbar)
-            WaveTimeline(
-              progress: player.position,
-              buffered: player.buffered,
-              total: player.duration,
-              showThumb: false,
-              onSeek: null,
-              baseColor: waveTextSecondary(context).withValues(alpha: 0.12),
-              bufferedColor: waveTextSecondary(context).withValues(alpha: 0.18),
-              progressColor: waveTextPrimary(context),
-              thumbColor: waveTextPrimary(context),
-              thumbGlowColor: waveAccent(context).withValues(alpha: 0.25),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Container(
-                height: 2,
-                decoration: BoxDecoration(
-                  color: waveTextSecondary(context).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-                alignment: Alignment.centerLeft,
-                child: FractionallySizedBox(
-                  widthFactor: progressRatio,
-                  child: Container(
-                    decoration: BoxDecoration(
+                    WaveTouchIconButton(
+                      icon: player.isBuffering
+                          ? WaveIcons.music
+                          : player.isPlaying
+                              ? WaveIcons.pause
+                              : WaveIcons.play,
+                      label: player.isPlaying ? 'Pause' : 'Play',
+                      iconSize: WaveTouch.iconPrimary,
                       color: waveTextPrimary(context),
-                      borderRadius: BorderRadius.circular(2),
+                      onPressed: playback.toggle,
                     ),
+                    WaveTouchIconButton(
+                      icon: WaveIcons.next,
+                      label: 'Next track',
+                      iconSize: WaveTouch.iconPrimary,
+                      color: waveTextPrimary(context),
+                      onPressed: playback.next,
+                    ),
+                    const SizedBox(width: WaveSpacing.x2),
+                  ],
                   ),
                 ),
-              ),
+                const Positioned(
+                  left: WaveSpacing.x8,
+                  right: WaveSpacing.x8,
+                  bottom: 0,
+                  child: _MiniProgressLine(),
+                ),
+              ],
             ),
-          ],
           ),
-        ),
-      ),
         ),
       ),
     );
   }
 }
 
-class _TouchIconButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onPressed;
-  final bool selected;
-  final double width;
-
-  const _TouchIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-    this.selected = false,
-    this.width = 48,
-  });
+/// Hairline playback progress along the mini-player's bottom edge. Watches
+/// position on its own so the card above doesn't rebuild every tick.
+class _MiniProgressLine extends ConsumerWidget {
+  const _MiniProgressLine();
 
   @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onPressed,
-        child: SizedBox(
-          width: width,
-          height: 48,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: selected
-                  ? waveAccent(context).withValues(alpha: 0.14)
-                  : Colors.transparent,
-              borderRadius: WaveRadius.controlsRadius,
-            ),
-            child: Icon(
-              icon,
-              size: 21,
-              color: onPressed == null
-                  ? waveTextSecondary(context).withValues(alpha: 0.35)
-                  : selected
-                      ? waveTextPrimary(context)
-                      : waveTextSecondary(context),
-            ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progress = ref.watch(
+      playbackServiceProvider.select((state) => (
+        position: state.position,
+        buffered: state.buffered,
+        duration: state.duration,
+      )),
+    );
+    final wavySeekbar =
+        ref.watch(prefsProvider.select((prefs) => prefs.wavySeekbar));
+    if (wavySeekbar) {
+      // Same wavy timeline as the full player, display-only.
+      return WaveTimeline(
+        progress: progress.position,
+        buffered: progress.buffered,
+        total: progress.duration,
+        showThumb: false,
+        onSeek: null,
+        baseColor: waveTextSecondary(context).withValues(alpha: 0.12),
+        bufferedColor: waveTextSecondary(context).withValues(alpha: 0.18),
+        progressColor: waveTextPrimary(context),
+        thumbColor: waveTextPrimary(context),
+        thumbGlowColor: waveAccent(context).withValues(alpha: 0.25),
+      );
+    }
+    final durationMs = progress.duration.inMilliseconds;
+    final ratio = durationMs > 0
+        ? (progress.position.inMilliseconds / durationMs)
+            .clamp(0.0, 1.0)
+            .toDouble()
+        : 0.0;
+    return Container(
+      height: 3,
+      decoration: BoxDecoration(
+        color: waveWash(context, 0.12),
+        borderRadius: WaveRadius.tinyRadius,
+      ),
+      alignment: Alignment.centerLeft,
+      child: FractionallySizedBox(
+        widthFactor: ratio,
+        child: Container(
+          decoration: BoxDecoration(
+            color: waveTextPrimary(context),
+            borderRadius: WaveRadius.tinyRadius,
           ),
         ),
       ),
+    );
+  }
+}
+
+class _MobileDownloadButton extends ConsumerWidget {
+  final PlayableTrack? track;
+
+  const _MobileDownloadButton({required this.track});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = track;
+    if (current == null) {
+      return const WaveTouchIconButton(
+        icon: FluentIcons.download,
+        label: 'Download',
+        onPressed: null,
+      );
+    }
+    final key = DownloadManager.keyOf(current.title, current.artist);
+    DownloadEntry? entry;
+    for (final candidate in ref.watch(downloadManagerProvider)) {
+      if (candidate.key == key) {
+        entry = candidate;
+        break;
+      }
+    }
+    final done = entry?.status == DownloadStatus.done;
+    final failed = entry?.status == DownloadStatus.error;
+    final inProgress = entry?.status == DownloadStatus.queued ||
+        entry?.status == DownloadStatus.downloading;
+    final manager = ref.read(downloadManagerProvider.notifier);
+    // Same behaviour as the Now Playing top bar: tap cancels an active
+    // download, deletes a finished one, and starts / retries otherwise.
+    return WaveTouchIconButton(
+      icon: inProgress
+          ? FluentIcons.cancel
+          : done
+              ? FluentIcons.delete
+              : FluentIcons.download,
+      label: inProgress
+          ? 'Cancel download'
+          : done
+              ? 'Delete download'
+              : failed
+                  ? 'Download failed — retry'
+                  : 'Download',
+      selected: done || failed,
+      onPressed: () {
+        if (inProgress) {
+          manager.cancelDownload(key);
+        } else if (done) {
+          manager.delete(key);
+        } else {
+          manager.downloadTrack(
+            title: current.title,
+            artist: current.artist,
+            album: current.album,
+            artworkUrl: current.artworkUrl,
+            videoId: current.videoId,
+          );
+        }
+      },
     );
   }
 }
@@ -1108,6 +1448,8 @@ class _WaveAutoScrollTextState extends State<_WaveAutoScrollText> {
       );
 }
 
+/// Library destinations that don't earn a tab: a large-title list of
+/// shared-material rows.
 class _MorePage extends StatelessWidget {
   final List<WaveDestination> destinations;
   final void Function(String) onGo;
@@ -1121,63 +1463,100 @@ class _MorePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          height: 54,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: waveSurface(context),
-            border: Border(bottom: BorderSide(color: waveDivider(context))),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            WaveTouch.floatInset,
+            WaveSpacing.x2,
+            WaveTouch.floatInset,
+            WaveSpacing.x4,
           ),
-          child: Row(
-            children: [
-              _TouchIconButton(
-                icon: WaveIcons.back,
-                tooltip: 'Back',
-                onPressed: onBack,
-              ),
-              const SizedBox(width: 8),
-              Text('More', style: WaveType.trackTitle),
-            ],
+          child: _BackChip(onBack: onBack),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            WaveSpacing.x12,
+            WaveSpacing.x2,
+            WaveSpacing.x12,
+            WaveSpacing.x8,
+          ),
+          child: Text(
+            'More',
+            style: WaveTouchType.largeTitle.copyWith(
+              color: waveTextPrimary(context),
+            ),
           ),
         ),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
-            children: [
-              for (final destination in destinations)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => onGo(destination.path),
-                    child: Container(
-                      height: 60,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: waveSurface(context),
-                        borderRadius: WaveRadius.floatingRadius,
-                        border: Border.all(color: waveDivider(context)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(destination.icon, size: 22),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Text(destination.label, style: WaveType.trackTitle),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(maxWidth: WaveTouch.floatMaxWidth),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  WaveSpacing.x12,
+                  WaveSpacing.x2,
+                  WaveSpacing.x12,
+                  WaveSpacing.x20,
+                ),
+                children: [
+                  for (final destination in destinations)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: WaveSpacing.x4),
+                      child: Semantics(
+                        button: true,
+                        label: destination.label,
+                        excludeSemantics: true,
+                        child: WavePressable(
+                          onTap: () => onGo(destination.path),
+                          pressedScale: 0.98,
+                          child: Container(
+                            height: 60,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: WaveSpacing.x12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: waveSurface(context),
+                              borderRadius: WaveRadius.floatingRadius,
+                              border: Border.all(
+                                color: (dark ? Colors.white : Colors.black)
+                                    .withValues(alpha: dark ? 0.07 : 0.08),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  destination.icon,
+                                  size: WaveTouch.iconSecondary,
+                                  color: waveTextPrimary(context),
+                                ),
+                                const SizedBox(width: WaveSpacing.x12),
+                                Expanded(
+                                  child: Text(
+                                    destination.label,
+                                    style: WaveTouchType.rowTitle.copyWith(
+                                      color: waveTextPrimary(context),
+                                    ),
+                                  ),
+                                ),
+                                Icon(
+                                  WaveIcons.chevronRight,
+                                  size: 16,
+                                  color: waveTextTertiary(context),
+                                ),
+                              ],
+                            ),
                           ),
-                          Icon(
-                            WaveIcons.chevronRight,
-                            size: 16,
-                            color: waveTextSecondary(context),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ),
-            ],
+                ],
+              ),
+            ),
           ),
         ),
       ],
