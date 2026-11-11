@@ -183,13 +183,14 @@ class _WavePlaylistDetailPageState
         (entry.status == DownloadStatus.downloading ||
             entry.status == DownloadStatus.queued));
 
+    final side = MediaQuery.sizeOf(context).width < 600 ? 16.0 : 24.0;
     return WaveEntranceGroup(
       child: CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
             padding:
-                const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                EdgeInsets.fromLTRB(side, 20, side, 0),
             child: ConstrainedBox(
               constraints: const BoxConstraints(
                 maxWidth: WaveDensity.contentMax,

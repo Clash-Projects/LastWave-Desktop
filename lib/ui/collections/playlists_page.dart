@@ -47,6 +47,7 @@ class _WavePlaylistsPageState
 
   @override
   Widget build(BuildContext context) {
+    final side = MediaQuery.sizeOf(context).width < 600 ? 16.0 : 24.0;
     final all = ref
         .watch(playlistRepositoryProvider)
         .where((p) => !p.isLikedSongs)
@@ -94,7 +95,7 @@ class _WavePlaylistsPageState
     // below fills the viewport instead of bunching in a centered cap.
     return WaveEntranceGroup(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        padding: EdgeInsets.fromLTRB(side, 20, side, 24),
         children: [
         SizedBox(
           width: double.infinity,

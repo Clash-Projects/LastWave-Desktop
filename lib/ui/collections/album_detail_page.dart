@@ -236,6 +236,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
     required String art,
     required List<GeneratedTrack>? tracks,
   }) {
+    final side = MediaQuery.sizeOf(context).width < 600 ? 16.0 : 28.0;
     final loading = tracks == null;
     final order = tracks ?? const <GeneratedTrack>[];
     final albumTitle = title.isNotEmpty ? title : 'Album';
@@ -261,7 +262,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
           );
     return WaveEntranceGroup(
           child: ListView(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
+          padding: EdgeInsets.fromLTRB(side, 24, side, 32),
           children: [
             ConstrainedBox(
               constraints: const BoxConstraints(

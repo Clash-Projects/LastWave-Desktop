@@ -73,6 +73,7 @@ class WaveArtistsPage extends ConsumerWidget {
   const WaveArtistsPage({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final side = MediaQuery.sizeOf(context).width < 600 ? 16.0 : 28.0;
     final artists = ref.watch(_waveArtistsProvider);
     return artists.when(
       loading: () =>
@@ -98,7 +99,7 @@ class WaveArtistsPage extends ConsumerWidget {
             SliverToBoxAdapter(
               child: Padding(
                 padding:
-                    const EdgeInsets.fromLTRB(28, 22, 28, 12),
+                    EdgeInsets.fromLTRB(side, 22, side, 12),
                 child: WaveEntrance(
                   rise: 10,
                   child: WavePageHeader(
@@ -111,7 +112,7 @@ class WaveArtistsPage extends ConsumerWidget {
             ),
             SliverPadding(
               padding:
-                  const EdgeInsets.fromLTRB(28, 0, 28, 28),
+                  EdgeInsets.fromLTRB(side, 0, side, 28),
               sliver: SliverGrid(
                 gridDelegate:
                     const SliverGridDelegateWithMaxCrossAxisExtent(

@@ -679,6 +679,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
     // header is already on screen and a flight would come out of nowhere —
     // there it just fades in instead.
     _flightOk ??= d.pending.isEmpty;
+    final side = MediaQuery.sizeOf(context).width < 600 ? 16.0 : 28.0;
     final artLoading = d.pending.contains('art');
     final bioLoading = d.pending.contains('bio');
     final listLoading = d.pending.contains('popular');
@@ -721,7 +722,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
         );
     return WaveEntranceGroup(
           child: ListView(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
+          padding: EdgeInsets.fromLTRB(side, 24, side, 32),
           children: [
             ConstrainedBox(
               constraints: const BoxConstraints(
