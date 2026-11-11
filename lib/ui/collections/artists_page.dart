@@ -6,6 +6,7 @@ import '../../core/storage/prefs.dart';
 import '../../features/lastfm/auth_repository.dart' show lastFmApiProvider;
 import '../../features/search/shared_providers.dart';
 import '../components/artwork.dart';
+import '../components/hero.dart' show WavePageHeader;
 import '../components/menus.dart';
 import '../components/states.dart';
 import '../navigation/wave_nav.dart';
@@ -100,18 +101,10 @@ class WaveArtistsPage extends ConsumerWidget {
                     const EdgeInsets.fromLTRB(28, 22, 28, 12),
                 child: WaveEntrance(
                   rise: 10,
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                    children: [
-                      Text('Artists',
-                          style: WaveType.pageTitle
-                              .copyWith(fontSize: 24)),
-                      Text('${list.length} voices',
-                          style: WaveType.meta.copyWith(
-                              color: waveTextSecondary(
-                                  context))),
-                    ],
+                  child: WavePageHeader(
+                    overline: 'Library',
+                    title: 'Artists',
+                    subtitle: '${list.length} voices',
                   ),
                 ),
               ),

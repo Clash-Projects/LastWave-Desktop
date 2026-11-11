@@ -11,6 +11,7 @@ import '../../features/lastfm/auth_repository.dart' show lastFmApiProvider;
 import '../../features/player/playback_service.dart';
 import '../../features/search/shared_providers.dart' show prefsApiKeyProvider;
 import '../components/artwork.dart';
+import '../components/hero.dart' show WavePageHeader;
 import '../components/buttons.dart' show LWTooltip;
 import '../components/menus.dart';
 import '../components/states.dart';
@@ -126,18 +127,10 @@ class WaveAlbumsPage extends ConsumerWidget {
                     const EdgeInsets.fromLTRB(28, 22, 28, 12),
                 child: WaveEntrance(
                   rise: 10,
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                    children: [
-                      Text('Albums',
-                          style: WaveType.pageTitle
-                              .copyWith(fontSize: 24)),
-                      Text('${list.length} records',
-                          style: WaveType.meta.copyWith(
-                              color: waveTextSecondary(
-                                  context))),
-                    ],
+                  child: WavePageHeader(
+                    overline: 'Library',
+                    title: 'Albums',
+                    subtitle: '${list.length} records',
                   ),
                 ),
               ),
