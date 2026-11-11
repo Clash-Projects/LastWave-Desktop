@@ -10,6 +10,7 @@ on:
   pull_request:
     branches:
       - main
+      - codex/ui-graphite-soundstage
   workflow_dispatch:
 
 permissions:
