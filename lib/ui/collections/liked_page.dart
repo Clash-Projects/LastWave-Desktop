@@ -15,7 +15,7 @@ import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../components/buttons.dart';
 import '../components/desktop_table.dart';
-import '../components/hero.dart' show WaveCollectionHero, WavePageHeader;
+import '../components/hero.dart' show WaveCollectionHero, WaveFilterBar, WavePageHeader;
 import '../components/select.dart';
 import '../components/states.dart';
 import '../theme/motion.dart';
