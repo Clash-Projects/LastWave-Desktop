@@ -760,4 +760,117 @@ class WaveElevation {
           offset: const Offset(0, 2),
         ),
       ];
+
+  /// Touch chrome that hovers over the page (floating tab bar, mini-player,
+  /// Now Playing control tray): one soft ambient shadow plus a tight contact
+  /// shadow, so the capsule reads as lifted rather than outlined.
+  static List<BoxShadow> floating(bool dark) => [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: dark ? 0.42 : 0.14),
+          blurRadius: 28,
+          offset: const Offset(0, 10),
+        ),
+        BoxShadow(
+          color: Colors.black.withValues(alpha: dark ? 0.30 : 0.08),
+          blurRadius: 6,
+          offset: const Offset(0, 2),
+        ),
+      ];
+}
+
+/// Touch layer of the Wave design system (iPhone + iPad).
+///
+/// The desktop tokens above are tuned for a pointer: 36px hit areas, 54px
+/// rows, 13px body. Touch surfaces reuse the same palette, radius ladder and
+/// haze materials, and only change density — everything here is a size, never
+/// a colour, so the LastWave identity (graphite base, off-white accent,
+/// artwork-driven personality) is shared with desktop.
+///
+/// Rules:
+/// - Every tappable target is at least [hit] (Apple HIG 44pt).
+/// - Floating chrome (tab bar, mini-player, control tray) uses
+///   [floatRadius] and [WaveElevation.floating]; nothing floating is square
+///   and nothing floating is a full pill.
+/// - Stacked floating elements are separated by [floatGap], and inset from
+///   the screen edge by [floatInset] on phones.
+/// - Wide screens never stretch floating chrome past [floatMaxWidth].
+class WaveTouch {
+  WaveTouch._();
+
+  /// Minimum interactive size.
+  static const double hit = 44;
+
+  /// Floating tab bar height (icons + labels on phones).
+  static const double tabBarHeight = 64;
+
+  /// Floating tab bar height on iPad (icon-led capsule, top-aligned).
+  static const double tabletBarHeight = 52;
+
+  /// Floating mini-player height.
+  static const double miniPlayerHeight = 64;
+
+  /// Space between stacked floating elements.
+  static const double floatGap = 8;
+
+  /// Side / bottom inset of floating chrome from the screen edge.
+  static const double floatInset = 12;
+
+  /// Floating chrome never grows wider than this (iPad, landscape).
+  static const double floatMaxWidth = 640;
+
+  /// Radius shared by every piece of floating chrome ([WaveRadius.hero]).
+  static const double floatRadius = WaveRadius.hero;
+
+  /// Cover art inside the mini-player.
+  static const double miniArtwork = 48;
+
+  /// Primary (play / pause) transport disc on Now Playing.
+  static const double playDisc = 68;
+
+  /// Secondary transport glyph button (previous / next).
+  static const double transportButton = 56;
+
+  /// Glyph sizes: [iconPrimary] for navigation and transport,
+  /// [iconSecondary] for utility rows.
+  static const double iconPrimary = 24;
+  static const double iconSecondary = 21;
+}
+
+/// Touch type ramp. Same weights, tracking and tabular numerals as
+/// [WaveType], sized for arm's-length reading on a phone or tablet. Colour is
+/// applied by the caller (`copyWith(color: waveTextPrimary(context))`) so one
+/// ramp serves the themed shell and the always-dark Now Playing stage.
+///
+/// - largeTitle 30/800 · title 24/700 · rowTitle 15/600 · rowMeta 13
+/// - tabLabel 10.5/600 · caption 11.5 tabular (times, counts)
+class WaveTouchType {
+  WaveTouchType._();
+  static const largeTitle = TextStyle(
+    fontSize: 30,
+    fontWeight: FontWeight.w800,
+    letterSpacing: -0.8,
+    height: 1.1,
+  );
+  static const title = TextStyle(
+    fontSize: 24,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.5,
+    height: 1.15,
+  );
+  static const rowTitle = TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    height: 1.3,
+  );
+  static const rowMeta = TextStyle(fontSize: 13, height: 1.35);
+  static const tabLabel = TextStyle(
+    fontSize: 10.5,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.1,
+  );
+  static const caption = TextStyle(
+    fontSize: 11.5,
+    height: 1.3,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
 }
