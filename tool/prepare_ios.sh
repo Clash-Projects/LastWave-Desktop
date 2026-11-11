@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 if ! command -v flutter >/dev/null 2>&1; then
-  echo "Flutter SDK is required to generate the iPadOS host project." >&2
+  echo "Flutter SDK is required to generate the iOS host project." >&2
   exit 1
 fi
 
@@ -128,7 +128,7 @@ plist_path.write_bytes(
 print("Configured LastWave bundle metadata, iOS 15 minimum, and audio background capability.")
 PY
 
-# Reuse the actual LastWave macOS app icon as the iPadOS app icon.
+# Reuse the actual LastWave macOS app icon as the iOS app icon.
 ICON_SOURCE="lastwave-logo.png"
 ICON_DIR="ios/Runner/Assets.xcassets/AppIcon.appiconset"
 if [[ -f "$ICON_SOURCE" && -d "$ICON_DIR" ]]; then
@@ -408,7 +408,7 @@ import UniformTypeIdentifiers
   }
 }
 
-/// Full-surface iPadOS file drop target. File providers are copied into
+/// Full-surface iOS file drop target. File providers are copied into
 /// app-owned temporary storage while their security-scoped transfer URL is
 /// still valid; only the resulting local paths cross the Flutter channel.
 private final class LastWaveFileDropViewFactory: NSObject, FlutterPlatformViewFactory {
@@ -584,4 +584,4 @@ private final class LastWaveFileDropView: NSObject, FlutterPlatformView, UIDropI
 }
 SWIFT
 
-echo "iPadOS host project is ready."
+echo "iOS host project is ready."

@@ -3,10 +3,7 @@ name: LastWave iOS v1.0.0 unsigned build
 on:
   push:
     branches:
-      - codex/ipados-port-foundation
-      - codex/native-ui-port
-      - codex/ui-graphite-soundstage
-      - 'fix/**'
+      - LastWave-iOS
   pull_request:
     branches:
       - main
@@ -17,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ipados-${{ github.ref }}-${{ github.sha }}
+  group: ios-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -63,8 +60,8 @@ jobs:
           dart tool/obfuscate_secrets.dart
           rm -f .env
 
-      - name: Generate and configure iPadOS host
-        run: bash tool/prepare_ipados.sh
+      - name: Generate and configure iOS host
+        run: bash tool/prepare_ios.sh
 
       - name: Resolve Flutter dependencies
         run: flutter pub get
