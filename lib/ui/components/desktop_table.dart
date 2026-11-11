@@ -31,7 +31,10 @@ const _kRowActions = 60.0;
 /// Sort direction for a header tap cycle: asc → desc → asc …
 enum WaveSortDir { asc, desc }
 
-/// Canonical reusable desktop music table.
+/// Shared music track list.
+///
+/// Desktop retains the sortable multi-column table. iOS presents the same
+/// track data and actions as a touch-first, headerless list with larger rows.
 ///
 /// ```
 /// # / Title (art + title + artist) / Artist / Album / Quality / Added / Duration
@@ -185,6 +188,9 @@ class _WaveDesktopTableState<T extends Object>
   Set<String> get _selected =>
       widget.selectedKeys ?? _internalSelected;
 
+  // Desktop keeps a sortable table header; iOS uses a clean touch-first list.
+  bool get _showColumnHeader => widget.showHeader && !Platform.isIOS;
+
   void _setSelected(Set<String> next) {
     if (widget.selectedKeys == null) {
       setState(() => _internalSelected = next);
@@ -271,7 +277,7 @@ class _WaveDesktopTableState<T extends Object>
             : null);
     if (!widget.shrinkWrap && sc != null) {
       _listController.animateToItem(
-        index: widget.showHeader ? next + 1 : next,
+        index: _showColumnHeader ? next + 1 : next,
         scrollController: sc,
         alignment: 0.5,
         duration: (_) =>
@@ -366,10 +372,11 @@ class _WaveDesktopTableState<T extends Object>
     // are illegal in `slivers:`).
     if (widget.sliver) {
       final w = MediaQuery.sizeOf(context).width;
-      final showAlbum = w >= 680;
-      final showQuality = widget.qualityOf != null && w >= 800;
-      final showAdded = widget.dateAddedOf != null && w >= 1100;
-      final showArtist = widget.showArtistColumn && w >= 640;
+      final touch = Platform.isIOS;
+      final showAlbum = !touch && w >= 680;
+      final showQuality = !touch && widget.qualityOf != null && w >= 800;
+      final showAdded = !touch && widget.dateAddedOf != null && w >= 1100;
+      final showArtist = !touch && widget.showArtistColumn && w >= 640;
       return SliverMainAxisGroup(
         slivers: [
           // Zero-size focus host: keeps row-tap focus + Up/Down/Enter
@@ -398,13 +405,14 @@ class _WaveDesktopTableState<T extends Object>
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
-        // Responsive: collapse secondary columns instead of h-scrolling.
-        final showAlbum = w >= 680;
+        final touch = Platform.isIOS;
+        // Desktop keeps data columns; iOS groups metadata under each title.
+        final showAlbum = !touch && w >= 680;
         final showQuality =
-            widget.qualityOf != null && w >= 800;
-        final showAdded = widget.dateAddedOf != null && w >= 1100;
+            !touch && widget.qualityOf != null && w >= 800;
+        final showAdded = !touch && widget.dateAddedOf != null && w >= 1100;
         final showArtist =
-            widget.showArtistColumn && w >= 640;
+            !touch && widget.showArtistColumn && w >= 640;
 
         Widget list;
         if (widget.shrinkWrap) {
@@ -415,12 +423,12 @@ class _WaveDesktopTableState<T extends Object>
           // outer scroll) — this branch is for small embeds only.
           if (_order.length > 60) {
             final estHeight = _order.length * WaveDensity.trackRow +
-                (widget.showHeader ? 36 : 0);
+                (_showColumnHeader ? 36 : 0);
             list = SizedBox(
               height: math.min(estHeight, 620),
               child: SuperListView.builder(
                 itemCount:
-                    _order.length + (widget.showHeader ? 1 : 0),
+                    _order.length + (_showColumnHeader ? 1 : 0),
                 itemBuilder: (context, i) => _buildSliverChild(
                   i,
                   showAlbum: showAlbum,
@@ -435,7 +443,7 @@ class _WaveDesktopTableState<T extends Object>
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount:
-                  _order.length + (widget.showHeader ? 1 : 0),
+                  _order.length + (_showColumnHeader ? 1 : 0),
               itemBuilder: (context, i) => _buildSliverChild(
                 i,
                 showAlbum: showAlbum,
@@ -481,7 +489,7 @@ class _WaveDesktopTableState<T extends Object>
     required bool showArtist,
   }) {
     return [
-      if (widget.showHeader)
+      if (_showColumnHeader)
         SliverToBoxAdapter(
           child: _HeaderRow(
             sortCol: _sortCol,
@@ -520,7 +528,7 @@ class _WaveDesktopTableState<T extends Object>
     required bool showAdded,
     required bool showArtist,
   }) {
-    if (widget.showHeader && i == 0) {
+    if (_showColumnHeader && i == 0) {
       return _HeaderRow(
         sortCol: _sortCol,
         sortDir: _sortDir,
@@ -536,7 +544,7 @@ class _WaveDesktopTableState<T extends Object>
         showArtist: showArtist,
       );
     }
-    final index = _order[widget.showHeader ? i - 1 : i];
+    final index = _order[_showColumnHeader ? i - 1 : i];
     return _buildRow(
       index,
       showAlbum: showAlbum,
@@ -822,6 +830,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final touch = Platform.isIOS;
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
     final tertiary =
@@ -855,7 +864,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
         },
         child: AnimatedContainer(
           duration: waveMotion(context, WaveMotion.fast),
-            height: WaveDensity.trackRow,
+            height: touch
+                ? WaveMobileChrome.trackRowHeight
+                : WaveDensity.trackRow,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
               color: bg,
@@ -872,7 +883,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
               children: [
                 // 30px gutter: number → play on hover → animated EQ when playing.
                 SizedBox(
-                  width: 30,
+                  width: touch
+                      ? WaveMobileChrome.trackIndexWidth
+                      : 30,
                   child: Center(
                     child: Text(
                                 (index + 1).toString().padLeft(2, '0'),
@@ -898,7 +911,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                   playing: playing,
                   onPlay: onPlayOverlay,
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: touch ? 10 : 12),
                 Expanded(
                   flex: 5,
                   child: Column(
@@ -910,6 +923,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: WaveType.trackTitle.copyWith(
+                          fontSize: touch
+                              ? 14.5
+                              : WaveType.trackTitle.fontSize,
                           color: current
                               ? accent
                               : (dark
@@ -923,6 +939,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: WaveType.meta.copyWith(
+                            fontSize: touch ? 12.5 : WaveType.meta.fontSize,
                             color: dark
                                 ? WaveColors.textSecondary
                                 : WaveColors.lightTextSecondary,
@@ -1001,7 +1018,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
                   ),
                 // Hover-only like action; the full action menu opens on long-press.
                 SizedBox(
-                  width: _kRowActions,
+                  width: touch
+                      ? WaveMobileChrome.trackActionsWidth
+                      : _kRowActions,
                   child: AnimatedOpacity(
                   duration: waveMotion(context, WaveMotion.fast),
                   opacity: (Platform.isIOS || hovered || current || liked) ? 1 : 0,
@@ -1022,7 +1041,9 @@ class _TableRow<T extends Object> extends StatelessWidget {
                 ),
                 ),
                 SizedBox(
-                  width: _kDurationCol,
+                  width: touch
+                      ? WaveMobileChrome.trackDurationWidth
+                      : _kDurationCol,
                   child: Text(
                     duration,
                     maxLines: 1,
@@ -1073,7 +1094,9 @@ class _ArtPlay extends StatelessWidget {
         children: [
           WaveArtwork(
             url: url,
-            size: WaveDensity.trackArt,
+            size: Platform.isIOS
+                ? WaveMobileChrome.trackArtworkSize
+                : WaveDensity.trackArt,
             radius: WaveRadius.artwork,
             title: title,
             artist: artist,

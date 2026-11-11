@@ -687,6 +687,13 @@ class WaveMobileChrome {
 
   static const transportBottomInset = 10.0;
   static const transportContentInset = 148.0;
+
+  // Touch-first track list geometry, used by routed music collections.
+  static const trackRowHeight = 74.0;
+  static const trackArtworkSize = 48.0;
+  static const trackIndexWidth = 24.0;
+  static const trackActionsWidth = 44.0;
+  static const trackDurationWidth = 48.0;
 }
 
 /// Elevation ladder for surfaces that float over the page.
