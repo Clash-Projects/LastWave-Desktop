@@ -1,11 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
-import 'auth_gate.dart';
-
 import '../ui/app_shell/app_shell.dart';
 import '../ui/app_shell/branch_switcher.dart';
-import '../ui/auth/welcome_page.dart';
 import '../ui/collections/album_detail_page.dart';
 import '../ui/collections/albums_page.dart';
 import '../ui/collections/artist_detail_page.dart';
@@ -153,34 +150,19 @@ Page<void> _anchoredPage(Widget child) {
 
 /// Rebuilt navigation — music first, no dashboard.
 ///
-/// Last.fm authentication is optional (guest mode): [AuthGate] drives a
-/// redirect so outsiders only ever see /welcome (rendered WITHOUT the
-/// main shell), and insiders (signed in or guest) can never sit on
-/// /welcome.
-/// The initial gate value comes from synchronously-loaded prefs, so the
-/// first frame already routes correctly — Home never flashes.
+/// Last.fm is optional. The app always opens directly into the music
+/// shell; users can connect or disconnect Last.fm from Settings without
+/// changing the available playback, library, or navigation experience.
 ///
 /// Home / Discover / Search · Library / Liked / Albums / Artists /
 /// Playlists · Downloads · Friends / Settings · Now / Lyrics ·
 ///
 /// Album / Artist details are first-class music layouts.
 /// History + Mix Lab stay routable but off prime nav.
-GoRouter buildRouter({required AuthGate gate}) {
+GoRouter buildRouter() {
   return GoRouter(
     initialLocation: '/home',
-    refreshListenable: gate,
-    redirect: (context, state) {
-      final atWelcome = state.uri.path == '/welcome';
-      if (!gate.signedIn && !atWelcome) return '/welcome';
-      if (gate.signedIn && atWelcome) return '/home';
-      return null;
-    },
     routes: [
-      GoRoute(
-        path: '/welcome',
-        pageBuilder: (c, s) =>
-            _page(const WaveWelcomePage()),
-      ),
       StatefulShellRoute(
         // Custom branch container: keeps every branch mounted (tab state and
         // scroll survive) but animates the switch. See WaveBranchSwitcher.

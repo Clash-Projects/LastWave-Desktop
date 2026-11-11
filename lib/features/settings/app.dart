@@ -9,11 +9,9 @@ import '../../app/deep_link.dart';
 import '../../app/router.dart';
 import '../../app/window.dart';
 import '../../app/window_lifecycle.dart';
-import '../../app/auth_gate.dart';
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/storage/prefs.dart';
 import '../../design_system/fluent/lw_scrollbar.dart';
-import '../../features/lastfm/auth_repository.dart';
 import '../../ui/theme/fluent_theme.dart';
 import '../../ui/theme/tokens.dart';
 import '../../ui/theme/haze.dart';
@@ -33,10 +31,8 @@ import 'theme_controller.dart';
 /// Single primary system: FluentApp router + Wave Fluent theme.
 /// Native window material via flutter_acrylic/window_manager.
 ///
-/// Last.fm authentication is compulsory: [AuthGate] is seeded from the
-/// synchronously-loaded prefs session and follows the live auth state,
-/// driving the router redirect — unauthenticated users only ever see
-/// the welcome screen, never the shell.
+/// Last.fm authentication is optional. The music shell is available on
+/// first launch, and Last.fm can be connected later from Settings.
 class LastWaveApp extends ConsumerStatefulWidget {
   const LastWaveApp({super.key});
   @override
@@ -53,18 +49,12 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
   }
 
   late final GoRouter _router;
-  late final AuthGate _gate;
 
   @override
   void initState() {
     super.initState();
-    // Prefs are fully loaded before runApp, and AuthRepository restores
-    // the same state synchronously — the first frame routes correctly.
-    _gate = AuthGate(
-      initialInside: ref.read(prefsProvider).isAuthenticated ||
-          ref.read(prefsProvider).isGuest,
-    );
-    _router = buildRouter(gate: _gate);
+    // The first route is Home; Last.fm is an optional integration.
+    _router = buildRouter();
     // lastwave:// links: the launch link once the first frame is up, and
     // links forwarded by a second launch while running.
     _linkSub = DeepLinks.stream.listen(_openLink);
@@ -165,7 +155,6 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
   void dispose() {
     _linkSub?.cancel();
     _lifecycle?.dispose();
-    _gate.dispose();
     super.dispose();
   }
 
@@ -181,13 +170,6 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                 background: mode.$3,
               ));
     }
-    // Live auth state drives the gate (login, logout, guest entry,
-    // session expiry). Guests count as inside.
-    ref.listen(
-        authRepositoryProvider.select((a) =>
-            a.status == AuthStatus.signedIn ||
-            a.status == AuthStatus.guest),
-        (_, inside) => _gate.update(inside));
     // Bridges Jam room events to the player; idle until a room is joined.
     ref.watch(jamSyncProvider);
     final theme = ref.watch(themeControllerProvider);

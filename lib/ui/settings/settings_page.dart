@@ -17,7 +17,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../features/auth/google_oauth.dart';
 
-import '../../app/auth_gate.dart';
+import '../../app/session_actions.dart';
 import '../../core/app_info.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/diagnostics/diagnostics_log.dart';

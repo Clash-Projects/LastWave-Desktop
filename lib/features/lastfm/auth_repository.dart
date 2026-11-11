@@ -8,8 +8,8 @@ import '../../core/storage/prefs.dart';
 import '../../core/storage/secure_store.dart';
 
 /// Last.fm authentication state. Mirrors Android `AuthState`.
-/// `guest` = keyless entry via the welcome Skip button: inside the
-/// shell with no keys and no session; Last.fm features stay off.
+/// `guest` preserves older keyless sessions with no Last.fm session;
+/// the music shell remains available regardless of this status.
 enum AuthStatus { unknown, signedOut, signingIn, signedIn, guest, error }
 
 class AuthState {
@@ -79,7 +79,7 @@ class AuthRepository extends StateNotifier<AuthState> {
   }
 
   /// Last.fm API credentials — the user's own keys (BYOK), stored in
-  /// Prefs. Empty until the user enters them (Settings / welcome).
+  /// Prefs. Empty until the user enters them in Settings.
   String get _apiKey => _prefs.lastFmApiKey;
   String get _apiSecret => _prefs.lastFmApiSecret;
 
@@ -87,7 +87,7 @@ class AuthRepository extends StateNotifier<AuthState> {
   /// calls require this; repositories no-op otherwise.
   bool get isConfigured => _prefs.isLastFmConfigured;
 
-  /// Save user-supplied API keys (Settings / welcome share this path).
+  /// Save user-supplied API keys from Settings.
   ///
   /// Session keys are bound to the API key that minted them, so saving
   /// *different* keys signs the current session out first. The
@@ -105,9 +105,9 @@ class AuthRepository extends StateNotifier<AuthState> {
       throw LastFmException('Incomplete Last.fm API keys');
     }
     if (key != _prefs.lastFmApiKey || secret != _prefs.lastFmApiSecret) {
-      // Sessions belong to their API key — clear any session. Guests
-      // stay guests (no welcome bounce mid-save); signed-in users
-      // drop to signedOut and reconnect via welcome.
+      // Sessions belong to their API key — clear any session. Existing
+      // guest state is preserved; signed-in users can reconnect here in
+      // Settings after the replacement keys have been saved.
       final wasGuest = _prefs.isGuest;
       await _prefs.signOut();
       await _secure.writeSessionKey(null);

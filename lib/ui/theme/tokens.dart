@@ -396,14 +396,14 @@ class WaveDensity {
 
 /// Typography: artwork + type carry hierarchy, not boxes.
 ///
-/// - pageTitle 22/700/-0.4 · sectionTitle 15/700 · trackTitle 13.5/600
+/// - pageTitle 24/700/-0.4 · sectionTitle 15/700 · trackTitle 14/600
 /// - body 13 · meta 12 · label 12/600/0.2 · overline 10.5/700/1.0
 /// - numeral: tabular figures for times/counts.
 /// - lyricActive 21/700 · lyricIdle 16/500.
 class WaveType {
   WaveType._();
   static const pageTitle = TextStyle(
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: FontWeight.w700,
     letterSpacing: -0.4,
     height: 1.15,
@@ -415,11 +415,11 @@ class WaveType {
     height: 1.25,
   );
   static const trackTitle = TextStyle(
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: FontWeight.w600,
     height: 1.3,
   );
-  static const body = TextStyle(fontSize: 13, height: 1.5);
+  static const body = TextStyle(fontSize: 14, height: 1.5);
   static const meta = TextStyle(fontSize: 12, height: 1.45);
   static const label = TextStyle(
     fontSize: 12,

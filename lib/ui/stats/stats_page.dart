@@ -164,8 +164,7 @@ class _StatsHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final narrow = MediaQuery.sizeOf(context).width < 800;
 
-    final title = Text('Statistics',
-        style: WaveType.pageTitle.copyWith(fontSize: 27));
+    final title = Text('Statistics', style: WaveType.pageTitle);
     final refresh = WaveIconButton(
       tooltip: 'Refresh statistics & scrobbles',
       icon: const Icon(FluentIcons.refresh, size: 14),

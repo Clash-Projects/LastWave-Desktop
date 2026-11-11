@@ -6,8 +6,7 @@ import '../theme/tokens.dart';
 
 const _lastFmApiAccountUrl = 'https://www.last.fm/api/account/create';
 
-/// Collapsible "how do I get Last.fm keys?" walkthrough. Shared by the
-/// welcome screen and Settings so both explain the same steps.
+/// Collapsible "how do I get Last.fm keys?" walkthrough for Settings.
 class LastFmKeyGuide extends StatelessWidget {
   const LastFmKeyGuide({super.key});
 
