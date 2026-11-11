@@ -1292,8 +1292,8 @@ class _TrackSwap extends StatelessWidget {
 
 const _metadataShadow = [Shadow(color: Color(0x59000000), blurRadius: 10)];
 
-/// Split the stream spec into a tier ("HI-RES") and a quieter detail
-/// ("FLAC · 4608 kbps") without repeating the tier inside the codec.
+/// Split the stream spec into a tier ("HI-RES") and codec detail
+/// ("FLAC") without repeating the tier inside the codec.
 ({String tier, String detail})? _streamQualityParts(ResolvedStream stream) {
   final badge = stream.qualityBadge.trim().toUpperCase();
   final codec = stream.audioCodec.trim().toUpperCase();
@@ -1319,7 +1319,6 @@ const _metadataShadow = [Shadow(color: Color(0x59000000), blurRadius: 10)];
 
   final detailParts = <String>[
     ?codecDetail,
-    if (stream.bitrateKbps > 0) '${stream.bitrateKbps} kbps',
   ];
   if (tier.isEmpty && detailParts.isEmpty) return null;
   return (tier: tier.isEmpty ? 'AUDIO' : tier, detail: detailParts.join(' · '));
