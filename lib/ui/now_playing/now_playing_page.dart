@@ -959,7 +959,8 @@ class _NarrowCenteredPane extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 440),
+          constraints:
+              BoxConstraints(maxWidth: Platform.isIOS ? 560 : 440),
           child: Column(
             mainAxisSize: MainAxisSize.max,
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -971,7 +972,7 @@ class _NarrowCenteredPane extends StatelessWidget {
                       0.0,
                       math.min(
                         math.min(constraints.maxWidth, constraints.maxHeight),
-                        360.0,
+                        Platform.isIOS ? 520.0 : 360.0,
                       ),
                     );
                     if (artSize <= 0) {
@@ -1085,6 +1086,9 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     final track = widget.track;
     final size = widget.size;
     final dark = waveIsDark(context);
+    // Touch covers use the cinematic hero radius from the Wave ladder.
+    final coverRadius =
+        Platform.isIOS ? WaveRadius.hero : WaveRadius.artwork;
     // Podcasts keep their native shape: 16:9 art stays 16:9, square art
     // falls through to the normal 1:1 cover below.
     if (track.artworkUrl.isNotEmpty && _podcast(track)) {
@@ -1109,7 +1113,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
           width: w,
           height: h,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(coverRadius),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: dark ? 0.62 : 0.34),
@@ -1124,7 +1128,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(coverRadius),
             child: CachedNetworkImage(
               imageUrl: track.artworkUrl,
               fit: BoxFit.cover,
@@ -1179,7 +1183,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       url: track.artworkUrl,
       videoId: track.videoId,
       size: size,
-      radius: 12,
+      radius: coverRadius,
       label: track.title,
       title: track.title,
       artist: track.artist,
@@ -1189,7 +1193,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(coverRadius),
         // Kept shallow on purpose: large blurs over a full-window ambient
         // stage retain big GPU surfaces on Windows ANGLE.
         boxShadow: [
@@ -1211,7 +1215,7 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       // switch every video frame cost milliseconds on weak raster.
       child: RepaintBoundary(
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(coverRadius),
           clipBehavior: Clip.antiAlias,
           child: Stack(
             fit: StackFit.expand,
@@ -1354,27 +1358,38 @@ class _TrackMetadataSection extends ConsumerWidget {
         track.album.isNotEmpty &&
         track.album.toLowerCase().trim() != track.title.toLowerCase().trim();
 
-    final artistStyle = WaveType.meta.copyWith(
-      fontSize: 14,
-      height: 1.45,
-      fontWeight: FontWeight.w500,
-      letterSpacing: 0.1,
-      shadows: _metadataShadow,
-    );
+    // Touch layout (iPhone / iPad): left-aligned title block with the like /
+    // add actions beside it, like a native player. Desktop keeps the centred
+    // or start-aligned stack it always had.
+    final touch = Platform.isIOS;
+    final centered = alignCenter && !touch;
 
-    return Column(
+    final artistStyle = touch
+        ? WaveTouchType.rowTitle.copyWith(
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.1,
+            shadows: _metadataShadow,
+          )
+        : WaveType.meta.copyWith(
+            fontSize: 14,
+            height: 1.45,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.1,
+            shadows: _metadataShadow,
+          );
+
+    final titleBlock = Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: alignCenter
-          ? CrossAxisAlignment.center
-          : CrossAxisAlignment.start,
+      crossAxisAlignment:
+          centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       children: [
         Text(
           track.title,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          textAlign: alignCenter ? TextAlign.center : TextAlign.start,
-          style: WaveType.pageTitle.copyWith(
-            fontSize: 25,
+          textAlign: centered ? TextAlign.center : TextAlign.start,
+          style: (touch ? WaveTouchType.title : WaveType.pageTitle).copyWith(
+            fontSize: touch ? null : 25,
             height: 1.12,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.5,
@@ -1385,7 +1400,7 @@ class _TrackMetadataSection extends ConsumerWidget {
         const SizedBox(height: 5),
         WaveArtistLine(
           artist: track.artist,
-          textAlign: alignCenter ? TextAlign.center : TextAlign.start,
+          textAlign: centered ? TextAlign.center : TextAlign.start,
           style: artistStyle.copyWith(
             color: Colors.white.withValues(alpha: 0.86),
           ),
@@ -1408,11 +1423,20 @@ class _TrackMetadataSection extends ConsumerWidget {
             ],
           ],
         ),
-        if (Platform.isIOS) ...[
-          const SizedBox(height: 8),
+      ],
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment:
+          centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      children: [
+        if (touch)
           Row(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              Expanded(child: titleBlock),
+              const SizedBox(width: WaveSpacing.x4),
               LWTooltip(
                 message: isLiked ? 'Remove from Liked Songs' : 'Like song',
                 child: _FsIconButton(
@@ -1439,7 +1463,6 @@ class _TrackMetadataSection extends ConsumerWidget {
                   },
                 ),
               ),
-              const SizedBox(width: 8),
               LWTooltip(
                 message: 'Add to playlist',
                 child: _FsIconButton(
@@ -1452,13 +1475,14 @@ class _TrackMetadataSection extends ConsumerWidget {
                 ),
               ),
             ],
-          ),
-        ],
+          )
+        else
+          titleBlock,
         if (playerNotice != null && playerNotice.trim().isNotEmpty) ...[
           const SizedBox(height: 8),
           Text(
             playerNotice,
-            textAlign: alignCenter ? TextAlign.center : TextAlign.start,
+            textAlign: centered ? TextAlign.center : TextAlign.start,
             style: WaveType.meta.copyWith(
               color: Colors.orange,
               shadows: _metadataShadow,
@@ -1467,9 +1491,9 @@ class _TrackMetadataSection extends ConsumerWidget {
         ],
         if (quality != null) ...[
           const SizedBox(height: 10),
-          _QualitySpecLine(quality: quality, centered: alignCenter),
+          _QualitySpecLine(quality: quality, centered: centered),
         ],
-        _UpNextRow(centered: alignCenter),
+        _UpNextRow(centered: centered),
       ],
     );
   }
