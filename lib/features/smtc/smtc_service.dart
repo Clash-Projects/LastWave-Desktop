@@ -75,13 +75,17 @@ Map<String, Object>? smtcUpdateFor(PlayerSnapshot? prev, PlayerSnapshot next) {
   };
 }
 
-/// Windows System Media Transport Controls endpoint — the Windows
-/// counterpart to the MPRIS service on Linux.
+/// System media transport endpoint for Windows (SMTC) and macOS
+/// (Now Playing) — the counterpart to the MPRIS service on Linux.
 ///
 /// Pushes now-playing metadata + transport state to the native
-/// `lastwave/smtc` channel (volume flyout, lock screen, Bluetooth,
+/// `lastwave/smtc` channel (Windows: volume flyout, lock screen;
+/// macOS: menu bar Now Playing, Control Center; both: Bluetooth and
 /// hardware media keys) and routes button presses back into
-/// [PlaybackService]. Windows only; every failure degrades to silence.
+/// [PlaybackService]. The native side lives in
+/// `windows/runner/smtc_channel.cpp` and
+/// `macos/Runner/NowPlayingChannel.swift`. Every failure degrades to
+/// silence.
 class SmtcService {
   final Ref _ref;
   final MethodChannel _channel = const MethodChannel('lastwave/smtc');
@@ -91,10 +95,13 @@ class SmtcService {
 
   SmtcService(this._ref);
 
+  /// Platforms whose runner implements the `lastwave/smtc` channel.
+  static bool get isSupported => Platform.isWindows || Platform.isMacOS;
+
   PlaybackService get _player => _ref.read(playbackServiceProvider.notifier);
 
   Future<void> startup() async {
-    if (!Platform.isWindows || _disposed) return;
+    if (!isSupported || _disposed) return;
     if (!_handlerSet) {
       _handlerSet = true;
       _channel.setMethodCallHandler(_onNativeCall);
@@ -104,7 +111,7 @@ class SmtcService {
   }
 
   void onSnapshot(PlayerSnapshot snap) {
-    if (!Platform.isWindows || _disposed) return;
+    if (!isSupported || _disposed) return;
     final update = smtcUpdateFor(_last, snap);
     _last = snap;
     if (update == null) return;
@@ -112,8 +119,18 @@ class SmtcService {
   }
 
   Future<dynamic> _onNativeCall(MethodCall call) async {
-    if (call.method != 'onButton') return null;
     final player = _player;
+    if (call.method == 'onSeek') {
+      // macOS Control Center scrubber; position in milliseconds.
+      final ms = call.arguments;
+      if (ms is int && ms >= 0) {
+        try {
+          await player.seek(Duration(milliseconds: ms));
+        } catch (_) {}
+      }
+      return null;
+    }
+    if (call.method != 'onButton') return null;
     try {
       switch (call.arguments as String?) {
         case 'play':
