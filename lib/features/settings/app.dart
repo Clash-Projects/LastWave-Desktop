@@ -145,8 +145,9 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         ref.read(mprisProvider).startup();
       } catch (_) {}
       try {
-        // SMTC (Windows): volume flyout, lock screen, Bluetooth and
-        // hardware media keys. No-op elsewhere.
+        // SMTC (Windows) / Now Playing (macOS): volume flyout or
+        // Control Center, lock screen, Bluetooth and hardware media
+        // keys. No-op elsewhere.
         ref.read(smtcProvider).startup();
       } catch (_) {}
       Future<void>.delayed(const Duration(seconds: 20), () {
