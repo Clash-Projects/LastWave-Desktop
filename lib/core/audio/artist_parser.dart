@@ -75,7 +75,7 @@ Iterable<String> splitArtistCredits(String artist) sync* {
   }
 
   final delimiterRegex = RegExp(
-    r'(?:\s*[,;]\s*|\s+&\s+|\s+and\s+|\s+/\s+|\s+[xX]\s+|\s+[(\[]?(?:feat\.?|ft\.?|featuring|with)\b[)\]]?\s*)',
+    r'(?:\s*[,;]\s*|\s+&\s+|\s+and\s+|\s+/\s+|\s+[xX]\s+|\s+[(\[]?(?:feat\b\.?|ft\b\.?|featuring\b|with\b)[)\]]?\s*)',
     caseSensitive: false,
   );
 

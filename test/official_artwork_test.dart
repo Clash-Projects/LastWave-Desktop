@@ -163,6 +163,46 @@ void main() {
       ]);
     });
 
+    test('splitArtistCredits splits dotted feat. and ft. credits', () {
+      expect(
+        OfficialArtworkService.splitArtistCredits(
+          'Drake feat. Rihanna',
+        ).toList(),
+        ['Drake', 'Rihanna'],
+      );
+      expect(
+        OfficialArtworkService.splitArtistCredits('Drake ft. Rihanna').toList(),
+        ['Drake', 'Rihanna'],
+      );
+      expect(
+        OfficialArtworkService.splitArtistCredits(
+          'Drake (feat. Rihanna)',
+        ).toList(),
+        ['Drake', 'Rihanna'],
+      );
+      expect(
+        OfficialArtworkService.splitArtistCredits(
+          'Drake [ft. Rihanna]',
+        ).toList(),
+        ['Drake', 'Rihanna'],
+      );
+      expect(
+        OfficialArtworkService.splitArtistCredits(
+          'Drake Feat. Rihanna & Future',
+        ).toList(),
+        ['Drake', 'Rihanna', 'Future'],
+      );
+      expect(
+        OfficialArtworkService.splitArtistCredits(
+          'Drake feat Rihanna',
+        ).toList(),
+        ['Drake', 'Rihanna'],
+      );
+      expect(OfficialArtworkService.splitArtistCredits('DJ Feature').toList(), [
+        'DJ Feature',
+      ]);
+    });
+
     test(
       'stale YouTube cache is ignored so All Caps can resolve iTunes art',
       () async {
