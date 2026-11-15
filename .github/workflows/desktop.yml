@@ -54,6 +54,7 @@ jobs:
             libkeybinder-3.0-dev libwebkit2gtk-4.1-dev glib-networking
 
       - name: Setup Flutter
+        if: matrix.arch == 'x64'
         uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -62,6 +63,16 @@ jobs:
           # 3.47.9 is the last engine with crash-free builds.
           flutter-version: 3.47.9
           cache: true
+
+      # Flutter publishes no Linux arm64 archive, so flutter-action cannot
+      # install it there; the git checkout fetches arm64 engine artifacts
+      # on first run instead.
+      - name: Setup Flutter (arm64, from git)
+        if: matrix.arch == 'arm64'
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
 
       # Release builds need the addon backend key: CI has no .env
       # (gitignored), so the repo secret ADDON_CLIENT_SECRET is written
@@ -365,8 +376,11 @@ jobs:
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           export VERSION="${GITHUB_REF_NAME#v}"
           echo "Packaging version $VERSION"
-          NFPM_ARCH="$DEB_ARCH" ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager deb --target ./lastwave_${VERSION}_${DEB_ARCH}.deb
-          NFPM_ARCH="$RPM_ARCH" ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager rpm --target ./lastwave_${VERSION}_${RPM_ARCH}.rpm
+          # nFPM expands env vars in `arch` but not in contents[].src, so
+          # render the bundle dir (x64/arm64) into a temporary config.
+          sed "s|\${BUNDLE_ARCH}|$BUNDLE_ARCH|g" linux/packaging/nfpm.yaml > "$RUNNER_TEMP/nfpm.yaml"
+          NFPM_ARCH="$DEB_ARCH" ~/go/bin/nfpm package --config "$RUNNER_TEMP/nfpm.yaml" --packager deb --target ./lastwave_${VERSION}_${DEB_ARCH}.deb
+          NFPM_ARCH="$RPM_ARCH" ~/go/bin/nfpm package --config "$RUNNER_TEMP/nfpm.yaml" --packager rpm --target ./lastwave_${VERSION}_${RPM_ARCH}.rpm
           ls -la lastwave_${VERSION}_${DEB_ARCH}.deb lastwave_${VERSION}_${RPM_ARCH}.rpm
 
       - name: Upload Linux Packages
