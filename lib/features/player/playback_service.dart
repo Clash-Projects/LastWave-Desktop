@@ -175,6 +175,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// chain for the session so the listener's own EQ keeps working.
   bool _djEqBroken = false;
 
+  /// An optional EQ extra (crystalizer) was rejected: left out from then on.
+  bool _eqExtrasDropped = false;
+
   /// Fired when EQ, loudness, speed, pitch, or the mix mode changes so
   /// WASAPI exclusive can drop out. Null until the output controller
   /// attaches.
@@ -1470,68 +1473,58 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   /// mpv's own playback clock (`time-pos`), read now. Falls back to the
   /// last streamed position.
-  /// mpv rejected an audio filter. The AutoMix EQ stage is blamed (and
-  /// dropped) first; only a rejected EQ / headphone chain turns
-  /// processing off.
+  /// mpv rejected an audio filter. A rejected graph leaves the track with
+  /// NO audio (mpv ends the file), so one piece is dropped per failure, the
+  /// least certain first, and the song is reopened where it was:
+  ///  1. optional EQ extras (`crystalizer` is missing from some FFmpeg builds);
+  ///  2. the listener's EQ / headphone chain;
+  ///  3. the AutoMix stage last: it only uses `equalizer`, which the EQ
+  ///     itself proves is available.
   void _onFilterGraphError(String text) {
     if (!_filterErrorLogged) {
       _filterErrorLogged = true;
       _crumb('filter rejected (not a stream error): '
           '${text.length > 120 ? text.substring(0, 120) : text}');
     }
-    final mixing = _crossfading || _standbyArmed;
-    if (!_djEqBroken && _currentAudioFilter.contains('@lwdj')) {
-      // Our mix stage is the newest piece of the chain: drop it for the
-      // session and keep the listener's EQ instead of losing everything.
+    final userChain = mergeEqualizerAndHeadphone(_eqFilter, _hpFilter);
+    if (!_eqExtrasDropped && userChain.contains('crystalizer')) {
+      _eqExtrasDropped = true;
+      _crumb('eq extras rejected -> dropped, reopening');
+    } else if (!_processingDisabled && userChain.isNotEmpty) {
+      _processingDisabled = true;
+      _crumb('processing filter rejected -> disabled, reopening');
+    } else if (!_djEqBroken && _currentAudioFilter.contains('@lwdj')) {
       _djEqBroken = true;
       _djEqLive = false;
       _crumb('automix eq stage rejected -> removed for this session');
-      _rebuildProcessingFilter();
-      if (!mixing) {
-        final idx = state.currentIndex;
-        final pos = state.position;
-        final key = state.current?.queueKey;
-        unawaited(runGuardedAsync('filter-recover', () async {
-          try {
-            await _applyRateAndPitch();
-          } catch (_) {}
-          if (key != null && pos > const Duration(seconds: 3)) {
-            _resumeKey = key;
-            _resumeAt = pos;
-          }
-          await _resolveAndOpen(idx, forceRefresh: false);
-        }));
-      } else {
-        unawaited(_applyRateAndPitch().catchError((_) {}));
-      }
-      _notifyProcessing();
+    } else {
       return;
     }
-    if (!mixing) {
-      // A rejected EQ / headphone graph leaves the track with NO audio
-      // (mpv ends the file). Drop processing for the session and reopen
-      // the song where it was, instead of failing every track.
-      if (_currentAudioFilter.isNotEmpty && !_processingDisabled) {
-        _processingDisabled = true;
-        _crumb('processing filter rejected -> disabled, reopening');
-        _rebuildProcessingFilter();
-        final idx = state.currentIndex;
-        final pos = state.position;
-        final key = state.current?.queueKey;
-        unawaited(runGuardedAsync('filter-recover', () async {
-          try {
-            await _applyRateAndPitch();
-          } catch (_) {}
-          if (key != null && pos > const Duration(seconds: 3)) {
-            _resumeKey = key;
-            _resumeAt = pos;
-          }
-          await _resolveAndOpen(idx, forceRefresh: false);
-        }));
-        _notifyProcessing();
-      }
+    _rebuildProcessingFilter();
+    _recoverFromFilterError();
+    _notifyProcessing();
+  }
+
+  /// Puts the rebuilt chain on both decks; outside a mix also reopens the
+  /// song where it was (mpv ended the file when the graph failed).
+  void _recoverFromFilterError() {
+    if (_crossfading || _standbyArmed) {
+      unawaited(_applyRateAndPitch().catchError((_) {}));
       return;
     }
+    final idx = state.currentIndex;
+    final pos = state.position;
+    final key = state.current?.queueKey;
+    unawaited(runGuardedAsync('filter-recover', () async {
+      try {
+        await _applyRateAndPitch();
+      } catch (_) {}
+      if (key != null && pos > const Duration(seconds: 3)) {
+        _resumeKey = key;
+        _resumeAt = pos;
+      }
+      await _resolveAndOpen(idx, forceRefresh: false);
+    }));
   }
 
   void _startCrossfade(Duration fadeDuration, {bool sweep = false}) {
@@ -2115,11 +2108,16 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   void _rebuildProcessingFilter() {
     _hpFilter = HeadphoneProfiles.byId(_prefs.headphoneProfile).lavfiFilter;
-    final chain = _processingDisabled
-        ? ''
-        : mergeEqualizerAndHeadphone(_eqFilter, _hpFilter);
-    _currentAudioFilter =
-        _processingDisabled || !_timedMixEnabled || _djEqBroken
+    var eq = _eqFilter;
+    if (_eqExtrasDropped) {
+      eq = eq.replaceAll(RegExp(r',?crystalizer=[^,\]]*'), '');
+      if (eq.endsWith('lavfi=[]')) eq = '';
+    }
+    final chain =
+        _processingDisabled ? '' : mergeEqualizerAndHeadphone(eq, _hpFilter);
+    // The AutoMix stage stands on its own: it stays even when the
+    // listener's chain had to be dropped.
+    _currentAudioFilter = !_timedMixEnabled || _djEqBroken
         ? chain
         : (chain.isEmpty ? _djEqStage : '$chain,$_djEqStage');
   }

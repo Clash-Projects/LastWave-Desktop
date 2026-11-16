@@ -221,12 +221,12 @@ class DjMixPlanner {
         style = DjMixStyle.beatmatch;
       }
     }
-    final conf = math.min(out.confidence, inc.hasBeat ? inc.confidence : 0.0);
-    // A filter mix, or a shaky grid, keeps to 8 bars.
-    if (bars == 16 &&
-        (style == DjMixStyle.filter || conf < longBlendConfidence)) {
-      return null;
-    }
+    // A shaky grid keeps to 8 bars. A filter blend only needs the
+    // outgoing grid (the incoming song is placed on its own downbeat).
+    final conf = style == DjMixStyle.beatmatch
+        ? math.min(out.confidence, inc.confidence)
+        : out.confidence;
+    if (bars == 16 && conf < longBlendConfidence) return null;
     final blendSec = bars * bar;
 
     // ---- outgoing: end on the outro, start on a downbeat ----------------
@@ -294,8 +294,9 @@ class DjMixPlanner {
   /// Beatmatched: the incoming song comes up over the first 60% while the
   /// outgoing one holds full level for the first 40%, then lets go. With
   /// the basses swapped and the treble crossed, two matched grooves at full
-  /// level sound like one. Otherwise: smoothed equal power, so loudness
-  /// stays level between two songs that are not locked together.
+  /// level sound like one. Otherwise: equal power on a straight angle, so
+  /// loudness stays level and both songs stay clearly audible across the
+  /// whole blend instead of crossing over quickly in the middle.
   static (double, double) gains({
     required bool beatmatched,
     required double progress,
@@ -312,7 +313,7 @@ class DjMixPlanner {
         math.sin(smooth(p / 0.6) * math.pi / 2),
       );
     }
-    final a = smooth(p) * math.pi / 2;
+    final a = p * math.pi / 2;
     return (math.cos(a), math.sin(a));
   }
 

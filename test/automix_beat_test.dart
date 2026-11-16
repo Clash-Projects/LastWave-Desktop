@@ -143,12 +143,12 @@ void main() {
       expect(head.downbeats, contains(p.incomingCue));
     });
 
-    test('far tempi fall back to an 8-bar filter mix at their own speed', () {
+    test('far tempi get a filter blend at their own speed, full length', () {
       final slow = analyzePcm(drums(bpm: 90, seconds: 60, intro: 2), sr);
       final p = planFor(inc: slow);
       expect(p.style, DjMixStyle.filter);
       expect(p.rate, 1.0);
-      expect(p.bars, 8);
+      expect(p.bars, 16);
       expect(slow.downbeats, contains(p.incomingCue));
     });
 
