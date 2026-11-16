@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show WidgetsBinding;
 
 import 'webview_profile.dart';
 import 'yt_webview_guard.dart';
@@ -161,8 +162,31 @@ class YtWebLogin {
     unawaited(_foregroundRetries(w));
   }
 
+  /// True while the cached window sits off-screen (created for a silent
+  /// refresh on Windows).
+  static bool _parked = false;
+
+  /// Moves a parked window to where the plugin would have placed it:
+  /// 480x760 logical, centered on the primary display.
+  static Future<void> _unpark(Webview w) async {
+    if (!_parked || !identical(_cachedWindow, w)) return;
+    try {
+      final display = WidgetsBinding.instance.platformDispatcher.displays.first;
+      final width = (480 * display.devicePixelRatio).round();
+      final height = (760 * display.devicePixelRatio).round();
+      await w.moveWebviewWindow(
+        ((display.size.width - width) / 2).round(),
+        ((display.size.height - height) / 2).round(),
+        width,
+        height,
+      );
+      _parked = false;
+    } catch (_) {}
+  }
+
   static Future<void> _foregroundOnce(Webview w) async {
     if (!identical(_cachedWindow, w) || !_expectVisible) return;
+    await _unpark(w);
     try {
       await w.setWebviewWindowVisibility(true);
     } catch (_) {}
@@ -439,17 +463,27 @@ class YtWebLogin {
     }
     try {
       final folder = await _userDataFolder('auth');
+      // The Windows plugin creates every window WS_VISIBLE and centered,
+      // so a background-only window flashed a white sign-in screen at
+      // startup before the hide landed. Create it off-screen instead
+      // (same as the BotGuard window); [_unpark] brings it back if the
+      // user ever needs to see it.
+      final park = !show && Platform.isWindows;
       final w = await WebviewWindow.create(
         configuration: CreateConfiguration(
           title: _windowTitle,
           titleBarHeight: 40,
           windowWidth: 480,
           windowHeight: 760,
+          windowPosX: park ? -32000 : 0,
+          windowPosY: park ? -32000 : 0,
+          useWindowPositionAndSize: park,
           userDataFolderWindows:
               folder.isEmpty ? 'webview_window_WebView2' : folder,
         ),
       );
       _cachedWindow = w;
+      _parked = park;
       if (Platform.isMacOS) {
         try {
           w.addScriptToExecuteOnDocumentCreated(_macCompatShim);
