@@ -226,12 +226,18 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
         return await text(
             {'kind': 'missing', 'id': song, 'reason': 'no_youtube'});
       }
-      final file = _allowed(song) ? _song(song) : null;
-      while (file != null && file.size == 0 && !file.failed) {
+      // Not the room's current/next song yet (queue still syncing): say so,
+      // so the page asks again on the next change instead of giving up.
+      if (!_allowed(song)) {
+        return await text(
+            {'kind': 'missing', 'id': song, 'reason': 'not_allowed'});
+      }
+      final file = _song(song);
+      while (file.size == 0 && !file.failed) {
         await file.changed;
       }
       if (gone()) return;
-      if (file == null || file.failed && file.size == 0) {
+      if (file.failed && file.size == 0) {
         return await text({'kind': 'missing', 'id': song});
       }
       await text({
