@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/automix/audio_analysis.dart';
 import 'package:lastwave_desktop/features/automix/automix_analyzer.dart';
-import 'package:lastwave_desktop/features/automix/outro_mix_planner.dart';
+import 'package:lastwave_desktop/features/automix/dj_mix_planner.dart';
 import 'package:lastwave_desktop/features/automix/mix_guard.dart';
 
 DeckReading deck({double volume = 70, bool playing = true, double rate = 1}) =>
@@ -13,6 +13,7 @@ DeckReading deck({double volume = 70, bool playing = true, double rate = 1}) =>
 MixGuardInput input({
   bool mixing = false,
   bool armed = false,
+  bool ramping = false,
   DeckReading? primary,
   DeckReading? standby,
   Duration mixAge = Duration.zero,
@@ -21,6 +22,7 @@ MixGuardInput input({
     MixGuardInput(
       mixing: mixing,
       armed: armed,
+      ramping: ramping,
       fullVolume: 70,
       expectedRate: 1,
       primary: primary ?? deck(),
@@ -76,9 +78,11 @@ void main() {
           isEmpty);
     });
 
-    test('a deck left at the wrong tempo is put back', () {
+    test('a tempo left over from a matched blend is undone, not mid-glide', () {
       expect(checkMix(input(primary: deck(rate: 0.97))),
           contains(MixRepair.restoreRate));
+      expect(checkMix(input(ramping: true, primary: deck(rate: 0.97))),
+          isEmpty);
     });
 
     test('a mix is left alone while running, aborted when stuck', () {
@@ -99,12 +103,16 @@ void main() {
     });
   });
 
-  test('fault budget turns the overlap off after repeated faults', () {
+  test('fault budget steps down: tempo matching first, then overlap', () {
     final b = MixFaultBudget();
+    expect(b.beatMixAllowed && b.overlapAllowed, isTrue);
+    b.record();
+    b.record();
+    expect(b.record(), contains('tempo matching off'));
+    expect(b.beatMixAllowed, isFalse);
     expect(b.overlapAllowed, isTrue);
-    for (var k = 0; k < 5; k++) {
-      expect(b.record(), isNull);
-    }
+    b.record();
+    b.record();
     expect(b.record(), contains('overlap off'));
     expect(b.overlapAllowed, isFalse);
   });
@@ -128,38 +136,45 @@ void main() {
     test('a garbage analysis never yields an unsafe plan', () {
       final tail = analysis(ws: 140, we: 200, ce: 1e9, beats: []);
       final head = analysis(as: -50);
-      final p = OutroMixPlanner.plan(
+      final p = DjMixPlanner.plan(
         outgoingTail: tail,
         incomingHead: head,
         outgoingDuration: 200,
         incomingDuration: 180,
-        maxOverlap: 14,
+        bars: 16,
       );
       if (p != null) {
-        expect(
-            OutroMixPlanner.isSafePlan(p,
-                outgoingDuration: 200, maxOverlap: 14),
-            isTrue);
+        expect(DjMixPlanner.isSafePlan(p, outgoingDuration: 200), isTrue);
       }
     });
 
     test('isSafePlan rejects out-of-range plans', () {
-      const ok = OutroMixPlan(
-          mixOutStart: 186, overlap: 12, incomingCue: 2, reason: 't');
-      expect(
-          OutroMixPlanner.isSafePlan(ok, outgoingDuration: 200, maxOverlap: 14),
-          isTrue);
-      for (final bad in const [
-        OutroMixPlan(mixOutStart: 170, overlap: 30, incomingCue: 2, reason: 't'),
-        OutroMixPlan(mixOutStart: 195, overlap: 12, incomingCue: 2, reason: 't'),
-        OutroMixPlan(mixOutStart: 186, overlap: 1, incomingCue: 2, reason: 't'),
-        OutroMixPlan(mixOutStart: double.nan, overlap: 12, incomingCue: 2, reason: 't'),
-        OutroMixPlan(mixOutStart: 186, overlap: 12, incomingCue: -1, reason: 't'),
+      DjMixPlan plan({
+        double out = 170,
+        double blend = 15,
+        double rate = 0.97,
+        DjMixStyle style = DjMixStyle.beatmatch,
+      }) =>
+          DjMixPlan(
+            mixOutStart: out,
+            blendSec: blend,
+            incomingCue: 2,
+            incomingStartAt: 0.5,
+            rate: rate,
+            bars: 8,
+            style: style,
+            reason: 't',
+          );
+      expect(DjMixPlanner.isSafePlan(plan(), outgoingDuration: 200), isTrue);
+      for (final bad in [
+        plan(out: 190),
+        plan(rate: 0.8),
+        plan(rate: 1.3),
+        plan(rate: double.nan),
+        plan(style: DjMixStyle.filter),
+        plan(blend: 100),
       ]) {
-        expect(
-            OutroMixPlanner.isSafePlan(bad,
-                outgoingDuration: 200, maxOverlap: 14),
-            isFalse);
+        expect(DjMixPlanner.isSafePlan(bad, outgoingDuration: 200), isFalse);
       }
     });
   });

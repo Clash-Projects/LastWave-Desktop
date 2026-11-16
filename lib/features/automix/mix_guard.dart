@@ -27,6 +27,7 @@ class MixGuardInput {
   const MixGuardInput({
     required this.mixing,
     required this.armed,
+    required this.ramping,
     required this.fullVolume,
     required this.expectedRate,
     required this.primary,
@@ -41,6 +42,9 @@ class MixGuardInput {
 
   /// The standby deck is loaded for the next mix (must stay silent).
   final bool armed;
+
+  /// The post-mix tempo glide is running on the primary deck.
+  final bool ramping;
 
   /// What the primary deck's volume must be outside a mix (0..100).
   final double fullVolume;
@@ -86,7 +90,7 @@ List<MixRepair> checkMix(MixGuardInput i) {
   if ((i.primary.volume - i.fullVolume).abs() > 1.0) {
     out.add(MixRepair.restorePrimaryVolume);
   }
-  if ((i.primary.rate - i.expectedRate).abs() > 0.002) {
+  if (!i.ramping && (i.primary.rate - i.expectedRate).abs() > 0.002) {
     out.add(MixRepair.restoreRate);
   }
   return out;
@@ -95,12 +99,16 @@ List<MixRepair> checkMix(MixGuardInput i) {
 /// Counts AutoMix faults in a session and steps down to safer modes, so
 /// a mixer that keeps misbehaving on this machine stops trying.
 class MixFaultBudget {
-  MixFaultBudget({this.overlapLimit = 6});
+  MixFaultBudget({this.beatLimit = 3, this.overlapLimit = 6});
 
+  final int beatLimit;
   final int overlapLimit;
   int _faults = 0;
 
   int get faults => _faults;
+
+  /// Tempo matching (and its phase lock) still allowed.
+  bool get beatMixAllowed => _faults < beatLimit;
 
   /// Any overlap still allowed (otherwise tracks change gaplessly).
   bool get overlapAllowed => _faults < overlapLimit;
@@ -108,6 +116,9 @@ class MixFaultBudget {
   /// Records one fault; returns a message when this fault changed mode.
   String? record() {
     _faults++;
+    if (_faults == beatLimit) {
+      return 'tempo matching off for this session after $_faults faults';
+    }
     if (_faults == overlapLimit) {
       return 'overlap off for this session after $_faults faults';
     }

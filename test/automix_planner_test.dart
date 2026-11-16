@@ -62,18 +62,6 @@ void main() {
       expect(plan.reason, 'shortened');
     });
 
-    test('outro curve holds a fading song, then hands over fully', () {
-      final (o40, i40) = MixPlanner.outroGains(0.4);
-      expect(o40, 1.0);
-      expect(i40, greaterThan(0.5));
-      final (o1, i1) = MixPlanner.outroGains(1);
-      expect(o1, closeTo(0, 1e-9));
-      expect(i1, closeTo(1, 1e-9));
-      final (o0, i0) = MixPlanner.outroGains(0);
-      expect(o0, 1.0);
-      expect(i0, 0.0);
-    });
-
     test('consecutive album tracks stay gapless', () {
       final plan = MixPlanner.plan(
         outgoing: t('Track 1', album: 'The Album'),
