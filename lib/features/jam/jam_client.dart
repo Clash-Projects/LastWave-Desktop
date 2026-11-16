@@ -353,9 +353,6 @@ class JamController extends StateNotifier<JamSnapshot> {
     return '$base/?code=$code';
   }
 
-  /// Browser listen page for guests without the app.
-  String listenLink(String code) =>
-      inviteLink(code).replaceFirst('/?code=', '/listen?code=');
 
   /// Main host only: allow or stop browser guests.
   void setWebGuests(bool enabled) =>
@@ -392,8 +389,17 @@ class JamController extends StateNotifier<JamSnapshot> {
     return tail.split(RegExp(r'[&#\s]')).first.trim().toUpperCase();
   }
 
-  void createRoom(String displayName, {required bool collaborative}) {
+  /// Turned on right after `room_created`: the server refuses
+  /// `set_web_guests` before the room exists.
+  bool _pendingWebGuests = false;
+
+  void createRoom(
+    String displayName, {
+    required bool collaborative,
+    bool browserGuests = false,
+  }) {
     final name = displayName.trim().isEmpty ? 'Listener' : displayName.trim();
+    _pendingWebGuests = browserGuests;
     _connect(() {
       _send('create_room', {
         'name': name,
@@ -451,9 +457,13 @@ class JamController extends StateNotifier<JamSnapshot> {
   /// Main host only: publish the upcoming queue so listeners can see it.
   void broadcastQueue(List<JamTrack> queue) {
     if (state.phase != JamPhase.active) return;
+    final shared = queue.take(5).toList();
     _send('queue_update', {
-      'queue': [for (final t in queue.take(5)) t.toJson()],
+      'queue': [for (final t in shared) t.toJson()],
     });
+    // The server echoes queue_updated to everyone but the sender, so the
+    // host records its own queue (browser guests may only fetch songs in it).
+    state = state.copyWith(queue: shared);
   }
 
   List<JamTrack> _tracks(Object? raw) {
@@ -629,6 +639,10 @@ class JamController extends StateNotifier<JamSnapshot> {
             roomMode: map['room_mode']?.toString() ?? jamModeCollaborative,
             people: [JamPerson(userId: userId, name: name, isHost: true)],
           );
+          if (_pendingWebGuests) {
+            _pendingWebGuests = false;
+            setWebGuests(true);
+          }
         case 'sync_state':
           final playback = map['playback'] is Map
               ? (map['playback'] as Map)

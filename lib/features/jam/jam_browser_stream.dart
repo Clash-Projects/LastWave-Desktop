@@ -66,14 +66,31 @@ class _SongFile {
 /// Only SDP goes through the Jam server, so no audio touches the VPS.
 class JamBrowserStream extends StateNotifier<JamBrowserState> {
   JamBrowserStream(this._ref) : super(const JamBrowserState()) {
-    _ref.listen<JamSnapshot>(jamControllerProvider, (prev, next) {
-      final lost = next.phase != JamPhase.active ||
-          !next.isMainHost ||
-          next.radio ||
-          next.permanent ||
-          (prev?.webGuests == true && !next.webGuests);
-      if (state.on && lost) stop(tellServer: false);
-    });
+    // Browser guests are chosen when the room is created; this just follows
+    // the room's flag while you are its main host.
+    void follow(JamSnapshot next) {
+      final allowed = next.phase == JamPhase.active &&
+          next.isMainHost &&
+          next.webGuests &&
+          !next.radio &&
+          !next.permanent;
+      if (!allowed) {
+        if (state.on) stop();
+        return;
+      }
+      if (!state.on) state = const JamBrowserState(on: true);
+      // Fetch the current and next song ahead of time so guests switch
+      // tracks without waiting on YouTube.
+      if (_guests.isNotEmpty) {
+        for (final id in [next.track?.id, next.queue.firstOrNull?.id]) {
+          if (id != null && _allowed(id)) _song(id);
+        }
+      }
+    }
+
+    _ref.listen<JamSnapshot>(
+        jamControllerProvider, (_, next) => follow(next));
+    follow(_ref.read(jamControllerProvider));
     _signals = _jam.rtcSignals.listen((s) {
       if (state.on) _onSignal(s);
     });
@@ -87,20 +104,12 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
 
   JamController get _jam => _ref.read(jamControllerProvider.notifier);
 
-  void start() {
-    if (state.on) return;
-    _jam.setWebGuests(true);
-    state = const JamBrowserState(on: true);
-  }
-
-  Future<void> stop({bool tellServer = true}) async {
-    final wasOn = state.on;
+  Future<void> stop() async {
     state = const JamBrowserState();
     for (final id in _guests.keys.toList()) {
       await _close(id, bye: true);
     }
     _files.clear();
-    if (tellServer && wasOn) _jam.setWebGuests(false);
   }
 
   void _report() {
@@ -211,12 +220,24 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
     Future<void> text(Map<String, dynamic> m) =>
         guest.dc.send(RTCDataChannelMessage(jsonEncode(m)));
     try {
-      final file = _allowed(song) ? _song(song) : null;
-      while (file != null && file.size == 0 && !file.failed) {
+      // Local files and lossless-only songs use their title as the room id,
+      // so there is no YouTube video to send. Say so instead of retrying.
+      if (!_videoId.hasMatch(song)) {
+        return await text(
+            {'kind': 'missing', 'id': song, 'reason': 'no_youtube'});
+      }
+      // Not the room's current/next song yet (queue still syncing): say so,
+      // so the page asks again on the next change instead of giving up.
+      if (!_allowed(song)) {
+        return await text(
+            {'kind': 'missing', 'id': song, 'reason': 'not_allowed'});
+      }
+      final file = _song(song);
+      while (file.size == 0 && !file.failed) {
         await file.changed;
       }
       if (gone()) return;
-      if (file == null || file.failed && file.size == 0) {
+      if (file.failed && file.size == 0) {
         return await text({'kind': 'missing', 'id': song});
       }
       await text({
@@ -232,6 +253,8 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
           await file.changed;
         }
         if (gone()) return;
+        // The room moved on (skip): free this guest for the song it needs now.
+        if (!_allowed(song)) return;
         if (i >= file.chunks.length) break;
         final bytes = file.chunks[i];
         for (var at = 0; at < bytes.length; at += _chunk) {
@@ -252,7 +275,8 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
   /// One fetch per song shared by every guest; keeps the last few.
   _SongFile _song(String song) {
     final hit = _files[song];
-    if (hit != null && !(hit.failed && hit.size == 0)) return hit;
+    // A failed fetch (even a partial one) is retried from scratch.
+    if (hit != null && !hit.failed) return hit;
     if (_files.length >= 4) _files.remove(_files.keys.first);
     final file = _files[song] = _SongFile();
     unawaited(_fetch(song, file));
@@ -264,8 +288,12 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
   /// plays in every browser including Safari.
   Future<void> _fetch(String song, _SongFile file) async {
     try {
-      final stream =
-          await _ref.read(innerTubeProvider).resolveDownloadStream(song);
+      // The resolver walks every YouTube client after a 30 s script fetch;
+      // cap it so a hard song fails fast and the guest can retry.
+      final stream = await _ref
+          .read(innerTubeProvider)
+          .resolveDownloadStream(song)
+          .timeout(const Duration(seconds: 25));
       if (stream == null || !stream.url.startsWith('http')) {
         throw StateError('no stream');
       }
@@ -316,7 +344,7 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
   @override
   void dispose() {
     _signals.cancel();
-    stop(tellServer: false);
+    stop();
     super.dispose();
   }
 }

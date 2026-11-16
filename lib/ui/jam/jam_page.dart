@@ -31,7 +31,8 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
   final _chatFocus = FocusNode();
   final _chatScroll = ScrollController();
   bool _collaborative = true;
-  String _copied = ''; // which link was just copied
+  bool _allowBrowser = true;
+  bool _copied = false;
   JamChatLine? _replyTo;
   Timer? _noticeTimer;
   Timer? _countsTimer;
@@ -89,18 +90,16 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
     });
   }
 
-  /// Just the link: chat apps turn it into a preview card. The invite opens
-  /// the installed LastWave; the listen link plays in any browser.
-  Future<void> _copyInvite(String code, {bool listen = false}) async {
-    final jam = ref.read(jamControllerProvider.notifier);
+  /// Just the link: chat apps turn it into a preview card. It opens in the
+  /// browser, with a button to open the installed LastWave instead.
+  Future<void> _copyInvite(String code) async {
     await Clipboard.setData(ClipboardData(
-      text: listen ? jam.listenLink(code) : jam.inviteLink(code),
+      text: ref.read(jamControllerProvider.notifier).inviteLink(code),
     ));
     if (!mounted) return;
-    final which = listen ? 'listen' : 'invite';
-    setState(() => _copied = which);
+    setState(() => _copied = true);
     await Future<void>.delayed(const Duration(seconds: 2));
-    if (mounted && _copied == which) setState(() => _copied = '');
+    if (mounted) setState(() => _copied = false);
   }
 
   void _reply(JamChatLine line) {
@@ -310,6 +309,21 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
                             : 'Only the host controls playback',
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    ToggleSwitch(
+                      checked: _allowBrowser,
+                      onChanged: busy
+                          ? null
+                          : (v) => setState(() => _allowBrowser = v),
+                      content: const Text('Allow browser guests'),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Your invite link also plays in any browser, no app needed. '
+                      'They hear the YouTube version (~128 kbps) streamed from this PC.',
+                      style: WaveType.meta
+                          .copyWith(color: waveTextSecondary(context)),
+                    ),
                     const SizedBox(height: 14),
                     Align(
                       alignment: Alignment.centerLeft,
@@ -321,6 +335,7 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
                                 controller.createRoom(
                                   _name.text,
                                   collaborative: _collaborative,
+                                  browserGuests: _allowBrowser,
                                 );
                               },
                         child: Text(busy ? 'Connecting…' : 'Create room'),
@@ -513,7 +528,7 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
                   Expanded(
                     child: WaveFilledButton(
                       onPressed: () => _copyInvite(jam.roomCode),
-                      child: Text(_copied == 'invite' ? 'Copied' : 'Copy invite'),
+                      child: Text(_copied ? 'Copied' : 'Copy invite'),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -526,7 +541,7 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
             ],
           ),
         ),
-        if (jam.isMainHost && !jam.radio && !jam.permanent) ...[
+        if (jam.isMainHost && jam.webGuests) ...[
           const SizedBox(height: 14),
           _browserGuests(context, jam),
         ],
@@ -696,52 +711,30 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
     );
   }
 
-  /// Host-only: stream this app's audio peer-to-peer to browser guests.
+  /// Host-only status: browser guests were chosen when the room was made.
   Widget _browserGuests(BuildContext context, JamSnapshot jam) {
     final web = ref.watch(jamBrowserStreamProvider);
-    final stream = ref.read(jamBrowserStreamProvider.notifier);
     final secondary = waveTextSecondary(context);
-    final inRoom = jam.people.where((p) => p.isWeb).length;
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Label('Browser guests'),
-          const SizedBox(height: 8),
-          ToggleSwitch(
-            checked: web.on,
-            onChanged: (v) => v ? stream.start() : stream.stop(),
-            content: const Text('Allow browser guests'),
-          ),
+          _Label('Browser guests · ${web.connected} listening'),
           const SizedBox(height: 6),
           Text(
-            web.on
-                ? '${web.connected} listening now · $inRoom in the room from a browser. '
-                    'Guests get the YouTube version (~128 kbps) straight from this PC.'
-                : 'Anyone with the link can listen and chat in a browser, no app '
-                    'needed. Your own playback stays lossless.',
+            'The invite link plays in any browser. Guests get the YouTube '
+            'version (~128 kbps) straight from this PC.',
             style: WaveType.meta.copyWith(color: secondary),
           ),
-          if (web.on && web.connected >= jamBrowserGuestWarnAt) ...[
+          if (web.connected >= jamBrowserGuestWarnAt) ...[
             const SizedBox(height: 8),
             InfoBar(
               title: Text(
                 '${web.connected} browser guests use about '
-                '${(web.connected * 4).toStringAsFixed(0)} MB of your upload per song. '
-                'If playback for guests stutters, ask some to get the app.',
+                '${web.connected * 4} MB of your upload per song. '
+                'If they stutter, ask some to get the app.',
               ),
               severity: InfoBarSeverity.warning,
-            ),
-          ],
-          if (web.on) ...[
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: WaveButton(
-                onPressed: () => _copyInvite(jam.roomCode, listen: true),
-                child: Text(
-                    _copied == 'listen' ? 'Copied' : 'Copy browser link'),
-              ),
             ),
           ],
         ],

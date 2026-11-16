@@ -238,8 +238,19 @@ void _broadcast(
   if (current == null) return;
   final jam = ref.read(jamControllerProvider.notifier);
   final key = _trackKey(current);
-  final position = next.position.inMilliseconds;
+  var position = next.position.inMilliseconds;
   if (key != bridge.lastTrack) {
+    // On an automatic switch the position stream can still show the old
+    // song's end time. Guests would seek the new song to its end and play
+    // nothing, so an unchanged non-trivial position means a fresh start.
+    final prev = previous;
+    if (prev != null &&
+        prev.current != null &&
+        _trackKey(prev.current!) != key &&
+        position > 1500 &&
+        (position - prev.position.inMilliseconds).abs() < 1500) {
+      position = 0;
+    }
     bridge.lastTrack = key;
     bridge.lastPlaying = next.isPlaying;
     bridge.lastPosition = position;
