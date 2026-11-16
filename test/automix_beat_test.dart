@@ -152,6 +152,28 @@ void main() {
       expect(slow.downbeats, contains(p.incomingCue));
     });
 
+    test('a 10% tempo gap is blended at both songs own speed, not stretched',
+        () {
+      final far = analyzePcm(drums(bpm: 112, seconds: 60, intro: 2), sr);
+      final p = planFor(inc: far);
+      expect(p.style, DjMixStyle.filter);
+      expect(p.rate, 1.0);
+    });
+
+    test('dj volume curves: matched blends overlap at full, others stay level',
+        () {
+      final (o40, i40) = DjMixPlanner.gains(beatmatched: true, progress: 0.4);
+      expect(o40, 1.0);
+      expect(i40, greaterThan(0.9));
+      final (o1, i1) = DjMixPlanner.gains(beatmatched: true, progress: 1);
+      expect(o1, closeTo(0, 1e-9));
+      expect(i1, closeTo(1, 1e-9));
+      for (var k = 0; k <= 10; k++) {
+        final (o, i) = DjMixPlanner.gains(beatmatched: false, progress: k / 10);
+        expect(o * o + i * i, closeTo(1, 1e-9));
+      }
+    });
+
     test('no tempo change when pitch shifting is on', () {
       final p = planFor(allowTempo: false);
       expect(p.style, DjMixStyle.filter);

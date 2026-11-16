@@ -3775,9 +3775,9 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
                     .read(playbackServiceProvider.notifier)
                     .applyAudioPrefs();
               },
-              title: 'Filter sweep',
+              title: 'Bass swap & filters',
               subtitle:
-                  'Low-pass on the way out and high-pass on the way in. Turns itself off (volume blend only) if the audio engine lacks the filters.',
+                  'Hands the bass over on the beat and crosses the highs, like a DJ mixer.',
             ),
           ],
         ],

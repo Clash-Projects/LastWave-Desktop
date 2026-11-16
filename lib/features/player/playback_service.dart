@@ -14,7 +14,6 @@ import '../audio_output/wasapi_engine.dart';
 import '../equalizer/headphone_profiles.dart';
 import 'audio_graph.dart';
 import 'loudness.dart';
-import 'timed_mix.dart';
 import 'mix_planner.dart';
 import '../automix/automix_analyzer.dart';
 import '../automix/dj_mix_planner.dart';
@@ -172,9 +171,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// current album when libmpv reports the same tag twice. NaN means
   /// the tags disagreed, so untagged siblings use the fixed fallback.
   final Map<String, double> _albumReplayGainDb = {};
-  bool _mixSweepBusy = false;
-  bool _mixSweepFailed = false;
-  DateTime _lastMixSweep = DateTime.fromMillisecondsSinceEpoch(0);
+  /// mpv rejected the mix EQ stage on this machine: it is left out of the
+  /// chain for the session so the listener's own EQ keeps working.
+  bool _djEqBroken = false;
 
   /// Fired when EQ, loudness, speed, pitch, or the mix mode changes so
   /// WASAPI exclusive can drop out. Null until the output controller
@@ -232,7 +231,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
             : Duration.zero;
     final inDur = incomingDur > Duration.zero ? incomingDur : next.duration;
     final key = '${cur?.queueKey}>${next.queueKey}|${state.duration.inSeconds}'
-        '|${inDur.inSeconds}|${requested.inSeconds}|$_sweepSupported'
+        '|${inDur.inSeconds}|${requested.inSeconds}|$_djEqLive'
         '|${_prefs.autoMixSpectral}';
     final cached = _mixPlan;
     if (cached != null && key == _mixPlanKey) return cached;
@@ -252,7 +251,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       requested: requested,
       // Unknown counts as available: the probe on the standby deck (and
       // the error guard during the mix) settle it before it can hurt.
-      sweepAvailable: _sweepSupported != false,
+      sweepAvailable: _djEqLive != false,
       sweepWanted: _prefs.autoMixSpectral,
     );
     if (_mixPlanKey.split('|').first != key.split('|').first) {
@@ -306,7 +305,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// Null until probed on the standby deck. Some builds ship without the
   /// `lowpass`/`highpass` lavfi filters; the sweep then fails on every
   /// write and must fall back to a pure volume blend.
-  bool? _sweepSupported;
   bool _filterErrorLogged = false;
 
   /// AutoMix plan for the current -> next pair (cached per pair).
@@ -744,6 +742,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _rateRampTimer = null;
     _armedDjPlan = null;
     _beatLock = null;
+    // A blend stopped midway must not leave the song that plays on with
+    // its bass cut or treble trimmed.
+    if (_djEqLive == true) unawaited(_setDeckEq(_player, 0, 0));
     final restoreChain = _crossfading || _standbyArmed || ramping;
     if (_crossfading || _standbyArmed) {
       try {
@@ -761,7 +762,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _standbyTrack = null;
     _standbyStream = null;
     _standbyIndex = -1;
-    _mixSweepBusy = false;
     if (restoreChain && !exclusiveApplied) {
       unawaited(_applyRateAndPitch());
     }
@@ -957,9 +957,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       });
       await _applyLoudnessTo(sb, album: nextTrack.album);
       await _applyRateAndPitchTo(sb);
-      final dp = _armedDjPlan;
-      if (dp != null) {
-        final eq = DjMixPlanner.eqAt(dp, 0);
+      if (_djEqWanted) {
+        final dp = _armedDjPlan;
+        final eq = dp != null
+            ? DjMixPlanner.eqAt(dp, 0)
+            : DjMixPlanner.eqFor(beatmatched: false, bars: 8, progress: 0);
         unawaited(_setDeckEq(sb, eq.inLow, eq.inHigh));
       }
       // Safety checks: cancel if playback state or track shifted during open
@@ -991,14 +993,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         }
       }
       if (sb.state.duration == Duration.zero) return; // never became ready
-      if (_timedMixEnabled &&
-          _prefs.autoMixSpectral &&
-          _sweepSupported == null) {
-        await _probeSweepSupport(sb);
-        if (!_standbyArmed || _standbyTrack?.queueKey != nextTrack.queueKey) {
-          return;
-        }
-      }
       // Opened, filtered and silent at 0: safe to fade in.
       _standbyReady = true;
     } catch (_) {
@@ -1227,7 +1221,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         return;
       }
       final master = (_crossfadeTargetVolume * 100).clamp(0.0, 100.0);
-      final (og, ig) = MixPlanner.gains(progress);
+      final (og, ig) =
+          DjMixPlanner.gains(beatmatched: plan.beatmatched, progress: progress);
       try {
         out.setVolume((og * master).clamp(0.0, 100.0));
         sb.setVolume((ig * master).clamp(0.0, 100.0));
@@ -1235,7 +1230,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
       // EQ: bass swap at the midpoint, treble crossed over the blend.
       final eq = DjMixPlanner.eqAt(plan, outPos < plan.mixOutStart ? 0 : progress);
-      if (!eqBusy && _djEqLive != false && _eqMoved(lastEq, eq)) {
+      if (_djEqWanted && !eqBusy && _eqMoved(lastEq, eq)) {
         eqBusy = true;
         lastEq = eq;
         unawaited(() async {
@@ -1285,6 +1280,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// `af-command`, so the chain is never rebuilt mid-song.
   static const String _djEqStage =
       '@lwdj:lavfi=[equalizer@lwlo=f=80:t=o:w=2:g=0,equalizer@lwhi=f=9000:t=o:w=2:g=0]';
+
+  bool get _djEqWanted =>
+      _prefs.autoMixSpectral && !_djEqBroken && _djEqLive != false;
 
   static bool _eqMoved(DjEq a, DjEq b) =>
       !((a.outLow - b.outLow).abs() < 0.4 &&
@@ -1472,38 +1470,43 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   /// mpv's own playback clock (`time-pos`), read now. Falls back to the
   /// last streamed position.
-  /// Writes the sweep filter once on the paused standby deck and listens
-  /// for mpv rejecting it. Settles [_sweepSupported] for the session.
-  Future<void> _probeSweepSupport(Player sb) async {
-    var failed = false;
-    StreamSubscription<String>? sub;
-    try {
-      sub = sb.stream.error.listen((e) {
-        if (isFilterGraphError(e)) failed = true;
-      });
-      await _setAf(sb, _playbackAf(sweep: TimedMixSweep.incoming(0)));
-      await Future<void>.delayed(const Duration(milliseconds: 600));
-    } catch (_) {
-      failed = true;
-    } finally {
-      await sub?.cancel();
-    }
-    try {
-      await _setAf(sb, _playbackAf());
-    } catch (_) {}
-    _sweepSupported = !failed;
-    _crumb('automix sweep probe supported=$_sweepSupported');
-  }
-
-  /// mpv rejected an audio filter. During a mix that is the sweep: drop
-  /// it for the rest of the session and keep mixing on volume alone.
+  /// mpv rejected an audio filter. The AutoMix EQ stage is blamed (and
+  /// dropped) first; only a rejected EQ / headphone chain turns
+  /// processing off.
   void _onFilterGraphError(String text) {
     if (!_filterErrorLogged) {
       _filterErrorLogged = true;
       _crumb('filter rejected (not a stream error): '
           '${text.length > 120 ? text.substring(0, 120) : text}');
     }
-    final mixing = _crossfading || _standbyArmed || _mixSweepBusy;
+    final mixing = _crossfading || _standbyArmed;
+    if (!_djEqBroken && _currentAudioFilter.contains('@lwdj')) {
+      // Our mix stage is the newest piece of the chain: drop it for the
+      // session and keep the listener's EQ instead of losing everything.
+      _djEqBroken = true;
+      _djEqLive = false;
+      _crumb('automix eq stage rejected -> removed for this session');
+      _rebuildProcessingFilter();
+      if (!mixing) {
+        final idx = state.currentIndex;
+        final pos = state.position;
+        final key = state.current?.queueKey;
+        unawaited(runGuardedAsync('filter-recover', () async {
+          try {
+            await _applyRateAndPitch();
+          } catch (_) {}
+          if (key != null && pos > const Duration(seconds: 3)) {
+            _resumeKey = key;
+            _resumeAt = pos;
+          }
+          await _resolveAndOpen(idx, forceRefresh: false);
+        }));
+      } else {
+        unawaited(_applyRateAndPitch().catchError((_) {}));
+      }
+      _notifyProcessing();
+      return;
+    }
     if (!mixing) {
       // A rejected EQ / headphone graph leaves the track with NO audio
       // (mpv ends the file). Drop processing for the session and reopen
@@ -1529,15 +1532,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       }
       return;
     }
-    _sweepSupported = false;
-    if (_mixSweepFailed) return;
-    _mixSweepFailed = true;
-    unawaited(() async {
-      try {
-        await _setAf(_player, _playbackAf());
-        await _setAf(_standbyPlayer, _playbackAf());
-      } catch (_) {}
-    }());
   }
 
   void _startCrossfade(Duration fadeDuration, {bool sweep = false}) {
@@ -1547,23 +1541,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _crossfadeStartTime = DateTime.now();
     _mixStartedAt = DateTime.now();
     _crossfadeTargetVolume = _fullDeckVolume / 100;
-    _mixSweepFailed = false;
-    _lastMixSweep = DateTime.fromMillisecondsSinceEpoch(0);
-    final spectral = sweep &&
-        _timedMixEnabled &&
-        _prefs.autoMixSpectral &&
-        _sweepSupported != false;
+    // AutoMix without a beat grid still gets the DJ EQ: lows drained out,
+    // highs opened in, basses swapped at the midpoint.
+    final eqOn = sweep && _timedMixEnabled && _djEqWanted;
+    var eqBusy = false;
+    var lastEq = const DjEq(double.nan, double.nan, double.nan, double.nan);
     _crumb('automix start key=${_standbyTrack?.queueKey} '
-        'overlap=${fadeDuration.inSeconds}s sweep=$spectral');
+        'overlap=${fadeDuration.inSeconds}s eq=$eqOn');
 
     try {
       unawaited(_standbyPlayer!.play());
     } catch (_) {
       cancelCrossfade();
       return;
-    }
-    if (spectral) {
-      unawaited(_writeMixSweep(0));
     }
 
     _crossfadeTimer?.cancel();
@@ -1591,13 +1581,23 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         _standbyPlayer?.setVolume(inVol.clamp(0.0, 100.0));
       } catch (_) {}
 
-      if (spectral &&
-          _sweepSupported != false &&
-          !_mixSweepFailed &&
-          !_mixSweepBusy &&
-          DateTime.now().difference(_lastMixSweep).inMilliseconds >= 200) {
-        _lastMixSweep = DateTime.now();
-        unawaited(_writeMixSweep(progress));
+      if (eqOn && !eqBusy) {
+        final eq =
+            DjMixPlanner.eqFor(beatmatched: false, bars: 8, progress: progress);
+        if (_eqMoved(lastEq, eq)) {
+          eqBusy = true;
+          lastEq = eq;
+          final out = _player;
+          final inc = _standbyPlayer;
+          unawaited(() async {
+            try {
+              await _setDeckEq(out, eq.outLow, eq.outHigh);
+              await _setDeckEq(inc, eq.inLow, eq.inHigh);
+            } finally {
+              eqBusy = false;
+            }
+          }());
+        }
       }
 
       if (progress >= 1.0) {
@@ -1605,27 +1605,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         _completeCrossfade();
       }
     }));
-  }
-
-  /// Low-pass on the way out, high-pass opening on the way in.
-  /// A rejected filter restores the chain without the sweep and the
-  /// rest of the overlap stays a volume mix.
-  Future<void> _writeMixSweep(double progress) async {
-    if (_mixSweepFailed || exclusiveApplied) return;
-    _mixSweepBusy = true;
-    try {
-      await _setAf(_player, _playbackAf(sweep: TimedMixSweep.outgoing(progress)));
-      await _setAf(
-          _standbyPlayer, _playbackAf(sweep: TimedMixSweep.incoming(progress)));
-    } catch (_) {
-      _mixSweepFailed = true;
-      try {
-        await _setAf(_player, _playbackAf());
-        await _setAf(_standbyPlayer, _playbackAf());
-      } catch (_) {}
-    } finally {
-      _mixSweepBusy = false;
-    }
   }
 
   Future<void> _setAf(Player? player, String af) async {
@@ -2139,7 +2118,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     final chain = _processingDisabled
         ? ''
         : mergeEqualizerAndHeadphone(_eqFilter, _hpFilter);
-    _currentAudioFilter = _processingDisabled || !_timedMixEnabled
+    _currentAudioFilter =
+        _processingDisabled || !_timedMixEnabled || _djEqBroken
         ? chain
         : (chain.isEmpty ? _djEqStage : '$chain,$_djEqStage');
   }
@@ -2147,8 +2127,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// EQ + headphone correction, plus scaletempo when pitch is not 1.
   /// [sweep] is the timed-mix low-pass or high-pass, appended inside
   /// the same lavfi graph.
-  String _playbackAf({String sweep = ''}) {
-    final base = afWithSweep(_currentAudioFilter, sweep);
+  String _playbackAf() {
+    final base = _currentAudioFilter;
     final pitch = state.pitch.clamp(0.5, 1.5).toDouble();
     if ((pitch - 1.0).abs() <= 0.005) return base;
     final rate = state.speed <= 0 ? 1.0 : state.speed;

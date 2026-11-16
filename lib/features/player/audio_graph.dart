@@ -1,5 +1,5 @@
-/// Joins libmpv `af` pieces so equalizer, headphone correction, pitch,
-/// and a mix sweep occupy one chain instead of replacing each other.
+/// Joins libmpv `af` pieces so equalizer and headphone correction occupy
+/// one chain instead of replacing each other.
 String mergeEqualizerAndHeadphone(String equalizerAf, String headphoneAf) {
   final inner = <String>[];
   void absorb(String af) {
@@ -24,19 +24,4 @@ String mergeEqualizerAndHeadphone(String equalizerAf, String headphoneAf) {
   absorb(headphoneAf);
   if (inner.isEmpty) return '';
   return 'format=floatp,lavfi=[${inner.join(',')}]';
-}
-
-/// Appends one lavfi filter (a sweep) without dropping the chain already
-/// built for EQ, headphone correction, or scaletempo.
-String afWithSweep(String baseAf, String sweepFilter) {
-  final sweep = sweepFilter.trim();
-  if (sweep.isEmpty) return baseAf;
-  if (baseAf.isEmpty) return 'lavfi=[$sweep]';
-  final lavfi = RegExp(r'lavfi=\[(.*)\]$').firstMatch(baseAf);
-  if (lavfi != null) {
-    final body = lavfi.group(1)!;
-    final merged = body.isEmpty ? sweep : '$body,$sweep';
-    return baseAf.replaceRange(lavfi.start, lavfi.end, 'lavfi=[$merged]');
-  }
-  return '$baseAf,lavfi=[$sweep]';
 }

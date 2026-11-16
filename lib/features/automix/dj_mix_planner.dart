@@ -78,8 +78,19 @@ class DjMixPlanner {
   DjMixPlanner._();
 
   /// How far the incoming song may be slowed down / sped up to match.
-  static const double maxSlowDown = 0.10;
-  static const double maxSpeedUp = 0.25;
+  /// Within ±8% a tempo change is not heard; beyond it the pair gets a
+  /// filter blend at both songs' own speed instead of a stretched one.
+  static const double maxSlowDown = 0.08;
+  static const double maxSpeedUp = 0.08;
+
+  /// Both beat grids must be at least this clear before the incoming song
+  /// is retimed: matching a doubtful grid only adds wobble.
+  static const double beatmatchConfidence = 0.25;
+
+  /// Most of the outgoing song's outro / incoming song's intro a blend may
+  /// skip, so a long outro or intro is never thrown away wholesale.
+  static const double maxOutroSkip = 20;
+  static const double maxIntroSkip = 30;
 
   /// Below this beat confidence a 16-bar request is played as 8 bars: a
   /// long overlap on a shaky grid sounds like mush.
@@ -195,7 +206,10 @@ class DjMixPlanner {
     // ---- tempo ----------------------------------------------------------
     var rate = 1.0;
     var style = DjMixStyle.filter;
-    if (allowTempo && inc.hasBeat) {
+    if (allowTempo &&
+        inc.hasBeat &&
+        out.confidence >= beatmatchConfidence &&
+        inc.confidence >= beatmatchConfidence) {
       var best = double.infinity;
       // Half / double time count as the same groove.
       for (final m in const [0.5, 1.0, 2.0]) {
@@ -217,7 +231,8 @@ class DjMixPlanner {
 
     // ---- outgoing: end on the outro, start on a downbeat ----------------
     final contentEnd = math.min(out.contentEnd, outDur);
-    final outro = outroStart(out) ?? contentEnd;
+    final outro =
+        math.max(outroStart(out) ?? contentEnd, contentEnd - maxOutroSkip);
     final latestStart = math.min(outro, contentEnd) - blendSec;
     final outGrid = out.downbeats.isNotEmpty ? out.downbeats : out.beats;
     double? start;
@@ -241,12 +256,14 @@ class DjMixPlanner {
       final full = inGrid.firstWhere(
           (d) => d >= math.max(ie ?? firstDown, firstDown) - 0.08,
           orElse: () => firstDown);
-      cue = full - blendSec * rate;
+      cue = math.min(full - blendSec * rate, firstDown + maxIntroSkip);
       if (cue < firstDown) {
         cue = firstDown;
       } else {
         // Snap to the incoming downbeat it should already sit on.
-        cue = inGrid.reduce((a, b) => (a - cue).abs() <= (b - cue).abs() ? a : b);
+        final target = cue;
+        cue = inGrid.reduce(
+            (a, b) => (a - target).abs() <= (b - target).abs() ? a : b);
         if (cue < firstDown) cue = firstDown;
       }
     } else {
@@ -272,6 +289,33 @@ class DjMixPlanner {
     );
   }
 
+  /// Deck gains (outgoing, incoming) at [progress] (0..1) through a blend.
+  ///
+  /// Beatmatched: the incoming song comes up over the first 60% while the
+  /// outgoing one holds full level for the first 40%, then lets go. With
+  /// the basses swapped and the treble crossed, two matched grooves at full
+  /// level sound like one. Otherwise: smoothed equal power, so loudness
+  /// stays level between two songs that are not locked together.
+  static (double, double) gains({
+    required bool beatmatched,
+    required double progress,
+  }) {
+    final p = progress.clamp(0.0, 1.0);
+    double smooth(double x) {
+      final t = x.clamp(0.0, 1.0);
+      return t * t * (3 - 2 * t);
+    }
+
+    if (beatmatched) {
+      return (
+        math.cos(smooth((p - 0.4) / 0.6) * math.pi / 2),
+        math.sin(smooth(p / 0.6) * math.pi / 2),
+      );
+    }
+    final a = smooth(p) * math.pi / 2;
+    return (math.cos(a), math.sin(a));
+  }
+
   /// Deck EQ at [progress] (0..1) through the blend.
   ///
   /// Beatmatch: the basses swap over one bar at the midpoint so two kick
@@ -279,16 +323,25 @@ class DjMixPlanner {
   /// whole blend. Filter mix: the outgoing deck drains its lows across the
   /// blend while the incoming one opens its highs, with the same one-bar
   /// bass handover at the midpoint.
-  static DjEq eqAt(DjMixPlan p, double progress) {
+  static DjEq eqAt(DjMixPlan p, double progress) =>
+      eqFor(beatmatched: p.beatmatched, bars: p.bars, progress: progress);
+
+  /// [eqAt] without a plan: the plain end-of-song crossfade uses the filter
+  /// shape with an 8-bar-wide swap.
+  static DjEq eqFor({
+    required bool beatmatched,
+    required int bars,
+    required double progress,
+  }) {
     final t = progress.clamp(0.0, 1.0);
     double smooth(double x) {
       final v = x.clamp(0.0, 1.0);
       return v * v * (3 - 2 * v);
     }
 
-    final barFrac = 1 / p.bars;
+    final barFrac = 1 / bars;
     final swap = smooth((t - (0.5 - barFrac / 2)) / barFrac);
-    if (p.beatmatched) {
+    if (beatmatched) {
       return DjEq(
         bassKillDb * swap,
         trebleTrimDb * smooth(t),
@@ -324,7 +377,8 @@ class DjLockAction {
 /// reading is ±30 ms noisy. The lock [sample]s every tick and acts every
 /// [interval] on the averaged error: while the incoming deck is still muted
 /// a large error is fixed with a seek; after that only small speed nudges
-/// (≤3%, kept in pitch by scaletempo), so nothing is heard to jump.
+/// (≤3%, kept in pitch by scaletempo), so the two grooves stay locked
+/// without anything being heard to jump.
 class DjBeatLock {
   DjBeatLock(this.plan, {required this.speed});
 
