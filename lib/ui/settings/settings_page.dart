@@ -3747,7 +3747,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
             },
             title: 'Timed mix',
             subtitle: prefs.autoMixEnabled
-                ? "Up to ${prefs.autoMixSeconds}s over each song's fade-out, at normal speed. Every song plays to its last note; only silence is skipped. Album tracks stay gapless."
+                ? "6 to ${prefs.autoMixSeconds}s over each song's fade-out, landing on the beat, at normal speed. Every song plays to its last note; only silence is skipped. Album tracks stay gapless."
                 : 'Gapless until you turn this on',
           ),
           if (prefs.autoMixEnabled) ...[
@@ -3767,9 +3767,9 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
             ),
             Slider(
               value: seconds.clamp(12.0, 18.0),
-              min: 12,
+              min: 6,
               max: 18,
-              divisions: 6,
+              divisions: 12,
               onChanged: (v) => setState(() => _dragSeconds = v),
               onChangeEnd: (v) async {
                 setState(() => _dragSeconds = null);

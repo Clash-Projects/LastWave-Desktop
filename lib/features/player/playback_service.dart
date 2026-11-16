@@ -1206,7 +1206,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         return;
       }
       final master = (_crossfadeTargetVolume * 100).clamp(0.0, 100.0);
-      final (og, ig) = MixPlanner.gains(progress);
+      final (og, ig) = plan.faded
+          ? MixPlanner.outroGains(progress)
+          : MixPlanner.gains(progress);
       try {
         out.setVolume((og * master).clamp(0.0, 100.0));
         sb.setVolume((ig * master).clamp(0.0, 100.0));

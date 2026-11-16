@@ -127,6 +127,22 @@ class MixPlanner {
     return (math.cos(angle), math.sin(angle));
   }
 
+  /// Gains for a song that fades out by itself: the outgoing track keeps
+  /// its own fade at full level for the first 60% while the incoming one
+  /// rises underneath, then lets go. Pulling an already-fading song down
+  /// from the start is what made it vanish before the blend was half done.
+  static (double, double) outroGains(double progress) {
+    final p = progress.clamp(0.0, 1.0);
+    double smooth(double x) {
+      final t = x.clamp(0.0, 1.0);
+      return t * t * (3 - 2 * t);
+    }
+
+    final inG = math.sin(smooth(p) * math.pi / 2);
+    final outG = math.cos(smooth((p - 0.6) / 0.4) * math.pi / 2);
+    return (outG, inG);
+  }
+
   static bool _sameAlbum(MixTrackInfo a, MixTrackInfo b) {
     final x = _norm(a.album);
     final y = _norm(b.album);
