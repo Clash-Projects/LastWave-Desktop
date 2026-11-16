@@ -91,6 +91,7 @@ dependencies:
   dbus: ^0.7.11
   ffi: ^2.1.0
   pointycastle: ^4.0.0
+  flutter_webrtc: ^1.6.3
 
 dev_dependencies:
   flutter_test:
@@ -122,7 +123,6 @@ flutter:
   # LastWave-native; loaded into a hidden system WebView).
   assets:
     - assets/po_token.html
-    - assets/jam_host.html
     - assets/icons/
     - assets/brand/
 

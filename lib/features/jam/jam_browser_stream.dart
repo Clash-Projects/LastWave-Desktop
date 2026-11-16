@@ -1,42 +1,52 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:desktop_webview_window/desktop_webview_window.dart';
-import 'package:flutter/services.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 
-import '../../core/storage/prefs.dart';
-import '../innertube/webview_profile.dart';
+import '../../core/network/dio_factory.dart';
+import '../innertube/innertube_api.dart';
 import 'jam_client.dart';
 
-/// Above this many browser guests the host's upload (~128 kbps each) and
-/// per-guest Opus encoding start to matter.
+/// Above this many browser guests the host's upload starts to matter.
 const jamBrowserGuestWarnAt = 8;
+
+const _maxGuests = 30;
+const _chunk = 16 * 1024;
+const _maxBuffered = 1024 * 1024;
+const _ice = {
+  'iceServers': [
+    {
+      'urls': ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'],
+    },
+  ],
+};
+final _videoId = RegExp(r'^[A-Za-z0-9_-]{11}$');
 
 class JamBrowserState {
   final bool on;
-  final bool starting;
 
-  /// Browser guests currently receiving audio peer-to-peer.
+  /// Browser guests with a live peer-to-peer connection.
   final int connected;
-  final String error;
-  const JamBrowserState({
-    this.on = false,
-    this.starting = false,
-    this.connected = 0,
-    this.error = '',
-  });
+  const JamBrowserState({this.on = false, this.connected = 0});
+}
+
+class _Guest {
+  final RTCPeerConnection pc;
+  final RTCDataChannel dc;
+  Future<void> chain = Future.value(); // one file at a time per guest
+  _Guest(this.pc, this.dc);
 }
 
 /// Host side of Jam "Browser Guest Mode".
 ///
-/// The app's own audio output (native WASAPI process loopback, Windows only,
-/// no microphone) arrives as PCM on a loopback socket and is forwarded to a
-/// hidden WebView2 page, which sends it to each browser guest over WebRTC.
-/// Only SDP signaling goes through the Jam server; audio is peer-to-peer.
+/// Browser guests get the YouTube version (M4A AAC, ~128 kbps) of the
+/// room's current and next song, whatever the host itself plays (lossless,
+/// exclusive, local). The host fetches each file once and sends it over a
+/// WebRTC data channel per guest; the page plays it on the room clock.
+/// Only SDP goes through the Jam server, so no audio touches the VPS.
 class JamBrowserStream extends StateNotifier<JamBrowserState> {
   JamBrowserStream(this._ref) : super(const JamBrowserState()) {
     _ref.listen<JamSnapshot>(jamControllerProvider, (prev, next) {
@@ -44,240 +54,199 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
           !next.isMainHost ||
           next.radio ||
           (prev?.webGuests == true && !next.webGuests);
-      if ((state.on || state.starting) && lost) stop(tellServer: false);
+      if (state.on && lost) stop(tellServer: false);
     });
-    _signals = _ref
-        .read(jamControllerProvider.notifier)
-        .rtcSignals
-        .listen((s) {
-      if (state.on) _toPage({'t': 'signal', 'from': s.from, 'data': s.data});
+    _signals = _jam.rtcSignals.listen((s) {
+      if (state.on) _onSignal(s);
     });
   }
 
-  static const _native = MethodChannel('lastwave/app_audio');
-  static bool get supported => Platform.isWindows;
-
   final Ref _ref;
   late final StreamSubscription<JamRtcSignal> _signals;
-  final String _token = List.generate(
-      16, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join();
-  HttpServer? _http;
-  ServerSocket? _pcmServer;
-  Socket? _pcm;
-  WebSocket? _page;
-  Webview? _webview;
-  Completer<void>? _pageReady;
+  final _guests = <String, _Guest>{};
+  final _files = <String, Future<Uint8List?>>{};
+  final Dio _dio = DioFactory.create();
 
   JamController get _jam => _ref.read(jamControllerProvider.notifier);
 
-  Future<void> start() async {
-    if (state.on || state.starting) return;
-    if (!supported) {
-      state = const JamBrowserState(
-          error: 'Browser guests need LastWave for Windows 10 (2004) or newer.');
-      return;
-    }
-    if (_ref.read(prefsProvider).wasapiExclusive) {
-      state = const JamBrowserState(
-          error: 'Turn off WASAPI exclusive mode first: exclusive output '
-              'skips the Windows mixer, so there is no audio to share.');
-      return;
-    }
-    state = const JamBrowserState(starting: true);
-    try {
-      await _ensureHostPage();
-      await _native.invokeMethod<bool>(
-          'start', {'port': _pcmServer!.port, 'token': _token});
-      if (!state.starting) {
-        // Left the room or lost host while starting.
-        await _native.invokeMethod<void>('stop');
-        return;
-      }
-      _jam.setWebGuests(true);
-      state = const JamBrowserState(on: true);
-    } catch (e) {
-      await stop(tellServer: false);
-      state = JamBrowserState(error: 'Could not start browser streaming: ${_reason(e)}');
-    }
+  void start() {
+    if (state.on) return;
+    _jam.setWebGuests(true);
+    state = const JamBrowserState(on: true);
   }
 
   Future<void> stop({bool tellServer = true}) async {
     final wasOn = state.on;
     state = const JamBrowserState();
-    _toPage({'t': 'stop'});
-    try {
-      await _native.invokeMethod<void>('stop');
-    } catch (_) {}
-    _pcm?.destroy();
-    _pcm = null;
+    for (final id in _guests.keys.toList()) {
+      await _close(id, bye: true);
+    }
+    _files.clear();
     if (tellServer && wasOn) _jam.setWebGuests(false);
   }
 
-  String _reason(Object e) => e is PlatformException
-      ? (e.message ?? e.code)
-      : e is TimeoutException
-          ? 'the streaming engine did not start'
-          : '$e';
+  void _report() {
+    if (!state.on) return;
+    final n = _guests.values
+        .where((g) =>
+            g.pc.connectionState ==
+            RTCPeerConnectionState.RTCPeerConnectionStateConnected)
+        .length;
+    state = JamBrowserState(on: true, connected: n);
+  }
 
-  void _toPage(Map<String, dynamic> msg) {
+  Future<void> _onSignal(JamRtcSignal s) async {
+    switch (s.data['kind']) {
+      case 'hello':
+        await _hello(s.from);
+      case 'answer':
+        final sdp = s.data['sdp']?.toString() ?? '';
+        final g = _guests[s.from];
+        if (g == null || sdp.isEmpty) return;
+        try {
+          await g.pc.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
+        } catch (_) {
+          await _close(s.from, bye: true);
+        }
+      case 'bye':
+        await _close(s.from);
+    }
+  }
+
+  Future<void> _hello(String id) async {
+    await _close(id);
+    if (_guests.length >= _maxGuests) {
+      _jam.sendRtcSignal(id, const {'kind': 'bye', 'reason': 'busy'});
+      return;
+    }
     try {
-      _page?.add(jsonEncode(msg));
+      final pc = await createPeerConnection(_ice);
+      final dc = await pc.createDataChannel('song', RTCDataChannelInit());
+      final guest = _Guest(pc, dc);
+      _guests[id] = guest;
+      dc.onMessage = (m) {
+        if (!m.isBinary) _onGuestMessage(id, guest, m.text);
+      };
+      pc.onConnectionState = (s) {
+        if (_guests[id] != guest) return;
+        // A guest whose network blocks P2P fails alone; nobody else is touched.
+        if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            s == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+          _close(id);
+        } else {
+          _report();
+        }
+      };
+      // Non-trickle ICE: one offer message per guest keeps signaling tiny.
+      final gathered = Completer<void>();
+      pc.onIceGatheringState = (s) {
+        if (s == RTCIceGatheringState.RTCIceGatheringStateComplete &&
+            !gathered.isCompleted) {
+          gathered.complete();
+        }
+      };
+      await pc.setLocalDescription(await pc.createOffer());
+      await gathered.future
+          .timeout(const Duration(seconds: 3), onTimeout: () {});
+      final local = await pc.getLocalDescription();
+      if (_guests[id] != guest || local?.sdp == null) return;
+      _jam.sendRtcSignal(id, {'kind': 'offer', 'sdp': local!.sdp});
+      _report();
+    } catch (_) {
+      await _close(id, bye: true);
+    }
+  }
+
+  Future<void> _close(String id, {bool bye = false}) async {
+    final g = _guests.remove(id);
+    if (g == null) return;
+    if (bye) _jam.sendRtcSignal(id, const {'kind': 'bye'});
+    try {
+      await g.dc.close();
+      await g.pc.close();
     } catch (_) {}
+    _report();
   }
 
-  /// Local server + hidden page, created once and reused for the app run
-  /// (recreating WebView2 windows flashes the taskbar, see PoTokenEngine).
-  Future<void> _ensureHostPage() async {
-    if (_pcmServer == null) {
-      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      server.listen(_onPcmClient);
-      _pcmServer = server;
-    }
-    if (_http == null) {
-      final html = await rootBundle.loadString('assets/jam_host.html');
-      final http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      http.listen((req) => _onHttp(req, html));
-      _http = http;
-    }
-    if (_page != null) return;
-    final ready = _pageReady = Completer<void>();
-    if (_webview == null) {
-      final folder = await webviewUserDataFolder('jam');
-      final webview = await WebviewWindow.create(
-        configuration: CreateConfiguration(
-          title: 'LastWave Jam Host',
-          titleBarHeight: 0,
-          windowWidth: 2,
-          windowHeight: 2,
-          windowPosX: -32000,
-          windowPosY: -32000,
-          useWindowPositionAndSize: true,
-          userDataFolderWindows:
-              folder.isEmpty ? 'webview_window_WebView2' : folder,
-        ),
-      );
-      _webview = webview;
-      try {
-        await webview.setWebviewWindowVisibility(false);
-      } catch (_) {}
-    }
-    _webview!.launch('http://127.0.0.1:${_http!.port}/host?k=$_token');
-    await ready.future.timeout(const Duration(seconds: 15));
-  }
-
-  Future<void> _onHttp(HttpRequest req, String html) async {
-    // The token keeps other local pages/processes off these endpoints.
-    if (req.uri.queryParameters['k'] != _token) {
-      req.response.statusCode = HttpStatus.forbidden;
-      await req.response.close();
-      return;
-    }
-    if (req.uri.path == '/host') {
-      req.response.headers.contentType = ContentType.html;
-      req.response.write(html);
-      await req.response.close();
-      return;
-    }
-    if (req.uri.path == '/pcm' && WebSocketTransformer.isUpgradeRequest(req)) {
-      final ws = await WebSocketTransformer.upgrade(req);
-      _page?.close();
-      _page = ws;
-      ws.listen(
-        (data) {
-          if (data is String) _onPage(data);
-        },
-        onDone: () {
-          if (_page == ws) _page = null;
-          if (state.on) stop();
-        },
-        onError: (_) {},
-      );
-      return;
-    }
-    req.response.statusCode = HttpStatus.notFound;
-    await req.response.close();
-  }
-
-  void _onPage(String text) {
-    final Map<String, dynamic> m;
+  void _onGuestMessage(String id, _Guest guest, String text) {
+    final Map m;
     try {
-      m = (jsonDecode(text) as Map).cast<String, dynamic>();
+      m = jsonDecode(text) as Map;
     } catch (_) {
       return;
     }
-    switch (m['t']) {
-      case 'ready':
-        final ready = _pageReady;
-        if (ready != null && !ready.isCompleted) ready.complete();
-      case 'signal':
-        final to = m['to']?.toString() ?? '';
-        final data = m['data'];
-        if (to.isNotEmpty && data is Map) {
-          _jam.sendRtcSignal(to, data.cast<String, dynamic>());
-        }
-      case 'peers':
-        if (state.on) {
-          state = JamBrowserState(
-              on: true, connected: (m['connected'] as num?)?.toInt() ?? 0);
-        }
-      case 'error':
-        final ready = _pageReady;
-        final message = m['message']?.toString() ?? 'streaming failed';
-        if (ready != null && !ready.isCompleted) {
-          ready.completeError(message);
-        } else {
-          stop().then((_) => state = JamBrowserState(error: message));
-        }
-    }
+    final song = m['id']?.toString() ?? '';
+    if (m['kind'] != 'get' || song.isEmpty) return;
+    guest.chain = guest.chain.then((_) => _sendSong(id, guest, song));
   }
 
-  /// Native capture connects here and sends `token\n` followed by raw
-  /// 48 kHz stereo s16 PCM; forwarded to the page in whole frames.
-  void _onPcmClient(Socket s) {
-    var authed = false;
-    final carry = BytesBuilder(copy: false);
-    s.listen(
-      (chunk) {
-        carry.add(chunk);
-        var all = carry.takeBytes();
-        if (!authed) {
-          final nl = all.indexOf(10);
-          if (nl < 0) {
-            if (all.length > 64) s.destroy();
-            carry.add(all);
-            return;
-          }
-          if (_pcm != null || ascii.decode(all.sublist(0, nl), allowInvalid: true) != _token) {
-            s.destroy();
-            return;
-          }
-          authed = true;
-          _pcm = s;
-          all = Uint8List.sublistView(all, nl + 1);
+  /// Only the room's current and queued songs: guests can't make the host
+  /// fetch arbitrary videos.
+  bool _allowed(String song) {
+    final jam = _ref.read(jamControllerProvider);
+    return _videoId.hasMatch(song) &&
+        (jam.track?.id == song || jam.queue.any((t) => t.id == song));
+  }
+
+  Future<void> _sendSong(String id, _Guest guest, String song) async {
+    Future<void> text(Map<String, dynamic> m) =>
+        guest.dc.send(RTCDataChannelMessage(jsonEncode(m)));
+    try {
+      final bytes = _allowed(song) ? await _file(song) : null;
+      if (_guests[id] != guest) return;
+      if (bytes == null) return await text({'kind': 'missing', 'id': song});
+      await text({'kind': 'file', 'id': song, 'size': bytes.length});
+      for (var at = 0; at < bytes.length; at += _chunk) {
+        // Pace on the SCTP buffer: libwebrtc closes a channel that overfills.
+        while (await guest.dc.getBufferedAmount() > _maxBuffered) {
+          if (_guests[id] != guest) return;
+          await Future<void>.delayed(const Duration(milliseconds: 40));
         }
-        final whole = all.length - all.length % 4;
-        if (whole > 0) {
-          try {
-            _page?.add(Uint8List.sublistView(all, 0, whole));
-          } catch (_) {}
-        }
-        if (whole < all.length) carry.add(Uint8List.fromList(all.sublist(whole)));
-      },
-      onDone: () {
-        if (_pcm == s) _pcm = null;
-      },
-      onError: (_) {},
-      cancelOnError: true,
-    );
+        final end = at + _chunk < bytes.length ? at + _chunk : bytes.length;
+        await guest.dc.send(RTCDataChannelMessage.fromBinary(
+            Uint8List.sublistView(bytes, at, end)));
+      }
+      await text({'kind': 'end', 'id': song});
+    } catch (_) {}
+  }
+
+  /// One fetch per song shared by every guest; keeps the last few.
+  Future<Uint8List?> _file(String song) {
+    final hit = _files[song];
+    if (hit != null) return hit;
+    if (_files.length >= 4) _files.remove(_files.keys.first);
+    final future = () async {
+      try {
+        // Download-optimized pick prefers M4A AAC: ~128 kbps, plays in
+        // every browser including Safari.
+        final stream = await _ref
+            .read(innerTubeProvider)
+            .resolveDownloadStream(song);
+        if (stream == null || !stream.url.startsWith('http')) return null;
+        final res = await _dio.get<List<int>>(
+          stream.url,
+          options: Options(
+            responseType: ResponseType.bytes,
+            headers: stream.requestHeaders,
+          ),
+        );
+        final data = res.data;
+        return data == null || data.isEmpty ? null : Uint8List.fromList(data);
+      } catch (_) {
+        return null;
+      }
+    }();
+    _files[song] = future;
+    future.then((b) {
+      if (b == null && _files[song] == future) _files.remove(song);
+    });
+    return future;
   }
 
   @override
   void dispose() {
     _signals.cancel();
     stop(tellServer: false);
-    _page?.close();
-    _http?.close(force: true);
-    _pcmServer?.close();
     super.dispose();
   }
 }

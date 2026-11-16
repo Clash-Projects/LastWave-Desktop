@@ -7,6 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_webview_window
   flutter_acrylic
   flutter_secure_storage_windows
+  flutter_webrtc
   hotkey_manager_windows
   media_kit_libs_windows_video
   media_kit_video

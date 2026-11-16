@@ -709,34 +709,25 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
           _Label('Browser guests'),
           const SizedBox(height: 8),
           ToggleSwitch(
-            checked: web.on || web.starting,
-            onChanged: web.starting
-                ? null
-                : (v) => v ? stream.start() : stream.stop(),
+            checked: web.on,
+            onChanged: (v) => v ? stream.start() : stream.stop(),
             content: const Text('Allow browser guests'),
           ),
           const SizedBox(height: 6),
           Text(
             web.on
                 ? '${web.connected} listening now · $inRoom in the room from a browser. '
-                    'Audio goes straight from this PC, capped at 128 kbps.'
+                    'Guests get the YouTube version (~128 kbps) straight from this PC.'
                 : 'Anyone with the link can listen and chat in a browser, no app '
-                    'needed. Audio streams directly from this PC.',
+                    'needed. Your own playback stays lossless.',
             style: WaveType.meta.copyWith(color: secondary),
           ),
-          if (web.error.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            InfoBar(
-              title: Text(web.error),
-              severity: InfoBarSeverity.error,
-            ),
-          ],
           if (web.on && web.connected >= jamBrowserGuestWarnAt) ...[
             const SizedBox(height: 8),
             InfoBar(
               title: Text(
                 '${web.connected} browser guests use about '
-                '${(web.connected * 0.13).toStringAsFixed(1)} Mbps of your upload. '
+                '${(web.connected * 4).toStringAsFixed(0)} MB of your upload per song. '
                 'If playback for guests stutters, ask some to get the app.',
               ),
               severity: InfoBarSeverity.warning,
