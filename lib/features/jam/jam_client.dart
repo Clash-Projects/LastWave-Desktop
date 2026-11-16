@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/prefs.dart';
 
-const jamDefaultServer = 'wss://jam.clashprojects.qd.je/ws';
+const jamDefaultServer = 'wss://jam.clashgram.org/ws';
 
 /// "3:42:10 PM" for a wall-clock millisecond timestamp.
 String jamClock(int ms) {
@@ -47,12 +47,24 @@ class JamPerson {
   /// True for the main host and the co-host.
   final bool isHost;
   final bool isCoHost;
+
+  /// Joined from the browser listen page (no app).
+  final bool isWeb;
   const JamPerson({
     required this.userId,
     required this.name,
     this.isHost = false,
     this.isCoHost = false,
+    this.isWeb = false,
   });
+}
+
+/// WebRTC signaling relayed by the server between the host and one
+/// browser guest. `data['kind']` is hello / offer / answer / bye.
+class JamRtcSignal {
+  final String from;
+  final Map<String, dynamic> data;
+  const JamRtcSignal(this.from, this.data);
 }
 
 /// Snapshot of the message a chat line replies to.
@@ -211,6 +223,9 @@ class JamSnapshot {
   /// Wall-clock ms when the playback cooldown ends; 0 when none.
   final int retryAtMs;
 
+  /// The main host allows browser guests (listen page) in this room.
+  final bool webGuests;
+
   /// True only for the main host, who may give and remove co-hosts.
   bool get isMainHost => userId.isNotEmpty && userId == hostId;
 
@@ -239,6 +254,7 @@ class JamSnapshot {
     this.cooldownUntilMs = 0,
     this.notice = '',
     this.retryAtMs = 0,
+    this.webGuests = false,
   });
 
   JamSnapshot copyWith({
@@ -264,6 +280,7 @@ class JamSnapshot {
     int? cooldownUntilMs,
     String? notice,
     int? retryAtMs,
+    bool? webGuests,
   }) =>
       JamSnapshot(
         phase: phase ?? this.phase,
@@ -287,6 +304,7 @@ class JamSnapshot {
         cooldownUntilMs: cooldownUntilMs ?? this.cooldownUntilMs,
         notice: notice ?? this.notice,
         retryAtMs: retryAtMs ?? this.retryAtMs,
+        webGuests: webGuests ?? this.webGuests,
       );
 }
 
@@ -309,9 +327,13 @@ class JamController extends StateNotifier<JamSnapshot> {
   WebSocket? _socket;
   Timer? _ping;
   final _remote = StreamController<JamRemote>.broadcast();
+  final _rtc = StreamController<JamRtcSignal>.broadcast();
   int _generation = 0;
 
   Stream<JamRemote> get remote => _remote.stream;
+
+  /// Signaling from browser guests, for the host's P2P audio stream.
+  Stream<JamRtcSignal> get rtcSignals => _rtc.stream;
 
   String get serverUrl {
     final raw = _ref.read(prefsProvider).jamServerUrl.trim();
@@ -329,6 +351,37 @@ class JamController extends StateNotifier<JamSnapshot> {
       port: u.hasPort ? u.port : null,
     );
     return '$base/?code=$code';
+  }
+
+  /// Browser listen page for guests without the app.
+  String listenLink(String code) =>
+      inviteLink(code).replaceFirst('/?code=', '/listen?code=');
+
+  /// Main host only: allow or stop browser guests.
+  void setWebGuests(bool enabled) =>
+      _send('set_web_guests', {'enabled': enabled});
+
+  final _signalQueue = <String>[];
+  Timer? _signalPump;
+
+  /// Relays WebRTC signaling to one browser guest. Paced at 5/s: the server
+  /// drops (and eventually disconnects) clients above 10 messages/s, and
+  /// many guests tapping Listen at once would otherwise burst past that.
+  void sendRtcSignal(String to, Map<String, dynamic> data) {
+    _signalQueue.add(jsonEncode({
+      'type': 'rtc_signal',
+      'payload': {'to': to, 'data': data},
+    }));
+    _signalPump ??= Timer.periodic(const Duration(milliseconds: 200), (t) {
+      if (_signalQueue.isEmpty) {
+        t.cancel();
+        _signalPump = null;
+        return;
+      }
+      try {
+        _socket?.add(_signalQueue.removeAt(0));
+      } catch (_) {}
+    });
   }
 
   /// Accepts a bare code or a pasted invite link (`...?code=ABC123`).
@@ -607,6 +660,7 @@ class JamController extends StateNotifier<JamSnapshot> {
             track: track,
             isPlaying: playback['is_playing'] == true,
             queue: _tracks(playback['queue']),
+            webGuests: map['web_guests'] == true,
           );
           _remote.add(JamRemoteFull(
             track: track,
@@ -620,6 +674,7 @@ class JamController extends StateNotifier<JamSnapshot> {
             userId: map['user_id']?.toString() ?? '',
             name: map['name']?.toString() ?? '',
             isHost: map['is_host'] == true,
+            isWeb: map['is_web'] == true,
           );
           final next = [
             ...state.people.where((p) => p.userId != person.userId),
@@ -632,6 +687,19 @@ class JamController extends StateNotifier<JamSnapshot> {
           state = state.copyWith(
             people: state.people.where((p) => p.userId != id).toList(),
           );
+          // Ends that guest's P2P stream without waiting for ICE to time out.
+          _rtc.add(JamRtcSignal(id, const {'kind': 'bye'}));
+        case 'web_guests_changed':
+          if (state.phase != JamPhase.active) return;
+          state = state.copyWith(webGuests: map['enabled'] == true);
+        case 'rtc_signal':
+          final data = map['data'];
+          if (data is Map) {
+            _rtc.add(JamRtcSignal(
+              map['from']?.toString() ?? '',
+              data.map((k, v) => MapEntry(k.toString(), v)),
+            ));
+          }
         case 'host_changed':
           if (state.phase != JamPhase.active) return;
           final hostId = (map['host_id']?.toString() ?? '').isNotEmpty
@@ -707,6 +775,7 @@ class JamController extends StateNotifier<JamSnapshot> {
             name: person.name,
             isHost: person.userId == hostId || person.userId == coHostId,
             isCoHost: coHostId.isNotEmpty && person.userId == coHostId,
+            isWeb: person.isWeb,
           ),
       ],
     );
@@ -771,6 +840,7 @@ class JamController extends StateNotifier<JamSnapshot> {
             name: item['name']?.toString() ?? '',
             isHost: item['is_host'] == true,
             isCoHost: item['is_cohost'] == true,
+            isWeb: item['is_web'] == true,
           ),
     ];
   }
@@ -800,6 +870,9 @@ class JamController extends StateNotifier<JamSnapshot> {
   Future<void> _close({required bool clear}) async {
     _ping?.cancel();
     _ping = null;
+    _signalPump?.cancel();
+    _signalPump = null;
+    _signalQueue.clear();
     final socket = _socket;
     _socket = null;
     if (socket != null) {
@@ -816,7 +889,9 @@ class JamController extends StateNotifier<JamSnapshot> {
     _generation++;
     _ping?.cancel();
     _socket?.close();
+    _signalPump?.cancel();
     _remote.close();
+    _rtc.close();
     super.dispose();
   }
 }

@@ -545,7 +545,10 @@ class Prefs {
   // -- Jam --------------------------------------------------------------------
   String get jamServerUrl {
     final raw = _sp.getString('jamServerUrl')?.trim() ?? '';
-    if (raw.isEmpty) return 'wss://jam.clashprojects.qd.je/ws';
+    // The Jam server moved; a saved old default follows it.
+    if (raw.isEmpty || raw.contains('jam.clashprojects.qd.je')) {
+      return 'wss://jam.clashgram.org/ws';
+    }
     return raw;
   }
 
