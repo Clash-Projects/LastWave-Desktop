@@ -526,7 +526,7 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
             ],
           ),
         ),
-        if (jam.isMainHost && !jam.radio) ...[
+        if (jam.isMainHost && !jam.radio && !jam.permanent) ...[
           const SizedBox(height: 14),
           _browserGuests(context, jam),
         ],

@@ -70,6 +70,7 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
       final lost = next.phase != JamPhase.active ||
           !next.isMainHost ||
           next.radio ||
+          next.permanent ||
           (prev?.webGuests == true && !next.webGuests);
       if (state.on && lost) stop(tellServer: false);
     });
