@@ -66,24 +66,31 @@ class _SongFile {
 /// Only SDP goes through the Jam server, so no audio touches the VPS.
 class JamBrowserStream extends StateNotifier<JamBrowserState> {
   JamBrowserStream(this._ref) : super(const JamBrowserState()) {
-    _ref.listen<JamSnapshot>(jamControllerProvider, (prev, next) {
-      final lost = next.phase != JamPhase.active ||
-          !next.isMainHost ||
-          next.radio ||
-          next.permanent ||
-          (prev?.webGuests == true && !next.webGuests);
-      if (state.on && lost) {
-        stop(tellServer: false);
+    // Browser guests are chosen when the room is created; this just follows
+    // the room's flag while you are its main host.
+    void follow(JamSnapshot next) {
+      final allowed = next.phase == JamPhase.active &&
+          next.isMainHost &&
+          next.webGuests &&
+          !next.radio &&
+          !next.permanent;
+      if (!allowed) {
+        if (state.on) stop();
         return;
       }
+      if (!state.on) state = const JamBrowserState(on: true);
       // Fetch the current and next song ahead of time so guests switch
       // tracks without waiting on YouTube.
-      if (state.on && _guests.isNotEmpty) {
+      if (_guests.isNotEmpty) {
         for (final id in [next.track?.id, next.queue.firstOrNull?.id]) {
           if (id != null && _allowed(id)) _song(id);
         }
       }
-    });
+    }
+
+    _ref.listen<JamSnapshot>(
+        jamControllerProvider, (_, next) => follow(next));
+    follow(_ref.read(jamControllerProvider));
     _signals = _jam.rtcSignals.listen((s) {
       if (state.on) _onSignal(s);
     });
@@ -97,20 +104,12 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
 
   JamController get _jam => _ref.read(jamControllerProvider.notifier);
 
-  void start() {
-    if (state.on) return;
-    _jam.setWebGuests(true);
-    state = const JamBrowserState(on: true);
-  }
-
-  Future<void> stop({bool tellServer = true}) async {
-    final wasOn = state.on;
+  Future<void> stop() async {
     state = const JamBrowserState();
     for (final id in _guests.keys.toList()) {
       await _close(id, bye: true);
     }
     _files.clear();
-    if (tellServer && wasOn) _jam.setWebGuests(false);
   }
 
   void _report() {
@@ -339,7 +338,7 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
   @override
   void dispose() {
     _signals.cancel();
-    stop(tellServer: false);
+    stop();
     super.dispose();
   }
 }
