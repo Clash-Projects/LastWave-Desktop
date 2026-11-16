@@ -42,6 +42,14 @@ class OutroMixPlanner {
   /// incoming song does not cover the ending.
   static const double hardEndOverlap = 4;
 
+  /// Longest blend: a short, clean handover rather than two songs stacked
+  /// on each other, whatever the AutoMix setting allows.
+  static const double maxBlend = 8;
+
+  /// Longest lead-in the beat alignment accepts: the incoming song's sound
+  /// before its first downbeat (a pickup, a breath).
+  static const double maxLead = 4;
+
   /// How far below the song's body level the outro must sit to count as
   /// its fade-out.
   static const double fadeDropDb = 4;
@@ -132,25 +140,57 @@ class OutroMixPlanner {
     required double maxOverlap,
   }) {
     if (maxOverlap < minOverlap) return null;
+    final out = outgoingTail;
+    final inc = incomingHead;
     // The outgoing song's real end: its last audible moment, never past
     // the file end. Only the silent tail after it is skipped.
-    final contentEnd = math.min(outgoingTail.contentEnd, outgoingDuration);
-    final fade = outroLength(outgoingTail);
+    final contentEnd = math.min(out.contentEnd, outgoingDuration);
+    final cap = math.min(maxOverlap, maxBlend);
+    final fade = outroLength(out);
     final faded = fade >= minOverlap;
-    final overlap = faded
-        ? math.min(fade, maxOverlap)
-        : math.min(hardEndOverlap, maxOverlap);
+    var overlap = faded ? math.min(fade, cap) : math.min(hardEndOverlap, cap);
+    // Incoming starts at its first sound: nothing of it is skipped.
+    final cue = math.max(0.0, inc.audibleStart - 0.05);
+    var onBeat = false;
+
+    // On the beat, without touching tempo: start the incoming song so its
+    // first downbeat lands on an outgoing downbeat. Only the start moves;
+    // the blend still ends on the outgoing song's last sound.
+    if (out.hasBeat && inc.hasBeat) {
+      final inGrid = inc.downbeats.isNotEmpty ? inc.downbeats : inc.beats;
+      final outGrid = out.downbeats.isNotEmpty ? out.downbeats : out.beats;
+      final first = inGrid.where((d) => d >= cue).firstOrNull;
+      if (first != null && first - cue <= maxLead) {
+        final lead = first - cue;
+        // A hard ending may stretch a little past [hardEndOverlap] to reach a
+        // downbeat; a fade stays within the cap.
+        final hi = faded ? cap : math.min(cap, hardEndOverlap + 1);
+        double? best;
+        for (final d in outGrid) {
+          final o = contentEnd - (d - lead);
+          if (o < minOverlap || o > hi + 1e-6) continue;
+          if (d - lead < out.windowStart) continue;
+          if (best == null || (o - overlap).abs() < (best - overlap).abs()) {
+            best = o;
+          }
+        }
+        if (best != null) {
+          overlap = best;
+          onBeat = true;
+        }
+      }
+    }
+
     final start = contentEnd - overlap;
-    if (start < outgoingTail.windowStart) return null;
-    final cue = math.max(0.0, incomingHead.audibleStart - 0.05);
+    if (start < out.windowStart) return null;
     if (cue + overlap + 5 >= incomingDuration) return null;
+    final shape =
+        faded ? 'outro fade=${fade.toStringAsFixed(1)}s' : 'hard end';
     return OutroMixPlan(
       mixOutStart: start,
       overlap: overlap,
       incomingCue: cue,
-      reason: faded
-          ? 'outro fade=${fade.toStringAsFixed(1)}s'
-          : 'hard end',
+      reason: onBeat ? '$shape on-beat' : shape,
     );
   }
 }

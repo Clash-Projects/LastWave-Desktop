@@ -108,8 +108,8 @@ void main() {
       // The song is never cut: the blend ends where its sound ends.
       expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
       expect(p.mixOutEnd, lessThanOrEqualTo(200));
-      // The blend follows the fade instead of a fixed length.
-      expect(p.overlap, inInclusiveRange(5, 10.5));
+      // The blend follows the fade, kept short.
+      expect(p.overlap, inInclusiveRange(5, OutroMixPlanner.maxBlend));
       expect(p.reason, startsWith('outro fade'));
       // Incoming starts at its first sound, only the silence is skipped.
       expect(p.incomingCue, closeTo(2.15, 0.15));
@@ -125,9 +125,10 @@ void main() {
         incomingDuration: 180,
         maxOverlap: 14,
       )!;
-      expect(p.overlap, OutroMixPlanner.hardEndOverlap);
+      expect(p.overlap,
+          inInclusiveRange(OutroMixPlanner.minOverlap, OutroMixPlanner.hardEndOverlap + 1));
       expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
-      expect(p.reason, 'hard end');
+      expect(p.reason, startsWith('hard end'));
     });
 
     test('a long fade never blends longer than allowed', () {
@@ -142,6 +143,30 @@ void main() {
         maxOverlap: 8,
       )!;
       expect(p.overlap, lessThanOrEqualTo(8));
+      expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
+    });
+
+    test('the incoming downbeat lands on an outgoing downbeat, speed untouched',
+        () {
+      final tail = analyzePcm(
+          fadeOut(drums(bpm: 124, seconds: 60, tail: 4), fade: 10, tail: 4),
+          sr,
+          offsetSeconds: 140);
+      final p = OutroMixPlanner.plan(
+        outgoingTail: tail,
+        incomingHead: head,
+        outgoingDuration: 200,
+        incomingDuration: 180,
+        maxOverlap: 14,
+      )!;
+      expect(p.reason, endsWith('on-beat'));
+      // Nothing of the incoming song is skipped: it starts at its first sound.
+      expect(p.incomingCue, closeTo(head.audibleStart - 0.05, 0.001));
+      final firstDown = head.downbeats.firstWhere((d) => d >= p.incomingCue);
+      final landsAt = p.mixOutStart + (firstDown - p.incomingCue);
+      final nearest = tail.downbeats
+          .reduce((a, b) => (a - landsAt).abs() < (b - landsAt).abs() ? a : b);
+      expect(landsAt, closeTo(nearest, 0.02));
       expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
     });
   });
