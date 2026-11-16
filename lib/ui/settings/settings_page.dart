@@ -3732,8 +3732,8 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
       id: 'audio.automix',
       title: 'AutoMix',
       subtitle: prefs.autoMixEnabled
-          ? 'Timed dual-deck overlap, not beat-matched. Turns crossfade off.'
-          : 'Off. A timed mix between tracks, not a beat or key match.',
+          ? 'Blends each song into the next over its own outro. Turns crossfade off.'
+          : 'Off. Songs change without a blend.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3747,7 +3747,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
             },
             title: 'Timed mix',
             subtitle: prefs.autoMixEnabled
-                ? 'Up to ${prefs.autoMixSeconds}s, beat-matched on the downbeat when tempos are close. Skips silent intros and outros; album tracks stay gapless.'
+                ? "Up to ${prefs.autoMixSeconds}s over each song's fade-out, at normal speed. Every song plays to its last note; only silence is skipped. Album tracks stay gapless."
                 : 'Gapless until you turn this on',
           ),
           if (prefs.autoMixEnabled) ...[

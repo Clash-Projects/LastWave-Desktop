@@ -127,22 +127,6 @@ class MixPlanner {
     return (math.cos(angle), math.sin(angle));
   }
 
-  /// DJ-style gains for a beat-matched mix: the incoming track comes up
-  /// over the first 60% while the outgoing one stays at full level for the
-  /// first 40%, then lets go. Locked beats make the brief overlap at full
-  /// level sound like one groove instead of a clash.
-  static (double, double) djGains(double progress) {
-    final p = progress.clamp(0.0, 1.0);
-    double smooth(double x) {
-      final t = x.clamp(0.0, 1.0);
-      return t * t * (3 - 2 * t);
-    }
-
-    final inG = math.sin(smooth(p / 0.6) * math.pi / 2);
-    final outG = math.cos(smooth((p - 0.4) / 0.6) * math.pi / 2);
-    return (outG, inG);
-  }
-
   static bool _sameAlbum(MixTrackInfo a, MixTrackInfo b) {
     final x = _norm(a.album);
     final y = _norm(b.album);
