@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/automix/audio_analysis.dart';
-import 'package:lastwave_desktop/features/automix/beat_mix_planner.dart';
+import 'package:lastwave_desktop/features/automix/outro_mix_planner.dart';
 
 const sr = 11025;
 
@@ -68,7 +68,7 @@ void main() {
       final pcm = Int16List.fromList(
           List.generate(sr * 30, (_) => ((r.nextDouble() * 2 - 1) * 8000).round()));
       final a = analyzePcm(pcm, sr);
-      expect(a.hasBeat && a.confidence >= BeatMixPlanner.minConfidence, isFalse);
+      expect(a.hasBeat && a.confidence >= 0.2, isFalse);
     });
 
     test('json round trip', () {
@@ -79,93 +79,70 @@ void main() {
     });
   });
 
-  group('planner', () {
-    final tail = analyzePcm(drums(bpm: 124, seconds: 60, tail: 6), sr,
-        offsetSeconds: 140);
+  group('outro planner', () {
+    // Fades the last [fade] seconds before the silent [tail] down to silence.
+    Int16List fadeOut(Int16List pcm, {required double fade, double tail = 0}) {
+      final out = Int16List.fromList(pcm);
+      final end = out.length - (tail * sr).round();
+      final start = end - (fade * sr).round();
+      for (var k = start; k < end; k++) {
+        out[k] = (out[k] * (1 - (k - start) / (end - start))).round();
+      }
+      return out;
+    }
+
     final head = analyzePcm(drums(bpm: 128, seconds: 60, intro: 2.2), sr);
 
-    test('beat-matches close tempi on downbeats, before the silent tail', () {
-      final p = BeatMixPlanner.plan(
+    test('blends over the outgoing fade and ends on its last sound', () {
+      final tail = analyzePcm(
+          fadeOut(drums(bpm: 124, seconds: 60, tail: 4), fade: 10, tail: 4),
+          sr,
+          offsetSeconds: 140);
+      final p = OutroMixPlanner.plan(
         outgoingTail: tail,
         incomingHead: head,
         outgoingDuration: 200,
         incomingDuration: 180,
-        maxOverlap: 20,
+        maxOverlap: 14,
       )!;
-      expect(p.beatMatched, isTrue);
-      expect(p.rate, closeTo(124 / 128, 0.003));
-      expect(p.beats, 32);
-      expect(tail.downbeats, contains(p.mixOutStart));
-      expect(head.downbeats, contains(p.incomingCue));
-      expect(p.mixOutEnd, lessThanOrEqualTo(tail.contentEnd + 0.02));
-      expect(p.incomingCue, greaterThanOrEqualTo(2.2 - 0.08));
-      // Incoming downbeats land on outgoing beats across the blend.
-      for (var k = 0; k <= 32; k += 4) {
-        final outBeat = p.mixOutStart + k * tail.beatPeriod;
-        final inBeat = p.incomingCue + k * head.beatPeriod;
-        expect(p.expectedIncoming(outBeat), closeTo(inBeat, 0.03));
-      }
-    });
-
-    test('far tempi fall back to a blend that still skips dead air', () {
-      final slow = analyzePcm(drums(bpm: 90, seconds: 60, intro: 4), sr);
-      final p = BeatMixPlanner.plan(
-        outgoingTail: tail,
-        incomingHead: slow,
-        outgoingDuration: 200,
-        incomingDuration: 180,
-        maxOverlap: 12,
-      )!;
-      expect(p.beatMatched, isFalse);
-      expect(p.rate, 1.0);
+      // The song is never cut: the blend ends where its sound ends.
       expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
-      expect(p.incomingCue, closeTo(3.95, 0.1));
+      expect(p.mixOutEnd, lessThanOrEqualTo(200));
+      // The blend follows the fade instead of a fixed length.
+      expect(p.overlap, inInclusiveRange(5, 10.5));
+      expect(p.reason, startsWith('outro fade'));
+      // Incoming starts at its first sound, only the silence is skipped.
+      expect(p.incomingCue, closeTo(2.15, 0.15));
     });
 
-    test('tempo change is not used when pitch shifting is on', () {
-      final p = BeatMixPlanner.plan(
+    test('a hard ending gets a short blend so it is not covered', () {
+      final tail = analyzePcm(drums(bpm: 124, seconds: 60, tail: 3), sr,
+          offsetSeconds: 140);
+      final p = OutroMixPlanner.plan(
         outgoingTail: tail,
         incomingHead: head,
         outgoingDuration: 200,
         incomingDuration: 180,
-        maxOverlap: 20,
-        allowTempo: false,
+        maxOverlap: 14,
       )!;
-      expect(p.beatMatched, isFalse);
+      expect(p.overlap, OutroMixPlanner.hardEndOverlap);
+      expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
+      expect(p.reason, 'hard end');
     });
-  });
 
-  test('beat lock pulls a late, noisy deck onto the grid', () {
-    final plan = BeatMixPlan(
-      mixOutStart: 100,
-      overlap: 15,
-      incomingCue: 5,
-      incomingStartAt: 2,
-      rate: 0.97,
-      beatMatched: true,
-      beats: 32,
-      reason: 'test',
-    );
-    final lock = BeatLock(plan, speed: 1);
-    final rnd = math.Random(7);
-    var now = DateTime(2026);
-    var out = plan.triggerAt;
-    var inc = plan.incomingStartAt - 0.4 * 0.97; // started 400 ms late
-    var rate = 0.97;
-    const dt = 0.025;
-    while (out < plan.mixOutEnd) {
-      out += dt;
-      inc += dt * rate;
-      now = now.add(const Duration(milliseconds: 25));
-      // ±30 ms clock jitter on each reading, like mpv's chunked clock.
-      lock.sample(out + (rnd.nextDouble() - 0.5) * 0.06,
-          inc + (rnd.nextDouble() - 0.5) * 0.06);
-      final a = lock.step(now);
-      if (a.seekTo != null) inc = a.seekTo!;
-      if (a.rate != null) rate = a.rate!;
-      // Never an audible wobble beyond ±3%.
-      expect((rate / 0.97 - 1).abs(), lessThanOrEqualTo(0.0301));
-    }
-    expect(lock.meanAudibleError, lessThan(0.015));
+    test('a long fade never blends longer than allowed', () {
+      final tail = analyzePcm(
+          fadeOut(drums(bpm: 124, seconds: 60), fade: 25), sr,
+          offsetSeconds: 140);
+      final p = OutroMixPlanner.plan(
+        outgoingTail: tail,
+        incomingHead: head,
+        outgoingDuration: 200,
+        incomingDuration: 180,
+        maxOverlap: 8,
+      )!;
+      expect(p.overlap, lessThanOrEqualTo(8));
+      expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
+    });
   });
 }
