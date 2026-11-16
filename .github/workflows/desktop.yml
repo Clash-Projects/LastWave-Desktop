@@ -41,6 +41,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned: 3.50.0 crashes on play (access violation on the raster
+          # thread in flutter_windows.dll, Intel D3D driver on the stack).
+          # 3.47.9 is the last engine with crash-free builds.
+          flutter-version: 3.47.9
           cache: true
 
       # Release builds need the addon backend key: CI has no .env
@@ -374,6 +378,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned: 3.50.0 crashes on play (access violation on the raster
+          # thread in flutter_windows.dll, Intel D3D driver on the stack).
+          # 3.47.9 is the last engine with crash-free builds.
+          flutter-version: 3.47.9
           cache: true
 
       - name: Write .env from secrets
@@ -514,6 +522,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned: 3.50.0 crashes on play (access violation on the raster
+          # thread in flutter_windows.dll, Intel D3D driver on the stack).
+          # 3.47.9 is the last engine with crash-free builds.
+          flutter-version: 3.47.9
           cache: true
 
       - name: Write .env from secrets
