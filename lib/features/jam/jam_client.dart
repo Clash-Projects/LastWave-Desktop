@@ -451,9 +451,13 @@ class JamController extends StateNotifier<JamSnapshot> {
   /// Main host only: publish the upcoming queue so listeners can see it.
   void broadcastQueue(List<JamTrack> queue) {
     if (state.phase != JamPhase.active) return;
+    final shared = queue.take(5).toList();
     _send('queue_update', {
-      'queue': [for (final t in queue.take(5)) t.toJson()],
+      'queue': [for (final t in shared) t.toJson()],
     });
+    // The server echoes queue_updated to everyone but the sender, so the
+    // host records its own queue (browser guests may only fetch songs in it).
+    state = state.copyWith(queue: shared);
   }
 
   List<JamTrack> _tracks(Object? raw) {
