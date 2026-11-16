@@ -117,6 +117,7 @@ class DjMixPlanner {
     required double incomingDuration,
     required int bars,
     bool allowTempo = true,
+    double? earliestStart,
   }) {
     try {
       final requested = bars >= 16 ? 16 : 8;
@@ -128,6 +129,7 @@ class DjMixPlanner {
           inDur: incomingDuration,
           bars: b,
           allowTempo: allowTempo,
+          earliestStart: earliestStart,
         );
         if (p != null && isSafePlan(p, outgoingDuration: outgoingDuration)) {
           return p;
@@ -198,6 +200,7 @@ class DjMixPlanner {
     required double inDur,
     required int bars,
     required bool allowTempo,
+    double? earliestStart,
   }) {
     if (!out.hasBeat) return null;
     final outBeat = out.beatPeriod;
@@ -241,6 +244,19 @@ class DjMixPlanner {
         start = d;
         break;
       }
+    }
+    // The listener jumped past the natural mix point: start on the first
+    // downbeat from [earliestStart] instead, if the blend still fits before
+    // the song's last sound (the caller then tries 8 bars).
+    if (earliestStart != null && (start == null || start < earliestStart)) {
+      start = null;
+      for (final d in outGrid) {
+        if (d >= earliestStart) {
+          start = d;
+          break;
+        }
+      }
+      if (start == null || start + blendSec > contentEnd + 0.05) return null;
     }
     if (start == null || start < out.windowStart + 0.5) return null;
 

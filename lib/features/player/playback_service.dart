@@ -1069,7 +1069,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
   }
 
-  DjMixPlan? _djPlanFor(PlayableTrack next) {
+  DjMixPlan? _djPlanFor(PlayableTrack next, {double? earliest}) {
     final cur = state.current;
     final cs = state.stream;
     final ns = _nextStreamFor(next);
@@ -1079,7 +1079,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     final bars = _prefs.autoMixBars;
     final allowTempo =
         (state.pitch - 1.0).abs() <= 0.005 && _mixFaults.beatMixAllowed;
-    final key = '$tk>$hk|$bars|$allowTempo';
+    // A late plan is redone every 4 s of position, not every tick.
+    final late = earliest == null ? '' : '|late${(earliest / 4).floor()}';
+    final key = '$tk>$hk|$bars|$allowTempo$late';
     if (key == _djPlanKey) return _djPlan;
     final tail = _analyzer.cached(tk);
     final head = _analyzer.cached(hk);
@@ -1094,6 +1096,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       incomingDuration: inDur,
       bars: bars,
       allowTempo: allowTempo,
+      earliestStart: earliest,
     );
     _djPlanKey = key;
     _djPlan = plan;
@@ -1116,12 +1119,16 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       MixPlan mixPlan) {
     // Already armed the plain way: finish that one.
     if (_standbyArmed && _armedDjPlan == null) return false;
-    final dp = _armedDjPlan ?? _djPlanFor(next);
+    var dp = _armedDjPlan ?? _djPlanFor(next);
     if (dp == null) return false;
     final pos = _secs(position);
-    if (!_standbyArmed && pos >= dp.mixOutStart) {
-      // Seeked past the mix point: let the plain path decide.
-      return false;
+    if (!_standbyArmed && pos >= dp.triggerAt - 0.5) {
+      // The listener jumped past the mix point: re-plan from here, on a
+      // downbeat far enough ahead for the next song to load. Only when not
+      // even 8 bars fit does the plain end fade take over.
+      final late = _djPlanFor(next, earliest: pos + 8);
+      if (late == null) return false;
+      dp = late;
     }
     if (!_standbyArmed &&
         pos >= dp.triggerAt - _secs(_armLead) &&

@@ -132,6 +132,32 @@ void main() {
       expect(p.incomingCue, closeTo(head.downbeats.first, 0.6));
     });
 
+    test('a jump past the mix point re-plans from there, on a downbeat', () {
+      final normal = planFor();
+      final late = DjMixPlanner.plan(
+        outgoingTail: tail,
+        incomingHead: head,
+        outgoingDuration: 200,
+        incomingDuration: 180,
+        bars: 16,
+        earliestStart: normal.mixOutStart + 5,
+      )!;
+      expect(late.mixOutStart, greaterThanOrEqualTo(normal.mixOutStart + 5));
+      expect(tail.downbeats, contains(late.mixOutStart));
+      expect(late.mixOutEnd, lessThanOrEqualTo(tail.contentEnd + 0.05));
+      // Too late even for 8 bars: no plan (the plain end fade takes over).
+      expect(
+          DjMixPlanner.plan(
+            outgoingTail: tail,
+            incomingHead: head,
+            outgoingDuration: 200,
+            incomingDuration: 180,
+            bars: 16,
+            earliestStart: tail.contentEnd - 5,
+          ),
+          isNull);
+    });
+
     test('8 bars when asked; the intro plays under the blend', () {
       final p = planFor(bars: 8);
       expect(p.bars, 8);
