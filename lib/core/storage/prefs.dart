@@ -174,10 +174,10 @@ class Prefs {
   bool get autoMixEnabled => _sp.getBool('lw_automix_enabled') ?? false;
 
   int get autoMixSeconds {
-    // 12–18 s. Older builds allowed up to 30 s, which ate the end of
+    // 6–18 s. Older builds allowed up to 30 s, which ate the end of
     // short songs; stored values above 18 are read as 18.
     final v = _sp.getInt('lw_automix_seconds') ?? 14;
-    return v.clamp(12, 18);
+    return v.clamp(6, 18);
   }
 
   bool get autoMixSpectral => _sp.getBool('lw_automix_spectral') ?? true;

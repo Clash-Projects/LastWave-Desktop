@@ -109,7 +109,8 @@ void main() {
       expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
       expect(p.mixOutEnd, lessThanOrEqualTo(200));
       // The blend follows the fade, kept short.
-      expect(p.overlap, inInclusiveRange(5, OutroMixPlanner.maxBlend));
+      expect(p.overlap, inInclusiveRange(OutroMixPlanner.minOverlap, 14));
+      expect(p.faded, isTrue);
       expect(p.reason, startsWith('outro fade'));
       // Incoming starts at its first sound, only the silence is skipped.
       expect(p.incomingCue, closeTo(2.15, 0.15));
@@ -126,7 +127,8 @@ void main() {
         maxOverlap: 14,
       )!;
       expect(p.overlap,
-          inInclusiveRange(OutroMixPlanner.minOverlap, OutroMixPlanner.hardEndOverlap + 1));
+          inInclusiveRange(OutroMixPlanner.minOverlap, OutroMixPlanner.hardEndOverlap + 3));
+      expect(p.faded, isFalse);
       expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
       expect(p.reason, startsWith('hard end'));
     });
