@@ -15,6 +15,7 @@ const jamBrowserGuestWarnAt = 8;
 
 const _maxGuests = 30;
 const _chunk = 16 * 1024;
+const _range = 512 * 1024;
 const _maxBuffered = 1024 * 1024;
 const _ice = {
   'iceServers': [
@@ -38,6 +39,22 @@ class _Guest {
   final RTCDataChannel dc;
   Future<void> chain = Future.value(); // one file at a time per guest
   _Guest(this.pc, this.dc);
+}
+
+/// A song being fetched in ranges, shared by every guest that wants it.
+class _SongFile {
+  final chunks = <Uint8List>[];
+  int size = 0;
+  String mime = 'audio/mp4';
+  bool done = false;
+  bool failed = false;
+  Completer<void> _tick = Completer();
+  Future<void> get changed => _tick.future;
+  void notify() {
+    final t = _tick;
+    _tick = Completer();
+    t.complete();
+  }
 }
 
 /// Host side of Jam "Browser Guest Mode".
@@ -64,7 +81,7 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
   final Ref _ref;
   late final StreamSubscription<JamRtcSignal> _signals;
   final _guests = <String, _Guest>{};
-  final _files = <String, Future<Uint8List?>>{};
+  final _files = <String, _SongFile>{};
   final Dio _dio = DioFactory.create();
 
   JamController get _jam => _ref.read(jamControllerProvider.notifier);
@@ -189,58 +206,110 @@ class JamBrowserStream extends StateNotifier<JamBrowserState> {
   }
 
   Future<void> _sendSong(String id, _Guest guest, String song) async {
+    bool gone() => _guests[id] != guest;
     Future<void> text(Map<String, dynamic> m) =>
         guest.dc.send(RTCDataChannelMessage(jsonEncode(m)));
     try {
-      final bytes = _allowed(song) ? await _file(song) : null;
-      if (_guests[id] != guest) return;
-      if (bytes == null) return await text({'kind': 'missing', 'id': song});
-      await text({'kind': 'file', 'id': song, 'size': bytes.length});
-      for (var at = 0; at < bytes.length; at += _chunk) {
-        // Pace on the SCTP buffer: libwebrtc closes a channel that overfills.
-        while (await guest.dc.getBufferedAmount() > _maxBuffered) {
-          if (_guests[id] != guest) return;
-          await Future<void>.delayed(const Duration(milliseconds: 40));
-        }
-        final end = at + _chunk < bytes.length ? at + _chunk : bytes.length;
-        await guest.dc.send(RTCDataChannelMessage.fromBinary(
-            Uint8List.sublistView(bytes, at, end)));
+      final file = _allowed(song) ? _song(song) : null;
+      while (file != null && file.size == 0 && !file.failed) {
+        await file.changed;
       }
-      await text({'kind': 'end', 'id': song});
+      if (gone()) return;
+      if (file == null || file.failed && file.size == 0) {
+        return await text({'kind': 'missing', 'id': song});
+      }
+      await text({
+        'kind': 'file',
+        'id': song,
+        'size': file.size,
+        'mime': file.mime,
+      });
+      // Relay each 512 KB range as it lands, so guests start playing
+      // after the first chunk instead of the whole file.
+      for (var i = 0;; i++) {
+        while (i >= file.chunks.length && !file.done && !file.failed) {
+          await file.changed;
+        }
+        if (gone()) return;
+        if (i >= file.chunks.length) break;
+        final bytes = file.chunks[i];
+        for (var at = 0; at < bytes.length; at += _chunk) {
+          // Pace on the SCTP buffer: libwebrtc closes a channel that overfills.
+          while (await guest.dc.getBufferedAmount() > _maxBuffered) {
+            if (gone()) return;
+            await Future<void>.delayed(const Duration(milliseconds: 40));
+          }
+          final end = at + _chunk < bytes.length ? at + _chunk : bytes.length;
+          await guest.dc.send(RTCDataChannelMessage.fromBinary(
+              Uint8List.sublistView(bytes, at, end)));
+        }
+      }
+      await text({'kind': file.done ? 'end' : 'missing', 'id': song});
     } catch (_) {}
   }
 
   /// One fetch per song shared by every guest; keeps the last few.
-  Future<Uint8List?> _file(String song) {
+  _SongFile _song(String song) {
     final hit = _files[song];
-    if (hit != null) return hit;
+    if (hit != null && !(hit.failed && hit.size == 0)) return hit;
     if (_files.length >= 4) _files.remove(_files.keys.first);
-    final future = () async {
-      try {
-        // Download-optimized pick prefers M4A AAC: ~128 kbps, plays in
-        // every browser including Safari.
-        final stream = await _ref
-            .read(innerTubeProvider)
-            .resolveDownloadStream(song);
-        if (stream == null || !stream.url.startsWith('http')) return null;
-        final res = await _dio.get<List<int>>(
-          stream.url,
-          options: Options(
-            responseType: ResponseType.bytes,
-            headers: stream.requestHeaders,
-          ),
-        );
-        final data = res.data;
-        return data == null || data.isEmpty ? null : Uint8List.fromList(data);
-      } catch (_) {
-        return null;
+    final file = _files[song] = _SongFile();
+    unawaited(_fetch(song, file));
+    return file;
+  }
+
+  /// YouTube in bounded 512 KB ranges: open-ended ranges get a 403
+  /// mid-song. Download-optimized pick prefers M4A AAC (~128 kbps), which
+  /// plays in every browser including Safari.
+  Future<void> _fetch(String song, _SongFile file) async {
+    try {
+      final stream =
+          await _ref.read(innerTubeProvider).resolveDownloadStream(song);
+      if (stream == null || !stream.url.startsWith('http')) {
+        throw StateError('no stream');
       }
-    }();
-    _files[song] = future;
-    future.then((b) {
-      if (b == null && _files[song] == future) _files.remove(song);
-    });
-    return future;
+      file.mime = stream.mimeType;
+      var at = 0;
+      var total = 1;
+      while (at < total) {
+        // Evicted or stopped: fail so waiting senders wake up and finish.
+        if (_files[song] != file) throw StateError('evicted');
+        Response<List<int>>? res;
+        for (var attempt = 0; res == null; attempt++) {
+          try {
+            res = await _dio.get<List<int>>(
+              stream.url,
+              options: Options(
+                responseType: ResponseType.bytes,
+                headers: {
+                  ...stream.requestHeaders,
+                  'Range': 'bytes=$at-${at + _range - 1}',
+                },
+              ),
+            );
+          } catch (_) {
+            if (attempt >= 2) rethrow;
+          }
+        }
+        final data = res.data ?? const <int>[];
+        if (data.isEmpty) throw StateError('empty range');
+        // "bytes 0-524287/4031220"; a 200 without it is the whole file.
+        final range = res.headers.value('content-range') ?? '';
+        final slash = range.lastIndexOf('/');
+        total = res.statusCode == 206 && slash >= 0
+            ? int.tryParse(range.substring(slash + 1)) ?? at + data.length
+            : data.length;
+        if (file.size == 0) file.size = total;
+        file.chunks.add(Uint8List.fromList(data));
+        at += data.length;
+        file.notify();
+        if (res.statusCode != 206) break;
+      }
+      file.done = true;
+    } catch (_) {
+      file.failed = true;
+    }
+    file.notify();
   }
 
   @override
