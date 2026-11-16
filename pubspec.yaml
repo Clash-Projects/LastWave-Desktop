@@ -122,6 +122,7 @@ flutter:
   # LastWave-native; loaded into a hidden system WebView).
   assets:
     - assets/po_token.html
+    - assets/jam_host.html
     - assets/icons/
     - assets/brand/
 

@@ -14,6 +14,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "smtc_channel.h"
 #include "wasapi_channel.h"
+#include "app_audio_capture.h"
 
 namespace {
 
@@ -72,6 +73,8 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   wasapi_channel_ = std::make_unique<lastwave::WasapiChannel>(
       flutter_controller_->engine()->messenger());
+  app_audio_capture_ = std::make_unique<lastwave::AppAudioCapture>(
+      flutter_controller_->engine()->messenger());
   // SMTC (volume flyout / lock screen / media keys) binds the main window
   // only - the hidden BotGuard WebView never gets its own registration.
   // Best-effort: init failures degrade to silence inside the channel.
@@ -104,6 +107,7 @@ void FlutterWindow::OnDestroy() {
   smtc_channel_.reset();
   deeplink_channel_.reset();
   wasapi_channel_.reset();
+  app_audio_capture_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
