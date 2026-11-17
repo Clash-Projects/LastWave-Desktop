@@ -42,4 +42,34 @@ void main() {
       lessThanOrEqualTo(0.5),
     );
   });
+
+  testWidgets(
+      'WaveSelect shrink-wraps content under loose constraints when expanded is false',
+      (tester) async {
+    await tester.pumpWidget(
+      FluentApp(
+        home: Center(
+          child: WaveSelect<String>(
+            expanded: false,
+            value: 'off',
+            options: const [
+              WaveSelectOption(value: 'off', label: 'Off'),
+              WaveSelectOption(value: 'track', label: 'Track'),
+            ],
+            onChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final triggerRect = tester.getRect(find.byType(AnimatedContainer));
+    final textRect = tester.getRect(find.text('Off'));
+    final iconRect = tester.getRect(find.byIcon(FluentIcons.chevron_down));
+
+    // Must hug the short "Off" label rather than stretching across the 800px window.
+    expect(triggerRect.width, lessThan(200));
+    expect(triggerRect.height, 36);
+    expect((textRect.center.dy - iconRect.center.dy).abs(), lessThanOrEqualTo(0.5));
+  });
 }

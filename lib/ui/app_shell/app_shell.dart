@@ -516,9 +516,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   /// F11: edge-to-edge Now Playing from anywhere. On Now Playing it toggles;
   /// elsewhere it opens Now Playing and goes fullscreen on arrival.
-  void _toggleFullscreen() {
+  Future<void> _toggleFullscreen() async {
     if (ref.read(miniPlayerProvider).isMini) {
-      unawaited(ref.read(miniPlayerProvider.notifier).exit());
+      await ref.read(miniPlayerProvider.notifier).exit();
+      if (!mounted) return;
     }
     if (widget.location.startsWith('/now')) {
       final immersive = ref.read(nowPlayingImmersiveProvider.notifier);
@@ -526,12 +527,13 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       return;
     }
     _pendingImmersiveAt = DateTime.now();
-    _openNowPlaying();
+    await _openNowPlaying();
   }
 
-  void _openNowPlaying() {
+  Future<void> _openNowPlaying() async {
     if (ref.read(miniPlayerProvider).isMini) {
-      unawaited(ref.read(miniPlayerProvider.notifier).exit());
+      await ref.read(miniPlayerProvider.notifier).exit();
+      if (!mounted) return;
     }
     // Already there (the dock is on every view, Now Playing included).
     if (widget.location.startsWith('/now')) return;

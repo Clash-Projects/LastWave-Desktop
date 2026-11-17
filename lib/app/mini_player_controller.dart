@@ -310,15 +310,20 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
 
   /// Pushes the latest intercept state to native platform runners and keeps
   /// taskbar visibility synced if preferences changed while already in mini mode.
-  Future<void> syncFromPrefs() async {
-    await _syncNativeIntercept();
-    if (state.isMini && !state.minimizedFromMini) {
+  Future<void> syncFromPrefs() => _serialized(_syncFromPrefsLocked);
+
+  Future<void> _syncFromPrefsLocked() async {
+    await _syncNativeInterceptLocked();
+    if (state.isMini &&
+        !state.transitioning &&
+        !state.minimizedFromMini &&
+        !state.hiddenToTray) {
       final mode = _ref.read(prefsProvider).miniTaskbarMode;
       await _safe(() => _window.setSkipTaskbar(mode != 'show'));
     }
   }
 
-  Future<void> _syncNativeIntercept() async {
+  Future<void> _syncNativeInterceptLocked() async {
     if (!_nativePreInterceptSupported) return;
     final next = canInterceptMinimize;
     if (_lastNativeIntercept == next) return;
@@ -328,96 +333,109 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
 
   /// Toggles between the full shell and floating miniplayer (used by the dock).
   Future<void> toggle() {
-    if (state.isMini) {
-      return exit();
-    }
-    return enter(bypassTriggerRules: true);
+    return _serialized(() async {
+      if (state.isMini) {
+        await _exitLocked();
+      } else {
+        await _enterLocked(bypassTriggerRules: true);
+      }
+    });
   }
 
-  /// Handles clicks on the full window's custom minimize (`—`) button.
-  Future<void> handleMinimizeRequest() async {
+  /// Handles minimize triggers from the full window or stale native intercepts,
+  /// falling back to a bypassed OS minimize if mini eligibility just lapsed.
+  Future<void> handleMinimizeRequest() {
+    return _serialized(_handleMinimizeRequestLocked);
+  }
+
+  Future<void> _handleMinimizeRequestLocked() async {
+    if (state.isMini) return;
     if (canInterceptMinimize) {
-      await enter();
+      await _enterLocked();
       return;
     }
-    await _performOsMinimize();
+    await _performOsMinimizeLocked();
   }
 
   void _scheduleBypassReset() {
     Future<void>.delayed(const Duration(milliseconds: 500), () {
       if (_bypassNextOsMinimize) {
         _bypassNextOsMinimize = false;
-        unawaited(_syncNativeIntercept());
+        unawaited(_serialized(_syncNativeInterceptLocked));
       }
     });
   }
 
-  Future<void> _performOsMinimize() async {
+  Future<void> _performOsMinimizeLocked() async {
     _bypassNextOsMinimize = true;
-    await _syncNativeIntercept();
+    await _syncNativeInterceptLocked();
     await _safe(() => _window.minimize());
     _scheduleBypassReset();
   }
 
   /// Transitions the single OS window into the floating miniplayer.
   Future<void> enter({bool bypassTriggerRules = false}) {
-    return _serialized(() async {
-      if (state.isMini) return;
-      if (!bypassTriggerRules && !canInterceptMinimize) return;
-      if (bypassTriggerRules && !_insideShell) return;
+    return _serialized(
+      () => _enterLocked(bypassTriggerRules: bypassTriggerRules),
+    );
+  }
 
-      state = state.copyWith(transitioning: true);
-      await _syncNativeIntercept();
+  Future<void> _enterLocked({bool bypassTriggerRules = false}) async {
+    if (state.isMini) return;
+    if (!bypassTriggerRules && !canInterceptMinimize) return;
+    if (bypassTriggerRules && !_insideShell) return;
 
+    state = state.copyWith(transitioning: true);
+    await _syncNativeInterceptLocked();
+
+    try {
+      await _safe(() async {
+        if (await _window.isMinimized()) {
+          await _window.restore();
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+        }
+        if (await _window.isFullScreen()) {
+          await _window.setFullScreen(false);
+          await Future<void>.delayed(const Duration(milliseconds: 60));
+        }
+      });
       try {
-        await _safe(() async {
-          if (await _window.isMinimized()) {
-            await _window.restore();
-            await Future<void>.delayed(const Duration(milliseconds: 40));
-          }
-          if (await _window.isFullScreen()) {
-            await _window.setFullScreen(false);
-            await Future<void>.delayed(const Duration(milliseconds: 60));
-          }
-        });
-        try {
-          _ref.read(nowPlayingImmersiveProvider.notifier).state = false;
-        } catch (_) {}
+        _ref.read(nowPlayingImmersiveProvider.notifier).state = false;
+      } catch (_) {}
 
-        await _safe(() async {
-          _savedWasMaximized = await _window.isMaximized();
-          if (_savedWasMaximized) {
-            await _window.unmaximize();
-            await Future<void>.delayed(const Duration(milliseconds: 60));
-          }
-          _savedWindowSize = await _window.getSize();
-          _savedWindowPos = await _window.getPosition();
-        });
+      await _safe(() async {
+        _savedWasMaximized = await _window.isMaximized();
+        if (_savedWasMaximized) {
+          await _window.unmaximize();
+          await Future<void>.delayed(const Duration(milliseconds: 60));
+        }
+        _savedWindowSize = await _window.getSize();
+        _savedWindowPos = await _window.getPosition();
+      });
 
-        _setMediaBackgrounded(true);
+      _setMediaBackgrounded(true);
 
-        state = state.copyWith(
-          isMini: true,
-          minimizedFromMini: false,
-          hiddenToTray: false,
-        );
+      state = state.copyWith(
+        isMini: true,
+        minimizedFromMini: false,
+        hiddenToTray: false,
+      );
 
-        await _safe(() async {
-          await _window.setMinimumSize(miniMinSize);
-          await _window.setSize(miniSize);
-          final target = await _resolveMiniPosition();
-          if (target != null) {
-            await _window.setPosition(target);
-          }
-          await _window.setAlwaysOnTop(true);
-          final taskbarMode = _ref.read(prefsProvider).miniTaskbarMode;
-          await _window.setSkipTaskbar(taskbarMode != 'show');
-        });
-      } finally {
-        state = state.copyWith(transitioning: false);
-        await _syncNativeIntercept();
-      }
-    });
+      await _safe(() async {
+        await _window.setMinimumSize(miniMinSize);
+        await _window.setSize(miniSize);
+        final target = await _resolveMiniPosition();
+        if (target != null) {
+          await _window.setPosition(target);
+        }
+        await _window.setAlwaysOnTop(true);
+        final taskbarMode = _ref.read(prefsProvider).miniTaskbarMode;
+        await _window.setSkipTaskbar(taskbarMode != 'show');
+      });
+    } finally {
+      state = state.copyWith(transitioning: false);
+      await _syncNativeInterceptLocked();
+    }
   }
 
   Future<Offset?> _resolveMiniPosition() async {
@@ -457,90 +475,94 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
 
   /// Restores the window back from the floating miniplayer to the full shell.
   Future<void> exit({bool ensureShown = false}) {
-    return _serialized(() async {
-      if (!state.isMini) {
-        if (ensureShown) {
-          await _safe(() async {
-            if (await _window.isMinimized()) await _window.restore();
-            await _window.show();
-            await _window.focus();
-          });
-        }
-        return;
-      }
+    return _serialized(() => _exitLocked(ensureShown: ensureShown));
+  }
 
-      state = state.copyWith(transitioning: true);
-      await _syncNativeIntercept();
-
-      try {
-        await _saveCurrentMiniPosition();
-
+  Future<void> _exitLocked({bool ensureShown = false}) async {
+    if (!state.isMini) {
+      if (ensureShown) {
         await _safe(() async {
-          await _window.setAlwaysOnTop(false);
-          await _window.setSkipTaskbar(false);
-          if (ensureShown || state.minimizedFromMini || state.hiddenToTray) {
-            if (await _window.isMinimized()) {
-              await _window.restore();
-            }
-            await _window.show();
-          }
-          await _window.setMinimumSize(fullMinSize);
-          if (_savedWasMaximized) {
-            await _window.maximize();
-          } else {
-            final restoreSize = _savedWindowSize ?? fullDefaultSize;
-            final restorePos = _savedWindowPos;
-            if (restorePos != null) {
-              await _window.setPosition(restorePos);
-            }
-            await _window.setSize(restoreSize);
-          }
-          if (ensureShown) {
-            await _window.focus();
-          }
+          if (await _window.isMinimized()) await _window.restore();
+          await _window.show();
+          await _window.focus();
         });
-
-        state = const MiniPlayerState();
-        _setMediaBackgrounded(false);
-      } finally {
-        state = state.copyWith(transitioning: false);
-        await _syncNativeIntercept();
       }
-    });
+      return;
+    }
+
+    state = state.copyWith(transitioning: true);
+    await _syncNativeInterceptLocked();
+
+    try {
+      await _saveCurrentMiniPosition();
+
+      await _safe(() async {
+        await _window.setAlwaysOnTop(false);
+        await _window.setSkipTaskbar(false);
+        if (ensureShown || state.minimizedFromMini || state.hiddenToTray) {
+          if (await _window.isMinimized()) {
+            await _window.restore();
+          }
+          await _window.show();
+        }
+        await _window.setMinimumSize(fullMinSize);
+        if (_savedWasMaximized) {
+          await _window.maximize();
+        } else {
+          final restoreSize = _savedWindowSize ?? fullDefaultSize;
+          final restorePos = _savedWindowPos;
+          if (restorePos != null) {
+            await _window.setPosition(restorePos);
+          }
+          await _window.setSize(restoreSize);
+        }
+        if (ensureShown) {
+          await _window.focus();
+        }
+      });
+
+      state = const MiniPlayerState();
+      _setMediaBackgrounded(false);
+    } finally {
+      state = state.copyWith(transitioning: false);
+      await _syncNativeInterceptLocked();
+    }
   }
 
   /// Invoked by `WaveMiniPlayer`'s own minimize (`—`) button so it minimizes
   /// to the taskbar or hides to tray cleanly without re-triggering mini mode.
   Future<void> minimizeFromMini() {
-    return _serialized(() async {
-      if (!state.isMini) {
-        await _performOsMinimize();
-        return;
+    return _serialized(_minimizeFromMiniLocked);
+  }
+
+  Future<void> _minimizeFromMiniLocked() async {
+    if (!state.isMini) {
+      await _performOsMinimizeLocked();
+      return;
+    }
+
+    await _saveCurrentMiniPosition();
+
+    final taskbarMode = _ref.read(prefsProvider).miniTaskbarMode;
+    if (taskbarMode == 'tray') {
+      state = state.copyWith(minimizedFromMini: true, hiddenToTray: true);
+      await _safe(() => _window.hide());
+      return;
+    }
+
+    _bypassNextOsMinimize = true;
+    await _syncNativeInterceptLocked();
+    state = state.copyWith(minimizedFromMini: true, hiddenToTray: false);
+
+    await _safe(() async {
+      // Restore taskbar visibility before minimizing under Windows/macOS:
+      // minimizing a WS_EX_TOOLWINDOW draws a legacy floating desktop stub.
+      if (taskbarMode == 'smart') {
+        await _window.setSkipTaskbar(false);
       }
-
-      await _saveCurrentMiniPosition();
-
-      final taskbarMode = _ref.read(prefsProvider).miniTaskbarMode;
-      if (taskbarMode == 'tray') {
-        state = state.copyWith(minimizedFromMini: true, hiddenToTray: true);
-        await _safe(() => _window.hide());
-        return;
-      }
-
-      _bypassNextOsMinimize = true;
-      await _syncNativeIntercept();
-      state = state.copyWith(minimizedFromMini: true, hiddenToTray: false);
-
-      await _safe(() async {
-        // Restore taskbar visibility before minimizing under Windows/macOS:
-        // minimizing a WS_EX_TOOLWINDOW draws a legacy floating desktop stub.
-        if (taskbarMode == 'smart') {
-          await _window.setSkipTaskbar(false);
-        }
-        await _window.minimize();
-      });
-      _scheduleBypassReset();
+      await _window.minimize();
     });
+    _scheduleBypassReset();
   }
 
   /// Called by [WindowLifecycle.onWindowMinimize].
@@ -551,12 +573,23 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
   bool handleOsWindowMinimized() {
     if (_bypassNextOsMinimize) {
       _bypassNextOsMinimize = false;
-      unawaited(_syncNativeIntercept());
+      unawaited(_serialized(_syncNativeInterceptLocked));
       return false;
     }
     if (state.isMini) {
       if (!state.minimizedFromMini) {
         state = state.copyWith(minimizedFromMini: true);
+      }
+      if (_ref.read(prefsProvider).miniTaskbarMode == 'smart') {
+        unawaited(_serialized(() async {
+          if (state.isMini &&
+              !state.transitioning &&
+              state.minimizedFromMini &&
+              !state.hiddenToTray &&
+              _ref.read(prefsProvider).miniTaskbarMode == 'smart') {
+            await _safe(() => _window.setSkipTaskbar(false));
+          }
+        }));
       }
       return false;
     }
@@ -567,16 +600,20 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
     return false;
   }
 
-  Future<void> _restoreAndEnterMini() async {
-    await _safe(() => _window.restore());
-    await enter();
+  Future<void> _restoreAndEnterMini() {
+    return _serialized(() async {
+      await _safe(() => _window.restore());
+      await _enterLocked();
+    });
   }
 
   /// Called by [WindowLifecycle.onWindowRestore] / `onWindowFocus`.
-  Future<void> onWindowRestored() async {
+  Future<void> onWindowRestored() => _serialized(_onWindowRestoredLocked);
+
+  Future<void> _onWindowRestoredLocked() async {
     _bypassNextOsMinimize = false;
-    if (!state.isMini) {
-      await _syncNativeIntercept();
+    if (!state.isMini || state.transitioning) {
+      await _syncNativeInterceptLocked();
       return;
     }
     final wasHiddenOrMin = state.minimizedFromMini || state.hiddenToTray;
@@ -588,16 +625,24 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
       final mode = _ref.read(prefsProvider).miniTaskbarMode;
       await _window.setSkipTaskbar(mode != 'show');
     });
-    await _syncNativeIntercept();
+    await _syncNativeInterceptLocked();
   }
 
   /// Syncs native interception or leaves mini mode when auth state changes.
-  Future<void> onAuthChanged(bool inside) async {
-    if (!inside && state.isMini) {
-      await exit();
-    } else {
-      await syncFromPrefs();
+  Future<void> onAuthChanged(bool inside) {
+    return _serialized(() => _onAuthChangedLocked(inside));
+  }
+
+  Future<void> _onAuthChangedLocked(bool inside) async {
+    if (!inside) {
+      if (state.isMini) {
+        await _exitLocked();
+      } else {
+        await _syncNativeInterceptLocked();
+      }
+      return;
     }
+    await _syncFromPrefsLocked();
   }
 
   /// Ensures clean window flags before process exit.

@@ -52,7 +52,7 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
 
   Future<dynamic> _onWindowControlCall(MethodCall call) async {
     if (call.method == 'onMinimize' && mounted) {
-      await ref.read(miniPlayerProvider.notifier).enter();
+      await ref.read(miniPlayerProvider.notifier).handleMinimizeRequest();
     }
     return null;
   }

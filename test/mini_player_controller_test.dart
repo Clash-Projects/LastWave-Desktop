@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +22,9 @@ class _FakeWindowAdapter implements MiniWindowAdapter {
   List<Rect> workAreas = const [Rect.fromLTWH(0, 0, 1920, 1040)];
   bool? lastNativeIntercept;
   final List<String> calls = [];
+  Future<void> Function()? onUnmaximize;
+  Future<void> Function()? onRestore;
+  Future<void> Function(bool value)? onSetSkipTaskbar;
 
   @override
   Future<List<Rect>> getDisplayWorkAreas() async {
@@ -77,6 +81,7 @@ class _FakeWindowAdapter implements MiniWindowAdapter {
   Future<void> restore() async {
     minimized = false;
     calls.add('restore');
+    if (onRestore != null) await onRestore!();
   }
 
   @override
@@ -119,6 +124,7 @@ class _FakeWindowAdapter implements MiniWindowAdapter {
   Future<void> setSkipTaskbar(bool value) async {
     skipTaskbar = value;
     calls.add('setSkipTaskbar($value)');
+    if (onSetSkipTaskbar != null) await onSetSkipTaskbar!(value);
   }
 
   @override
@@ -131,6 +137,7 @@ class _FakeWindowAdapter implements MiniWindowAdapter {
   Future<void> unmaximize() async {
     maximized = false;
     calls.add('unmaximize');
+    if (onUnmaximize != null) await onUnmaximize!();
   }
 }
 
@@ -456,5 +463,140 @@ void main() {
           .contains('general.behaviour'),
       isTrue,
     );
+  });
+
+  test('stale native minimize falls back to bypassed OS minimize', () async {
+    final (container, window, _) = await _createHarness(
+      initialPrefs: {'lw_minimize_to_mini_mode': 'playing'},
+      hasTrack: true,
+      isPlaying: true,
+    );
+    addTearDown(container.dispose);
+
+    // Pause right after native code intercepted, before Dart dispatch runs.
+    container.read(_testPlaybackProvider.notifier).state = (
+      hasTrack: true,
+      isPlaying: false,
+    );
+    await container.read(miniPlayerProvider.notifier).handleMinimizeRequest();
+
+    expect(container.read(miniPlayerProvider).isMini, isFalse);
+    expect(window.minimized, isTrue);
+    expect(container.read(miniPlayerProvider.notifier).handleOsWindowMinimized(),
+        isFalse);
+  });
+
+  test('auth loss during in-flight enter() reconciles back to full window',
+      () async {
+    final (container, window, _) = await _createHarness(
+      hasTrack: true,
+      isPlaying: true,
+    );
+    addTearDown(container.dispose);
+
+    final pauseEnter = Completer<void>();
+    window.maximized = true;
+    window.onUnmaximize = () => pauseEnter.future;
+
+    final ctrl = container.read(miniPlayerProvider.notifier);
+    final entering = ctrl.enter();
+    await Future<void>.delayed(Duration.zero);
+
+    // User signs out while enter() is awaiting window preparation.
+    container.read(_testInsideProvider.notifier).state = false;
+    pauseEnter.complete();
+    await entering;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(container.read(miniPlayerProvider).isMini, isFalse);
+    expect(window.alwaysOnTop, isFalse);
+    expect(window.skipTaskbar, isFalse);
+    expect(window.maximized, isTrue);
+  });
+
+  test('onWindowRestored during exit() does not reapply mini flags to full shell',
+      () async {
+    final (container, window, _) = await _createHarness(hasTrack: true);
+    addTearDown(container.dispose);
+
+    final ctrl = container.read(miniPlayerProvider.notifier);
+    await ctrl.enter();
+    await ctrl.minimizeFromMini();
+
+    final pauseRestore = Completer<void>();
+    Future<void>? concurrentRestore;
+    window.onRestore = () {
+      // Simulate OS onWindowRestore firing right as exit() restores the HWND.
+      concurrentRestore = ctrl.onWindowRestored();
+      return pauseRestore.future;
+    };
+
+    final exiting = ctrl.exit(ensureShown: true);
+    await Future<void>.delayed(Duration.zero);
+    pauseRestore.complete();
+    await exiting;
+    await concurrentRestore;
+
+    expect(container.read(miniPlayerProvider).isMini, isFalse);
+    expect(window.alwaysOnTop, isFalse);
+    expect(window.skipTaskbar, isFalse);
+  });
+
+  test('external OS minimize of miniplayer restores smart taskbar visibility',
+      () async {
+    final (container, window, _) = await _createHarness(hasTrack: true);
+    addTearDown(container.dispose);
+
+    final ctrl = container.read(miniPlayerProvider.notifier);
+    await ctrl.enter();
+    expect(window.skipTaskbar, isTrue);
+
+    window.minimized = true;
+    expect(ctrl.handleOsWindowMinimized(), isFalse);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(container.read(miniPlayerProvider).minimizedFromMini, isTrue);
+    expect(window.skipTaskbar, isFalse);
+
+    window.minimized = false;
+    await ctrl.onWindowRestored();
+    expect(window.skipTaskbar, isTrue);
+  });
+
+  test('syncFromPrefs during exit() does not re-hide full shell from taskbar',
+      () async {
+    final (container, window, _) = await _createHarness(
+      hasTrack: true,
+      isPlaying: true,
+    );
+    addTearDown(container.dispose);
+
+    final ctrl = container.read(miniPlayerProvider.notifier);
+    await ctrl.enter();
+    expect(window.skipTaskbar, isTrue);
+
+    final pauseClearTaskbar = Completer<void>();
+    var blockedOnce = false;
+    window.onSetSkipTaskbar = (val) {
+      if (!val && !blockedOnce) {
+        blockedOnce = true;
+        // Playback flips while exit() is mid-way right after clearing skipTaskbar.
+        container.read(_testPlaybackProvider.notifier).state = (
+          hasTrack: true,
+          isPlaying: false,
+        );
+        return pauseClearTaskbar.future;
+      }
+      return Future<void>.value();
+    };
+
+    final exiting = ctrl.exit();
+    await Future<void>.delayed(Duration.zero);
+    pauseClearTaskbar.complete();
+    await exiting;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(container.read(miniPlayerProvider).isMini, isFalse);
+    expect(window.skipTaskbar, isFalse);
   });
 }

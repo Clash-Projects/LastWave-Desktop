@@ -218,7 +218,6 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
           child: AnimatedContainer(
             duration: waveMotion(context, WaveMotion.fast),
             height: 36,
-            alignment: Alignment.centerLeft,
             padding: const EdgeInsets.symmetric(horizontal: 14),
             decoration: BoxDecoration(
               color: ButtonThemeData.buttonColor(
