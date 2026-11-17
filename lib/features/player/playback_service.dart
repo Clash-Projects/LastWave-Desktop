@@ -520,6 +520,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         if (_currentAudioFilter.isNotEmpty) {
           try {
             await dyn.setProperty('af', _currentAudioFilter);
+            _afWritten[_player!] = _currentAudioFilter;
           } catch (_) {}
         }
       }
@@ -726,6 +727,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         if (_currentAudioFilter.isNotEmpty) {
           try {
             await platform.setProperty('af', _currentAudioFilter);
+            _afWritten[sb] = _currentAudioFilter;
           } catch (_) {}
         }
       }
@@ -1288,8 +1290,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// Mix stage on every deck's filter chain while AutoMix is on: a bass
   /// and a treble band at 0 dB (transparent) that a blend moves live with
   /// `af-command`, so the chain is never rebuilt mid-song.
-  static const String _djEqStage =
-      '@lwdj:lavfi=[equalizer@lwlo=f=80:t=o:w=2:g=0,equalizer@lwhi=f=9000:t=o:w=2:g=0]';
+  /// The two AutoMix bands. They go INSIDE the listener's lavfi graph,
+  /// behind its `format=floatp`: as a second, separate lavfi block, lossless
+  /// (Hi-Res) frames reached it with a channel layout that didn't match
+  /// ("Layout indicates a different number of channels"), every frame was
+  /// dropped and the song "ended" at 0-7 s.
+  static const String _djEqBands =
+      'equalizer@lwlo=f=80:t=o:w=2:g=0,equalizer@lwhi=f=9000:t=o:w=2:g=0';
 
   bool get _djEqWanted =>
       _prefs.autoMixSpectral && !_djEqBroken && _djEqLive != false;
@@ -1608,9 +1615,28 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> _setAf(Player? player, String af) async {
-    final dyn = player?.platform;
+    if (player == null) return;
+    await _writeAf(player, af);
+  }
+
+  /// The `af` string each player last received.
+  final Expando<String> _afWritten = Expando('af');
+
+  /// When the playing deck's filter chain last changed.
+  DateTime? _primaryAfChangedAt;
+
+  /// Writes `af` only when it differs from what [player] already has.
+  /// Rebuilding the chain on a song mpv has fully buffered (lossless files
+  /// read to EOF up front) ends that song, so an unchanged chain must never
+  /// be rewritten, and a real change on the playing deck is time-stamped
+  /// so the end it may cause is recovered instead of skipped.
+  Future<void> _writeAf(Player player, String af) async {
+    final dyn = player.platform;
     if (dyn == null) return;
+    if (_afWritten[player] == af) return;
     await (dyn as dynamic).setProperty('af', af);
+    _afWritten[player] = af;
+    if (identical(player, _player)) _primaryAfChangedAt = DateTime.now();
   }
 
   void _completeCrossfade() {
@@ -1935,6 +1961,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> playResume() async {
+    _userPaused = false;
     await ensurePlayer();
     if (state.current != null && state.stream == null) {
       final resumeAt = state.position;
@@ -1949,7 +1976,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {}
   }
 
+  /// The listener paused; a stalled-stream recheck must not read that as a
+  /// dead stream.
+  bool _userPaused = false;
+
   Future<void> pause() async {
+    _userPaused = true;
     cancelCrossfade();
     try {
       await _player?.pause();
@@ -2060,6 +2092,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       if (exclusive) {
         try {
           await dyn.setProperty('af', '');
+          _afWritten[player] = '';
         } catch (_) {}
         try {
           await dyn.setProperty('replaygain', 'no');
@@ -2124,9 +2157,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         _processingDisabled ? '' : mergeEqualizerAndHeadphone(eq, _hpFilter);
     // The AutoMix stage stands on its own: it stays even when the
     // listener's chain had to be dropped.
-    _currentAudioFilter = !_timedMixEnabled || _djEqBroken
-        ? chain
-        : (chain.isEmpty ? _djEqStage : '$chain,$_djEqStage');
+    if (!_timedMixEnabled || _djEqBroken) {
+      _currentAudioFilter = chain;
+      return;
+    }
+    // One graph: listener's EQ / headphone filters, then the AutoMix bands,
+    // labelled @lwdj so a blend can move the bands with af-command.
+    _currentAudioFilter =
+        mergeEqualizerAndHeadphone(chain, 'lavfi=[$_djEqBands]').replaceFirst(
+            'format=floatp,lavfi=[', 'format=floatp,@lwdj:lavfi=[');
   }
 
   /// EQ + headphone correction, plus scaletempo when pitch is not 1.
@@ -2176,7 +2215,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         // drops a leftover scaletempo from a previous pitch value.
         final af = exclusiveApplied ? '' : _playbackAf();
         try {
-          await (dyn as dynamic).setProperty('af', af);
+          await _writeAf(player, af);
         } catch (_) {}
       }
       return;
@@ -2190,7 +2229,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {}
     final af = exclusiveApplied ? '' : _playbackAf();
     try {
-      await (dyn as dynamic).setProperty('af', af);
+      await _writeAf(player, af);
     } catch (_) {}
   }
 
@@ -2531,6 +2570,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     int resolveMs = 0;
     try {
       _activeQueueKey = wantedQueueKey;
+      _userPaused = false; // every open starts playing
       // Arm the first-audio clock: resolve-start → first playing=true.
       _audioClockStart = DateTime.now();
       _audioClockKey = wantedQueueKey;
@@ -3304,6 +3344,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     _unavailable.add(track.queueKey);
+    _crumb('unavailable after retries -> skip key=${track.queueKey}');
     await _skipUnavailable(state.currentIndex);
   }
 
@@ -3339,14 +3380,23 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     final key = state.current?.queueKey ?? '';
     final gen = _resolveGeneration;
-    final startPos = state.position;
     _crumb('stale $what ignored key=$key');
-    Future<void>.delayed(const Duration(seconds: 6), () {
+    // Judge the NEW stream on its own: two readings 2 s apart. Comparing
+    // with the position at this moment (still the failed stream's, e.g.
+    // 15 s) made a healthy YouTube retry at 3 s look dead, and the song
+    // was given up and skipped.
+    Future<void>.delayed(const Duration(seconds: 4), () {
       if (gen != _resolveGeneration || _resolving) return;
       if (state.current?.queueKey != key) return;
-      // Playing and moving: the new stream is fine.
-      if (state.isPlaying && state.position > startPos) return;
-      unawaited(_onPlayerError(recheck: true));
+      final before = state.position;
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (gen != _resolveGeneration || _resolving) return;
+        if (state.current?.queueKey != key) return;
+        if (state.position > before) return; // moving: the stream is fine
+        if (_userPaused) return; // paused on purpose, not dead
+        _crumb('stale $what recheck: stream not moving key=$key');
+        unawaited(_onPlayerError(recheck: true));
+      });
     });
     return true;
   }
@@ -3364,6 +3414,22 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     // retry resumes at its old position and keeps the old length), so go
     // by the open time alone: no song really ends within 3 s of opening.
     if (_deferIfJustOpened('eof')) return;
+    final afAt = _primaryAfChangedAt;
+    final track = state.current;
+    if (afAt != null &&
+        track != null &&
+        DateTime.now().difference(afAt) < const Duration(seconds: 3) &&
+        state.duration - state.position > const Duration(seconds: 3)) {
+      // The filter chain was just rebuilt on a fully buffered song and mpv
+      // ended it. Reopen the same song where it was, not a retry or skip.
+      _primaryAfChangedAt = null;
+      _crumb('eof after filter change -> resume '
+          'pos=${state.position.inSeconds}s key=${track.queueKey}');
+      _resumeKey = track.queueKey;
+      _resumeAt = state.position;
+      unawaited(_resolveAndOpen(state.currentIndex));
+      return;
+    }
     _flushScrobble(completed: true);
     if (state.duration - state.position > const Duration(seconds: 10)) {
       // mpv reported clean EOF far from the known end: a truncated
