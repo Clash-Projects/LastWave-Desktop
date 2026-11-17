@@ -3124,7 +3124,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }, onError: (_) {}));
   }
 
-  Future<void> _onPlayerError() async {
+  Future<void> _onPlayerError({bool recheck = false}) async {
     // The outgoing deck died during an AutoMix overlap: the incoming deck
     // is already playing, so finish the hand-off instead of restarting
     // the song that was ending anyway.
@@ -3134,6 +3134,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       _completeCrossfade();
       return;
     }
+    // A late error from the stream that was just torn down (failed lossless
+    // file, retry) lands after the next attempt has opened. On the last
+    // attempt that marked the song unavailable and skipped it.
+    if (!recheck && _deferIfJustOpened('error')) return;
     final track = state.current;
     final generation = _resolveGeneration;
     if (track == null || _resolving || state.error != null ||
@@ -3200,6 +3204,29 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     await _resolveAndOpen(nextIndex);
   }
 
+  /// True (and a re-check scheduled) when a stream was opened under 3 s
+  /// ago: an end/error signal now belongs to the stream that was torn down.
+  /// If the new stream then plays nothing for 6 s, the error path runs.
+  bool _deferIfJustOpened(String what) {
+    final openedAt = _audioOpenDoneAt;
+    if (openedAt == null ||
+        DateTime.now().difference(openedAt) >= const Duration(seconds: 3)) {
+      return false;
+    }
+    final key = state.current?.queueKey ?? '';
+    final gen = _resolveGeneration;
+    final startPos = state.position;
+    _crumb('stale $what ignored key=$key');
+    Future<void>.delayed(const Duration(seconds: 6), () {
+      if (gen != _resolveGeneration || _resolving) return;
+      if (state.current?.queueKey != key) return;
+      // Playing and moving: the new stream is fine.
+      if (state.isPlaying && state.position > startPos) return;
+      unawaited(_onPlayerError(recheck: true));
+    });
+    return true;
+  }
+
   void _onTrackCompleted() {
     if (_crossfading) {
       _completeCrossfade();
@@ -3208,30 +3235,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     cancelCrossfade();
     if (_resolving || state.error != null) return;
     // A late EOF from the stream that was just torn down (retry, skip)
-    // lands after the new open has reset position/duration to zero.
-    // Advancing on it skipped the track that had only just started.
-    final openedAt = _audioOpenDoneAt;
-    if (state.duration == Duration.zero &&
-        state.position < const Duration(seconds: 2) &&
-        (openedAt == null ||
-            DateTime.now().difference(openedAt) <
-                const Duration(seconds: 3))) {
-      final key = state.current?.queueKey ?? '';
-      final gen = _resolveGeneration;
-      _crumb('stale eof ignored key=$key');
-      // If the new stream really is empty it never reports a duration;
-      // hand it to the error path then instead of hanging silently.
-      Future<void>.delayed(const Duration(seconds: 6), () {
-        if (gen != _resolveGeneration || _resolving) return;
-        if (state.current?.queueKey != key) return;
-        if (state.duration > Duration.zero ||
-            state.position > Duration.zero) {
-          return;
-        }
-        unawaited(_onPlayerError());
-      });
-      return;
-    }
+    // lands after the new open. Advancing on it skipped the track that had
+    // only just started. Position and duration can't tell it apart (a
+    // retry resumes at its old position and keeps the old length), so go
+    // by the open time alone: no song really ends within 3 s of opening.
+    if (_deferIfJustOpened('eof')) return;
     _flushScrobble(completed: true);
     if (state.duration - state.position > const Duration(seconds: 10)) {
       // mpv reported clean EOF far from the known end: a truncated
