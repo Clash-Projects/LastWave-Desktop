@@ -7,7 +7,6 @@ import 'package:lastwave_desktop/features/audio_output/pcm_format.dart';
 import 'package:lastwave_desktop/features/equalizer/headphone_profiles.dart';
 import 'package:lastwave_desktop/features/player/audio_graph.dart';
 import 'package:lastwave_desktop/features/player/loudness.dart';
-import 'package:lastwave_desktop/features/player/timed_mix.dart';
 
 void main() {
   test('data saver is a persisted quality with a short label', () {
@@ -59,18 +58,6 @@ void main() {
     expect(merged, contains('f=31'));
     expect(merged, contains('f=100'));
     expect(merged.startsWith('format=floatp,lavfi=['), isTrue);
-    final swept = afWithSweep(merged, 'lowpass=f=1000:poles=1');
-    expect(swept, contains('f=31'));
-    expect(swept, contains('lowpass=f=1000'));
-  });
-
-  test('timed mix sweep moves and is not a beat grid', () {
-    expect(TimedMixSweep.outgoing(0), contains('lowpass'));
-    expect(TimedMixSweep.incoming(1), contains('highpass'));
-    expect(
-      TimedMixSweep.hz(16000, 180, 1).round(),
-      180,
-    );
   });
 
   test('loudness, automix, and pitch block bit-perfect', () {

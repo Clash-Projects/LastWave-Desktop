@@ -173,12 +173,8 @@ class Prefs {
   // -- Timed AutoMix (not beat-matched). Mutually exclusive with crossfade.
   bool get autoMixEnabled => _sp.getBool('lw_automix_enabled') ?? false;
 
-  int get autoMixSeconds {
-    // 6–18 s. Older builds allowed up to 30 s, which ate the end of
-    // short songs; stored values above 18 are read as 18.
-    final v = _sp.getInt('lw_automix_seconds') ?? 14;
-    return v.clamp(6, 18);
-  }
+  /// AutoMix blend length in bars: 8 or 16.
+  int get autoMixBars => (_sp.getInt('lw_automix_bars') ?? 16) >= 16 ? 16 : 8;
 
   bool get autoMixSpectral => _sp.getBool('lw_automix_spectral') ?? true;
 
@@ -189,8 +185,8 @@ class Prefs {
     }
   }
 
-  Future<void> setAutoMixSeconds(int seconds) =>
-      _sp.setInt('lw_automix_seconds', seconds.clamp(12, 18));
+  Future<void> setAutoMixBars(int bars) =>
+      _sp.setInt('lw_automix_bars', bars >= 16 ? 16 : 8);
 
   Future<void> setAutoMixSpectral(bool enabled) =>
       _sp.setBool('lw_automix_spectral', enabled);

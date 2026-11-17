@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/automix/audio_analysis.dart';
-import 'package:lastwave_desktop/features/automix/outro_mix_planner.dart';
+import 'package:lastwave_desktop/features/automix/dj_mix_planner.dart';
 
 const sr = 11025;
 
@@ -79,97 +79,170 @@ void main() {
     });
   });
 
-  group('outro planner', () {
-    // Fades the last [fade] seconds before the silent [tail] down to silence.
-    Int16List fadeOut(Int16List pcm, {required double fade, double tail = 0}) {
+  group('dj planner', () {
+    // Last minute: full level, then a quiet [outro].
+    Int16List withOutro(Int16List pcm, {required double outro}) {
       final out = Int16List.fromList(pcm);
-      final end = out.length - (tail * sr).round();
-      final start = end - (fade * sr).round();
-      for (var k = start; k < end; k++) {
-        out[k] = (out[k] * (1 - (k - start) / (end - start))).round();
+      for (var k = out.length - (outro * sr).round(); k < out.length; k++) {
+        out[k] = (out[k] * 0.25).round();
       }
       return out;
     }
 
-    final head = analyzePcm(drums(bpm: 128, seconds: 60, intro: 2.2), sr);
+    // First minute: a quiet [intro], then full level.
+    Int16List withIntro(Int16List pcm, {required double intro}) {
+      final out = Int16List.fromList(pcm);
+      for (var k = 0; k < (intro * sr).round(); k++) {
+        out[k] = (out[k] * 0.25).round();
+      }
+      return out;
+    }
 
-    test('blends over the outgoing fade and ends on its last sound', () {
-      final tail = analyzePcm(
-          fadeOut(drums(bpm: 124, seconds: 60, tail: 4), fade: 10, tail: 4),
-          sr,
-          offsetSeconds: 140);
-      final p = OutroMixPlanner.plan(
+    final tail = analyzePcm(withOutro(drums(bpm: 124, seconds: 60), outro: 12),
+        sr, offsetSeconds: 140);
+    final head = analyzePcm(
+        withIntro(drums(bpm: 128, seconds: 60, intro: 1), intro: 16), sr);
+
+    DjMixPlan planFor({int bars = 16, bool allowTempo = true, TrackAnalysis? inc}) =>
+        DjMixPlanner.plan(
+          outgoingTail: tail,
+          incomingHead: inc ?? head,
+          outgoingDuration: 200,
+          incomingDuration: 180,
+          bars: bars,
+          allowTempo: allowTempo,
+        )!;
+
+    test('16 bars, tempo matched, ends where the outro starts', () {
+      final p = planFor();
+      expect(p.style, DjMixStyle.beatmatch);
+      expect(p.bars, 16);
+      expect(p.rate, closeTo(124 / 128, 0.004));
+      expect(p.blendSec, closeTo(16 * 4 * 60 / 124, 0.2));
+      // Starts on an outgoing downbeat and ends at (or a bar before) the outro.
+      expect(tail.downbeats, contains(p.mixOutStart));
+      final outro = DjMixPlanner.outroStart(tail)!;
+      expect(outro, closeTo(188, 1.0));
+      expect(p.mixOutEnd, lessThanOrEqualTo(outro + 0.05));
+      expect(outro - p.mixOutEnd, lessThan(4 * 60 / 124 + 0.05));
+      // Incoming sits on a downbeat. Its 16 s intro is shorter than this
+      // 31 s blend, so it starts on its first downbeat and its full-energy
+      // part comes in during the blend.
+      expect(head.downbeats, contains(p.incomingCue));
+      expect(p.incomingCue, closeTo(head.downbeats.first, 0.6));
+    });
+
+    test('a jump past the mix point re-plans from there, on a downbeat', () {
+      final normal = planFor();
+      final late = DjMixPlanner.plan(
         outgoingTail: tail,
         incomingHead: head,
         outgoingDuration: 200,
         incomingDuration: 180,
-        maxOverlap: 14,
+        bars: 16,
+        earliestStart: normal.mixOutStart + 5,
       )!;
-      // The song is never cut: the blend ends where its sound ends.
-      expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
-      expect(p.mixOutEnd, lessThanOrEqualTo(200));
-      // The blend follows the fade, kept short.
-      expect(p.overlap, inInclusiveRange(OutroMixPlanner.minOverlap, 14));
-      expect(p.faded, isTrue);
-      expect(p.reason, startsWith('outro fade'));
-      // Incoming starts at its first sound, only the silence is skipped.
-      expect(p.incomingCue, closeTo(2.15, 0.15));
+      expect(late.mixOutStart, greaterThanOrEqualTo(normal.mixOutStart + 5));
+      expect(tail.downbeats, contains(late.mixOutStart));
+      expect(late.mixOutEnd, lessThanOrEqualTo(tail.contentEnd + 0.05));
+      // Too late even for 8 bars: no plan (the plain end fade takes over).
+      expect(
+          DjMixPlanner.plan(
+            outgoingTail: tail,
+            incomingHead: head,
+            outgoingDuration: 200,
+            incomingDuration: 180,
+            bars: 16,
+            earliestStart: tail.contentEnd - 5,
+          ),
+          isNull);
     });
 
-    test('a hard ending gets a short blend so it is not covered', () {
-      final tail = analyzePcm(drums(bpm: 124, seconds: 60, tail: 3), sr,
-          offsetSeconds: 140);
-      final p = OutroMixPlanner.plan(
-        outgoingTail: tail,
-        incomingHead: head,
-        outgoingDuration: 200,
-        incomingDuration: 180,
-        maxOverlap: 14,
-      )!;
-      expect(p.overlap,
-          inInclusiveRange(OutroMixPlanner.minOverlap, OutroMixPlanner.hardEndOverlap + 3));
-      expect(p.faded, isFalse);
-      expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
-      expect(p.reason, startsWith('hard end'));
+    test('8 bars when asked; the intro plays under the blend', () {
+      final p = planFor(bars: 8);
+      expect(p.bars, 8);
+      expect(p.blendSec, closeTo(8 * 4 * 60 / 124, 0.2));
+      // 15.5 s blend under a 16 s intro: the incoming song is started so its
+      // full-energy part arrives as the blend ends.
+      final full = p.incomingCue + p.blendSec * p.rate;
+      expect(full, closeTo(DjMixPlanner.introEnd(head)!, 2.5));
+      expect(head.downbeats, contains(p.incomingCue));
     });
 
-    test('a long fade never blends longer than allowed', () {
-      final tail = analyzePcm(
-          fadeOut(drums(bpm: 124, seconds: 60), fade: 25), sr,
-          offsetSeconds: 140);
-      final p = OutroMixPlanner.plan(
-        outgoingTail: tail,
-        incomingHead: head,
-        outgoingDuration: 200,
-        incomingDuration: 180,
-        maxOverlap: 8,
-      )!;
-      expect(p.overlap, lessThanOrEqualTo(8));
-      expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
+    test('far tempi get a filter blend at their own speed, full length', () {
+      final slow = analyzePcm(drums(bpm: 90, seconds: 60, intro: 2), sr);
+      final p = planFor(inc: slow);
+      expect(p.style, DjMixStyle.filter);
+      expect(p.rate, 1.0);
+      expect(p.bars, 16);
+      expect(slow.downbeats, contains(p.incomingCue));
     });
 
-    test('the incoming downbeat lands on an outgoing downbeat, speed untouched',
+    test('a 10% tempo gap is blended at both songs own speed, not stretched',
         () {
-      final tail = analyzePcm(
-          fadeOut(drums(bpm: 124, seconds: 60, tail: 4), fade: 10, tail: 4),
-          sr,
-          offsetSeconds: 140);
-      final p = OutroMixPlanner.plan(
-        outgoingTail: tail,
-        incomingHead: head,
-        outgoingDuration: 200,
-        incomingDuration: 180,
-        maxOverlap: 14,
-      )!;
-      expect(p.reason, endsWith('on-beat'));
-      // Nothing of the incoming song is skipped: it starts at its first sound.
-      expect(p.incomingCue, closeTo(head.audibleStart - 0.05, 0.001));
-      final firstDown = head.downbeats.firstWhere((d) => d >= p.incomingCue);
-      final landsAt = p.mixOutStart + (firstDown - p.incomingCue);
-      final nearest = tail.downbeats
-          .reduce((a, b) => (a - landsAt).abs() < (b - landsAt).abs() ? a : b);
-      expect(landsAt, closeTo(nearest, 0.02));
-      expect(p.mixOutEnd, closeTo(tail.contentEnd, 0.01));
+      final far = analyzePcm(drums(bpm: 112, seconds: 60, intro: 2), sr);
+      final p = planFor(inc: far);
+      expect(p.style, DjMixStyle.filter);
+      expect(p.rate, 1.0);
+    });
+
+    test('dj volume curves: matched blends overlap at full, others stay level',
+        () {
+      final (o40, i40) = DjMixPlanner.gains(beatmatched: true, progress: 0.4);
+      expect(o40, 1.0);
+      expect(i40, greaterThan(0.9));
+      final (o1, i1) = DjMixPlanner.gains(beatmatched: true, progress: 1);
+      expect(o1, closeTo(0, 1e-9));
+      expect(i1, closeTo(1, 1e-9));
+      for (var k = 0; k <= 10; k++) {
+        final (o, i) = DjMixPlanner.gains(beatmatched: false, progress: k / 10);
+        expect(o * o + i * i, closeTo(1, 1e-9));
+      }
+    });
+
+    test('no tempo change when pitch shifting is on', () {
+      final p = planFor(allowTempo: false);
+      expect(p.style, DjMixStyle.filter);
+      expect(p.rate, 1.0);
+    });
+
+    test('basses swap over one bar at the midpoint, treble crosses', () {
+      final p = planFor();
+      final start = DjMixPlanner.eqAt(p, 0);
+      expect(start.outLow, 0);
+      expect(start.inLow, DjMixPlanner.bassKillDb);
+      final before = DjMixPlanner.eqAt(p, 0.5 - 1 / 32 - 0.01);
+      expect(before.outLow, 0);
+      expect(before.inLow, DjMixPlanner.bassKillDb);
+      final after = DjMixPlanner.eqAt(p, 0.5 + 1 / 32 + 0.01);
+      expect(after.outLow, DjMixPlanner.bassKillDb);
+      expect(after.inLow, 0);
+      final end = DjMixPlanner.eqAt(p, 1);
+      expect(end.outHigh, DjMixPlanner.trebleTrimDb);
+      expect(end.inHigh, 0);
+    });
+
+    test('beat lock pulls a late, noisy deck onto the grid', () {
+      final p = planFor();
+      final lock = DjBeatLock(p, speed: 1);
+      final rnd = math.Random(3);
+      var out = p.triggerAt;
+      var inc = p.incomingStartAt + 0.09; // starts 90 ms late
+      var rate = p.rate;
+      var t = DateTime(2026);
+      const dt = 0.025;
+      for (var k = 0; k < 2400; k++) {
+        out += dt;
+        inc += dt * rate;
+        t = t.add(const Duration(milliseconds: 25));
+        lock.sample(out + (rnd.nextDouble() - 0.5) * 0.06,
+            inc + (rnd.nextDouble() - 0.5) * 0.06);
+        final a = lock.step(t);
+        if (a.seekTo != null) inc = a.seekTo!;
+        if (a.rate != null) rate = a.rate!;
+        expect((rate / p.rate - 1).abs(), lessThanOrEqualTo(0.0301));
+      }
+      expect((inc - p.expectedIncoming(out)).abs(), lessThan(0.02));
     });
   });
 }

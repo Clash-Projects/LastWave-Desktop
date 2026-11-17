@@ -169,8 +169,6 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
       final intensity = (1.3 + exciterTrim * 0.15).clamp(0.6, 2.0);
       filters.add('crystalizer=i=${intensity.toStringAsFixed(2)}:c=1');
     }
-    // Safety net against inter-sample overs; does nothing below 0.98.
-    filters.add('alimiter=limit=0.98:level=0');
     return 'format=floatp,lavfi=[${filters.join(",")}]';
   }
 }
