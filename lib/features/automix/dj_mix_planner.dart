@@ -89,8 +89,16 @@ class DjMixPlanner {
 
   /// Most of the outgoing song's outro / incoming song's intro a blend may
   /// skip, so a long outro or intro is never thrown away wholesale.
-  static const double maxOutroSkip = 20;
-  static const double maxIntroSkip = 30;
+  static const double maxOutroSkip = 12;
+  static const double maxIntroSkip = 10;
+
+  /// Longest blend in seconds, whatever the bar count: 16 bars at a slow
+  /// tempo ran 39-45 s, swallowing a big part of both songs.
+  static const double maxBlendSec = 24;
+
+  /// Most of the outgoing song a blend may cover, so a short song keeps
+  /// its body (Filam, 106 s, was blended from 56 s).
+  static const double maxShareOfSong = 0.2;
 
   /// Below this beat confidence a 16-bar request is played as 8 bars: a
   /// long overlap on a shaky grid sounds like mush.
@@ -231,6 +239,10 @@ class DjMixPlanner {
         : out.confidence;
     if (bars == 16 && conf < longBlendConfidence) return null;
     final blendSec = bars * bar;
+    // Too long for this tempo or this song: the caller tries 8 bars.
+    if (blendSec > maxBlendSec || blendSec > outDur * maxShareOfSong) {
+      return null;
+    }
 
     // ---- outgoing: end on the outro, start on a downbeat ----------------
     final contentEnd = math.min(out.contentEnd, outDur);

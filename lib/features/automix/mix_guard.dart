@@ -33,7 +33,9 @@ class MixGuardInput {
     required this.primary,
     this.standby,
     this.mixAge = Duration.zero,
-    this.maxMixAge = const Duration(seconds: 40),
+    // Well above the longest blend (24 s plus pre-roll): a running blend
+    // must never be cut off as "stuck".
+    this.maxMixAge = const Duration(seconds: 60),
     this.resolving = false,
   });
 
