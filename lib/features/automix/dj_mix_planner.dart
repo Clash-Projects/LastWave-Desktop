@@ -16,9 +16,10 @@ enum DjMixStyle {
 
 /// A DJ blend placed on real audio, in each track's own seconds.
 ///
-/// The blend ends where the outgoing song's outro begins (its last bar at
-/// full energy) and lets the incoming song's intro play underneath, so the
-/// incoming song reaches its own full energy as the blend ends.
+/// Nothing is cut: the blend ends on the outgoing song's last audible
+/// moment and the incoming song starts at its first downbeat (its first
+/// sound), so every song is heard from its start to its end. The blend
+/// starts on an outgoing downbeat with the incoming downbeat on it.
 class DjMixPlan {
   const DjMixPlan({
     required this.mixOutStart,
@@ -87,10 +88,6 @@ class DjMixPlanner {
   /// is retimed: matching a doubtful grid only adds wobble.
   static const double beatmatchConfidence = 0.25;
 
-  /// Most of the outgoing song's outro / incoming song's intro a blend may
-  /// skip, so a long outro or intro is never thrown away wholesale.
-  static const double maxOutroSkip = 12;
-  static const double maxIntroSkip = 10;
 
   /// Longest blend in seconds, whatever the bar count: 16 bars at a slow
   /// tempo ran 39-45 s, swallowing a big part of both songs.
@@ -103,15 +100,6 @@ class DjMixPlanner {
   /// Below this beat confidence a 16-bar request is played as 8 bars: a
   /// long overlap on a shaky grid sounds like mush.
   static const double longBlendConfidence = 0.4;
-
-  /// A song counts as "at full energy" within this many dB of its peak.
-  static const double fullEnergyDb = 4.4;
-
-  /// Bass cut on the side that is not carrying the low end.
-  static const double bassKillDb = -12;
-
-  /// Treble trim crossed over the blend.
-  static const double trebleTrimDb = -8;
 
   static const double preroll = 2.0;
 
@@ -175,32 +163,6 @@ class DjMixPlanner {
       ? rate - 1 <= maxSpeedUp + 1e-9
       : 1 - rate <= maxSlowDown + 1e-9;
 
-  /// End of the outgoing song's last stretch at full energy: where its
-  /// outro begins. Null when the window never reaches full energy.
-  static double? outroStart(TrackAnalysis t) {
-    final e = t.energyDb;
-    if (e.length < 3) return null;
-    final thr = e.reduce(math.max) - fullEnergyDb;
-    for (var i = e.length - 2; i >= 0; i--) {
-      if (e[i] >= thr && e[i + 1] >= thr) {
-        return math.min(t.contentEnd, t.windowStart + (i + 2) * t.energyHop);
-      }
-    }
-    return null;
-  }
-
-  /// Start of the incoming song's first stretch at full energy: where its
-  /// intro ends. Null when the window never reaches full energy.
-  static double? introEnd(TrackAnalysis t) {
-    final e = t.energyDb;
-    if (e.length < 3) return null;
-    final thr = e.reduce(math.max) - fullEnergyDb;
-    for (var i = 0; i < e.length - 1; i++) {
-      if (e[i] >= thr && e[i + 1] >= thr) return t.windowStart + i * t.energyHop;
-    }
-    return null;
-  }
-
   static DjMixPlan? _plan({
     required TrackAnalysis out,
     required TrackAnalysis inc,
@@ -244,22 +206,21 @@ class DjMixPlanner {
       return null;
     }
 
-    // ---- outgoing: end on the outro, start on a downbeat ----------------
+    // ---- outgoing: the blend ends on the song's last sound ---------------
+    // Start on the latest downbeat that leaves [bars] bars before the last
+    // sound; the blend then runs to that last sound (up to a bar longer), so
+    // nothing of the outgoing song is lost but its silent tail.
     final contentEnd = math.min(out.contentEnd, outDur);
-    final outro =
-        math.max(outroStart(out) ?? contentEnd, contentEnd - maxOutroSkip);
-    final latestStart = math.min(outro, contentEnd) - blendSec;
     final outGrid = out.downbeats.isNotEmpty ? out.downbeats : out.beats;
     double? start;
     for (final d in outGrid.reversed) {
-      if (d <= latestStart + 0.02) {
+      if (d <= contentEnd - blendSec + 0.02) {
         start = d;
         break;
       }
     }
-    // The listener jumped past the natural mix point: start on the first
-    // downbeat from [earliestStart] instead, if the blend still fits before
-    // the song's last sound (the caller then tries 8 bars).
+    // The listener jumped past that point: start on the first downbeat from
+    // [earliestStart] if [bars] bars still fit (the caller then tries 8).
     if (earliestStart != null && (start == null || start < earliestStart)) {
       start = null;
       for (final d in outGrid) {
@@ -271,40 +232,26 @@ class DjMixPlanner {
       if (start == null || start + blendSec > contentEnd + 0.05) return null;
     }
     if (start == null || start < out.windowStart + 0.5) return null;
+    final runSec = contentEnd - start;
 
-    // ---- incoming: intro underneath, full energy as the blend ends ------
+    // ---- incoming: from its first downbeat, on the outgoing downbeat -----
+    // Nothing of the incoming song is skipped: it starts at its first
+    // downbeat (or its first sound when it has no grid). The handoff curve
+    // keeps it low at first, so it creeps in under the outgoing song.
     final inGrid = inc.downbeats.isNotEmpty ? inc.downbeats : inc.beats;
-    final firstDown = inGrid.isEmpty
-        ? null
-        : inGrid.firstWhere((d) => d >= inc.audibleStart - 0.08,
-            orElse: () => inGrid.last);
-    double cue;
-    if (style == DjMixStyle.beatmatch && firstDown != null) {
-      final ie = introEnd(inc);
-      final full = inGrid.firstWhere(
-          (d) => d >= math.max(ie ?? firstDown, firstDown) - 0.08,
-          orElse: () => firstDown);
-      cue = math.min(full - blendSec * rate, firstDown + maxIntroSkip);
-      if (cue < firstDown) {
-        cue = firstDown;
-      } else {
-        // Snap to the incoming downbeat it should already sit on.
-        final target = cue;
-        cue = inGrid.reduce(
-            (a, b) => (a - target).abs() <= (b - target).abs() ? a : b);
-        if (cue < firstDown) cue = firstDown;
-      }
-    } else {
-      // Filter mix: the incoming song starts on its first downbeat (or its
-      // first sound) exactly on the outgoing downbeat.
-      cue = firstDown ?? math.max(0.0, inc.audibleStart - 0.05);
-    }
-    if (cue + blendSec * rate + 5 >= inDur) return null;
-    final startAt = math.max(0.0, cue - (style == DjMixStyle.beatmatch ? preroll : 0));
+    final firstSound = math.max(0.0, inc.audibleStart - 0.05);
+    final firstDown = inGrid
+        .where((d) => d >= inc.audibleStart - 0.08 && d - firstSound <= 4)
+        .firstOrNull;
+    final cue = firstDown ?? firstSound;
+    if (cue + runSec * rate + 5 >= inDur) return null;
+    final startAt = style == DjMixStyle.beatmatch
+        ? math.max(firstSound, cue - preroll)
+        : cue;
 
     return DjMixPlan(
       mixOutStart: start,
-      blendSec: blendSec,
+      blendSec: runSec,
       incomingCue: cue,
       incomingStartAt: startAt,
       rate: rate,
@@ -319,70 +266,50 @@ class DjMixPlanner {
 
   /// Deck gains (outgoing, incoming) at [progress] (0..1) through a blend.
   ///
-  /// Beatmatched: the incoming song comes up over the first 60% while the
-  /// outgoing one holds full level for the first 40%, then lets go. With
-  /// the basses swapped and the treble crossed, two matched grooves at full
-  /// level sound like one. Otherwise: equal power on a straight angle, so
-  /// loudness stays level and both songs stay clearly audible across the
-  /// whole blend instead of crossing over quickly in the middle.
+  /// A handoff, not a crossfade: the swap follows a smoothstep, so the
+  /// outgoing song keeps the floor at first while the incoming one creeps
+  /// in underneath, then the two trade places and the outgoing song lets go
+  /// at the end. The gains are square roots of a mirrored pair, so their
+  /// powers always sum to one: the level never dips in the middle.
   static (double, double) gains({
     required bool beatmatched,
     required double progress,
   }) {
-    final p = progress.clamp(0.0, 1.0);
-    double smooth(double x) {
-      final t = x.clamp(0.0, 1.0);
-      return t * t * (3 - 2 * t);
-    }
-
-    if (beatmatched) {
-      return (
-        math.cos(smooth((p - 0.4) / 0.6) * math.pi / 2),
-        math.sin(smooth(p / 0.6) * math.pi / 2),
-      );
-    }
-    final a = p * math.pi / 2;
-    return (math.cos(a), math.sin(a));
+    final h = _smooth(progress);
+    return (math.sqrt(1 - h), math.sqrt(h));
   }
+
+  static double _smooth(double x) {
+    final t = x.clamp(0.0, 1.0);
+    return t * t * (3 - 2 * t);
+  }
+
+  static double _db(double gain) =>
+      gain <= 0.001 ? -60 : 20 * math.log(gain) / math.ln10;
 
   /// Deck EQ at [progress] (0..1) through the blend.
   ///
-  /// Beatmatch: the basses swap over one bar at the midpoint so two kick
-  /// drums never play at full weight together; the treble crosses over the
-  /// whole blend. Filter mix: the outgoing deck drains its lows across the
-  /// blend while the incoming one opens its highs, with the same one-bar
-  /// bass handover at the midpoint.
+  /// The outgoing song gives up its bass over 25-60% of the blend and the
+  /// incoming one takes it over 45-75%, so two kick drums never thump at
+  /// full weight together; the outgoing treble eases down with the handoff
+  /// while the incoming one opens up. Same shape for every blend.
   static DjEq eqAt(DjMixPlan p, double progress) =>
       eqFor(beatmatched: p.beatmatched, bars: p.bars, progress: progress);
 
-  /// [eqAt] without a plan: the plain end-of-song crossfade uses the filter
-  /// shape with an 8-bar-wide swap.
   static DjEq eqFor({
     required bool beatmatched,
     required int bars,
     required double progress,
   }) {
     final t = progress.clamp(0.0, 1.0);
-    double smooth(double x) {
-      final v = x.clamp(0.0, 1.0);
-      return v * v * (3 - 2 * v);
-    }
-
-    final barFrac = 1 / bars;
-    final swap = smooth((t - (0.5 - barFrac / 2)) / barFrac);
-    if (beatmatched) {
-      return DjEq(
-        bassKillDb * swap,
-        trebleTrimDb * smooth(t),
-        bassKillDb * (1 - swap),
-        trebleTrimDb * (1 - smooth(t)),
-      );
-    }
+    final h = _smooth(t);
+    final outBass = 1 - 0.85 * _smooth((t - 0.25) / 0.35);
+    final inBass = 0.15 + 0.85 * _smooth((t - 0.45) / 0.30);
     return DjEq(
-      bassKillDb * math.max(smooth(t), swap),
-      0,
-      bassKillDb * (1 - swap),
-      bassKillDb * (1 - smooth(t)),
+      _db(outBass),
+      _db(1 - 0.5 * h),
+      _db(inBass),
+      _db(0.7 + 0.3 * h),
     );
   }
 }

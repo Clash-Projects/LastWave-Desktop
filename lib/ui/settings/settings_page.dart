@@ -3744,7 +3744,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
             },
             title: 'Timed mix',
             subtitle: prefs.autoMixEnabled
-                ? 'Blends the outro into the next intro over ${prefs.autoMixBars} bars: tempo matched, basses swapped on the beat. Album tracks stay gapless.'
+                ? 'Blends each ending into the next song over ${prefs.autoMixBars} bars, on the beat, with a DJ bass handover. Nothing is cut. Album tracks stay gapless.'
                 : 'Gapless until you turn this on',
           ),
           if (prefs.autoMixEnabled) ...[
