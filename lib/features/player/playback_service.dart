@@ -1935,6 +1935,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> playResume() async {
+    _userPaused = false;
     await ensurePlayer();
     if (state.current != null && state.stream == null) {
       final resumeAt = state.position;
@@ -1949,7 +1950,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {}
   }
 
+  /// The listener paused; a stalled-stream recheck must not read that as a
+  /// dead stream.
+  bool _userPaused = false;
+
   Future<void> pause() async {
+    _userPaused = true;
     cancelCrossfade();
     try {
       await _player?.pause();
@@ -2531,6 +2537,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     int resolveMs = 0;
     try {
       _activeQueueKey = wantedQueueKey;
+      _userPaused = false; // every open starts playing
       // Arm the first-audio clock: resolve-start → first playing=true.
       _audioClockStart = DateTime.now();
       _audioClockKey = wantedQueueKey;
@@ -3304,6 +3311,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     _unavailable.add(track.queueKey);
+    _crumb('unavailable after retries -> skip key=${track.queueKey}');
     await _skipUnavailable(state.currentIndex);
   }
 
@@ -3339,14 +3347,23 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     }
     final key = state.current?.queueKey ?? '';
     final gen = _resolveGeneration;
-    final startPos = state.position;
     _crumb('stale $what ignored key=$key');
-    Future<void>.delayed(const Duration(seconds: 6), () {
+    // Judge the NEW stream on its own: two readings 2 s apart. Comparing
+    // with the position at this moment (still the failed stream's, e.g.
+    // 15 s) made a healthy YouTube retry at 3 s look dead, and the song
+    // was given up and skipped.
+    Future<void>.delayed(const Duration(seconds: 4), () {
       if (gen != _resolveGeneration || _resolving) return;
       if (state.current?.queueKey != key) return;
-      // Playing and moving: the new stream is fine.
-      if (state.isPlaying && state.position > startPos) return;
-      unawaited(_onPlayerError(recheck: true));
+      final before = state.position;
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (gen != _resolveGeneration || _resolving) return;
+        if (state.current?.queueKey != key) return;
+        if (state.position > before) return; // moving: the stream is fine
+        if (_userPaused) return; // paused on purpose, not dead
+        _crumb('stale $what recheck: stream not moving key=$key');
+        unawaited(_onPlayerError(recheck: true));
+      });
     });
     return true;
   }
