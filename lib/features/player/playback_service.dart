@@ -1296,7 +1296,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// ("Layout indicates a different number of channels"), every frame was
   /// dropped and the song "ended" at 0-7 s.
   static const String _djEqBands =
-      'equalizer@lwlo=f=80:t=o:w=2:g=0,equalizer@lwhi=f=9000:t=o:w=2:g=0';
+      'equalizer@lwlo=f=90:t=o:w=2:g=0,equalizer@lwhi=f=6000:t=o:w=2:g=0';
 
   bool get _djEqWanted =>
       _prefs.autoMixSpectral && !_djEqBroken && _djEqLive != false;
