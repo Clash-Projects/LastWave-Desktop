@@ -1290,8 +1290,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// Mix stage on every deck's filter chain while AutoMix is on: a bass
   /// and a treble band at 0 dB (transparent) that a blend moves live with
   /// `af-command`, so the chain is never rebuilt mid-song.
-  static const String _djEqStage =
-      '@lwdj:lavfi=[equalizer@lwlo=f=80:t=o:w=2:g=0,equalizer@lwhi=f=9000:t=o:w=2:g=0]';
+  /// The two AutoMix bands. They go INSIDE the listener's lavfi graph,
+  /// behind its `format=floatp`: as a second, separate lavfi block, lossless
+  /// (Hi-Res) frames reached it with a channel layout that didn't match
+  /// ("Layout indicates a different number of channels"), every frame was
+  /// dropped and the song "ended" at 0-7 s.
+  static const String _djEqBands =
+      'equalizer@lwlo=f=80:t=o:w=2:g=0,equalizer@lwhi=f=9000:t=o:w=2:g=0';
 
   bool get _djEqWanted =>
       _prefs.autoMixSpectral && !_djEqBroken && _djEqLive != false;
@@ -2152,9 +2157,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         _processingDisabled ? '' : mergeEqualizerAndHeadphone(eq, _hpFilter);
     // The AutoMix stage stands on its own: it stays even when the
     // listener's chain had to be dropped.
-    _currentAudioFilter = !_timedMixEnabled || _djEqBroken
-        ? chain
-        : (chain.isEmpty ? _djEqStage : '$chain,$_djEqStage');
+    if (!_timedMixEnabled || _djEqBroken) {
+      _currentAudioFilter = chain;
+      return;
+    }
+    // One graph: listener's EQ / headphone filters, then the AutoMix bands,
+    // labelled @lwdj so a blend can move the bands with af-command.
+    _currentAudioFilter =
+        mergeEqualizerAndHeadphone(chain, 'lavfi=[$_djEqBands]').replaceFirst(
+            'format=floatp,lavfi=[', 'format=floatp,@lwdj:lavfi=[');
   }
 
   /// EQ + headphone correction, plus scaletempo when pitch is not 1.
