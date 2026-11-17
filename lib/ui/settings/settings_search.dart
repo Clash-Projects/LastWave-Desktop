@@ -32,7 +32,9 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     section: 'general',
     title: 'Behaviour',
     subtitle: 'Startup and window defaults',
-    keywords: 'close button minimize tray background window startup',
+    keywords:
+        'close button minimize tray background window startup '
+        'miniplayer mini player floating always on top taskbar dock',
   ),
   SettingsSearchEntry(
     id: 'general.backup',

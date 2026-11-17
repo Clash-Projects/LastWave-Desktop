@@ -13,6 +13,7 @@ import 'package:lastwave_desktop/features/player/player_state.dart';
 import 'package:lastwave_desktop/features/search/shared_providers.dart';
 import 'package:lastwave_desktop/ui/components/ambient.dart';
 import 'package:lastwave_desktop/ui/lyrics/lyrics_panel.dart';
+import 'package:lastwave_desktop/ui/now_playing/immersive.dart';
 import 'package:lastwave_desktop/ui/now_playing/now_playing_page.dart';
 import 'package:lastwave_desktop/ui/theme/haze.dart';
 
@@ -46,7 +47,11 @@ PlayerSnapshot _snapshot() => const PlayerSnapshot(
   ),
 );
 
-Future<void> _pumpNowPlaying(WidgetTester tester, {required Size size}) async {
+Future<void> _pumpNowPlaying(
+  WidgetTester tester, {
+  required Size size,
+  Widget Function(Widget page)? builder,
+}) async {
   SharedPreferences.setMockInitialValues({'lw_visualizer_enabled': false});
   final prefs = await Prefs.load();
   final db = AppDatabase.inMemory();
@@ -56,6 +61,7 @@ Future<void> _pumpNowPlaying(WidgetTester tester, {required Size size}) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
+  const page = WaveNowPlayingPage();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -70,9 +76,9 @@ Future<void> _pumpNowPlaying(WidgetTester tester, {required Size size}) async {
           (ref, track) => Stream.value(const LyricsResult.empty()),
         ),
       ],
-      child: const FluentApp(
+      child: FluentApp(
         themeMode: ThemeMode.dark,
-        home: WaveNowPlayingPage(),
+        home: builder != null ? builder(page) : page,
       ),
     ),
   );
@@ -122,5 +128,30 @@ void main() {
       findsNothing,
     );
     expect(_upNextRowRect(tester).bottom, lessThanOrEqualTo(size.height));
+  });
+
+  testWidgets('unmounting before idle timeout resets mirror without StateError', (
+    tester,
+  ) async {
+    final show = ValueNotifier<bool>(true);
+    addTearDown(show.dispose);
+    await _pumpNowPlaying(
+      tester,
+      size: const Size(1024, 640),
+      builder: (page) => ValueListenableBuilder<bool>(
+        valueListenable: show,
+        builder: (_, visible, _) =>
+            visible ? page : const SizedBox.shrink(),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(FluentApp)),
+    );
+    container.read(nowPlayingControlsIdleProvider.notifier).state = true;
+
+    show.value = false;
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(container.read(nowPlayingControlsIdleProvider), isFalse);
   });
 }

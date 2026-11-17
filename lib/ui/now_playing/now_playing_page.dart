@@ -60,13 +60,14 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   // visualizer toggle (the only thing that renders a clip), so flipping
   // the toggle on must re-arm for the current track.
   String _prefetchedMotionKey = '';
-  // Captured up front: `ref` is not safe to read while the element unmounts.
-  late final StateController<bool> _idleMirror =
-      ref.read(nowPlayingControlsIdleProvider.notifier);
+  // Captured eagerly in initState: lazy `late final` or `ref` inside
+  // `dispose()` runs after the element starts tearing down.
+  late final StateController<bool> _idleMirror;
 
   @override
   void initState() {
     super.initState();
+    _idleMirror = ref.read(nowPlayingControlsIdleProvider.notifier);
     _resetIdleTimer();
   }
 
@@ -76,7 +77,9 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     // Not while the tree is finalizing: a hidden-dock state must not
     // outlive the page.
     final mirror = _idleMirror;
-    Future.microtask(() => mirror.state = false);
+    Future.microtask(() {
+      if (mirror.mounted) mirror.state = false;
+    });
     super.dispose();
   }
 

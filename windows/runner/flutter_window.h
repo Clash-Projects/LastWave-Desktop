@@ -40,6 +40,10 @@ class FlutterWindow : public Win32Window {
   // lastwave:// links forwarded by a second launch (WM_COPYDATA).
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       deeplink_channel_;
+  // Pre-minimize interception for minimize-to-miniplayer.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      window_control_channel_;
+  bool intercept_minimize_ = false;
   // Set at the start of OnDestroy: DestroyWindow() re-enters the WndProc
   // via a user-callback while teardown is in flight (release crash
   // flutter_windows+1e220). Once set, messages go to DefWindowProc

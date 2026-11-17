@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/auth_gate.dart';
+import '../../app/mini_player_controller.dart';
 import '../../core/app_info.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/diagnostics/diagnostics_log.dart';
@@ -3247,6 +3248,7 @@ class _General extends ConsumerWidget {
           title: 'Behaviour',
           subtitle: 'Startup and window defaults',
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _SwitchRow(
                 value: prefs.closeToTray,
@@ -3255,6 +3257,85 @@ class _General extends ConsumerWidget {
                 subtitle:
                     'Keep the player running in the background when closed.',
               ),
+              const SizedBox(height: 10),
+              _BehaviourSelectRow(
+                title: 'When minimizing',
+                subtitle: switch (prefs.minimizeToMiniMode) {
+                  'playing' =>
+                    'Float miniplayer only while audio is actively playing.',
+                  'track' =>
+                    'Float miniplayer when a track is loaded; idle minimizes normally.',
+                  'always' =>
+                    'Always switch to the floating miniplayer on minimize.',
+                  _ => 'Minimize normally to the taskbar or Dock.',
+                },
+                value: prefs.minimizeToMiniMode,
+                options: const [
+                  WaveSelectOption(
+                    value: 'track',
+                    label: 'When track loaded',
+                  ),
+                  WaveSelectOption(
+                    value: 'playing',
+                    label: 'While playing',
+                  ),
+                  WaveSelectOption(
+                    value: 'always',
+                    label: 'Always floating',
+                  ),
+                  WaveSelectOption(
+                    value: 'off',
+                    label: 'Minimize normally',
+                  ),
+                ],
+                onChanged: (v) async {
+                  await onUpdate((p) => p.setMinimizeToMiniMode(v));
+                  await ref.read(miniPlayerProvider.notifier).syncFromPrefs();
+                },
+              ),
+              const SizedBox(height: 10),
+              _BehaviourSelectRow(
+                title: 'Miniplayer in taskbar / Dock',
+                subtitle: switch (prefs.miniTaskbarMode) {
+                  'show' =>
+                    'Keep the floating miniplayer visible in taskbar and Alt+Tab.',
+                  'tray' =>
+                    'Hide from taskbar in mini mode; its minimize button sends it to the tray.',
+                  _ =>
+                    'Hide from taskbar while floating on top; shows again if minimized.',
+                },
+                value: prefs.miniTaskbarMode,
+                options: const [
+                  WaveSelectOption(
+                    value: 'smart',
+                    label: 'Hide while floating',
+                  ),
+                  WaveSelectOption(
+                    value: 'show',
+                    label: 'Always visible',
+                  ),
+                  WaveSelectOption(
+                    value: 'tray',
+                    label: 'Hide to tray',
+                  ),
+                ],
+                onChanged: (v) async {
+                  await onUpdate((p) => p.setMiniTaskbarMode(v));
+                  await ref.read(miniPlayerProvider.notifier).syncFromPrefs();
+                },
+              ),
+              if (Platform.isLinux &&
+                  Platform.environment['WAYLAND_DISPLAY'] != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Note: Wayland compositors may restrict window positioning, '
+                    'always-on-top, and taskbar hiding.',
+                    style: WaveType.meta.copyWith(
+                      color: waveTextSecondary(context),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -3843,6 +3924,57 @@ class _WasapiOutputSettings extends ConsumerWidget {
         const SizedBox(height: 12),
         WaveStreamPathPanel(path: output.path),
       ],
+    );
+  }
+}
+
+class _BehaviourSelectRow extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String value;
+  final List<WaveSelectOption<String>> options;
+  final ValueChanged<String> onChanged;
+  const _BehaviourSelectRow({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: WaveType.trackTitle),
+                Text(
+                  subtitle,
+                  style: WaveType.meta.copyWith(
+                    color: waveTextSecondary(context),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 220,
+            child: WaveSelect<String>(
+              expanded: true,
+              minMenuWidth: 220,
+              value: value,
+              options: options,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -15,6 +15,7 @@ import '../../features/lastfm/home_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../../app/accessibility.dart';
+import '../../app/mini_player_controller.dart';
 import '../components/buttons.dart' show LWTooltip, WaveA11yButton;
 import '../components/inputs.dart';
 import '../components/menus.dart'
@@ -820,10 +821,10 @@ class _CommunityBtns extends StatelessWidget {
   }
 }
 
-class _WindowButtons extends StatelessWidget {
+class _WindowButtons extends ConsumerWidget {
   const _WindowButtons();
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     Future<void> guard(Future<void> Function() fn) async {
       try {
         await fn();
@@ -836,7 +837,9 @@ class _WindowButtons extends StatelessWidget {
         _WinBtn(
           tooltip: 'Minimize',
           icon: FluentIcons.chrome_minimize,
-          onTap: () => guard(() => windowManager.minimize()),
+          onTap: () => guard(
+            () => ref.read(miniPlayerProvider.notifier).handleMinimizeRequest(),
+          ),
         ),
         _WinBtn(
           tooltip: 'Maximize',

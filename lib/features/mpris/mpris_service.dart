@@ -5,6 +5,7 @@ import 'package:dbus/dbus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../app/mini_player_controller.dart';
 import '../../core/audio/stream_models.dart';
 import '../player/playback_service.dart';
 import '../player/player_state.dart';
@@ -341,8 +342,14 @@ class _MprisObject extends DBusObject {
       if (call.interface == _rootIface) {
         switch (call.name) {
           case 'Raise':
-            await windowManager.show();
-            await windowManager.focus();
+            if (_svc._ref.read(miniPlayerProvider).isMini) {
+              await _svc._ref
+                  .read(miniPlayerProvider.notifier)
+                  .exit(ensureShown: true);
+            } else {
+              await windowManager.show();
+              await windowManager.focus();
+            }
             return DBusMethodSuccessResponse();
           case 'Quit':
             // CanQuit is false: quitting via MPRIS is unsupported.
