@@ -520,6 +520,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         if (_currentAudioFilter.isNotEmpty) {
           try {
             await dyn.setProperty('af', _currentAudioFilter);
+            _afWritten[_player!] = _currentAudioFilter;
           } catch (_) {}
         }
       }
@@ -726,6 +727,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         if (_currentAudioFilter.isNotEmpty) {
           try {
             await platform.setProperty('af', _currentAudioFilter);
+            _afWritten[sb] = _currentAudioFilter;
           } catch (_) {}
         }
       }
@@ -1608,9 +1610,28 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> _setAf(Player? player, String af) async {
-    final dyn = player?.platform;
+    if (player == null) return;
+    await _writeAf(player, af);
+  }
+
+  /// The `af` string each player last received.
+  final Expando<String> _afWritten = Expando('af');
+
+  /// When the playing deck's filter chain last changed.
+  DateTime? _primaryAfChangedAt;
+
+  /// Writes `af` only when it differs from what [player] already has.
+  /// Rebuilding the chain on a song mpv has fully buffered (lossless files
+  /// read to EOF up front) ends that song, so an unchanged chain must never
+  /// be rewritten, and a real change on the playing deck is time-stamped
+  /// so the end it may cause is recovered instead of skipped.
+  Future<void> _writeAf(Player player, String af) async {
+    final dyn = player.platform;
     if (dyn == null) return;
+    if (_afWritten[player] == af) return;
     await (dyn as dynamic).setProperty('af', af);
+    _afWritten[player] = af;
+    if (identical(player, _player)) _primaryAfChangedAt = DateTime.now();
   }
 
   void _completeCrossfade() {
@@ -2066,6 +2087,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       if (exclusive) {
         try {
           await dyn.setProperty('af', '');
+          _afWritten[player] = '';
         } catch (_) {}
         try {
           await dyn.setProperty('replaygain', 'no');
@@ -2182,7 +2204,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         // drops a leftover scaletempo from a previous pitch value.
         final af = exclusiveApplied ? '' : _playbackAf();
         try {
-          await (dyn as dynamic).setProperty('af', af);
+          await _writeAf(player, af);
         } catch (_) {}
       }
       return;
@@ -2196,7 +2218,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     } catch (_) {}
     final af = exclusiveApplied ? '' : _playbackAf();
     try {
-      await (dyn as dynamic).setProperty('af', af);
+      await _writeAf(player, af);
     } catch (_) {}
   }
 
@@ -3381,6 +3403,22 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     // retry resumes at its old position and keeps the old length), so go
     // by the open time alone: no song really ends within 3 s of opening.
     if (_deferIfJustOpened('eof')) return;
+    final afAt = _primaryAfChangedAt;
+    final track = state.current;
+    if (afAt != null &&
+        track != null &&
+        DateTime.now().difference(afAt) < const Duration(seconds: 3) &&
+        state.duration - state.position > const Duration(seconds: 3)) {
+      // The filter chain was just rebuilt on a fully buffered song and mpv
+      // ended it. Reopen the same song where it was, not a retry or skip.
+      _primaryAfChangedAt = null;
+      _crumb('eof after filter change -> resume '
+          'pos=${state.position.inSeconds}s key=${track.queueKey}');
+      _resumeKey = track.queueKey;
+      _resumeAt = state.position;
+      unawaited(_resolveAndOpen(state.currentIndex));
+      return;
+    }
     _flushScrobble(completed: true);
     if (state.duration - state.position > const Duration(seconds: 10)) {
       // mpv reported clean EOF far from the known end: a truncated
