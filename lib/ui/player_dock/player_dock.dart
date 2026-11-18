@@ -641,7 +641,7 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
                     WaveMenuAction(
                       leading: const Icon(WaveIcons.settings, size: 15),
                       label: 'Quality settings',
-                      onPressed: () => context.go('/settings'),
+                      onPressed: () => context.go('/settings?section=audio'),
                     ),
                   ],
                 ),
@@ -1725,7 +1725,7 @@ class _DockOverflow extends ConsumerWidget {
           WaveMenuAction(
             leading: const Icon(WaveIcons.gauge, size: 15),
             label: '${stream.qualityBadge} · ${stream.audioCodec}',
-            onPressed: () => context.go('/settings'),
+            onPressed: () => context.go('/settings?section=audio'),
           ),
         if (showOutputItem)
           WaveMenuSubmenu(
