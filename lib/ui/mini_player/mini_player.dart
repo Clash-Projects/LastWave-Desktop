@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../app/mini_player_controller.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
@@ -29,23 +30,31 @@ class WaveMiniPlayer extends ConsumerStatefulWidget {
 }
 
 class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
-  @override
-  void initState() {
-    super.initState();
-    _setTop(true);
+  void _minimizeMini() {
+    ref.read(miniPlayerProvider.notifier).minimizeFromMini();
   }
 
-  @override
-  void dispose() {
-    _setTop(false);
-    super.dispose();
-  }
-
-  Future<void> _setTop(bool value) async {
-    try {
-      await windowManager.setAlwaysOnTop(value);
-    } catch (_) {}
-  }
+  List<Widget> _windowActions() => [
+        _MiniGlyph(
+          tooltip: 'Minimize',
+          icon: FluentIcons.chrome_minimize,
+          onTap: _minimizeMini,
+          size: 11,
+        ),
+        _MiniGlyph(
+          tooltip: 'Expand to window',
+          icon: WaveIcons.expand,
+          onTap: widget.onExpand,
+          size: 12,
+        ),
+        _MiniGlyph(
+          tooltip: 'Close mini player',
+          icon: FluentIcons.chrome_close,
+          onTap: widget.onClose,
+          danger: true,
+          size: 12,
+        ),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -114,29 +123,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
               style: WaveType.meta.copyWith(fontSize: 12),
             ),
           ),
-          _MiniGlyph(
-            tooltip: 'Minimize',
-            icon: FluentIcons.chrome_minimize,
-            onTap: () {
-              try {
-                windowManager.minimize();
-              } catch (_) {}
-            },
-            size: 11,
-          ),
-          _MiniGlyph(
-            tooltip: 'Expand to window',
-            icon: WaveIcons.expand,
-            onTap: widget.onExpand,
-            size: 12,
-          ),
-          _MiniGlyph(
-            tooltip: 'Close mini player',
-            icon: FluentIcons.chrome_close,
-            onTap: widget.onClose,
-            danger: true,
-            size: 12,
-          ),
+          ..._windowActions(),
         ],
       ),
     );
@@ -245,29 +232,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
                   color: waveDivider(context).withValues(alpha: 0.6),
                 ),
                 const SizedBox(width: 4),
-                _MiniGlyph(
-                  tooltip: 'Minimize',
-                  icon: FluentIcons.chrome_minimize,
-                  onTap: () {
-                    try {
-                      windowManager.minimize();
-                    } catch (_) {}
-                  },
-                  size: 11,
-                ),
-                _MiniGlyph(
-                  tooltip: 'Expand to window',
-                  icon: WaveIcons.expand,
-                  onTap: widget.onExpand,
-                  size: 12,
-                ),
-                _MiniGlyph(
-                  tooltip: 'Close mini player',
-                  icon: FluentIcons.chrome_close,
-                  onTap: widget.onClose,
-                  danger: true,
-                  size: 12,
-                ),
+                ..._windowActions(),
               ],
             ),
           ),

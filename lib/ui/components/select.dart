@@ -176,7 +176,15 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
       text,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
+      textHeightBehavior: const TextHeightBehavior(
+        applyHeightToFirstAscent: false,
+        applyHeightToLastDescent: false,
+      ),
       style: WaveType.body.copyWith(
+        // WaveType.body sets height: 1.5 for multi-line text, which adds
+        // extra top-heavy leading inside a single-line 36px trigger.
+        height: 1.15,
+        leadingDistribution: TextLeadingDistribution.even,
         color: enabled
             ? waveTextPrimary(context)
             : theme.resources.textFillColorDisabled,
@@ -242,6 +250,7 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
                 );
                 return Row(
                   mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     if (fill) Expanded(child: title) else title,
                     const SizedBox(width: 8),

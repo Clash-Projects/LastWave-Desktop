@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' show Offset;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -101,6 +102,59 @@ class Prefs {
       _sp.getBool('lw_close_to_tray') ?? false;
   Future<void> setCloseToTray(bool v) =>
       _sp.setBool('lw_close_to_tray', v);
+
+  /// When OS/title-bar minimize morphs into the floating miniplayer:
+  /// - `'off'`: always minimize normally
+  /// - `'playing'`: only while audio is actively playing
+  /// - `'track'`: whenever a track is loaded (playing or paused; idle minimizes normally)
+  /// - `'always'`: always morph to miniplayer on minimize
+  String get minimizeToMiniMode {
+    final raw =
+        (_sp.getString('lw_minimize_to_mini_mode') ?? 'track').toLowerCase();
+    const known = {'off', 'playing', 'track', 'always'};
+    return known.contains(raw) ? raw : 'track';
+  }
+
+  Future<void> setMinimizeToMiniMode(String mode) {
+    final raw = mode.toLowerCase();
+    const known = {'off', 'playing', 'track', 'always'};
+    return _sp.setString(
+      'lw_minimize_to_mini_mode',
+      known.contains(raw) ? raw : 'track',
+    );
+  }
+
+  /// Miniplayer taskbar / Dock visibility:
+  /// - `'show'`: keep visible in taskbar & Alt+Tab
+  /// - `'smart'`: hide while floating; restore taskbar visibility if minimized
+  /// - `'tray'`: hide from taskbar across mini mode; miniplayer minimize hides to tray
+  String get miniTaskbarMode {
+    final raw = (_sp.getString('lw_mini_taskbar_mode') ?? 'smart').toLowerCase();
+    const known = {'show', 'smart', 'tray'};
+    return known.contains(raw) ? raw : 'smart';
+  }
+
+  Future<void> setMiniTaskbarMode(String mode) {
+    final raw = mode.toLowerCase();
+    const known = {'show', 'smart', 'tray'};
+    return _sp.setString(
+      'lw_mini_taskbar_mode',
+      known.contains(raw) ? raw : 'smart',
+    );
+  }
+
+  Offset? get miniPlayerPosition {
+    final x = _sp.getDouble('lw_mini_pos_x');
+    final y = _sp.getDouble('lw_mini_pos_y');
+    if (x == null || y == null || !x.isFinite || !y.isFinite) return null;
+    return Offset(x, y);
+  }
+
+  Future<void> setMiniPlayerPosition(Offset pos) async {
+    if (!pos.dx.isFinite || !pos.dy.isFinite) return;
+    await _sp.setDouble('lw_mini_pos_x', pos.dx);
+    await _sp.setDouble('lw_mini_pos_y', pos.dy);
+  }
 
   // -- Playback behaviour -------------------------------------------------
   /// Keep playing similar tracks (endless radio) after a queue runs
@@ -614,6 +668,8 @@ class Prefs {
         'lw_download_dir',
         'lw_audio_device_id',
         'lw_username',
+        'lw_mini_pos_x',
+        'lw_mini_pos_y',
       }.contains(key.toLowerCase());
 
   static bool _isPortable(String key) =>

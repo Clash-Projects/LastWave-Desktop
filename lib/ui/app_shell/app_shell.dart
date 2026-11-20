@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../app/mini_player_controller.dart';
 import '../../app/window.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
@@ -69,18 +70,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _equalizerSettled = true;
   // Canvas: docked on the RIGHT edge, pushes the page; queue/EQ overlay it.
   bool _canvasOpen = false;
-  bool _miniOpen = false;
 
   /// F11 pressed away from Now Playing: go fullscreen once the route
   /// arrives. Stamped so a navigation that never lands can't turn a later,
   /// unrelated visit into a fullscreen one.
   DateTime? _pendingImmersiveAt;
   bool _draggingFiles = false;
-
-  Size? _savedWindowSize;
-  Offset? _savedWindowPos;
-  bool _savedWasMaximized = false;
-  Offset? _lastMiniPos;
 
   Future<void> _checkUpdatesOnLaunch() async {
     // Non-blocking delay after launch so the initial UI renders seamlessly
@@ -102,88 +97,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   }
 
   void _toggleMiniPlayer() {
-    if (_miniOpen) {
-      _exitMiniPlayer();
-    } else {
-      _enterMiniPlayer();
-    }
-  }
-
-  Future<void> _enterMiniPlayer() async {
-    final hasTrack = ref.read(
-      playbackServiceProvider.select((s) => s.current != null),
-    );
-    if (!hasTrack) return;
-
-    try {
-      _savedWasMaximized = await windowManager.isMaximized();
-      if (_savedWasMaximized) {
-        await windowManager.unmaximize();
-        await Future<void>.delayed(const Duration(milliseconds: 60));
-      }
-      _savedWindowSize = await windowManager.getSize();
-      _savedWindowPos = await windowManager.getPosition();
-    } catch (_) {}
-
-    if (!mounted) return;
     setState(() {
-      _miniOpen = true;
       _queueOpen = false;
       _equalizerOpen = false;
       _canvasOpen = false;
     });
-
-    try {
-      await windowManager.setMinimumSize(const Size(300, 64));
-      const miniSize = Size(380, 78);
-      await windowManager.setSize(miniSize);
-      if (_lastMiniPos != null) {
-        await windowManager.setPosition(_lastMiniPos!);
-      } else if (_savedWindowPos != null && _savedWindowSize != null) {
-        final targetX =
-            _savedWindowPos!.dx +
-            (_savedWindowSize!.width - miniSize.width - 24);
-        final targetY =
-            _savedWindowPos!.dy +
-            (_savedWindowSize!.height - miniSize.height - 24);
-        await windowManager.setPosition(
-          Offset(targetX.clamp(10.0, 10000.0), targetY.clamp(10.0, 10000.0)),
-        );
-      }
-      await windowManager.setAlwaysOnTop(true);
-    } catch (_) {}
-  }
-
-  Future<void> _exitMiniPlayer({bool expand = false}) async {
-    if (!_miniOpen) return;
-
-    try {
-      _lastMiniPos = await windowManager.getPosition();
-    } catch (_) {}
-
-    if (!mounted) return;
-    setState(() {
-      _miniOpen = false;
-    });
-
-    try {
-      await windowManager.setAlwaysOnTop(false);
-      await windowManager.setMinimumSize(const Size(1024, 640));
-      if (_savedWasMaximized) {
-        await windowManager.maximize();
-      } else {
-        final restoreSize = _savedWindowSize ?? const Size(1360, 860);
-        final restorePos = _savedWindowPos;
-        if (restorePos != null) {
-          await windowManager.setPosition(restorePos);
-        }
-        await windowManager.setSize(restoreSize);
-      }
-    } catch (_) {}
-
-    if (expand) {
-      _go('/now');
-    }
+    unawaited(ref.read(miniPlayerProvider.notifier).toggle());
   }
 
   late final TextEditingController _searchController;
@@ -384,8 +303,8 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     } else if (_canvasOpen) {
       setState(() => _canvasOpen = false);
       return true;
-    } else if (_miniOpen) {
-      _exitMiniPlayer();
+    } else if (ref.read(miniPlayerProvider).isMini) {
+      unawaited(ref.read(miniPlayerProvider.notifier).exit());
       return true;
     } else if (_lastCollapsed == false) {
       // Overlay rail light-dismisses via keyboard too.
@@ -597,23 +516,30 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   /// F11: edge-to-edge Now Playing from anywhere. On Now Playing it toggles;
   /// elsewhere it opens Now Playing and goes fullscreen on arrival.
-  void _toggleFullscreen() {
+  Future<void> _toggleFullscreen() async {
+    if (ref.read(miniPlayerProvider).isMini) {
+      await ref.read(miniPlayerProvider.notifier).exit();
+      if (!mounted) return;
+    }
     if (widget.location.startsWith('/now')) {
       final immersive = ref.read(nowPlayingImmersiveProvider.notifier);
       immersive.state = !immersive.state;
       return;
     }
     _pendingImmersiveAt = DateTime.now();
-    _openNowPlaying();
+    await _openNowPlaying();
   }
 
-  void _openNowPlaying() {
+  Future<void> _openNowPlaying() async {
+    if (ref.read(miniPlayerProvider).isMini) {
+      await ref.read(miniPlayerProvider.notifier).exit();
+      if (!mounted) return;
+    }
     // Already there (the dock is on every view, Now Playing included).
     if (widget.location.startsWith('/now')) return;
     if (_searchFocus.hasFocus) _searchFocus.unfocus();
     _searchController.clear();
     setState(() {
-      _miniOpen = false;
       _queueOpen = false;
     });
     waveOpen(context, '/now');
@@ -786,12 +712,16 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     _lastCollapsed = collapsed;
     _lastIsNowPlaying = isNowPlaying;
 
-    if (_miniOpen) {
+    final isMini = ref.watch(miniPlayerProvider.select((s) => s.isMini));
+    if (isMini) {
       return Mica(
         backgroundColor: waveBackground(context),
         child: WaveMiniPlayer(
-          onClose: () => _exitMiniPlayer(),
-          onExpand: () => _exitMiniPlayer(expand: true),
+          onClose: () => unawaited(ref.read(miniPlayerProvider.notifier).exit()),
+          onExpand: () async {
+            await ref.read(miniPlayerProvider.notifier).exit();
+            if (mounted) _go('/now');
+          },
         ),
       );
     }
