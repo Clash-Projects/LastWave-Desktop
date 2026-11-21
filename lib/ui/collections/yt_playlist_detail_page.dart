@@ -257,6 +257,7 @@ class _Body extends ConsumerWidget {
                                     artist: t.artist,
                                     artworkUrl:
                                         t.artworkUrl,
+                                    videoId: t.videoId,
                                   );
                                 }
                               },

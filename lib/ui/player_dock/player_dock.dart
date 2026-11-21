@@ -1790,6 +1790,7 @@ class _DockOverflow extends ConsumerWidget {
                   artist: current.artist,
                   album: current.album,
                   artworkUrl: current.artworkUrl,
+                  videoId: current.videoId,
                 );
           },
         ),

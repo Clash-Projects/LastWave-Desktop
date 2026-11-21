@@ -264,6 +264,7 @@ class _WavePlaylistDetailPageState
                                       artist: t.artist,
                                       album: t.album,
                                       artworkUrl: t.artworkUrl,
+                                      videoId: t.videoId,
                                     );
                                   }
                                 },

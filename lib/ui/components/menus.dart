@@ -181,6 +181,7 @@ List<WaveMenuEntry> waveTrackMenuItems({
         title: title,
         artist: artist,
         artworkUrl: artworkUrl,
+        videoId: track.videoId,
       ),
     ),
   ];

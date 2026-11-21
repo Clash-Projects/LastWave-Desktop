@@ -36,7 +36,7 @@ Future<String> buildDiagnosticsReport(WidgetRef ref) async {
   b.writeln('version: $appVersion');
   b.writeln('mode: ${kReleaseMode ? 'release' : 'debug'}');
   b.writeln('platform: ${Platform.operatingSystem} '
-      '${Platform.operatingSystemVersion}');
+      '${windowsVersionLabel(Platform.operatingSystemVersion)}');
   b.writeln('dart: ${Platform.version}');
   b.writeln('locale: ${Platform.localeName}');
   b.writeln('processors: ${Platform.numberOfProcessors}');
@@ -241,4 +241,15 @@ int _count(WidgetRef ref, String table) {
   } catch (_) {
     return -1;
   }
+}
+
+/// Windows 11 keeps the product name "Windows 10" in the registry, so
+/// the raw OS string misreports it; build 22000+ is Windows 11.
+String windowsVersionLabel(String raw) {
+  final build = RegExp(r'Build (\d+)').firstMatch(raw);
+  final n = int.tryParse(build?.group(1) ?? '') ?? 0;
+  if (n >= 22000 && raw.contains('Windows 10')) {
+    return raw.replaceFirst('Windows 10', 'Windows 11');
+  }
+  return raw;
 }
