@@ -7,4 +7,4 @@ Terminal=false
 Type=Application
 Categories=Audio;Music;AudioVideo;
 MimeType=x-scheme-handler/lastwave;
-StartupWMClass=lastwave_desktop
+StartupWMClass=com.lastwave.lastwave_desktop

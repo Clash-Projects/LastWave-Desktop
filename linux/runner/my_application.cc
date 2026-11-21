@@ -198,6 +198,11 @@ MyApplication* my_application_new() {
   // corresponding .desktop file. This ensures better integration by allowing
   // the application to be recognized beyond its binary name.
   g_set_prgname(APPLICATION_ID);
+  // On X11 / XWayland the WM_CLASS class defaults to the prgname with its
+  // first letter capitalised ("Com.lastwave..."), which matched no desktop
+  // entry. Use the exact id there too, the same one native Wayland reports
+  // as app_id, so docks tie the window to its launcher on every backend.
+  gdk_set_program_class(APPLICATION_ID);
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
