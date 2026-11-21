@@ -401,6 +401,34 @@ class Prefs {
 
   // -- Scrobbler --------------------------------------------------------------
   bool get scrobblerEnabled => _sp.getBool('lw_scrobbler_enabled') ?? false;
+
+  // -- Other scrobblers (ListenBrainz, Libre.fm) ----------------------------
+  // Empty server = the public service. Cleared together on disconnect.
+  String get listenBrainzToken => _sp.getString('lw_lb_token') ?? '';
+  String get listenBrainzUser => _sp.getString('lw_lb_user') ?? '';
+  String get listenBrainzServer => _sp.getString('lw_lb_server') ?? '';
+  Future<void> setListenBrainz({
+    required String token,
+    required String user,
+    required String server,
+  }) async {
+    await _sp.setString('lw_lb_token', token);
+    await _sp.setString('lw_lb_user', user);
+    await _sp.setString('lw_lb_server', server);
+  }
+
+  String get libreFmSession => _sp.getString('lw_librefm_session') ?? '';
+  String get libreFmUser => _sp.getString('lw_librefm_user') ?? '';
+  String get libreFmServer => _sp.getString('lw_librefm_server') ?? '';
+  Future<void> setLibreFm({
+    required String session,
+    required String user,
+    required String server,
+  }) async {
+    await _sp.setString('lw_librefm_session', session);
+    await _sp.setString('lw_librefm_user', user);
+    await _sp.setString('lw_librefm_server', server);
+  }
   bool get scrobbleNowPlaying => _sp.getBool('lw_submit_now_playing') ?? true;
   int get scrobblePercent {
     final v = _sp.getInt('lw_scrobble_percent') ?? 50;

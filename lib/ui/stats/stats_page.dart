@@ -10,6 +10,7 @@ import '../../app/track_actions.dart' show playGenerated, relativeTime;
 import '../../features/feed/feed_repository.dart';
 import '../../features/innertube/album_match.dart';
 import '../../features/innertube/innertube_api.dart' show innerTubeProvider;
+import '../../features/scrobblers/extra_scrobblers.dart';
 import '../../features/stats/stats_providers.dart';
 import '../genres/genres_page.dart';
 import '../components/artist_line.dart';
@@ -109,6 +110,7 @@ class WaveStatsPage extends ConsumerWidget {
                     children: [
                       // 1. Last.fm Profile & Sync Hub
                       _LastFmProfileHub(stats: stats),
+                      const _OtherScrobblerStrips(),
                       const SizedBox(height: 20),
 
                       // 2. Active Tab Content
@@ -1960,6 +1962,90 @@ class _RecentPlayItem extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// One strip per connected ListenBrainz / Libre.fm account, styled like
+/// the Last.fm strip: identity, lifetime listens, profile + settings.
+class _OtherScrobblerStrips extends ConsumerWidget {
+  const _OtherScrobblerStrips();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(extraScrobblersRevisionProvider);
+    final connected = [
+      for (final s in ref.watch(extraScrobblersProvider).services)
+        if (s.connected) s,
+    ];
+    if (connected.isEmpty) return const SizedBox.shrink();
+    final formatter = NumberFormat('#,###');
+    return Column(
+      children: [
+        for (final s in connected)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: waveSurface(context),
+                borderRadius: WaveRadius.floatingRadius,
+                border: Border.all(color: waveDivider(context), width: 0.8),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: WaveRadius.artworkRadius,
+                    child: WaveArtwork(
+                      url: '',
+                      size: 32,
+                      label: s.username,
+                      upgrade: false,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '@${s.username}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: WaveType.trackTitle.copyWith(
+                                fontSize: 14, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          switch (ref.watch(extraScrobbleCountProvider(s.name))) {
+                            AsyncData(:final value?) =>
+                              '${formatter.format(value)} scrobbles · all time · ${s.name}',
+                            _ => s.name,
+                          },
+                          style: WaveType.meta
+                              .copyWith(color: waveTextSecondary(context)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  WaveIconButton(
+                    tooltip: 'View profile on ${s.name}',
+                    icon: const Icon(FluentIcons.open_in_new_window, size: 14),
+                    onPressed: () => launchUrl(s.profileUrl,
+                        mode: LaunchMode.externalApplication),
+                  ),
+                  const SizedBox(width: 4),
+                  WaveIconButton(
+                    tooltip: '${s.name} settings',
+                    icon: const Icon(FluentIcons.settings, size: 14),
+                    onPressed: () => context.go('/settings?section=lastfm'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

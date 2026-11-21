@@ -183,6 +183,14 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'scrobble scrobbler now playing threshold percent history',
   ),
   SettingsSearchEntry(
+    id: 'lastfm.others',
+    section: 'lastfm',
+    title: 'Other scrobblers',
+    subtitle: 'ListenBrainz and Libre.fm, alongside or instead of Last.fm',
+    keywords: 'listenbrainz libre.fm librefm gnu fm maloja koito scrobble '
+        'token self-hosted',
+  ),
+  SettingsSearchEntry(
     id: 'integrations.ytm',
     section: 'integrations',
     title: 'YouTube Music',
