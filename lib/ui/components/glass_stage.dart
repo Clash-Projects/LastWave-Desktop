@@ -80,6 +80,23 @@ class WaveGlassStage extends ConsumerWidget {
             ),
           ),
         ),
+        // Sheen: a faint light falling from the top-left, the glossy part.
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: const Alignment(0.2, 0.4),
+                colors: [
+                  const Color(0xFFFFFFFF).withValues(alpha: light ? 0.30 : 0.06),
+                  const Color(0x00FFFFFF),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // Breaks the gradient's 8-bit banding: smooth, not textured.
+        const IgnorePointer(child: RepaintBoundary(child: WaveDither())),
         child,
       ],
     );

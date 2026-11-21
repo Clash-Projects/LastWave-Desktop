@@ -276,6 +276,19 @@ class _DitherPainter extends CustomPainter {
   bool shouldRepaint(covariant _DitherPainter oldDelegate) => false;
 }
 
+/// [_DitherPainter] for other full-window gradients (the glassmorphism
+/// stage): without it a large dark gradient shows 8-bit steps that read as
+/// a rough, blotchy texture.
+class WaveDither extends StatelessWidget {
+  const WaveDither({super.key});
+
+  @override
+  Widget build(BuildContext context) => const CustomPaint(
+        painter: _DitherPainter(),
+        child: SizedBox.expand(),
+      );
+}
+
 double _colorDistance(Color a, Color b) {
   final ah = HSLColor.fromColor(a);
   final bh = HSLColor.fromColor(b);
