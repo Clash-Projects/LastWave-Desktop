@@ -187,31 +187,12 @@ class SmtcChannel::Impl {
               ABI::Windows::Media::
                   SystemMediaTransportControlsButton_Play;
           if (FAILED(args->get_Button(&button))) return S_OK;
-          const char* name = nullptr;
-          switch (button) {
-            case ABI::Windows::Media::SystemMediaTransportControlsButton_Play:
-              name = "play";
-              break;
-            case ABI::Windows::Media::SystemMediaTransportControlsButton_Pause:
-              name = "pause";
-              break;
-            case ABI::Windows::Media::SystemMediaTransportControlsButton_Stop:
-              name = "stop";
-              break;
-            case ABI::Windows::Media::SystemMediaTransportControlsButton_Next:
-              name = "next";
-              break;
-            case ABI::Windows::Media::
-                SystemMediaTransportControlsButton_Previous:
-              name = "previous";
-              break;
-            default:
-              break;
-          }
-          if (name != nullptr && channel_) {
-            channel_->InvokeMethod(
-                "onButton",
-                std::make_unique<EncodableValue>(std::string(name)));
+          // Thread-pool thread: never touch the channel here (messages
+          // sent off the platform thread never reach Dart, which left the
+          // flyout buttons dead). Hand the press to the window thread.
+          if (hwnd_ != nullptr) {
+            PostMessage(hwnd_, SmtcChannel::kButtonMessage,
+                        static_cast<WPARAM>(button), 0);
           }
           return S_OK;
         });
@@ -223,6 +204,41 @@ class SmtcChannel::Impl {
     smtc_ = smtc;
   }
 
+ public:
+  // Platform thread (window procedure): forward the press to Dart.
+  void DispatchButton(WPARAM value) {
+    const auto button =
+        static_cast<ABI::Windows::Media::SystemMediaTransportControlsButton>(
+            value);
+    const char* name = nullptr;
+    switch (button) {
+      case ABI::Windows::Media::SystemMediaTransportControlsButton_Play:
+        name = "play";
+        break;
+      case ABI::Windows::Media::SystemMediaTransportControlsButton_Pause:
+        name = "pause";
+        break;
+      case ABI::Windows::Media::SystemMediaTransportControlsButton_Stop:
+        name = "stop";
+        break;
+      case ABI::Windows::Media::SystemMediaTransportControlsButton_Next:
+        name = "next";
+        break;
+      case ABI::Windows::Media::
+          SystemMediaTransportControlsButton_Previous:
+        name = "previous";
+        break;
+      default:
+        break;
+    }
+    if (name != nullptr && channel_) {
+      channel_->InvokeMethod(
+          "onButton",
+          std::make_unique<EncodableValue>(std::string(name)));
+    }
+  }
+
+ private:
   void Handle(const flutter::MethodCall<EncodableValue>& call,
               std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
     if (call.method_name() != "update") {
@@ -402,6 +418,10 @@ SmtcChannel::SmtcChannel(flutter::BinaryMessenger* messenger, HWND hwnd)
     : impl_(std::make_unique<Impl>(messenger, hwnd)) {}
 
 SmtcChannel::~SmtcChannel() = default;
+
+void SmtcChannel::OnButtonMessage(WPARAM button) {
+  impl_->DispatchButton(button);
+}
 
 }  // namespace lastwave
 
