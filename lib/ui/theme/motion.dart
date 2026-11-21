@@ -114,7 +114,7 @@ class _WaveEntranceScope extends InheritedWidget {
 ///   (recycle-safe for virtualized lists).
 /// - Standalone (no group): animates once on mount, but only for
 ///   [index] < [_standaloneCap] so deep rows in lazy lists never replay.
-class WaveEntrance extends StatelessWidget {
+class WaveEntrance extends StatefulWidget {
   final int index;
   final Widget child;
 
@@ -147,71 +147,86 @@ class WaveEntrance extends StatelessWidget {
   static const _standaloneCap = 6;
 
   @override
-  Widget build(BuildContext context) {
-    // Reduce motion: skip the stagger entirely (see [WaveEntranceGroup]).
-    if (waveReduceMotion(context)) return child;
-    final group = local ? null : _WaveEntranceScope.of(context);
-    if (group != null) return _groupDriven(group);
-    if (index >= _standaloneCap) return child;
-    return _standalone();
-  }
+  State<WaveEntrance> createState() => _WaveEntranceState();
+}
 
-  Widget _groupDriven(AnimationController controller) {
-    if (controller.isCompleted || controller.value >= 1.0) return child;
-    final totalMs = controller.duration?.inMilliseconds ?? 220;
-    final slot = math.min(index, maxStagger);
-    final startMs = math.min(slot * stepMs, totalMs - itemMs - 20);
-    final begin = (startMs / totalMs).clamp(0.0, 0.97);
-    final end = ((startMs + itemMs) / totalMs).clamp(begin + 0.01, 1.0);
-    final curved = CurvedAnimation(
-      parent: controller,
-      curve: Interval(begin, end, curve: Curves.easeOutCubic),
-    );
-    return AnimatedBuilder(
-      animation: controller,
-      child: child,
-      builder: (context, child) {
-        if (controller.isCompleted || controller.value >= 1.0) return child!;
-        return _paint(curved.value, child!);
-      },
-    );
-  }
+class _WaveEntranceState extends State<WaveEntrance>
+    with SingleTickerProviderStateMixin {
+  /// Decided once, on first build, and kept for this element's life: the
+  /// wrapper structure never changes, so the child is never remounted.
+  /// (It used to swap between `child`, `Opacity(child)` and
+  /// `Opacity(Transform(child))` as the fade began and ended, tearing down
+  /// and rebuilding every entering row twice — images re-requested, state
+  /// reset — which is what made pages stutter as they opened.)
+  CurvedAnimation? _t;
+  AnimationController? _own;
+  bool _decided = false;
 
-  Widget _standalone() {
-    // Bake the stagger delay into an Interval curve so the one-shot
-    // TweenAnimationBuilder needs no timers or extra controllers.
-    final delayMs = index * stepMs;
-    final totalMs = delayMs + itemMs;
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: Duration(milliseconds: totalMs),
-      curve: Interval(
-        delayMs / totalMs,
-        1,
-        curve: Curves.easeOutCubic,
-      ),
-      child: child,
-      builder: (context, value, child) {
-        if (value >= 1.0) return child!;
-        return _paint(value, child!);
-      },
-    );
-  }
-
-  Widget _paint(double t, Widget child) {
-    if (t >= 1.0) return child;
-    if (t <= 0.0) {
-      return Opacity(
-        opacity: 0.0,
-        child: child,
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_decided) return;
+    _decided = true;
+    final w = widget;
+    if (waveReduceMotion(context)) return;
+    final group = w.local ? null : _WaveEntranceScope.of(context);
+    if (group != null) {
+      // A finished cascade hands rows built later back untouched.
+      if (group.isCompleted || group.value >= 1.0) return;
+      final totalMs = group.duration?.inMilliseconds ?? 220;
+      final slot = math.min(w.index, WaveEntrance.maxStagger);
+      final startMs =
+          math.min(slot * WaveEntrance.stepMs, totalMs - WaveEntrance.itemMs - 20);
+      final begin = (startMs / totalMs).clamp(0.0, 0.97);
+      final end =
+          ((startMs + WaveEntrance.itemMs) / totalMs).clamp(begin + 0.01, 1.0);
+      _t = CurvedAnimation(
+        parent: group,
+        curve: Interval(begin, end, curve: Curves.easeOutCubic),
       );
+      return;
     }
-    return Opacity(
-      opacity: t,
-      child: Transform.translate(
-        offset: Offset(0, rise * (1 - t)),
-        child: child,
-      ),
+    if (w.index >= WaveEntrance._standaloneCap) return;
+    // Bake the stagger delay into an Interval curve: one controller, no timers.
+    final delayMs = w.index * WaveEntrance.stepMs;
+    final totalMs = delayMs + WaveEntrance.itemMs;
+    _own = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: totalMs),
+    )..forward();
+    _t = CurvedAnimation(
+      parent: _own!,
+      curve: Interval(delayMs / totalMs, 1, curve: Curves.easeOutCubic),
+    );
+  }
+
+  @override
+  void dispose() {
+    _t?.dispose(); // drops its status listener on a shared group
+    _own?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = _t;
+    if (t == null) return widget.child;
+    final rise = widget.rise;
+    // At rest this is Opacity(1) + a zero translation: both paint the child
+    // directly (no layer), so the settled cost is nil.
+    return AnimatedBuilder(
+      animation: t,
+      child: widget.child,
+      builder: (context, child) {
+        final v = t.value.clamp(0.0, 1.0);
+        return Opacity(
+          opacity: v,
+          child: Transform.translate(
+            offset: Offset(0, rise * (1 - v)),
+            child: child,
+          ),
+        );
+      },
     );
   }
 }

@@ -656,6 +656,11 @@ class LWTooltip extends StatefulWidget {
 class _LWTooltipState extends State<LWTooltip> {
   bool _armed = false;
 
+  /// Arming changes the child's parent; the key moves the child's element
+  /// under the tooltip instead of tearing it down and rebuilding it (which
+  /// remounted every tooltipped control one frame after each page opened).
+  final GlobalKey _childKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -666,13 +671,14 @@ class _LWTooltipState extends State<LWTooltip> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_armed) return widget.child;
+    final child = KeyedSubtree(key: _childKey, child: widget.child);
+    if (!_armed) return child;
     return Tooltip(
       message: widget.message,
       style: const TooltipThemeData(
         waitDuration: WaveState.tooltipDelay,
       ),
-      child: widget.child,
+      child: child,
     );
   }
 }
