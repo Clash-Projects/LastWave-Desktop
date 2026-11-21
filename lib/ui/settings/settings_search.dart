@@ -197,7 +197,7 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     title: 'Spotify',
     subtitle: 'Your playlists, Liked Songs and Canvas',
     keywords: 'spotify sp_dc cookie sign in login webview canvas playlists '
-        'liked songs',
+        'liked songs recommendations algorithm radio autoplay youtube music',
   ),
   SettingsSearchEntry(
     id: 'integrations.discord',

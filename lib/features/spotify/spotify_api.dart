@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/artwork/animated_artwork_service.dart'
@@ -95,6 +96,11 @@ class SpotifyApi {
   static const _v2 = 'https://api-partner.spotify.com/pathfinder/v2/query';
   static const _canvazEndpoint =
       'https://spclient.wg.spotify.com/canvaz-cache/v0/canvases';
+
+  /// What the web player calls for "Go to song radio": maps a seed track
+  /// to the playlist of its radio.
+  static const _songRadioEndpoint =
+      'https://spclient.wg.spotify.com/inspiredby-mix/v2/seed_to_playlist';
 
   // Last known hashes; the live ones are read from the web player.
   static const _knownCanvasHash =
@@ -354,6 +360,69 @@ class SpotifyApi {
   // -- canvas -------------------------------------------------------------
 
   /// The Spotify Canvas of a track, or the reason there is none.
+  // -- song radio ---------------------------------------------------------
+
+  /// Spotify's own song radio for a track, exactly as the web player builds
+  /// it ("Go to song radio"): the seed's inspired-by-mix playlist, read with
+  /// the same `fetchPlaylist` query as any playlist. Empty when there is no
+  /// session, no match on Spotify, or no radio for the seed.
+  Future<List<SpotifyTrackRow>> songRadio({
+    required String title,
+    required String artist,
+    int durationMs = 0,
+  }) async {
+    final tag = 'spotify-radio "$title" - "$artist"';
+    final match = await _searchTrack(title, artist, durationMs);
+    if (match == null) {
+      DiagnosticsLog.info('$tag stage=search ok=false');
+      return const [];
+    }
+    final headers = await _authHeaders(appPlatform: true);
+    if (headers == null) return const [];
+    try {
+      final res = await _dio.get<String>(
+        '$_songRadioEndpoint/spotify:track:${match.id}',
+        queryParameters: const {'response-format': 'json'},
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: headers,
+          validateStatus: (_) => true,
+        ),
+      );
+      final playlistId = (res.statusCode ?? 0) ~/ 100 == 2
+          ? songRadioPlaylistId(res.data ?? '')
+          : null;
+      DiagnosticsLog.info(
+        '$tag stage=seed http=${res.statusCode} found=${playlistId != null}',
+      );
+      if (playlistId == null) return const [];
+      final playlist = await _playlist(playlistId);
+      return playlist?.tracks ?? const [];
+    } catch (e) {
+      DiagnosticsLog.info('$tag error=${e.runtimeType}');
+      return const [];
+    }
+  }
+
+  /// The radio playlist id in a `seed_to_playlist` answer
+  /// (`{"mediaItems":[{"uri":"spotify:playlist:…"}]}`).
+  @visibleForTesting
+  static String? songRadioPlaylistId(String body) {
+    try {
+      final root = jsonDecode(body);
+      final items = root is Map ? root['mediaItems'] : null;
+      if (items is! List) return null;
+      for (final it in items) {
+        final uri = it is Map ? it['uri']?.toString() ?? '' : '';
+        if (uri.startsWith('spotify:playlist:')) {
+          final id = uri.substring('spotify:playlist:'.length);
+          if (id.isNotEmpty) return id;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<SpotifyCanvasResult> canvas({
     required String title,
     required String artist,

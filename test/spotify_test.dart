@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lastwave_desktop/features/spotify/spotify_api.dart';
 import 'package:lastwave_desktop/features/spotify/spotify_auth.dart';
 import 'package:lastwave_desktop/features/spotify/spotify_web_login.dart';
 import 'package:lastwave_desktop/features/spotify/spotify_web_player.dart';
@@ -15,6 +16,18 @@ void main() {
       expect(SpotifyAuth.generateOtp(key, 59), '287082');
       expect(SpotifyAuth.generateOtp(key, 1111111109), '081804');
       expect(SpotifyAuth.generateOtp(key, 1234567890), '005924');
+    });
+  });
+
+  group('song radio', () {
+    test('reads the radio playlist from a seed_to_playlist answer', () {
+      expect(
+        SpotifyApi.songRadioPlaylistId(
+            '{"mediaItems":[{"uri":"spotify:playlist:37i9dQZF1E4abc"}]}'),
+        '37i9dQZF1E4abc',
+      );
+      expect(SpotifyApi.songRadioPlaylistId('{"mediaItems":[]}'), isNull);
+      expect(SpotifyApi.songRadioPlaylistId('oops'), isNull);
     });
   });
 

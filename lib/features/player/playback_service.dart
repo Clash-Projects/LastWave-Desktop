@@ -29,6 +29,8 @@ import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
 import '../search/shared_providers.dart';
 import '../../core/error/fatal_crumbs.dart';
+import '../spotify/spotify_api.dart';
+import '../spotify/spotify_auth.dart';
 
 /// Desktop playback service built on media_kit (MPV).
 ///
@@ -102,6 +104,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   bool _endlessRadio = false;
+
+  /// Spotify song radio for a seed, wired by the provider. Returns null
+  /// when Spotify cannot be used (not connected), so the YouTube source
+  /// applies; an empty list means Spotify had nothing for this seed.
+  Future<List<PlayableTrack>?> Function(PlayableTrack seed)? spotifyRadio;
   final Set<String> _radioSeeds = {};
   bool _resolving = false;
   int _resolvingIndex = -1;
@@ -3562,6 +3569,24 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     final seed = state.current;
     if (seed == null || _radioSeeds.contains(seed.mediaId)) return;
     _radioSeeds.add(seed.mediaId);
+    // One source per refill, never both: Spotify's own radio when chosen
+    // and connected, otherwise YouTube Music's related songs.
+    if (_prefs.recommendationSource == 'spotify' && spotifyRadio != null) {
+      try {
+        final picks = await spotifyRadio!(seed);
+        if (picks != null) {
+          _appendRadio([
+            for (final t in picks)
+              if (!_isDisallowedRadioTitle(t.title) &&
+                  !_isQueued(t, state.queue))
+                t,
+          ].take(10).toList());
+          return;
+        }
+      } catch (_) {
+        return;
+      }
+    }
     try {
       final videoId = seed.videoId.isNotEmpty
           ? seed.videoId
@@ -3585,12 +3610,27 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
                 videoId: t.videoId,
               ))
           .toList();
-      if (fresh.isEmpty) return;
-      final queue = [...state.queue, ...fresh];
-      _rebuildShuffleOrder(queue.length, state.currentIndex);
-      state = state.copyWith(queue: queue);
-      _schedulePersist();
+      _appendRadio(fresh);
     } catch (_) {}
+  }
+
+  void _appendRadio(List<PlayableTrack> fresh) {
+    if (fresh.isEmpty) return;
+    final queue = [...state.queue, ...fresh];
+    _rebuildShuffleOrder(queue.length, state.currentIndex);
+    state = state.copyWith(queue: queue);
+    _schedulePersist();
+  }
+
+  /// Same song already queued (title + primary artist, case-insensitive).
+  bool _isQueued(PlayableTrack t, List<PlayableTrack> queue) {
+    String primary(String a) =>
+        a.split(RegExp(r'\s*(?:,|&|feat\.?|ft\.?)\s*')).first.toLowerCase();
+    final title = InnerTubeMusicApi.baseTitle(t.title);
+    final artist = primary(t.artist);
+    return queue.any((q) =>
+        primary(q.artist) == artist &&
+        InnerTubeMusicApi.baseTitle(q.title) == title);
   }
 
   bool _isDisallowedRadioTitle(String title) {
@@ -4003,6 +4043,7 @@ class PrefsHandle {
   bool get autoMixSpectral => _prefs.autoMixSpectral;
   bool get equalizerEnabled => _prefs.equalizerEnabled;
   bool get studioClarityEnabled => _prefs.studioClarityEnabled;
+  String get recommendationSource => _prefs.recommendationSource;
   Prefs get rawPrefs => _prefs;
 }
 
@@ -4033,6 +4074,24 @@ final playbackServiceProvider =
       } catch (_) {}
     },
   );
+  service.spotifyRadio = (seed) async {
+    if (!ref.read(spotifyAuthProvider).connected) return null;
+    final rows = await ref.read(spotifyApiProvider).songRadio(
+          title: seed.title,
+          artist: seed.artist,
+          durationMs: seed.duration.inMilliseconds,
+        );
+    return [
+      for (final r in rows)
+        PlayableTrack(
+          title: r.name,
+          artist: r.artist,
+          album: r.album,
+          artworkUrl: r.artworkUrl,
+          duration: Duration(seconds: r.durationSeconds),
+        ),
+    ];
+  };
   ref.onDispose(() {
     unawaited(service.disposePlayer());
   });
