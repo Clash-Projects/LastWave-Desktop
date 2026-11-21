@@ -1,13 +1,11 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'accessibility.dart';
-import 'mini_player_controller.dart';
 import '../core/artwork/animated_artwork_session.dart';
 import '../core/diagnostics/diagnostics_log.dart';
 import '../core/network/network_monitor.dart';
@@ -47,14 +45,6 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     try {
       windowManager.addListener(this);
     } catch (_) {}
-    windowControlChannel.setMethodCallHandler(_onWindowControlCall);
-  }
-
-  Future<dynamic> _onWindowControlCall(MethodCall call) async {
-    if (call.method == 'onMinimize' && mounted) {
-      await ref.read(miniPlayerProvider.notifier).handleMinimizeRequest();
-    }
-    return null;
   }
 
   /// Ordered shutdown: await libmpv stop/dispose while Dart is alive
@@ -87,9 +77,6 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     } catch (_) {}
     try {
       windowManager.removeListener(this);
-    } catch (_) {}
-    try {
-      await ref.read(miniPlayerProvider.notifier).prepareForQuit();
     } catch (_) {}
     try {
       // Let the native WM_CLOSE path run exactly once. Calling close()
@@ -149,17 +136,11 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   }
 
   @override
-  void onWindowMinimize() {
-    if (ref.read(miniPlayerProvider.notifier).handleOsWindowMinimized()) {
-      return;
-    }
-    _setWindowVisible(false);
-  }
+  void onWindowMinimize() => _setWindowVisible(false);
 
   @override
   void onWindowRestore() {
     _setWindowVisible(true);
-    unawaited(ref.read(miniPlayerProvider.notifier).onWindowRestored());
     AppFocusMemory.instance.restore();
   }
 
@@ -179,10 +160,7 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     } catch (_) {
       return;
     }
-    if (hidden) {
-      _setWindowVisible(true);
-      unawaited(ref.read(miniPlayerProvider.notifier).onWindowRestored());
-    }
+    if (hidden) _setWindowVisible(true);
     // Coming back from another app (Alt+Tab, the Last.fm browser tab, a
     // screen-reader command) must land keyboard focus on a real control so
     // the screen reader has something to read and Tab starts where the user
@@ -190,22 +168,12 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     AppFocusMemory.instance.restore();
   }
 
-  void _showMainWindow() {
-    _setWindowVisible(true);
-    if (ref.read(miniPlayerProvider).isMini) {
-      unawaited(
-        ref.read(miniPlayerProvider.notifier).exit(ensureShown: true),
-      );
-      return;
-    }
-    windowManager.show().then((_) => windowManager.focus()).catchError((_) {});
-  }
-
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
       case 'show':
-        _showMainWindow();
+        _setWindowVisible(true);
+        windowManager.show().then((_) => windowManager.focus()).catchError((_) {});
       case 'toggle':
         ref.read(playbackServiceProvider.notifier).toggle();
       case 'next':
@@ -218,7 +186,10 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   }
 
   @override
-  void onTrayIconMouseDown() => _showMainWindow();
+  void onTrayIconMouseDown() {
+    _setWindowVisible(true);
+    windowManager.show().then((_) => windowManager.focus()).catchError((_) {});
+  }
 
   @override
   void onTrayIconRightMouseDown() {
@@ -230,7 +201,6 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
 
   @override
   void dispose() {
-    windowControlChannel.setMethodCallHandler(null);
     try {
       trayManager.removeListener(this);
     } catch (_) {}
@@ -241,20 +211,7 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   }
 
   @override
-  Widget build(BuildContext context) {
-    ref.listen<bool>(
-      miniPlayerProvider.select((s) => s.hiddenToTray),
-      (prev, hidden) {
-        if (hidden && prev != true) {
-          _setWindowVisible(false);
-          try {
-            ref.read(trayHintProvider.notifier).state = true;
-          } catch (_) {}
-        }
-      },
-    );
-    return widget.child;
-  }
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// True while the OS window content is visible on screen. Karaoke tickers
