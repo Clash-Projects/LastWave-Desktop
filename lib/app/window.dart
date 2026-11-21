@@ -25,9 +25,10 @@ Future<void> setupWindow() async {
     // libmpv's thread is still calling into Dart (startup crash).
     await windowManager.setPreventClose(true);
     const options = WindowOptions(
-      size: Size(1360, 860),
-      minimumSize: Size(1024, 640),
-      center: true,
+      // No size/center: the runner opens maximized (win32_window.cpp)
+      // and owns the restore size. Small enough for half / quarter snaps
+      // on a 1080p screen at 150%.
+      minimumSize: Size(600, 330),
       title: 'LastWave',
       titleBarStyle: TitleBarStyle.hidden,
       // Neutral graphite — the Wave token, so first frame never flashes

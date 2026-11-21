@@ -75,13 +75,13 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
   }
 
   Options _auth(String token) => Options(
-        headers: {
-          'Authorization': 'Token ${cleanToken(token)}',
-          'Content-Type': 'application/json',
-        },
-        responseType: ResponseType.json,
-        validateStatus: (_) => true,
-      );
+    headers: {
+      'Authorization': 'Token ${cleanToken(token)}',
+      'Content-Type': 'application/json',
+    },
+    responseType: ResponseType.json,
+    validateStatus: (_) => true,
+  );
 
   /// Checks [token] against [server] and stores it with the user name.
   /// Returns null on success, else the reason.
@@ -90,8 +90,10 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
     if (t.isEmpty) return 'Paste your user token.';
     final base = normalizeServer(server, defaultServer);
     try {
-      final res = await _dio.get<dynamic>('$base/1/validate-token',
-          options: _auth(t));
+      final res = await _dio.get<dynamic>(
+        '$base/1/validate-token',
+        options: _auth(t),
+      );
       var body = res.data;
       if (body is String) {
         try {
@@ -103,8 +105,8 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
         return (res.statusCode ?? 0) == 0
             ? 'Could not reach $base.'
             : (body is Map && body['message'] != null
-                ? body['message'].toString()
-                : 'The token was not accepted.');
+                  ? body['message'].toString()
+                  : 'The token was not accepted.');
       }
       await _prefs.setListenBrainz(
         token: t,
@@ -121,15 +123,15 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
       _prefs.setListenBrainz(token: '', user: '', server: '');
 
   Map<String, Object?> _metadata(Listen l) => {
-        'artist_name': l.artist,
-        'track_name': l.track,
-        if (l.album.isNotEmpty) 'release_name': l.album,
-        'additional_info': {
-          'media_player': 'LastWave',
-          'submission_client': 'LastWave Desktop',
-          'submission_client_version': appVersion,
-        },
-      };
+    'artist_name': l.artist,
+    'track_name': l.track,
+    if (l.album.isNotEmpty) 'release_name': l.album,
+    'additional_info': {
+      'media_player': 'LastWave',
+      'submission_client': 'LastWave Desktop',
+      'submission_client_version': appVersion,
+    },
+  };
 
   Future<bool> _post(String type, Listen l) async {
     if (!connected) return false;
@@ -151,7 +153,14 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
         options: _auth(_prefs.listenBrainzToken),
       );
       final ok = (res.statusCode ?? 0) ~/ 100 == 2;
-      if (!ok) DiagnosticsLog.info('listenbrainz $type http=${res.statusCode}');
+      // The body says why, e.g. 401 for an unverified MetaBrainz email.
+      if (!ok) {
+        final body = res.data;
+        DiagnosticsLog.info(
+          'listenbrainz $type http=${res.statusCode} '
+          '${body is Map ? body['error'] ?? body['message'] ?? '' : ''}',
+        );
+      }
       return ok;
     } catch (_) {
       return false;
@@ -233,10 +242,7 @@ class LibreFmScrobbler implements ExtraScrobbler {
     String endpoint,
     Map<String, String> params,
   ) async {
-    final signed = {
-      ...params,
-      'api_key': _apiKey,
-    };
+    final signed = {...params, 'api_key': _apiKey};
     signed['api_sig'] = sign(signed, _apiSecret);
     signed['format'] = 'json';
     try {
@@ -269,16 +275,15 @@ class LibreFmScrobbler implements ExtraScrobbler {
     final map = <String, dynamic>{};
     final key = RegExp(r'<key>([^<]+)</key>').firstMatch(xml)?.group(1);
     final name = RegExp(r'<name>([^<]+)</name>').firstMatch(xml)?.group(1);
-    final err =
-        RegExp(r'<error[^>]*>([^<]+)</error>').firstMatch(xml)?.group(1);
-    final playcount =
-        RegExp(r'<playcount>([^<]+)</playcount>').firstMatch(xml)?.group(1);
+    final err = RegExp(r'<error[^>]*>([^<]+)</error>')
+        .firstMatch(xml)
+        ?.group(1);
+    final playcount = RegExp(r'<playcount>([^<]+)</playcount>')
+        .firstMatch(xml)
+        ?.group(1);
 
     if (key != null) {
-      map['session'] = {
-        'key': key,
-        if (name != null) 'name': name,
-      };
+      map['session'] = {'key': key, if (name != null) 'name': name};
     }
     if (playcount != null) {
       map['user'] = {'playcount': playcount};
@@ -318,8 +323,11 @@ class LibreFmScrobbler implements ExtraScrobbler {
     // 2. If rejected, try lowercased username token (some servers lowercase internally)
     if (body == null || body['session'] == null) {
       final tokenLower = md5
-          .convert(utf8.encode(u.toLowerCase() +
-              md5.convert(utf8.encode(password)).toString()))
+          .convert(
+            utf8.encode(
+              u.toLowerCase() + md5.convert(utf8.encode(password)).toString(),
+            ),
+          )
           .toString();
       if (tokenLower != tokenExact) {
         final retry = await _call('$base/2.0/', {
@@ -352,8 +360,7 @@ class LibreFmScrobbler implements ExtraScrobbler {
           body['error']?.toString() ??
           'Sign-in was not accepted.';
     }
-    final name =
-        body['session'] is Map ? '${body['session']['name'] ?? u}' : u;
+    final name = body['session'] is Map ? '${body['session']['name'] ?? u}' : u;
     await _prefs.setLibreFm(session: key, user: name, server: server.trim());
     return null;
   }
@@ -370,24 +377,29 @@ class LibreFmScrobbler implements ExtraScrobbler {
         if (e.value.isNotEmpty) e.key: e.value,
     });
     final ok = body != null && !body.containsKey('error');
-    if (!ok) DiagnosticsLog.info('librefm $method ok=false');
+    if (!ok) {
+      DiagnosticsLog.info(
+        'librefm $method ok=false '
+        '${body?['message'] ?? body?['error'] ?? 'no response'}',
+      );
+    }
     return ok;
   }
 
   @override
   Future<bool> nowPlaying(Listen l) => _write('track.updateNowPlaying', {
-        'artist': l.artist,
-        'track': l.track,
-        'album': l.album,
-      });
+    'artist': l.artist,
+    'track': l.track,
+    'album': l.album,
+  });
 
   @override
   Future<bool> submit(Listen l) => _write('track.scrobble', {
-        'artist[0]': l.artist,
-        'track[0]': l.track,
-        'album[0]': l.album,
-        'timestamp[0]': '${l.startedAtSec}',
-      });
+    'artist[0]': l.artist,
+    'track[0]': l.track,
+    'album[0]': l.album,
+    'timestamp[0]': '${l.startedAtSec}',
+  });
 
   @override
   Future<int?> listenCount() async {
@@ -402,7 +414,8 @@ class LibreFmScrobbler implements ExtraScrobbler {
 
   @override
   Uri get profileUrl => Uri.parse(
-      '${normalizeServer(_prefs.libreFmServer, defaultServer)}/user/${Uri.encodeComponent(username)}');
+    '${normalizeServer(_prefs.libreFmServer, defaultServer)}/user/${Uri.encodeComponent(username)}',
+  );
 }
 
 /// `https://host[:port][/path]` without a trailing slash; [fallback] when
@@ -453,25 +466,37 @@ class ExtraScrobblers {
 
 final _scrobblerDioProvider = Provider<Dio>((_) => DioFactory.create());
 
-final listenBrainzProvider = Provider<ListenBrainzScrobbler>((ref) =>
-    ListenBrainzScrobbler(ref.watch(prefsProvider), ref.watch(_scrobblerDioProvider)));
+final listenBrainzProvider = Provider<ListenBrainzScrobbler>(
+  (ref) => ListenBrainzScrobbler(
+    ref.watch(prefsProvider),
+    ref.watch(_scrobblerDioProvider),
+  ),
+);
 
-final libreFmProvider = Provider<LibreFmScrobbler>((ref) =>
-    LibreFmScrobbler(ref.watch(prefsProvider), ref.watch(_scrobblerDioProvider)));
+final libreFmProvider = Provider<LibreFmScrobbler>(
+  (ref) => LibreFmScrobbler(
+    ref.watch(prefsProvider),
+    ref.watch(_scrobblerDioProvider),
+  ),
+);
 
-final extraScrobblersProvider = Provider<ExtraScrobblers>((ref) =>
-    ExtraScrobblers([ref.watch(listenBrainzProvider), ref.watch(libreFmProvider)]));
+final extraScrobblersProvider = Provider<ExtraScrobblers>(
+  (ref) => ExtraScrobblers([
+    ref.watch(listenBrainzProvider),
+    ref.watch(libreFmProvider),
+  ]),
+);
 
 /// Bumped after connecting / disconnecting so Settings and Stats refresh.
 final extraScrobblersRevisionProvider = StateProvider<int>((_) => 0);
 
 /// Lifetime listen count per connected service, for the Stats strips.
-final extraScrobbleCountProvider =
-    FutureProvider.autoDispose.family<int?, String>((ref, name) async {
-  ref.watch(extraScrobblersRevisionProvider);
-  final s = ref
-      .watch(extraScrobblersProvider)
-      .services
-      .firstWhere((s) => s.name == name);
-  return s.listenCount();
-});
+final extraScrobbleCountProvider = FutureProvider.autoDispose
+    .family<int?, String>((ref, name) async {
+      ref.watch(extraScrobblersRevisionProvider);
+      final s = ref
+          .watch(extraScrobblersProvider)
+          .services
+          .firstWhere((s) => s.name == name);
+      return s.listenCount();
+    });

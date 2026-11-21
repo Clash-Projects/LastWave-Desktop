@@ -14,7 +14,9 @@ import '../../core/storage/prefs.dart';
 import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../ui/theme/fluent_theme.dart';
+import '../../ui/components/glass_stage.dart';
 import '../../ui/theme/haze.dart';
+import '../../ui/theme/tokens.dart';
 import '../player/playback_service.dart';
 import '../audio_output/output_controller.dart';
 import '../jam/jam_sync.dart';
@@ -200,21 +202,36 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     // custom pick there.
     final accent = ref.watch(accentResolutionProvider).color;
 
-    // Custom / Artwork theme: one generated palette, published as the dark
-    // or the light theme depending on how bright its base is. FluentApp
-    // lerps between themes, so the Artwork tint blends from song to song.
-    final custom = ref.watch(paletteSurfacesProvider);
-    final customLight = custom != null && theme.effectiveLight;
+    // One palette for every mode (Custom / Artwork generate theirs), so a
+    // change always blends. FluentApp's own lerp swaps theme extensions
+    // halfway through 200ms, which made the Artwork theme snap per song;
+    // the palette and accent are faded here instead.
+    final light = theme.effectiveLight;
+    final base = ref.watch(paletteSurfacesProvider) ??
+        (light
+            ? WaveSurfaces.pearl
+            : (theme.amoled ? WaveSurfaces.amoled : WaveSurfaces.graphite));
+
+    return TweenAnimationBuilder<(Color, WaveSurfaces)>(
+      tween: _PaletteTween(end: (accent, base)),
+      duration: const Duration(milliseconds: 1400),
+      curve: Curves.easeInOutCubic,
+      builder: (context, p, _) => _themed(theme, p.$1, p.$2, light),
+    );
+  }
+
+  Widget _themed(ThemeState theme, Color accent, WaveSurfaces base, bool light) {
+    final surfaces = theme.glass ? base.glass(light: light) : base;
     final darkTheme = buildWaveFluentTheme(
       accent: accent,
       isLight: false,
       amoled: theme.amoled,
-      custom: customLight ? null : custom,
+      custom: light ? null : surfaces,
     );
     final lightTheme = buildWaveFluentTheme(
       accent: accent,
       isLight: true,
-      custom: customLight ? custom : null,
+      custom: light ? surfaces : null,
     );
 
     return WaveHazeScope(
@@ -246,10 +263,32 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           // present — that blur sample on the open frame is the hitch
           // on every toolbar popup. The app is opaque dark anyway, so
           // solid flyouts read identically. (Own haze system untouched.)
-          builder: (context, child) =>
-              DisableAcrylic(child: child ?? const SizedBox.shrink()),
+          builder: (context, child) {
+            final page = child ?? const SizedBox.shrink();
+            return DisableAcrylic(
+              child: theme.glass
+                  ? WaveGlassStage(
+                      veil: base.background,
+                      light: light,
+                      accent: accent,
+                      child: page,
+                    )
+                  : page,
+            );
+          },
         ),
       ),
     );
   }
+}
+
+/// Fades accent and surfaces together (see the theme build above).
+class _PaletteTween extends Tween<(Color, WaveSurfaces)> {
+  _PaletteTween({super.end});
+
+  @override
+  (Color, WaveSurfaces) lerp(double t) => (
+        Color.lerp(begin!.$1, end!.$1, t)!,
+        begin!.$2.lerp(end!.$2, t),
+      );
 }

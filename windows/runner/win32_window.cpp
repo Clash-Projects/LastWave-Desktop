@@ -150,7 +150,9 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  // Open filling the screen like other Windows apps; restoring gives the
+  // centred size from main.cpp.
+  return ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
 }
 
 // static

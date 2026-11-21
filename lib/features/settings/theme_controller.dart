@@ -33,6 +33,10 @@ class ThemeState {
   /// Experimental: the dock timeline is drawn as a wave instead of a bar.
   final bool wavySeekbar;
 
+  /// Glassmorphism: every surface goes translucent over an app-wide
+  /// artwork aura (see `WaveGlassStage`). Works with every theme mode.
+  final bool glass;
+
   const ThemeState({
     required this.accent,
     required this.amoled,
@@ -45,6 +49,7 @@ class ThemeState {
     this.accentSource = 'custom',
     this.liquidGlass = false,
     this.wavySeekbar = false,
+    this.glass = false,
   });
 
   /// The palette for the Custom theme, or null for Midnight / Pearl.
@@ -72,6 +77,7 @@ class ThemeController extends StateNotifier<ThemeState> {
           accentSource: _prefs.accentSource,
           liquidGlass: _prefs.liquidGlass,
           wavySeekbar: _prefs.wavySeekbar,
+          glass: _prefs.glassmorphism,
         ));
 
   void refresh() {
@@ -87,6 +93,7 @@ class ThemeController extends StateNotifier<ThemeState> {
       accentSource: _prefs.accentSource,
       liquidGlass: _prefs.liquidGlass,
       wavySeekbar: _prefs.wavySeekbar,
+      glass: _prefs.glassmorphism,
     );
   }
 

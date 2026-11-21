@@ -171,7 +171,7 @@ class LwHaze extends StatelessWidget {
         ? (dark ? 0.94 : 0.96)
         : (useBlur ? (fillAlpha ?? specAlpha) : specAlpha);
     var fill = resolvedBase.withValues(
-      alpha: (alpha * alphaScale).clamp(0.0, 1.0),
+      alpha: (resolvedBase.a * alpha * alphaScale).clamp(0.0, 1.0),
     );
     if (artworkTint != null && level != LwHazeLevel.l0) {
       // Low-saturation atmosphere: mix tint at ≤12%, never flood.

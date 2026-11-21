@@ -131,20 +131,17 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
     });
     // A section change cross-fades and resizes first; wait for it so the
     // scroll lands on the card's final position.
-    Future<void>.delayed(
-      Duration(milliseconds: switching ? 320 : 30),
-      () {
-        if (!mounted) return;
-        final target = SettingsTarget.keys[entry.id]?.currentContext;
-        if (target == null || !target.mounted) return;
-        Scrollable.ensureVisible(
-          target,
-          alignment: 0.08,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-        );
-      },
-    );
+    Future<void>.delayed(Duration(milliseconds: switching ? 320 : 30), () {
+      if (!mounted) return;
+      final target = SettingsTarget.keys[entry.id]?.currentContext;
+      if (target == null || !target.mounted) return;
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.08,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   Future<void> _update(Future<void> Function(Prefs) fn) async {
@@ -546,6 +543,8 @@ class _Account extends ConsumerWidget {
             const SizedBox(height: 10),
             const _InShellConnect(),
           ],
+          const SizedBox(height: 20),
+          const _ApiKeys(),
         ],
       ),
     );
@@ -773,7 +772,9 @@ class _Audio extends ConsumerWidget {
             ],
             onChanged: (id) async {
               await onUpdate((p) => p.setHeadphoneProfile(id));
-              await ref.read(playbackServiceProvider.notifier).applyAudioPrefs();
+              await ref
+                  .read(playbackServiceProvider.notifier)
+                  .applyAudioPrefs();
             },
           ),
         ),
@@ -909,9 +910,10 @@ class _Appearance extends ConsumerWidget {
                           'light' => theme.isLight,
                           'custom' => theme.isCustom,
                           'artwork' => theme.isArtwork,
-                          _ => !theme.isLight &&
-                              !theme.isCustom &&
-                              !theme.isArtwork,
+                          _ =>
+                            !theme.isLight &&
+                                !theme.isCustom &&
+                                !theme.isArtwork,
                         },
                         onChanged: (_) => ref
                             .read(themeControllerProvider.notifier)
@@ -922,6 +924,14 @@ class _Appearance extends ConsumerWidget {
                   ],
                 ],
               ),
+              const SizedBox(height: 12),
+              _SwitchRow(
+                value: theme.glass,
+                onChanged: (v) => onUpdate((p) => p.setGlassmorphism(v)),
+                title: 'Glassmorphism',
+                subtitle: 'The whole app as frosted glass over the playing '
+                    'artwork · works with every theme',
+              ),
               if (theme.isCustom) ...[
                 const SizedBox(height: 12),
                 _CustomThemeEditor(base: theme.customBase),
@@ -931,8 +941,9 @@ class _Appearance extends ConsumerWidget {
                 Text(
                   'Surfaces take their colour from the song that is playing '
                   'and blend as tracks change. Midnight while nothing plays.',
-                  style:
-                      WaveType.meta.copyWith(color: waveTextTertiary(context)),
+                  style: WaveType.meta.copyWith(
+                    color: waveTextTertiary(context),
+                  ),
                 ),
               ],
               const SizedBox(height: 12),
@@ -1000,7 +1011,8 @@ class _Appearance extends ConsumerWidget {
                     tooltip: 'Pick any accent colour',
                     current: theme.accent,
                     selected: !_accentPresets.any(
-                        (c) => c.toARGB32() == theme.accent.toARGB32()),
+                      (c) => c.toARGB32() == theme.accent.toARGB32(),
+                    ),
                     onPicked: (c) => onUpdate((p) async {
                       await p.setAccentColor(c.toARGB32());
                       await p.setAccentSource(AccentSource.custom.id);
@@ -1080,9 +1092,9 @@ class _Appearance extends ConsumerWidget {
               Text(
                 ref.watch(ambientStyleProvider) == AmbientStyle.apple
                     ? 'Vivid colours from the artwork on a dark stage with '
-                        'white text. Looks the same in every theme.'
+                          'white text. Looks the same in every theme.'
                     : 'A calm tone from the artwork that follows your '
-                        'theme (light in Pearl).',
+                          'theme (light in Pearl).',
                 style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
               ),
             ],
@@ -1097,8 +1109,7 @@ class _Appearance extends ConsumerWidget {
             children: [
               _SwitchRow(
                 value: prefs.amoled,
-                enabled:
-                    !theme.isLight && !theme.isCustom && !theme.isArtwork,
+                enabled: !theme.isLight && !theme.isCustom && !theme.isArtwork,
                 onChanged: (v) => onUpdate((p) => p.setAmoled(v)),
                 title: 'AMOLED black',
                 subtitle: 'Pure-black surfaces · Midnight only',
@@ -1127,8 +1138,9 @@ class _CustomThemeEditor extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(themeControllerProvider.notifier);
     final argb = base.toARGB32();
-    final isPreset =
-        WaveSurfaces.customPresets.any((p) => p.$2.toARGB32() == argb);
+    final isPreset = WaveSurfaces.customPresets.any(
+      (p) => p.$2.toARGB32() == argb,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1155,8 +1167,10 @@ class _CustomThemeEditor extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 10),
-        _ThemePreview(surfaces: WaveSurfaces.fromCustomBase(base),
-            light: WaveSurfaces.isLightBase(base)),
+        _ThemePreview(
+          surfaces: WaveSurfaces.fromCustomBase(base),
+          light: WaveSurfaces.isLightBase(base),
+        ),
         const SizedBox(height: 6),
         Text(
           'Dark colours give light text, light colours give dark text. '
@@ -1204,7 +1218,8 @@ class _ColorSwatchButton extends StatelessWidget {
                 width: 2,
               ),
             ),
-            child: child ??
+            child:
+                child ??
                 (selected
                     ? Icon(
                         FluentIcons.check_mark,
@@ -1252,11 +1267,7 @@ class _PickColorSwatch extends StatelessWidget {
       },
       child: selected
           ? null
-          : Icon(
-              WaveIcons.theme,
-              size: 14,
-              color: waveTextSecondary(context),
-            ),
+          : Icon(WaveIcons.theme, size: 14, color: waveTextSecondary(context)),
     );
   }
 }
@@ -1312,26 +1323,27 @@ class _ThemePreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = light ? WaveColors.lightTextPrimary : WaveColors.textPrimary;
-    final text2 =
-        light ? WaveColors.lightTextSecondary : WaveColors.textSecondary;
+    final text2 = light
+        ? WaveColors.lightTextSecondary
+        : WaveColors.textSecondary;
     final accent = waveAccent(context);
     Widget tile(Color fill, String label) => Expanded(
-          child: Container(
-            height: 28,
-            alignment: Alignment.centerLeft,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: WaveRadius.controlsRadius,
-            ),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: WaveType.meta.copyWith(color: text2),
-            ),
-          ),
-        );
+      child: Container(
+        height: 28,
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: WaveRadius.controlsRadius,
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: WaveType.meta.copyWith(color: text2),
+        ),
+      ),
+    );
     return ClipRRect(
       borderRadius: WaveRadius.artworkRadius,
       child: Container(
@@ -1411,8 +1423,10 @@ class _ThemePreview extends StatelessWidget {
                   Container(
                     width: 10,
                     height: 10,
-                    decoration:
-                        BoxDecoration(color: accent, shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: accent,
+                      shape: BoxShape.circle,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -1592,7 +1606,8 @@ class _SpotifyCard extends ConsumerWidget {
           value: prefs.spotifyCanvasEnabled,
           onChanged: (v) => onUpdate((p) => p.setSpotifyCanvasEnabled(v)),
           title: 'Spotify Canvas',
-          subtitle: 'Use Spotify\'s vertical looping video in the Canvas panel '
+          subtitle:
+              'Use Spotify\'s vertical looping video in the Canvas panel '
               '(needs a connected account)',
         ),
         const SizedBox(height: 6),
@@ -1600,9 +1615,9 @@ class _SpotifyCard extends ConsumerWidget {
           title: 'Recommendations',
           subtitle: prefs.recommendationSource == 'spotify'
               ? (auth.connected
-                  ? 'Autoplay and radio use Spotify\'s own song radio.'
-                  : 'Spotify is not connected, so YouTube Music is used '
-                      'until you sign in.')
+                    ? 'Autoplay and radio use Spotify\'s own song radio.'
+                    : 'Spotify is not connected, so YouTube Music is used '
+                          'until you sign in.')
               : 'Autoplay and radio use YouTube Music\'s related songs.',
           value: prefs.recommendationSource,
           options: const [
@@ -3291,10 +3306,8 @@ class _General extends ConsumerWidget {
                 title: 'Miniplayer style',
                 subtitle: switch (prefs.miniPlayerStyle) {
                   'compact' => 'Slim strip with just the essentials.',
-                  'card' =>
-                    'Square artwork card with controls over the cover.',
-                  'ambient' =>
-                    'Wide panel glowing with the blurred artwork and a timed scrubber.',
+                  'card' => 'Square artwork card with controls over the cover.',
+                  'ambient' => 'Wide panel glowing with the blurred artwork and a timed scrubber.',
                   'lyrics' =>
                     'Ambient panel that widens to show the current lyric line '
                         'when the song has synced lyrics.',
@@ -3422,8 +3435,8 @@ class _PlaybackState extends ConsumerState<_Playback> {
             subtitle: prefs.autoMixEnabled
                 ? 'Off while timed AutoMix is on'
                 : prefs.crossfadeEnabled
-                    ? '${prefs.crossfadeSeconds}s crossfade duration'
-                    : 'Gapless direct transition (crossfade disabled)',
+                ? '${prefs.crossfadeSeconds}s crossfade duration'
+                : 'Gapless direct transition (crossfade disabled)',
           ),
           if (prefs.crossfadeEnabled) ...[
             const SizedBox(height: 6),
@@ -3576,8 +3589,6 @@ class _LastFm extends ConsumerWidget {
         _Account(onUpdate: onUpdate),
         const SizedBox(height: 8),
         const _OtherScrobblers(),
-        const SizedBox(height: 8),
-        const _ApiKeys(),
       ],
     );
   }
@@ -3656,13 +3667,18 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
     _key ??= TextEditingController(text: prefs.lastFmApiKey);
     _secret ??= TextEditingController(text: prefs.lastFmApiSecret);
     final configured = prefs.isLastFmConfigured;
-    return _Group(
+    // Lives inside the Last.fm connection card; the keys belong to it.
+    return SettingsTarget(
       id: 'lastfm.keys',
-      title: 'API keys',
-      subtitle: 'Your own keys from last.fm/api/account/create',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const Text('API keys', style: WaveType.label),
+          Text(
+            'Your own keys from last.fm/api/account/create',
+            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
+          ),
+          const SizedBox(height: 10),
           const LastFmKeyGuide(),
           const SizedBox(height: 10),
           Row(
@@ -3833,8 +3849,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
                     .applyAudioPrefs();
               },
               title: 'Bass swap & filters',
-              subtitle:
-                  'Hands the bass over on the beat and crosses the highs, like a DJ mixer.',
+              subtitle: 'Hands the bass over on the beat and crosses the highs, like a DJ mixer.',
             ),
           ],
         ],
@@ -4081,7 +4096,12 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
     }
   }
 
-  Widget _connected(String name, String user, String server, VoidCallback onOff) {
+  Widget _connected(
+    String name,
+    String user,
+    String server,
+    VoidCallback onOff,
+  ) {
     return Row(
       children: [
         Icon(FluentIcons.completed, size: 14, color: waveAccent(context)),
@@ -4092,7 +4112,10 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
             style: WaveType.trackTitle,
           ),
         ),
-        WaveButton(onPressed: _busy ? null : onOff, child: const Text('Disconnect')),
+        WaveButton(
+          onPressed: _busy ? null : onOff,
+          child: const Text('Disconnect'),
+        ),
       ],
     );
   }
@@ -4101,8 +4124,10 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
       ? const SizedBox.shrink()
       : Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: Text(message,
-              style: WaveType.meta.copyWith(color: WaveColors.danger)),
+          child: Text(
+            message,
+            style: WaveType.meta.copyWith(color: WaveColors.danger),
+          ),
         );
 
   @override
@@ -4121,8 +4146,12 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
           const Text('ListenBrainz', style: WaveType.trackTitle),
           const SizedBox(height: 6),
           if (lb.connected)
-            _connected('ListenBrainz', lb.username, prefs.listenBrainzServer,
-                () => _run(lb.disconnect))
+            _connected(
+              'ListenBrainz',
+              lb.username,
+              prefs.listenBrainzServer,
+              () => _run(lb.disconnect),
+            )
           else ...[
             Text(
               'Paste your user token from listenbrainz.org/settings. Leave the '
@@ -4153,10 +4182,12 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
                   onPressed: _busy
                       ? null
                       : () => _run(() async {
-                            final err = await lb.connect(_lbToken.text,
-                                server: _lbServer.text);
-                            if (mounted) setState(() => _lbError = err);
-                          }),
+                          final err = await lb.connect(
+                            _lbToken.text,
+                            server: _lbServer.text,
+                          );
+                          if (mounted) setState(() => _lbError = err);
+                        }),
                   child: const Text('Connect'),
                 ),
               ],
@@ -4167,8 +4198,12 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
           const Text('Libre.fm', style: WaveType.trackTitle),
           const SizedBox(height: 6),
           if (lf.connected)
-            _connected('Libre.fm', lf.username, prefs.libreFmServer,
-                () => _run(lf.disconnect))
+            _connected(
+              'Libre.fm',
+              lf.username,
+              prefs.libreFmServer,
+              () => _run(lf.disconnect),
+            )
           else ...[
             Text(
               'Sign in with your Libre.fm account. The server field takes '
@@ -4201,12 +4236,14 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
                   onPressed: _busy
                       ? null
                       : () => _run(() async {
-                            final err = await lf.connect(
-                                _lfUser.text, _lfPass.text,
-                                server: _lfServer.text);
-                            if (err == null) _lfPass.clear();
-                            if (mounted) setState(() => _lfError = err);
-                          }),
+                          final err = await lf.connect(
+                            _lfUser.text,
+                            _lfPass.text,
+                            server: _lfServer.text,
+                          );
+                          if (err == null) _lfPass.clear();
+                          if (mounted) setState(() => _lfError = err);
+                        }),
                   child: const Text('Sign in'),
                 ),
               ],

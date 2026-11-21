@@ -219,7 +219,7 @@ class WaveGlass extends StatelessWidget {
     // let through, so the opaque fallback keeps its density.
     final liquid = WaveHazeScope.of(context).liquidGlass;
     final fill = base.withValues(
-      alpha: blurOn ? (liquid ? 0.32 : 0.46) : 0.78,
+      alpha: base.a * (blurOn ? (liquid ? 0.32 : 0.46) : 0.78),
     );
     final edge = (dark ? Colors.white : Colors.black)
         .withValues(alpha: dark ? 0.16 : 0.10);

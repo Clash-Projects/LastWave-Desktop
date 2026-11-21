@@ -104,7 +104,8 @@ class Prefs {
 
   /// Floating miniplayer look: `'classic'` bar, `'compact'` strip,
   /// `'card'` artwork square, `'ambient'` wide blurred-artwork panel,
-  /// `'lyrics'` the ambient panel plus the current synced lyric line.
+  /// `'lyrics'` the ambient panel plus the current synced lyric line
+  /// (the default).
   static const miniPlayerStyles = [
     'classic',
     'compact',
@@ -113,13 +114,13 @@ class Prefs {
     'lyrics',
   ];
   String get miniPlayerStyle {
-    final raw = _sp.getString('lw_mini_style') ?? 'classic';
-    return miniPlayerStyles.contains(raw) ? raw : 'classic';
+    final raw = _sp.getString('lw_mini_style') ?? 'lyrics';
+    return miniPlayerStyles.contains(raw) ? raw : 'lyrics';
   }
 
   Future<void> setMiniPlayerStyle(String style) => _sp.setString(
         'lw_mini_style',
-        miniPlayerStyles.contains(style) ? style : 'classic',
+        miniPlayerStyles.contains(style) ? style : 'lyrics',
       );
 
   // -- Playback behaviour -------------------------------------------------
@@ -395,6 +396,10 @@ class Prefs {
 
   bool get liquidGlass => _sp.getBool('lw_liquid_glass') ?? false;
   Future<void> setLiquidGlass(bool v) => _sp.setBool('lw_liquid_glass', v);
+
+  /// Glassmorphism: the whole app frosted over the playing artwork.
+  bool get glassmorphism => _sp.getBool('lw_glassmorphism') ?? false;
+  Future<void> setGlassmorphism(bool v) => _sp.setBool('lw_glassmorphism', v);
 
   bool get wavySeekbar => _sp.getBool('lw_wavy_seekbar') ?? false;
   Future<void> setWavySeekbar(bool v) => _sp.setBool('lw_wavy_seekbar', v);

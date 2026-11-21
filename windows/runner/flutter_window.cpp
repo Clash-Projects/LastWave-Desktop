@@ -5,6 +5,9 @@
 
 #include <flutter/standard_method_codec.h>
 
+#include <commctrl.h>
+#include <windowsx.h>
+
 #include <propkey.h>
 #include <propvarutil.h>
 #include <shobjidl.h>
@@ -83,6 +86,35 @@ bool FlutterWindow::OnCreate() {
           &flutter::StandardMethodCodec::GetInstance());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
+  caption_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "lastwave/caption",
+          &flutter::StandardMethodCodec::GetInstance());
+  caption_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        const auto* args = std::get_if<flutter::EncodableList>(call.arguments());
+        if (call.method_name() == "setMaxButton" && args && args->size() == 4) {
+          auto at = [&](size_t i) {
+            const auto& v = (*args)[i];
+            if (const auto* d = std::get_if<double>(&v)) return static_cast<LONG>(*d);
+            if (const auto* n = std::get_if<int32_t>(&v)) return static_cast<LONG>(*n);
+            return 0L;
+          };
+          max_button_ = RECT{at(0), at(1), at(2), at(3)};
+          if (::IsRectEmpty(&max_button_)) SetMaxHover(false);
+          result->Success();
+        } else {
+          result->NotImplemented();
+        }
+      });
+  // The Flutter view is a child window: it must pass the hit test over the
+  // button up to this window, or the shell never sees HTMAXBUTTON.
+  ::SetWindowSubclass(flutter_controller_->view()->GetNativeWindow(),
+                      &FlutterWindow::ViewProc, 1,
+                      reinterpret_cast<DWORD_PTR>(this));
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -103,8 +135,12 @@ void FlutterWindow::OnDestroy() {
   destroying_ = true;
   smtc_channel_.reset();
   deeplink_channel_.reset();
+  caption_channel_.reset();
+  max_button_ = RECT{0, 0, 0, 0};
   wasapi_channel_.reset();
   if (flutter_controller_) {
+    ::RemoveWindowSubclass(flutter_controller_->view()->GetNativeWindow(),
+                           &FlutterWindow::ViewProc, 1);
     flutter_controller_ = nullptr;
   }
 
@@ -120,6 +156,38 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   if (message == lastwave::SmtcChannel::kButtonMessage) {
     if (smtc_channel_ && !destroying_) smtc_channel_->OnButtonMessage(wparam);
     return 0;
+  }
+
+  // Snap Layouts: ahead of the plugins, which answer WM_NCHITTEST for the
+  // frameless resize borders.
+  if (!destroying_) {
+    switch (message) {
+      case WM_NCHITTEST:
+        if (InMaxButton(lparam)) return HTMAXBUTTON;
+        break;
+      case WM_NCMOUSEMOVE:
+        SetMaxHover(wparam == HTMAXBUTTON);
+        if (wparam == HTMAXBUTTON) {
+          TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE | TME_NONCLIENT,
+                                hwnd, 0};
+          ::TrackMouseEvent(&track);
+          return 0;
+        }
+        break;
+      case WM_NCMOUSELEAVE:
+        SetMaxHover(false);
+        break;
+      case WM_NCLBUTTONDOWN:
+      case WM_NCLBUTTONDBLCLK:
+        if (wparam == HTMAXBUTTON) return 0;
+        break;
+      case WM_NCLBUTTONUP:
+        if (wparam == HTMAXBUTTON) {
+          ::ShowWindow(hwnd, ::IsZoomed(hwnd) ? SW_RESTORE : SW_MAXIMIZE);
+          return 0;
+        }
+        break;
+    }
   }
 
   // Give Flutter, including plugins, an opportunity to handle window messages.
@@ -163,3 +231,26 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
 }
 
+bool FlutterWindow::InMaxButton(LPARAM screen_point) const {
+  if (::IsRectEmpty(&max_button_) || !flutter_controller_) return false;
+  POINT pt{GET_X_LPARAM(screen_point), GET_Y_LPARAM(screen_point)};
+  ::ScreenToClient(flutter_controller_->view()->GetNativeWindow(), &pt);
+  return ::PtInRect(&max_button_, pt) != FALSE;
+}
+
+void FlutterWindow::SetMaxHover(bool hover) {
+  if (hover == max_hover_ || !caption_channel_) return;
+  max_hover_ = hover;
+  caption_channel_->InvokeMethod(
+      "hover", std::make_unique<flutter::EncodableValue>(hover));
+}
+
+LRESULT CALLBACK FlutterWindow::ViewProc(HWND hwnd, UINT message,
+                                         WPARAM wparam, LPARAM lparam,
+                                         UINT_PTR, DWORD_PTR self) {
+  if (message == WM_NCHITTEST &&
+      reinterpret_cast<FlutterWindow*>(self)->InMaxButton(lparam)) {
+    return HTTRANSPARENT;
+  }
+  return ::DefSubclassProc(hwnd, message, wparam, lparam);
+}

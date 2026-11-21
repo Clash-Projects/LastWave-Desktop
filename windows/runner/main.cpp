@@ -56,7 +56,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
     HWND existingWnd = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
     if (existingWnd != nullptr) {
-      ::ShowWindow(existingWnd, SW_RESTORE);
+      // SW_RESTORE would also un-maximize a visible maximized window.
+      ::ShowWindow(existingWnd, ::IsIconic(existingWnd) ? SW_RESTORE : SW_SHOW);
       ::SetForegroundWindow(existingWnd);
     }
     // A lastwave:// link on the second launch is handed to the running
@@ -106,8 +107,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  // Opens maximized (Win32Window::Show); this is the restore size:
+  // 1360x860 logical, centred on the primary work area.
+  RECT work{};
+  ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+  const double scale = ::GetDpiForSystem() / 96.0;
+  const int left = static_cast<int>((work.right - work.left) / scale - 1360) / 2;
+  const int top = static_cast<int>((work.bottom - work.top) / scale - 860) / 2;
+  Win32Window::Point origin(left > 0 ? left : 0, top > 0 ? top : 0);
+  Win32Window::Size size(1360, 860);
   if (!window.Create(L"lastwave_desktop", origin, size)) {
     ::timeEndPeriod(1);
     return EXIT_FAILURE;

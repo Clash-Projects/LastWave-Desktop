@@ -841,6 +841,7 @@ class _WindowButtons extends StatelessWidget {
         _WinBtn(
           tooltip: 'Maximize',
           icon: FluentIcons.checkbox,
+          snapLayouts: true,
           onTap: () async {
             try {
               if (await windowManager.isMaximized()) {
@@ -867,20 +868,79 @@ class _WinBtn extends StatefulWidget {
   final IconData icon;
   final VoidCallback onTap;
   final bool danger;
+
+  /// Windows 11 Snap Layouts: the window answers this button's area as
+  /// the native maximize button (see windows/runner/flutter_window.cpp),
+  /// which then handles hover and clicks there instead of Flutter.
+  final bool snapLayouts;
   const _WinBtn({
     required this.tooltip,
     required this.icon,
     required this.onTap,
     this.danger = false,
+    this.snapLayouts = false,
   });
   @override
   State<_WinBtn> createState() => _WinBtnState();
 }
 
-class _WinBtnState extends State<_WinBtn> {
+class _WinBtnState extends State<_WinBtn> with WidgetsBindingObserver {
+  static const _caption = MethodChannel('lastwave/caption');
   bool _hover = false;
+  final _box = GlobalKey();
+  Rect? _sent;
+
+  bool get _snap => widget.snapLayouts && Platform.isWindows;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_snap) return;
+    WidgetsBinding.instance.addObserver(this);
+    _caption.setMethodCallHandler((call) async {
+      if (call.method == 'hover' && mounted) {
+        setState(() => _hover = call.arguments == true);
+      }
+    });
+  }
+
+  @override
+  void didChangeMetrics() => _scheduleReport();
+
+  void _scheduleReport() =>
+      WidgetsBinding.instance.addPostFrameCallback((_) => _report());
+
+  /// Sends the button's rect in view pixels when it moved.
+  void _report() {
+    if (!mounted) return;
+    final box = _box.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.attached || !box.hasSize) return;
+    final dpr = View.of(context).devicePixelRatio;
+    final r = (box.localToGlobal(Offset.zero) & box.size);
+    final px = Rect.fromLTRB(r.left * dpr, r.top * dpr, r.right * dpr,
+        r.bottom * dpr);
+    if (px == _sent) return;
+    _sent = px;
+    _caption
+        .invokeMethod('setMaxButton', [px.left, px.top, px.right, px.bottom])
+        .catchError((_) => null);
+  }
+
+  @override
+  void dispose() {
+    if (_snap) {
+      WidgetsBinding.instance.removeObserver(this);
+      _caption.setMethodCallHandler(null);
+      // Title bar gone (mini player, immersive): no phantom button.
+      _caption.invokeMethod('setMaxButton', [0, 0, 0, 0])
+          .catchError((_) => null);
+    }
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_snap) _scheduleReport();
     final dark = waveIsDark(context);
     return WaveA11yButton(
       label: widget.tooltip,
@@ -894,6 +954,7 @@ class _WinBtnState extends State<_WinBtn> {
         child: GestureDetector(
           onTap: widget.onTap,
           child: AnimatedContainer(
+            key: _box,
             duration: waveMotion(context, WaveMotion.fast),
             width: 44,
             height: WaveDensity.titleBar,

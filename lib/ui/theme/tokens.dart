@@ -152,6 +152,42 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
     railTranslucent: WaveColors.amoledRailTranslucent,
   );
 
+  /// Pearl as a palette, so theme changes can blend into and out of it.
+  /// The helpers still answer Pearl from the constants (isCustom false).
+  static const pearl = WaveSurfaces(
+    background: WaveColors.lightBackground,
+    surface: WaveColors.lightSurface,
+    surfaceRaised: WaveColors.lightSurfaceRaised,
+    surfaceOverlay: WaveColors.lightOverlay,
+    panelTranslucent: WaveColors.lightSurface,
+    dockTranslucent: WaveColors.lightSurface,
+    railTranslucent: WaveColors.lightNavBackground,
+    outline: WaveColors.lightOutline,
+    outlineSoft: WaveColors.lightOutlineSoft,
+  );
+
+  /// Glassmorphism: the page goes clear so the app-wide aura shows
+  /// through, and each layer above it keeps its own tone as a frosted
+  /// tint. Menus and dialogs stay nearly opaque so their text reads.
+  /// isCustom so the helpers read these values in both brightnesses.
+  WaveSurfaces glass({required bool light}) {
+    Color a(Color c, double dark, double pearl) =>
+        c.withValues(alpha: light ? pearl : dark);
+    final line = light ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+    return WaveSurfaces(
+      background: background.withValues(alpha: 0),
+      surface: a(surface, 0.38, 0.48),
+      surfaceRaised: a(surfaceRaised, 0.88, 0.90),
+      surfaceOverlay: a(surfaceOverlay, 0.42, 0.55),
+      panelTranslucent: a(panelTranslucent, 0.40, 0.50),
+      dockTranslucent: a(dockTranslucent, 0.46, 0.56),
+      railTranslucent: a(railTranslucent, 0.28, 0.38),
+      outline: line.withValues(alpha: light ? 0.12 : 0.14),
+      outlineSoft: line.withValues(alpha: light ? 0.07 : 0.08),
+      isCustom: true,
+    );
+  }
+
   /// Preset bases offered by the Custom theme picker (any colour works).
   static const customPresets = <(String, Color)>[
     ('Ocean', Color(0xFF1A2A44)),
