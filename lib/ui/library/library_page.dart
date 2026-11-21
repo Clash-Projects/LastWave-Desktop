@@ -1,10 +1,14 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../collections/downloads_page.dart';
+import 'library_browse.dart';
 import '../theme/tokens.dart';
 
 /// Library tabs. The id is the `?tab=` query value.
 enum LibraryTab {
+  songs('songs', 'Songs'),
+  albums('albums', 'Albums'),
+  artists('artists', 'Artists'),
   downloads('downloads', 'Downloads');
 
   final String id;
@@ -42,6 +46,9 @@ class _WaveLibraryPageState extends State<WaveLibraryPage> {
   }
 
   Widget _body(LibraryTab tab) => switch (tab) {
+        LibraryTab.songs => const LibrarySongsView(),
+        LibraryTab.albums => const LibraryAlbumsView(),
+        LibraryTab.artists => const LibraryArtistsView(),
         LibraryTab.downloads => const WaveDownloadsPage(showHero: false),
       };
 
