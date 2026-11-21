@@ -375,8 +375,19 @@ class UpdateService {
     } else if (Platform.isLinux) {
       if (savePath.toLowerCase().endsWith('.appimage')) {
         Process.runSync('chmod', ['+x', savePath]);
+        // Update the AppImage the user launched, in place. Launching the
+        // download from the temp folder made AppImageLauncher treat it as
+        // a new app: a second, versioned launcher next to the old one.
+        final current = Platform.environment['APPIMAGE'] ?? '';
+        final launch = current.isNotEmpty &&
+                await replaceAppImageInPlace(
+                  downloaded: savePath,
+                  current: current,
+                )
+            ? current
+            : savePath;
         await _runBeforeExit(beforeExit);
-        await Process.start(savePath, [], mode: ProcessStartMode.detached);
+        await Process.start(launch, [], mode: ProcessStartMode.detached);
         await Future<void>.delayed(const Duration(milliseconds: 400));
         exit(0);
       } else if (savePath.toLowerCase().endsWith('.deb') ||
@@ -395,6 +406,37 @@ class UpdateService {
       }
     }
   }
+}
+
+/// Swaps the AppImage at [current] for [downloaded], keeping its path, so
+/// launchers and AppImageLauncher (which key on the path) keep one entry.
+///
+/// Stages a copy beside [current] (the download usually sits on another
+/// filesystem, e.g. tmpfs) and renames it over the original, which is
+/// atomic; the running process keeps the old file open. False, with
+/// nothing changed, when the folder isn't writable: the caller then
+/// launches the download as before.
+@visibleForTesting
+Future<bool> replaceAppImageInPlace({
+  required String downloaded,
+  required String current,
+}) async {
+  final staged = File('$current.update');
+  try {
+    await File(downloaded).copy(staged.path);
+    if (!Platform.isWindows) Process.runSync('chmod', ['+x', staged.path]);
+    await staged.rename(current);
+  } catch (e) {
+    debugPrint('AppImage in-place update failed: $e');
+    try {
+      if (staged.existsSync()) staged.deleteSync();
+    } catch (_) {}
+    return false;
+  }
+  try {
+    File(downloaded).deleteSync();
+  } catch (_) {}
+  return true;
 }
 
 Future<void> _runBeforeExit(Future<void> Function()? hook) async {

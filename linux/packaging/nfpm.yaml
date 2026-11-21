@@ -36,7 +36,9 @@ contents:
     type: symlink
   # Desktop integration.
   - src: linux/packaging/lastwave.desktop
-    dst: /usr/share/applications/lastwave.desktop
+    # Named after the app id: Wayland docks match the window app_id to
+    # the desktop file name.
+    dst: /usr/share/applications/com.lastwave.lastwave_desktop.desktop
   - src: lastwave-logo.png
     dst: /usr/share/icons/hicolor/512x512/apps/lastwave.png
 
