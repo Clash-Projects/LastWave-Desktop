@@ -141,6 +141,9 @@ List<WaveMenuEntry> waveTrackMenuItems({
         videoId: track.videoId,
         album: album,
         durationSeconds: durationSeconds,
+        // Keep the file for Library songs, so a playlist plays it in place
+        // instead of searching for it online.
+        playbackUrl: track.playbackUrl,
       );
 
   final items = <WaveMenuEntry>[
@@ -1094,8 +1097,10 @@ WaveMenuSubmenu waveAddToPlaylistEntry({
   required StoredTrack track,
 }) {
   final library = ref.read(playlistRepositoryProvider.notifier);
+  // Local songs is rebuilt from the music folders on every scan, so rows
+  // added to it by hand would vanish: not a target either.
   final userPlaylists =
-      playlists.where((p) => !p.isLikedSongs).toList();
+      playlists.where((p) => !p.isLikedSongs && !p.isLocal).toList();
   return WaveMenuSubmenu(
     leading: const Icon(WaveIcons.playlists, size: 15),
     label: 'Add to playlist',

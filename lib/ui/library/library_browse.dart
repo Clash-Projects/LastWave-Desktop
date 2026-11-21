@@ -4,7 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/library/library_index.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
+import '../collections/playlist_dialogs.dart'
+    show
+        showWaveCreatePlaylist,
+        showWaveDeletePlaylist,
+        showWaveRenamePlaylist;
 import '../components/artwork.dart';
+import '../components/buttons.dart' show WaveGhostButton;
 import '../components/states.dart';
 import '../components/track_row.dart' show WaveDesktopTable;
 import '../theme/tokens.dart';
@@ -58,6 +64,12 @@ class _Toolbar extends StatelessWidget {
   }
 }
 
+/// Row key: the file for Library songs; playlists can also hold streamed
+/// rows, which PlaylistRepository keys by name|artist.
+String _keyOf(StoredTrack t) => t.playbackUrl.isNotEmpty
+    ? t.playbackUrl
+    : '${t.name.toLowerCase()}|${t.artist.toLowerCase()}';
+
 bool _matches(StoredTrack t, String q) =>
     q.isEmpty ||
     t.name.toLowerCase().contains(q) ||
@@ -69,11 +81,15 @@ class LibrarySongsView extends ConsumerStatefulWidget {
   final List<StoredTrack>? tracks;
   final String sourceLabel;
   final Widget? header;
+
+  /// Row remove action (playlists); null hides it.
+  final void Function(StoredTrack track)? onRemove;
   const LibrarySongsView({
     super.key,
     this.tracks,
     this.sourceLabel = 'Library',
     this.header,
+    this.onRemove,
   });
 
   @override
@@ -115,7 +131,7 @@ class _LibrarySongsViewState extends ConsumerState<LibrarySongsView> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             sliver: WaveDesktopTable<StoredTrack>(
               items: items,
-              keyOf: (t) => t.playbackUrl,
+              keyOf: _keyOf,
               titleOf: (t) => t.name,
               subtitleOf: (t) => t.artist,
               albumOf: (t) => t.album,
@@ -132,6 +148,11 @@ class _LibrarySongsViewState extends ConsumerState<LibrarySongsView> {
               showLike: false,
               onPlay: (i) =>
                   _playAll(ref, items, i, label: widget.sourceLabel),
+              removeLabel:
+                  widget.onRemove == null ? null : 'Remove from playlist',
+              onRemove: widget.onRemove == null
+                  ? null
+                  : (i) => widget.onRemove!(items[i]),
               empty: const WaveEmpty(
                 icon: WaveIcons.search,
                 title: 'No matches',
@@ -152,6 +173,7 @@ class _DetailHeader extends ConsumerWidget {
   final bool circle;
   final List<StoredTrack> tracks;
   final VoidCallback onBack;
+  final List<Widget> actions;
   const _DetailHeader({
     required this.title,
     required this.subtitle,
@@ -159,6 +181,7 @@ class _DetailHeader extends ConsumerWidget {
     required this.tracks,
     required this.onBack,
     this.circle = false,
+    this.actions = const [],
   });
 
   @override
@@ -193,18 +216,25 @@ class _DetailHeader extends ConsumerWidget {
                     style: WaveType.meta
                         .copyWith(color: waveTextSecondary(context))),
                 const SizedBox(height: 10),
-                FilledButton(
-                  onPressed: tracks.isEmpty
-                      ? null
-                      : () => _playAll(ref, tracks, 0, label: title),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(WaveIcons.play, size: 12),
-                      SizedBox(width: 8),
-                      Text('Play'),
-                    ],
-                  ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton(
+                      onPressed: tracks.isEmpty
+                          ? null
+                          : () => _playAll(ref, tracks, 0, label: title),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(WaveIcons.play, size: 12),
+                          SizedBox(width: 8),
+                          Text('Play'),
+                        ],
+                      ),
+                    ),
+                    ...actions,
+                  ],
                 ),
               ],
             ),
@@ -413,6 +443,148 @@ class LibraryArtistsView extends ConsumerWidget {
       circle: true,
       emptyIcon: WaveIcons.artists,
       emptyTitle: 'No artists yet',
+    );
+  }
+}
+
+/// Your own playlists (not Liked Songs or the Local songs folder index):
+/// create, open, rename, delete, remove songs. Songs are added from any
+/// song's menu > Add to playlist, and Library songs keep playing from file.
+class LibraryPlaylistsView extends ConsumerStatefulWidget {
+  const LibraryPlaylistsView({super.key});
+
+  @override
+  ConsumerState<LibraryPlaylistsView> createState() =>
+      _LibraryPlaylistsViewState();
+}
+
+String _coverOf(SavedPlaylist p) => p.customCoverUri.isNotEmpty
+    ? p.customCoverUri
+    : (p.tracks.where((t) => t.artworkUrl.isNotEmpty).firstOrNull?.artworkUrl ??
+        '');
+
+class _LibraryPlaylistsViewState extends ConsumerState<LibraryPlaylistsView> {
+  int? _openId;
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final mine = [
+      for (final p in ref.watch(playlistRepositoryProvider))
+        if (!p.isLikedSongs && !p.isLocal) p,
+    ];
+    final open = mine.where((p) => p.id == _openId).firstOrNull;
+    if (open != null) {
+      return LibrarySongsView(
+        key: ValueKey(open.id),
+        tracks: open.tracks,
+        sourceLabel: open.title,
+        // PlaylistRepository keys rows by name|artist.
+        onRemove: (t) => ref.read(playlistRepositoryProvider.notifier).removeTrack(
+            open.id, '${t.name.toLowerCase()}|${t.artist.toLowerCase()}'),
+        header: _DetailHeader(
+          title: open.title,
+          subtitle: 'Playlist · ${_songs(open.tracks.length)}',
+          artworkUrl: _coverOf(open),
+          tracks: open.tracks,
+          onBack: () => setState(() => _openId = null),
+          actions: [
+            WaveGhostButton(
+              label: 'Rename',
+              icon: FluentIcons.rename,
+              onPressed: () => showWaveRenamePlaylist(context, ref, open),
+            ),
+            WaveGhostButton(
+              label: 'Delete',
+              icon: FluentIcons.delete,
+              onPressed: () async {
+                await showWaveDeletePlaylist(context, ref, open);
+                if (mounted &&
+                    !ref
+                        .read(playlistRepositoryProvider)
+                        .any((p) => p.id == open.id)) {
+                  setState(() => _openId = null);
+                }
+              },
+            ),
+          ],
+        ),
+      );
+    }
+    final q = _query.trim().toLowerCase();
+    final shown = [
+      for (final p in mine)
+        if (q.isEmpty || p.title.toLowerCase().contains(q)) p,
+    ];
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextBox(
+                    placeholder: 'Search playlists',
+                    prefix: const Padding(
+                      padding: EdgeInsets.only(left: 10),
+                      child: Icon(WaveIcons.search, size: 14),
+                    ),
+                    onChanged: (v) => setState(() => _query = v),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton(
+                  onPressed: () => showWaveCreatePlaylist(context, ref),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.add, size: 12),
+                      SizedBox(width: 8),
+                      Text('New playlist'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (mine.isEmpty)
+          SliverToBoxAdapter(
+            child: WaveEmpty(
+              icon: WaveIcons.playlists,
+              title: 'No playlists yet',
+              subtitle: "Create one, then add songs from any song's menu "
+                  '(right-click > Add to playlist).',
+              actionLabel: 'New playlist',
+              onAction: () => showWaveCreatePlaylist(context, ref),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 180,
+                mainAxisSpacing: 18,
+                crossAxisSpacing: 18,
+                childAspectRatio: 0.74,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, i) {
+                  final p = shown[i];
+                  return _Tile(
+                    title: p.title,
+                    subtitle: _songs(p.tracks.length),
+                    artworkUrl: _coverOf(p),
+                    onTap: () => setState(() => _openId = p.id),
+                  );
+                },
+                childCount: shown.length,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

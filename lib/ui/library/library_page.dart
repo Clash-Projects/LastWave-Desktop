@@ -10,6 +10,7 @@ enum LibraryTab {
   songs('songs', 'Songs'),
   albums('albums', 'Albums'),
   artists('artists', 'Artists'),
+  playlists('playlists', 'Playlists'),
   downloads('downloads', 'Downloads'),
   folders('folders', 'Folders');
 
@@ -51,6 +52,7 @@ class _WaveLibraryPageState extends State<WaveLibraryPage> {
         LibraryTab.songs => const LibrarySongsView(),
         LibraryTab.albums => const LibraryAlbumsView(),
         LibraryTab.artists => const LibraryArtistsView(),
+        LibraryTab.playlists => const LibraryPlaylistsView(),
         LibraryTab.downloads => const WaveDownloadsPage(showHero: false),
         LibraryTab.folders => const LibraryFoldersView(),
       };
