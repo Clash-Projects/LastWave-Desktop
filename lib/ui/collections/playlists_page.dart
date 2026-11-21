@@ -1,12 +1,9 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/search/shared_providers.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
-import '../../features/library/local_music_library.dart';
 import '../../features/library/playlists.dart';
 import '../../features/library/yt_library_sync.dart';
 import '../../features/spotify/spotify_api.dart';
@@ -825,90 +822,16 @@ class _PlaylistCardState
   }
 }
 
-class _LocalFolders extends ConsumerWidget {
+class _LocalFolders extends StatelessWidget {
   const _LocalFolders();
 
+  // Folder management moved to Library > Folders.
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final folders = ref.watch(databaseProvider).localFolders();
-    final scan = ref.watch(localScanProvider);
-    final busy = scan.running;
-
-    Future<void> add() async {
-      final path = await FilePicker.getDirectoryPath(
-        dialogTitle: 'Add a music folder',
-      );
-      if (path == null || path.trim().isEmpty) return;
-      await ref.read(localMusicLibraryProvider).addFolder(path.trim());
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'ON THIS PC',
-          style: WaveType.overline.copyWith(color: waveAccent(context)),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          busy
-              ? scan.label
-              : (scan.label.isEmpty
-                  ? 'Play files from folders you choose. Local songs stay on this PC and are never uploaded.'
-                  : scan.label),
-          style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
-        ),
-        const SizedBox(height: 8),
-        for (final folder in folders)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    folder,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.trackTitle,
-                  ),
-                ),
-                WaveGhostButton(
-                  label: 'Forget',
-                  onPressed: busy
-                      ? null
-                      : () => ref
-                          .read(localMusicLibraryProvider)
-                          .forgetFolder(folder),
-                ),
-              ],
-            ),
-          ),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            WaveGhostButton(
-              label: 'Add folder',
-              icon: FluentIcons.add,
-              onPressed: busy ? null : add,
-            ),
-            WaveGhostButton(
-              label: 'Rescan',
-              icon: FluentIcons.refresh,
-              onPressed: busy
-                  ? null
-                  : () => ref.read(localMusicLibraryProvider).rescan(),
-            ),
-            if (busy)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: ProgressRing(strokeWidth: 2),
-              ),
-          ],
-        ),
-      ],
+  Widget build(BuildContext context) {
+    return WaveGhostButton(
+      label: 'Manage music folders in Library',
+      icon: FluentIcons.folder_open,
+      onPressed: () => context.go('/library?tab=folders'),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../collections/downloads_page.dart';
 import 'library_browse.dart';
+import 'library_folders.dart';
 import '../theme/tokens.dart';
 
 /// Library tabs. The id is the `?tab=` query value.
@@ -9,7 +10,8 @@ enum LibraryTab {
   songs('songs', 'Songs'),
   albums('albums', 'Albums'),
   artists('artists', 'Artists'),
-  downloads('downloads', 'Downloads');
+  downloads('downloads', 'Downloads'),
+  folders('folders', 'Folders');
 
   final String id;
   final String label;
@@ -50,6 +52,7 @@ class _WaveLibraryPageState extends State<WaveLibraryPage> {
         LibraryTab.albums => const LibraryAlbumsView(),
         LibraryTab.artists => const LibraryArtistsView(),
         LibraryTab.downloads => const WaveDownloadsPage(showHero: false),
+        LibraryTab.folders => const LibraryFoldersView(),
       };
 
   @override
