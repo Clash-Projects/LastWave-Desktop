@@ -22,7 +22,9 @@ import '../theme/wave_icons.dart';
 /// Downloads: Offline hero + 40px-artwork rows
 /// (art · title/artist · progress or quality chip · play · delete).
 class WaveDownloadsPage extends ConsumerStatefulWidget {
-  const WaveDownloadsPage({super.key});
+  /// False inside the Library, which already titles the page.
+  final bool showHero;
+  const WaveDownloadsPage({super.key, this.showHero = true});
 
   @override
   ConsumerState<WaveDownloadsPage> createState() => _WaveDownloadsPageState();
@@ -103,6 +105,7 @@ class _WaveDownloadsPageState extends ConsumerState<WaveDownloadsPage> {
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
+                  if (widget.showHero) ...[
                   WaveEntrance(
                     rise: 10,
                     child: WaveCollectionHero(
@@ -116,6 +119,7 @@ class _WaveDownloadsPageState extends ConsumerState<WaveDownloadsPage> {
                   ),
                   ),
                   const SizedBox(height: 12),
+                  ],
                   const _LocationRow(),
                   const SizedBox(height: 12),
                   Row(

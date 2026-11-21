@@ -7,7 +7,7 @@ import '../theme/wave_icons.dart';
 /// Layout:
 /// - Top: Home / Discover / Stats / Search (daily music use)
 /// - Middle: Liked / Albums / Artists / Playlists (your collections)
-/// - Then: Downloads
+/// - Then: Library (local files, downloads, your playlists)
 /// - Bottom (pinned): Friends / Settings
 ///
 /// History stays routable but is not on the rail.
@@ -34,7 +34,7 @@ const waveCollectionDestinations = [
 ];
 
 const waveOfflineDestinations = [
-  WaveDestination('/downloads', 'Downloads', WaveIcons.downloads),
+  WaveDestination('/library', 'Library', WaveIcons.library),
 ];
 
 const waveSystemDestinations = [
@@ -58,6 +58,7 @@ String waveActivePath(String location) {
       return d.path;
     }
   }
+  if (path.startsWith('/downloads')) return '/library';
   if (path.startsWith('/album')) return '/albums';
   if (path.startsWith('/artist')) return '/artists';
   if (path.startsWith('/now')) return '/home';

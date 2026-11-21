@@ -10,7 +10,7 @@ import '../ui/collections/album_detail_page.dart';
 import '../ui/collections/albums_page.dart';
 import '../ui/collections/artist_detail_page.dart';
 import '../ui/collections/artists_page.dart';
-import '../ui/collections/downloads_page.dart';
+import '../ui/library/library_page.dart';
 import '../ui/collections/history_page.dart';
 import '../ui/collections/liked_page.dart';
 import '../ui/collections/playlist_detail_page.dart';
@@ -368,9 +368,15 @@ GoRouter buildRouter({required AuthGate gate}) {
           StatefulShellBranch(
             routes: [
               GoRoute(
+                path: '/library',
+                pageBuilder: (c, s) => _page(WaveLibraryPage(
+                  initialTab: s.uri.queryParameters['tab'],
+                )),
+              ),
+              // Downloads now lives in the Library.
+              GoRoute(
                 path: '/downloads',
-                pageBuilder: (c, s) =>
-                    _page(const WaveDownloadsPage()),
+                redirect: (c, s) => '/library?tab=downloads',
               ),
             ],
           ),

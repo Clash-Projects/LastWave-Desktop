@@ -468,7 +468,11 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         clean.startsWith('/ytplaylist/'))
       return 6;
     if (clean == '/podcasts' || clean.startsWith('/podcasts/')) return 7;
-    if (clean == '/downloads' || clean.startsWith('/downloads/')) return 8;
+    if (clean == '/library' ||
+        clean.startsWith('/library/') ||
+        clean == '/downloads') {
+      return 8;
+    }
     return null;
   }
 
