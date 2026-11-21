@@ -178,15 +178,15 @@ const settingsSearchEntries = <SettingsSearchEntry>[
   SettingsSearchEntry(
     id: 'lastfm.scrobbling',
     section: 'lastfm',
-    title: 'Last.fm scrobbling',
-    subtitle: 'Thresholds mirror Last.fm rules',
+    title: 'Scrobbler rules',
+    subtitle: 'Thresholds apply across all connected scrobblers',
     keywords: 'scrobble scrobbler now playing threshold percent history',
   ),
   SettingsSearchEntry(
     id: 'lastfm.others',
     section: 'lastfm',
-    title: 'Other scrobblers',
-    subtitle: 'ListenBrainz and Libre.fm, alongside or instead of Last.fm',
+    title: 'ListenBrainz & Libre.fm',
+    subtitle: 'Connect accounts to scrobble simultaneously with LastWave',
     keywords: 'listenbrainz libre.fm librefm gnu fm maloja koito scrobble '
         'token self-hosted',
   ),
@@ -420,6 +420,6 @@ class _SettingsSearchBoxState extends State<SettingsSearchBox> {
 }
 
 String _sectionLabel(String id) => switch (id) {
-      'lastfm' => 'Last.fm',
+      'lastfm' => 'Scrobbler',
       _ => '${id[0].toUpperCase()}${id.substring(1)}',
     };

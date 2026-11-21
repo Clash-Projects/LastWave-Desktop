@@ -198,6 +198,44 @@ class _Body extends ConsumerWidget {
                                 );
                               },
                             ),
+                            WaveGhostButton(
+                              label: 'Play next',
+                              icon: FluentIcons.add,
+                              onPressed: () async {
+                                final playable = [
+                                  for (final t in tracks)
+                                    playableFromGenerated(GeneratedTrack(
+                                      name: t.name,
+                                      artist: t.artist,
+                                      album: t.album,
+                                      artworkUrl: t.artworkUrl,
+                                      durationSeconds: t.durationSeconds,
+                                    )),
+                                ];
+                                await ref
+                                    .read(playbackServiceProvider.notifier)
+                                    .playNextAll(playable);
+                              },
+                            ),
+                            WaveGhostButton(
+                              label: 'Add to queue',
+                              icon: FluentIcons.list,
+                              onPressed: () async {
+                                final playable = [
+                                  for (final t in tracks)
+                                    playableFromGenerated(GeneratedTrack(
+                                      name: t.name,
+                                      artist: t.artist,
+                                      album: t.album,
+                                      artworkUrl: t.artworkUrl,
+                                      durationSeconds: t.durationSeconds,
+                                    )),
+                                ];
+                                await ref
+                                    .read(playbackServiceProvider.notifier)
+                                    .addToQueueAll(playable);
+                              },
+                            ),
                             // A playlist copy only: never saved as, or
                             // merged into, the app's Liked Songs.
                             WaveGhostButton(

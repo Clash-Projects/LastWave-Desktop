@@ -85,6 +85,96 @@ void main() {
       expect(sections.single.items.first.artworkUrl, 'https://i/p1.jpg');
       expect(SpotifyApi.parseHome(null), isEmpty);
     });
+
+    test('groups multiple micro-sections with matching titles and dedupes cards', () {
+      final sections = SpotifyApi.parseHome({
+        'data': {
+          'home': {
+            'sectionContainer': {
+              'sections': {
+                'items': [
+                  {
+                    'data': {'title': {'transformedLabel': 'Made for you'}},
+                    'sectionItems': {
+                      'items': [
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:playlist:p1',
+                              'name': '2000s Mix',
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    'data': {'title': {'transformedLabel': 'Made for you'}},
+                    'sectionItems': {
+                      'items': [
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:playlist:p2',
+                              'name': 'Happy Mix',
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    'data': {'title': {'text': 'More like Shayan Sensei'}},
+                    'sectionItems': {
+                      'items': [
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:playlist:p3',
+                              'name': 'Anime Now',
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    'data': {'title': {'transformedLabel': 'Made For You'}},
+                    'sectionItems': {
+                      'items': [
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:playlist:p1', // Duplicate
+                              'name': '2000s Mix',
+                            },
+                          },
+                        },
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:playlist:p4',
+                              'name': 'Sad Mix',
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+
+      expect(sections, hasLength(2));
+      expect(sections[0].title, 'Made for you');
+      // p1 was duplicated; should only be included once, giving p1, p2, p4
+      expect(sections[0].items.map((i) => i.id), ['p1', 'p2', 'p4']);
+      expect(sections[1].title, 'More like Shayan Sensei');
+      expect(sections[1].items.map((i) => i.id), ['p3']);
+    });
   });
 
   group('song radio', () {

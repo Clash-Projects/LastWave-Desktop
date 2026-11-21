@@ -37,7 +37,7 @@ import '../theme/wave_icons.dart';
       'card' => (size: const Size(280, 280), min: const Size(220, 220)),
       'ambient' => (size: const Size(440, 120), min: const Size(360, 108)),
       'lyrics' => lyricsWide
-          ? (size: const Size(640, 120), min: const Size(520, 108))
+          ? (size: const Size(480, 148), min: const Size(380, 130))
           : (size: const Size(440, 120), min: const Size(360, 108)),
       _ => (size: const Size(380, 78), min: const Size(300, 64)),
     };
@@ -557,6 +557,9 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
     dynamic notifier, {
     Widget? lyricLine,
   }) {
+    final hasLyrics = lyricLine != null;
+    final artSize = hasLyrics ? 104.0 : 92.0;
+
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -570,7 +573,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
         ),
         ColoredBox(color: Colors.black.withValues(alpha: 0.38)),
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 8, 10),
+          padding: EdgeInsets.fromLTRB(12, hasLyrics ? 10 : 12, 8, 10),
           child: Row(
             children: [
               DecoratedBox(
@@ -584,52 +587,101 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
                     ),
                   ],
                 ),
-                child: _artwork(current, 92, radius: 10),
+                child: _artwork(current, artSize, radius: 10),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: _titles(current,
-                                titleSize: 14, artistSize: 12, onDark: true),
+                child: hasLyrics
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: _titles(current,
+                                      titleSize: 13.5,
+                                      artistSize: 11.5,
+                                      onDark: true),
+                                ),
+                              ),
+                              AnimatedOpacity(
+                                opacity: _hover ? 1 : 0.55,
+                                duration: waveMotion(
+                                    context, const Duration(milliseconds: 160)),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: _windowActions(onDark: true),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        AnimatedOpacity(
-                          opacity: _hover ? 1 : 0.55,
-                          duration: waveMotion(
-                              context, const Duration(milliseconds: 160)),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: _windowActions(onDark: true),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              ..._transport(snap, notifier,
+                                  playSize: 32, onDark: true),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: RepaintBoundary(
+                                  child: _MiniProgress(
+                                      onDark: true, showTimes: true),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                    if (lyricLine != null) RepaintBoundary(child: lyricLine),
-                    Row(
-                      children: [
-                        ..._transport(snap, notifier,
-                            playSize: 34, onDark: true),
-                        const SizedBox(width: 10),
-                        const Expanded(
-                          child: RepaintBoundary(
-                            child:
-                                _MiniProgress(onDark: true, showTimes: true),
+                          const SizedBox(height: 8),
+                          Expanded(
+                            child: RepaintBoundary(child: lyricLine),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                    ),
-                  ],
-                ),
+                        ],
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: _titles(current,
+                                      titleSize: 14,
+                                      artistSize: 12,
+                                      onDark: true),
+                                ),
+                              ),
+                              AnimatedOpacity(
+                                opacity: _hover ? 1 : 0.55,
+                                duration: waveMotion(
+                                    context, const Duration(milliseconds: 160)),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: _windowActions(onDark: true),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              ..._transport(snap, notifier,
+                                  playSize: 34, onDark: true),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: RepaintBoundary(
+                                  child: _MiniProgress(
+                                      onDark: true, showTimes: true),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                            ],
+                          ),
+                        ],
+                      ),
               ),
             ],
           ),
@@ -884,7 +936,7 @@ class _MiniGlyphState extends State<_MiniGlyph> {
   }
 }
 
-/// The synced lyric line playing now, one line, fading as lines change.
+/// The synced lyric line playing now, up to 2-3 lines, fading as lines change.
 /// The only position subscriber besides the scrubber.
 class _MiniLyricLine extends ConsumerWidget {
   final PlayableTrack track;
@@ -898,30 +950,46 @@ class _MiniLyricLine extends ConsumerWidget {
             .select((s) => s.position.inMilliseconds)) +
         offset;
     final index = miniLyricIndex(lyrics.lines, positionMs);
-    final text = index < 0 ? '' : lyrics.lines[index].text.trim();
-    return SizedBox(
-      height: 18,
+    final rawText = index < 0 ? '' : lyrics.lines[index].text.trim();
+    final text = formatMiniLyric(rawText);
+    final isEmpty = text.isEmpty;
+
+    return Align(
+      alignment: Alignment.topLeft,
       child: AnimatedSwitcher(
         duration: waveMotion(context, const Duration(milliseconds: 220)),
         layoutBuilder: (current, previous) => Stack(
-          alignment: Alignment.centerLeft,
+          alignment: Alignment.topLeft,
           children: [...previous, ?current],
         ),
         child: Text(
-          text.isEmpty ? '\u266A' : text,
+          isEmpty ? '\u266A' : text,
           key: ValueKey(index),
-          maxLines: 1,
+          maxLines: 3,
           overflow: TextOverflow.ellipsis,
           style: WaveType.body.copyWith(
-            fontSize: 13,
-            height: 1.2,
+            fontSize: 12.5,
+            height: 1.25,
             fontWeight: FontWeight.w600,
-            color: Colors.white.withValues(alpha: 0.92),
+            color: isEmpty
+                ? Colors.white.withValues(alpha: 0.45)
+                : Colors.white.withValues(alpha: 0.94),
           ),
         ),
       ),
     );
   }
+}
+
+/// Normalizes spacing around punctuation (commas, periods, purna viram) so
+/// lines wrap cleanly across 2-3 lines and read naturally.
+String formatMiniLyric(String raw) {
+  var t = raw.trim();
+  if (t.isEmpty) return '';
+  t = t.replaceAll(RegExp(r'\s+'), ' ');
+  t = t.replaceAllMapped(RegExp(r'\s+([,.:;!?।])'), (m) => m[1]!);
+  t = t.replaceAllMapped(RegExp(r'([,;])(?=[^\s\d])'), (m) => '${m[1]} ');
+  return t;
 }
 
 /// Index of the line playing at [positionMs]: the last line that has
