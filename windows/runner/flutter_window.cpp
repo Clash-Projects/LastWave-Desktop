@@ -1,8 +1,7 @@
-#include "flutter_window.h"
+﻿#include "flutter_window.h"
 
 #include <optional>
 #include <string>
-#include <variant>
 
 #include <flutter/standard_method_codec.h>
 
@@ -82,23 +81,6 @@ bool FlutterWindow::OnCreate() {
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "lastwave/deeplink",
           &flutter::StandardMethodCodec::GetInstance());
-  window_control_channel_ =
-      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
-          flutter_controller_->engine()->messenger(), "lastwave/window_control",
-          &flutter::StandardMethodCodec::GetInstance());
-  window_control_channel_->SetMethodCallHandler(
-      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
-             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
-                 result) {
-        if (call.method_name() == "setInterceptMinimize") {
-          if (const auto* enabled = std::get_if<bool>(call.arguments())) {
-            intercept_minimize_ = *enabled;
-          }
-          result->Success();
-          return;
-        }
-        result->NotImplemented();
-      });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -120,7 +102,6 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   destroying_ = true;
   smtc_channel_.reset();
-  window_control_channel_.reset();
   deeplink_channel_.reset();
   wasapi_channel_.reset();
   if (flutter_controller_) {
@@ -134,15 +115,6 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
-  // Intercept taskbar/system-menu minimize before Windows iconifies the HWND
-  // so morphing into the floating miniplayer has no taskbar bounce, while
-  // Win+D (Show Desktop, ShowWindow(SW_MINIMIZE)) still minimizes normally.
-  if (message == WM_SYSCOMMAND && (wparam & 0xFFF0) == SC_MINIMIZE &&
-      intercept_minimize_ && window_control_channel_ && !destroying_) {
-    window_control_channel_->InvokeMethod("onMinimize", nullptr);
-    return 0;
-  }
-
   // Media flyout / media-key press marshalled from SMTC's thread-pool
   // callback; forwarded to Dart here, on the platform thread.
   if (message == lastwave::SmtcChannel::kButtonMessage) {

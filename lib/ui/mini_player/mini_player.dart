@@ -5,10 +5,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../../app/mini_player_controller.dart';
 import '../../app/track_actions.dart' show formatDuration;
 import '../../core/storage/prefs.dart';
+import '../../core/audio/stream_models.dart' show PlayableTrack;
+import '../../features/lyrics/karaoke_lyrics_view.dart' show lyricsOffsetProvider;
+import '../../features/lyrics/lyrics_models.dart';
 import '../../features/player/playback_service.dart';
+import '../lyrics/lyrics_panel.dart' show waveLyricsProvider;
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../theme/tokens.dart';
@@ -16,7 +19,7 @@ import '../theme/wave_icons.dart';
 
 /// Small floating mini player window content, in one of four looks picked
 /// by [Prefs.miniPlayerStyle] (window size per style lives in
-/// [MiniPlayerController.miniBoundsFor]):
+/// [miniPlayerBounds]):
 ///
 /// - `classic`: grip + artwork + title/artist + transport + window actions.
 /// - `compact`: slim strip, artwork + title + play/next + expand/close.
@@ -25,6 +28,26 @@ import '../theme/wave_icons.dart';
 ///
 /// Clicking and dragging anywhere on the non-button areas moves the native
 /// desktop window; double-click expands.
+/// Window size and minimum size of the miniplayer for a [Prefs.miniPlayerStyle].
+/// [lyricsWide]: the lyrics style while the song has synced lyrics.
+({Size size, Size min}) miniPlayerBounds(String style,
+        {bool lyricsWide = false}) =>
+    switch (style) {
+      'compact' => (size: const Size(320, 56), min: const Size(260, 48)),
+      'card' => (size: const Size(280, 280), min: const Size(220, 220)),
+      'ambient' => (size: const Size(440, 120), min: const Size(360, 108)),
+      'lyrics' => lyricsWide
+          ? (size: const Size(640, 120), min: const Size(520, 108))
+          : (size: const Size(440, 120), min: const Size(360, 108)),
+      _ => (size: const Size(380, 78), min: const Size(300, 64)),
+    };
+
+/// True when [lyrics] are word- or line-synced (plain text doesn't count).
+bool miniHasSyncedLyrics(LyricsResult? lyrics) =>
+    lyrics != null &&
+    (lyrics.isSynced || lyrics.isWordSynced) &&
+    lyrics.lines.isNotEmpty;
+
 class WaveMiniPlayer extends ConsumerStatefulWidget {
   final VoidCallback onClose;
   final VoidCallback onExpand;
@@ -42,7 +65,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
   bool _hover = false;
 
   void _minimizeMini() {
-    ref.read(miniPlayerProvider.notifier).minimizeFromMini();
+    windowManager.minimize().catchError((Object _) {});
   }
 
   List<Widget> _windowActions({bool onDark = false, bool minimize = true}) => [
@@ -72,6 +95,24 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
       ];
 
   @override
+  void initState() {
+    super.initState();
+    _setTop(true);
+  }
+
+  @override
+  void dispose() {
+    _setTop(false);
+    super.dispose();
+  }
+
+  Future<void> _setTop(bool value) async {
+    try {
+      await windowManager.setAlwaysOnTop(value);
+    } catch (_) {}
+  }
+
+  @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final style = ref.read(prefsProvider).miniPlayerStyle;
@@ -83,7 +124,8 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
     final notifier = ref.read(playbackServiceProvider.notifier);
     final current = snap.current;
     // Card/ambient paint the cover edge to edge; the others sit on the theme.
-    final artBacked = current != null && (style == 'card' || style == 'ambient');
+    final artBacked = current != null &&
+        (style == 'card' || style == 'ambient' || style == 'lyrics');
 
     final Widget content = current == null
         ? _buildEmptyState(context)
@@ -91,6 +133,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
             'compact' => _buildCompact(context, current, snap, notifier),
             'card' => _buildCard(context, current, snap, notifier),
             'ambient' => _buildAmbient(context, current, snap, notifier),
+            'lyrics' => _buildLyrics(context, current, snap, notifier),
             _ => _buildPlayerContent(context, current, snap, notifier),
           };
 
@@ -162,7 +205,29 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
               style: WaveType.meta.copyWith(fontSize: 12),
             ),
           ),
-          ..._windowActions(),
+          _MiniGlyph(
+            tooltip: 'Minimize',
+            icon: FluentIcons.chrome_minimize,
+            onTap: () {
+              try {
+                windowManager.minimize();
+              } catch (_) {}
+            },
+            size: 11,
+          ),
+          _MiniGlyph(
+            tooltip: 'Expand to window',
+            icon: WaveIcons.expand,
+            onTap: widget.onExpand,
+            size: 12,
+          ),
+          _MiniGlyph(
+            tooltip: 'Close mini player',
+            icon: FluentIcons.chrome_close,
+            onTap: widget.onClose,
+            danger: true,
+            size: 12,
+          ),
         ],
       ),
     );
@@ -301,7 +366,29 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
                   color: waveDivider(context).withValues(alpha: 0.6),
                 ),
                 const SizedBox(width: 4),
-                ..._windowActions(),
+                _MiniGlyph(
+                  tooltip: 'Minimize',
+                  icon: FluentIcons.chrome_minimize,
+                  onTap: () {
+                    try {
+                      windowManager.minimize();
+                    } catch (_) {}
+                  },
+                  size: 11,
+                ),
+                _MiniGlyph(
+                  tooltip: 'Expand to window',
+                  icon: WaveIcons.expand,
+                  onTap: widget.onExpand,
+                  size: 12,
+                ),
+                _MiniGlyph(
+                  tooltip: 'Close mini player',
+                  icon: FluentIcons.chrome_close,
+                  onTap: widget.onClose,
+                  danger: true,
+                  size: 12,
+                ),
               ],
             ),
           ),
@@ -419,12 +506,57 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
     );
   }
 
+  /// Ambient panel; the window widens to show one synced lyric line when
+  /// the song has word- or line-synced lyrics, else stays ambient-sized.
+  Widget _buildLyrics(
+    BuildContext context,
+    PlayableTrack current,
+    dynamic snap,
+    dynamic notifier,
+  ) {
+    final lyrics = ref.watch(waveLyricsProvider(current)).valueOrNull;
+    final synced = miniHasSyncedLyrics(lyrics);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fitLyrics(synced));
+    return _buildAmbient(
+      context,
+      current,
+      snap,
+      notifier,
+      lyricLine: synced ? _MiniLyricLine(track: current, lyrics: lyrics!) : null,
+    );
+  }
+
+  bool? _lyricsWide;
+
+  /// Resize for the lyric line, keeping the right edge where it is (the
+  /// miniplayer usually sits at the right of the screen).
+  Future<void> _fitLyrics(bool wide) async {
+    if (!mounted || _lyricsWide == wide) return;
+    final first = _lyricsWide == null;
+    _lyricsWide = wide;
+    // The shell already opened at the narrow size.
+    if (first && !wide) return;
+    final bounds = miniPlayerBounds('lyrics', lyricsWide: wide);
+    try {
+      final pos = await windowManager.getPosition();
+      final size = await windowManager.getSize();
+      await windowManager.setMinimumSize(bounds.min);
+      await windowManager.setBounds(Rect.fromLTWH(
+        pos.dx + size.width - bounds.size.width,
+        pos.dy,
+        bounds.size.width,
+        bounds.size.height,
+      ));
+    } catch (_) {}
+  }
+
   Widget _buildAmbient(
     BuildContext context,
     dynamic current,
     dynamic snap,
-    dynamic notifier,
-  ) {
+    dynamic notifier, {
+    Widget? lyricLine,
+  }) {
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -481,6 +613,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
                         ),
                       ],
                     ),
+                    if (lyricLine != null) RepaintBoundary(child: lyricLine),
                     Row(
                       children: [
                         ..._transport(snap, notifier,
@@ -750,3 +883,60 @@ class _MiniGlyphState extends State<_MiniGlyph> {
     );
   }
 }
+
+/// The synced lyric line playing now, one line, fading as lines change.
+/// The only position subscriber besides the scrubber.
+class _MiniLyricLine extends ConsumerWidget {
+  final PlayableTrack track;
+  final LyricsResult lyrics;
+  const _MiniLyricLine({required this.track, required this.lyrics});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offset = ref.watch(lyricsOffsetProvider(track.queueKey));
+    final positionMs = ref.watch(playbackServiceProvider
+            .select((s) => s.position.inMilliseconds)) +
+        offset;
+    final index = miniLyricIndex(lyrics.lines, positionMs);
+    final text = index < 0 ? '' : lyrics.lines[index].text.trim();
+    return SizedBox(
+      height: 18,
+      child: AnimatedSwitcher(
+        duration: waveMotion(context, const Duration(milliseconds: 220)),
+        layoutBuilder: (current, previous) => Stack(
+          alignment: Alignment.centerLeft,
+          children: [...previous, ?current],
+        ),
+        child: Text(
+          text.isEmpty ? '\u266A' : text,
+          key: ValueKey(index),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: WaveType.body.copyWith(
+            fontSize: 13,
+            height: 1.2,
+            fontWeight: FontWeight.w600,
+            color: Colors.white.withValues(alpha: 0.92),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Index of the line playing at [positionMs]: the last line that has
+/// started, or -1 before the first.
+int miniLyricIndex(List<LyricLine> lines, int positionMs) {
+  var lo = 0, hi = lines.length - 1, found = -1;
+  while (lo <= hi) {
+    final mid = (lo + hi) >> 1;
+    if (lines[mid].timeMs <= positionMs) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found;
+}
+
