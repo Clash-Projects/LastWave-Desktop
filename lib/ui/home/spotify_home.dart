@@ -3,15 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/track_actions.dart' show playGenerated;
+import '../../core/audio/stream_models.dart' show PlayableTrack;
 import '../../features/feed/feed_repository.dart' show GeneratedTrack;
-import '../../features/innertube/innertube_api.dart' show innertubeProvider;
+import '../../features/innertube/innertube_api.dart' show innerTubeProvider;
 import '../../features/player/playback_service.dart';
 import '../../features/spotify/spotify_api.dart';
 import '../components/menus.dart';
 import '../components/shelf.dart';
 import '../components/states.dart';
 import '../navigation/wave_nav.dart';
-import '../theme/tokens.dart';
 
 /// Home when Spotify is the recommendation source: Spotify's own Home
 /// sections, kept apart from the YouTube Music / Last.fm feed (never
@@ -75,7 +75,7 @@ class SpotifyHomeSlivers extends ConsumerWidget {
         ? '${item.name} ${item.subtitle}'
         : item.name;
     final match = await ref
-        .read(innertubeProvider)
+        .read(innerTubeProvider)
         .findBestMatchOrNull(item.name, item.subtitle);
     if (match != null && context.mounted) {
       await playGenerated(
@@ -97,7 +97,7 @@ class SpotifyHomeSlivers extends ConsumerWidget {
     }
   }
 
-  List<WaveMenuItem> _cardMenuItems(
+  List<WaveMenuEntry> _cardMenuItems(
     BuildContext context,
     WidgetRef ref,
     SpotifyHomeItem item,
