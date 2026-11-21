@@ -113,25 +113,6 @@ class WavePlayerDock extends ConsumerWidget {
       duration: waveMotion(context, WaveMotion.normal),
       curve: Curves.easeOutCubic,
       builder: (context, animatedBase, child) {
-        if (waveGlassOn(context)) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            child: WaveHaze(
-              level: LwHazeLevel.l1,
-              enableBlur: false,
-              base: dark
-                  ? const Color(0xD90B0B0D)
-                  : const Color(0xD9FFFFFF),
-              borderRadius: const BorderRadius.all(Radius.circular(22)),
-              border: Border.all(
-                color: (dark ? Colors.white : Colors.black)
-                    .withValues(alpha: dark ? 0.10 : 0.08),
-              ),
-              shadow: WaveElevation.flyout(dark),
-              child: child!,
-            ),
-          );
-        }
         return WaveHaze(
           level: LwHazeLevel.l1,
           enableBlur: false,
