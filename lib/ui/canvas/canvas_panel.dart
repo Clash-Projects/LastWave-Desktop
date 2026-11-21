@@ -52,11 +52,19 @@ class _WaveCanvasPanelState extends ConsumerState<WaveCanvasPanel> {
   /// Attach / retarget / release the player after the frame (the session
   /// notifies listeners, which must not happen inside build).
   void _sync(String url) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       if (!widget.open || url.isEmpty) {
         _release();
         return;
+      }
+      if (_attached.isEmpty) {
+        // Spinning up the video player mid-slide dropped frames: let the
+        // panel finish opening first.
+        await Future<void>.delayed(
+            waveMotion(context, WaveMotion.normal) +
+                const Duration(milliseconds: 40));
+        if (!mounted || !widget.open) return;
       }
       final session = (_session ?? ref.read(canvasPanelSessionProvider))!;
       _session = session;
