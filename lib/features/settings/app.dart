@@ -26,6 +26,7 @@ import '../mpris/mpris_service.dart';
 import '../smtc/smtc_service.dart';
 import '../presence/discord_presence_service.dart';
 import 'accent.dart';
+import 'app_fonts.dart';
 import 'theme_controller.dart';
 
 /// LastWave desktop application root.
@@ -44,6 +45,14 @@ class LastWaveApp extends ConsumerStatefulWidget {
 }
 
 class _LastWaveAppState extends ConsumerState<LastWaveApp> {
+  // Palette fades only follow a song change in the Artwork theme; settings
+  // and Custom colour edits apply at once. The window covers the async
+  // palette (and artwork accent) landing a moment after the track starts.
+  String _song = '';
+  DateTime _songFadeUntil = DateTime(0);
+  (Color, WaveSurfaces)? _target;
+  bool _fade = false;
+
   StreamSubscription<String>? _linkSub;
   AppLifecycleListener? _lifecycle;
 
@@ -212,9 +221,21 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
             ? WaveSurfaces.pearl
             : (theme.amoled ? WaveSurfaces.amoled : WaveSurfaces.graphite));
 
+    final song = ref.watch(
+        playbackServiceProvider.select((s) => s.current?.artworkUrl ?? ''));
+    if (song != _song) {
+      _song = song;
+      _songFadeUntil = DateTime.now().add(const Duration(seconds: 4));
+    }
+    final target = (accent, base);
+    if (target != _target) {
+      _target = target;
+      _fade = theme.isArtwork && DateTime.now().isBefore(_songFadeUntil);
+    }
+
     return TweenAnimationBuilder<(Color, WaveSurfaces)>(
-      tween: _PaletteTween(end: (accent, base)),
-      duration: const Duration(milliseconds: 1400),
+      tween: _PaletteTween(end: target),
+      duration: _fade ? const Duration(milliseconds: 1400) : Duration.zero,
       curve: Curves.easeInOutCubic,
       builder: (context, p, _) => _themed(theme, p.$1, p.$2, light),
     );
@@ -222,16 +243,19 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
 
   Widget _themed(ThemeState theme, Color accent, WaveSurfaces base, bool light) {
     final surfaces = theme.glass ? base.glass(light: light) : base;
+    final font = ref.watch(appFontFamilyProvider).valueOrNull;
     final darkTheme = buildWaveFluentTheme(
       accent: accent,
       isLight: false,
       amoled: theme.amoled,
       custom: light ? null : surfaces,
+      fontFamily: font,
     );
     final lightTheme = buildWaveFluentTheme(
       accent: accent,
       isLight: true,
       custom: light ? surfaces : null,
+      fontFamily: font,
     );
 
     return WaveHazeScope(

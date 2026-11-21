@@ -1090,31 +1090,6 @@ class WaveAmbientMesh extends ConsumerWidget {
   }
 }
 
-/// Full-window aura behind the glassmorphism theme (`WaveGlassStage`):
-/// the Apple stage for [artworkUrl], with no scrim and no visualizer
-/// toggle (the stage adds its own theme veil). Empty until the cover's
-/// textures are baked, so the stage can cross-fade only when it is ready.
-class WaveGlassAura extends ConsumerWidget {
-  final String artworkUrl;
-  const WaveGlassAura({super.key, required this.artworkUrl});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final textures = ref.watch(auraTexturesProvider(artworkUrl)).valueOrNull;
-    if (textures == null) return const SizedBox.shrink();
-    final palette = ref.watch(artworkPaletteProvider(artworkUrl)).valueOrNull ??
-        ArtworkPalette.fallback;
-    final playing =
-        ref.watch(playbackServiceProvider.select((s) => s.isPlaying));
-    return _AuraLayers(
-      textures: textures,
-      palette: palette,
-      apple: true,
-      playing: playing,
-    );
-  }
-}
-
 /// Apple Music-inspired album cover background visualizer:
 /// Composites multiple slowly counter-rotating and orbiting blurred layers of
 /// the album cover with regional palette blooms.

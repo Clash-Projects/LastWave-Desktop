@@ -401,6 +401,10 @@ class Prefs {
   bool get glassmorphism => _sp.getBool('lw_glassmorphism') ?? false;
   Future<void> setGlassmorphism(bool v) => _sp.setBool('lw_glassmorphism', v);
 
+  /// App font: '' Windows default, else an id from `appFonts`.
+  String get appFont => _sp.getString('lw_app_font') ?? '';
+  Future<void> setAppFont(String v) => _sp.setString('lw_app_font', v);
+
   bool get wavySeekbar => _sp.getBool('lw_wavy_seekbar') ?? false;
   Future<void> setWavySeekbar(bool v) => _sp.setBool('lw_wavy_seekbar', v);
 

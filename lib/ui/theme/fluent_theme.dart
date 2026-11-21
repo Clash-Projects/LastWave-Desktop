@@ -79,6 +79,7 @@ FluentThemeData buildWaveFluentTheme({
   required bool isLight,
   bool amoled = false,
   WaveSurfaces? custom,
+  String? fontFamily,
 }) {
   final safeAccent =
       accent.a == 0 ? WaveColors.defaultAccent : accent;
@@ -91,6 +92,7 @@ FluentThemeData buildWaveFluentTheme({
     final page = custom?.background ?? WaveColors.lightBackground;
     final card = custom?.surface ?? WaveColors.lightSurface;
     return FluentThemeData(
+      fontFamily: fontFamily,
       brightness: Brightness.light,
       accentColor: accentColor,
       scaffoldBackgroundColor: page,
@@ -111,6 +113,7 @@ FluentThemeData buildWaveFluentTheme({
     );
   }
   return FluentThemeData(
+    fontFamily: fontFamily,
     brightness: Brightness.dark,
     accentColor: accentColor,
     scaffoldBackgroundColor: surfaces.background,

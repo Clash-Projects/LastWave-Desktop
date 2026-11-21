@@ -82,8 +82,10 @@ class _WaveSideRailState extends State<WaveSideRail> {
       level: LwHazeLevel.l1,
       enableBlur: false,
       fillAlpha: 1.0,
-      base: waveRailTranslucent(context)
-          .withValues(alpha: 1.0),
+      // Glass keeps the palette's own see-through fill.
+      base: waveGlassOn(context)
+          ? waveRailTranslucent(context)
+          : waveRailTranslucent(context).withValues(alpha: 1.0),
       border: Border(
         right: BorderSide(color: waveDivider(context)),
       ),

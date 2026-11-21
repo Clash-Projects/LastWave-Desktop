@@ -163,6 +163,13 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'amoled black dynamic artwork theme tint now playing contrast',
   ),
   SettingsSearchEntry(
+    id: 'appearance.font',
+    section: 'appearance',
+    title: 'Font',
+    subtitle: 'The typeface used across the app',
+    keywords: 'font typeface typography text inter poppins geist manrope',
+  ),
+  SettingsSearchEntry(
     id: 'lastfm.connection',
     section: 'lastfm',
     title: 'Last.fm connection',

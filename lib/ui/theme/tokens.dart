@@ -180,8 +180,8 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
       surfaceRaised: a(surfaceRaised, 0.88, 0.90),
       surfaceOverlay: a(surfaceOverlay, 0.42, 0.55),
       panelTranslucent: a(panelTranslucent, 0.40, 0.50),
-      dockTranslucent: a(dockTranslucent, 0.46, 0.56),
-      railTranslucent: a(railTranslucent, 0.28, 0.38),
+      dockTranslucent: a(dockTranslucent, 0.30, 0.42),
+      railTranslucent: a(railTranslucent, 0.22, 0.34),
       outline: line.withValues(alpha: light ? 0.12 : 0.14),
       outlineSoft: line.withValues(alpha: light ? 0.07 : 0.08),
       isCustom: true,
@@ -632,6 +632,9 @@ Color _surfaceRole(
   if (s.isCustom || waveIsDark(context)) return pick(s);
   return pearl;
 }
+
+/// Glassmorphism is on: only the glass palette has a clear page.
+bool waveGlassOn(BuildContext context) => waveBackground(context).a < 1;
 
 /// Page/scaffold background. AMOLED- and Custom-aware.
 Color waveBackground(BuildContext context) =>

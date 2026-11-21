@@ -37,6 +37,9 @@ class ThemeState {
   /// artwork aura (see `WaveGlassStage`). Works with every theme mode.
   final bool glass;
 
+  /// App font id (see `appFonts`); '' = Windows default.
+  final String font;
+
   const ThemeState({
     required this.accent,
     required this.amoled,
@@ -50,6 +53,7 @@ class ThemeState {
     this.liquidGlass = false,
     this.wavySeekbar = false,
     this.glass = false,
+    this.font = '',
   });
 
   /// The palette for the Custom theme, or null for Midnight / Pearl.
@@ -78,6 +82,7 @@ class ThemeController extends StateNotifier<ThemeState> {
           liquidGlass: _prefs.liquidGlass,
           wavySeekbar: _prefs.wavySeekbar,
           glass: _prefs.glassmorphism,
+          font: _prefs.appFont,
         ));
 
   void refresh() {
@@ -94,6 +99,7 @@ class ThemeController extends StateNotifier<ThemeState> {
       liquidGlass: _prefs.liquidGlass,
       wavySeekbar: _prefs.wavySeekbar,
       glass: _prefs.glassmorphism,
+      font: _prefs.appFont,
     );
   }
 

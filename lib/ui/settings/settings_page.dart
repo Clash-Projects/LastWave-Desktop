@@ -18,6 +18,7 @@ import '../../core/audio/stream_models.dart';
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/env/app_env.dart';
 import '../../core/storage/prefs.dart';
+import '../../features/settings/app_fonts.dart';
 import '../../features/scrobblers/extra_scrobblers.dart';
 import '../../features/addons/addon_api.dart';
 import '../../features/innertube/innertube_api.dart';
@@ -1098,6 +1099,25 @@ class _Appearance extends ConsumerWidget {
                 style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
               ),
             ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'appearance.font',
+          title: 'Font',
+          subtitle: 'The typeface used across the app',
+          child: _BehaviourSelectRow(
+            title: 'App font',
+            subtitle: appFonts.firstWhere((f) => f.id == theme.font,
+                        orElse: () => appFonts.first).web
+                ? 'Downloaded once, then works offline.'
+                : 'Installed with Windows.',
+            value: appFonts.any((f) => f.id == theme.font) ? theme.font : '',
+            options: [
+              for (final f in appFonts)
+                WaveSelectOption(value: f.id, label: f.label),
+            ],
+            onChanged: (v) => onUpdate((p) => p.setAppFont(v)),
           ),
         ),
         const SizedBox(height: 8),

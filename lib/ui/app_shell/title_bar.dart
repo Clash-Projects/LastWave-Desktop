@@ -66,12 +66,14 @@ class WaveTitleBar extends ConsumerWidget {
     return WaveHaze(
       level: LwHazeLevel.l1,
       enableBlur: false,
-      base: dark
-          ? waveBackground(context).withValues(alpha: 0.85)
-          : waveBackground(context).withValues(alpha: 0.9),
-      border: Border(
-        bottom: BorderSide(color: waveDivider(context)),
-      ),
+      base: waveGlassOn(context)
+          ? const Color(0x00000000)
+          : (dark
+              ? waveBackground(context).withValues(alpha: 0.85)
+              : waveBackground(context).withValues(alpha: 0.9)),
+      border: waveGlassOn(context)
+          ? null
+          : Border(bottom: BorderSide(color: waveDivider(context))),
       child: SizedBox(
         height: WaveDensity.titleBar,
         child: LayoutBuilder(
