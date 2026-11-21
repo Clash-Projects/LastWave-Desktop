@@ -32,11 +32,43 @@ class SpotifyWebPlayer {
   /// The operation that searches for tracks (was `searchTracks`).
   static const searchOperation = 'assistedCurationSearch';
   static const libraryOperation = 'libraryV3';
+
+  /// The web player's Home feed query.
+  static const homeOperation = 'home';
   static const fetchPlaylistOperation = 'fetchPlaylist';
 
   static String? _script;
   static DateTime? _readAt;
   static Future<String?>? _inflight;
+
+  /// Most bundles scanned when looking for an operation hash.
+  static const _maxHashScripts = 24;
+
+  static final Map<String, String> _hashes = {};
+
+  /// [operation]'s hash from whichever player bundle declares it. [script]
+  /// only keeps the first matching bundle, and route chunks such as Home
+  /// declare their queries elsewhere. Cached for the app session.
+  static Future<String?> findHash(Dio dio, String operation) async {
+    final cached = _hashes[operation];
+    if (cached != null) return cached;
+    final main = await script(dio);
+    var hash = main == null ? null : queryHash(main, operation);
+    if (hash == null) {
+      final page = await _get(dio, _playerPage);
+      if (page != null) {
+        for (final bundle in scripts(page).take(_maxHashScripts)) {
+          final body = await _get(dio, bundle);
+          if (body == null) continue;
+          hash = queryHash(body, operation);
+          if (hash != null) break;
+        }
+      }
+    }
+    DiagnosticsLog.info('spotify player op=$operation hash=${hash != null}');
+    if (hash != null) _hashes[operation] = hash;
+    return hash;
+  }
 
   /// The player's script, or null when it could not be read. Cached for a
   /// few hours: the player changes rarely and the bundle is megabytes.
@@ -172,6 +204,7 @@ class SpotifyWebPlayer {
     _script = null;
     _readAt = null;
     _inflight = null;
+    _hashes.clear();
   }
 }
 

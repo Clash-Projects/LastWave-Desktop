@@ -19,6 +19,74 @@ void main() {
     });
   });
 
+  group('home', () {
+    test('reads titled rows of playlists, albums and artists', () {
+      final sections = SpotifyApi.parseHome({
+        'data': {
+          'home': {
+            'sectionContainer': {
+              'sections': {
+                'items': [
+                  {
+                    'data': {
+                      'title': {'transformedLabel': 'Made For You'},
+                    },
+                    'sectionItems': {
+                      'items': [
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:playlist:p1',
+                              'name': 'Daily Mix 1',
+                              'images': {
+                                'items': [
+                                  {
+                                    'sources': [
+                                      {'url': 'https://i/p1.jpg'},
+                                    ],
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:artist:a1',
+                              'profile': {'name': 'Raftaar'},
+                            },
+                          },
+                        },
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:episode:e1',
+                              'name': 'A podcast',
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    'data': {'title': {'text': 'Empty row'}},
+                    'sectionItems': {'items': []},
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+      expect(sections, hasLength(1));
+      expect(sections.single.title, 'Made For You');
+      expect(sections.single.items.map((i) => i.kind), ['playlist', 'artist']);
+      expect(sections.single.items.first.artworkUrl, 'https://i/p1.jpg');
+      expect(SpotifyApi.parseHome(null), isEmpty);
+    });
+  });
+
   group('song radio', () {
     test('reads the radio playlist from a seed_to_playlist answer', () {
       expect(

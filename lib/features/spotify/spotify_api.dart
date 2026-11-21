@@ -67,6 +67,30 @@ class SpotifyPlaylistContent {
   });
 }
 
+/// One card on Spotify's Home: a playlist, album or artist.
+class SpotifyHomeItem {
+  /// `playlist`, `album` or `artist`.
+  final String kind;
+  final String id;
+  final String name;
+  final String subtitle;
+  final String artworkUrl;
+  const SpotifyHomeItem({
+    required this.kind,
+    required this.id,
+    required this.name,
+    this.subtitle = '',
+    this.artworkUrl = '',
+  });
+}
+
+/// One titled row of Spotify's Home ("Made for you", "Jump back in", …).
+class SpotifyHomeSection {
+  final String title;
+  final List<SpotifyHomeItem> items;
+  const SpotifyHomeSection({required this.title, required this.items});
+}
+
 /// A Spotify Canvas: the short vertical (9:16) looping clip of a track.
 class SpotifyCanvasClip {
   final String url;
@@ -360,6 +384,106 @@ class SpotifyApi {
   // -- canvas -------------------------------------------------------------
 
   /// The Spotify Canvas of a track, or the reason there is none.
+  // -- home -----------------------------------------------------------------
+
+  /// Spotify's own Home feed for the signed-in account, as the web player
+  /// shows it: the `home` query, its hash read from the live player. Empty
+  /// when there is no session or the player no longer declares the query.
+  Future<List<SpotifyHomeSection>> home() async {
+    final hash =
+        await SpotifyWebPlayer.findHash(_dio, SpotifyWebPlayer.homeOperation);
+    if (hash == null) return const [];
+    final vars = <String, Object?>{
+      'timeZone': _timeZone(),
+      'sp_t': '',
+      'facet': '',
+      'sectionItemsLimit': 12,
+    };
+    final root = await _query(SpotifyWebPlayer.homeOperation, vars, hash) ??
+        await _post(SpotifyWebPlayer.homeOperation, vars, hash);
+    final sections = parseHome(root);
+    DiagnosticsLog.info('spotify home sections=${sections.length}');
+    return sections;
+  }
+
+  // shortcut: Windows reports a display name ("India Standard Time"), not
+  // an IANA zone; send UTC then (Home only uses it for time-of-day rows).
+  // Use a timezone package if those rows matter.
+  static String _timeZone() {
+    final name = DateTime.now().timeZoneName;
+    return name.contains('/') ? name : 'UTC';
+  }
+
+  /// `data.home.sectionContainer.sections.items[]` → titled card rows.
+  @visibleForTesting
+  static List<SpotifyHomeSection> parseHome(Map<String, dynamic>? root) {
+    final sections =
+        _at(root, ['data', 'home', 'sectionContainer', 'sections', 'items']);
+    if (sections is! List) return const [];
+    final out = <SpotifyHomeSection>[];
+    for (final s in sections) {
+      final title = _text(_at(s, ['data', 'title', 'transformedLabel'])).isNotEmpty
+          ? _text(_at(s, ['data', 'title', 'transformedLabel']))
+          : _text(_at(s, ['data', 'title', 'text']));
+      final items = _at(s, ['sectionItems', 'items']);
+      if (items is! List) continue;
+      final cards = <SpotifyHomeItem>[];
+      for (final it in items) {
+        final card = _homeItem(_at(it, ['content', 'data']));
+        if (card != null) cards.add(card);
+      }
+      if (cards.isEmpty) continue;
+      out.add(SpotifyHomeSection(
+        title: title.isEmpty ? 'For you' : title,
+        items: cards,
+      ));
+    }
+    return out;
+  }
+
+  static SpotifyHomeItem? _homeItem(Object? data) {
+    if (data is! Map) return null;
+    final uri = _text(data['uri']);
+    final parts = uri.split(':');
+    if (parts.length != 3 || parts[0] != 'spotify') return null;
+    final kind = parts[1];
+    final name = _text(data['name']).isNotEmpty
+        ? _text(data['name'])
+        : _text(_at(data, ['profile', 'name']));
+    if (name.isEmpty) return null;
+    switch (kind) {
+      case 'playlist':
+        return SpotifyHomeItem(
+          kind: kind,
+          id: parts[2],
+          name: name,
+          subtitle: _text(_at(data, ['ownerV2', 'data', 'name'])),
+          artworkUrl: _firstImage(data['images']),
+        );
+      case 'album':
+        final artists = _at(data, ['artists', 'items']);
+        return SpotifyHomeItem(
+          kind: kind,
+          id: parts[2],
+          name: name,
+          subtitle: artists is List && artists.isNotEmpty
+              ? _text(_at(artists.first, ['profile', 'name']))
+              : '',
+          artworkUrl: _firstSource(_at(data, ['coverArt', 'sources'])),
+        );
+      case 'artist':
+        return SpotifyHomeItem(
+          kind: kind,
+          id: parts[2],
+          name: name,
+          subtitle: 'Artist',
+          artworkUrl:
+              _firstSource(_at(data, ['visuals', 'avatarImage', 'sources'])),
+        );
+    }
+    return null; // podcasts, episodes, audiobooks: not played here
+  }
+
   // -- song radio ---------------------------------------------------------
 
   /// Spotify's own song radio for a track, exactly as the web player builds
@@ -897,6 +1021,18 @@ class _SpotifyTrackHit {
 final spotifyApiProvider = Provider<SpotifyApi>(
   (ref) => SpotifyApi(ref.watch(spotifyAuthProvider)),
 );
+
+/// Spotify's Home feed, loaded only while Spotify is the recommendation
+/// source and an account is connected. Empty otherwise.
+final spotifyHomeProvider =
+    FutureProvider<List<SpotifyHomeSection>>((ref) async {
+  final auth = ref.watch(spotifyAuthProvider);
+  if (!auth.connected) return const [];
+  if (ref.watch(prefsProvider).recommendationSource != 'spotify') {
+    return const [];
+  }
+  return ref.watch(spotifyApiProvider).home();
+});
 
 /// Account playlists (Liked Songs first). Empty when not connected.
 final spotifyPlaylistsProvider = FutureProvider<List<SpotifyPlaylistSummary>>((
