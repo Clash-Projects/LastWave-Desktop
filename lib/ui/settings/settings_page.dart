@@ -3324,6 +3324,26 @@ class _General extends ConsumerWidget {
                   await ref.read(miniPlayerProvider.notifier).syncFromPrefs();
                 },
               ),
+              const SizedBox(height: 10),
+              _BehaviourSelectRow(
+                title: 'Miniplayer style',
+                subtitle: switch (prefs.miniPlayerStyle) {
+                  'compact' => 'Slim strip with just the essentials.',
+                  'card' =>
+                    'Square artwork card with controls over the cover.',
+                  'ambient' =>
+                    'Wide panel glowing with the blurred artwork and a timed scrubber.',
+                  _ => 'Bar with artwork, transport and window buttons.',
+                },
+                value: prefs.miniPlayerStyle,
+                options: const [
+                  WaveSelectOption(value: 'classic', label: 'Classic bar'),
+                  WaveSelectOption(value: 'compact', label: 'Compact strip'),
+                  WaveSelectOption(value: 'card', label: 'Artwork card'),
+                  WaveSelectOption(value: 'ambient', label: 'Ambient wide'),
+                ],
+                onChanged: (v) => onUpdate((p) => p.setMiniPlayerStyle(v)),
+              ),
               if (Platform.isLinux &&
                   Platform.environment['WAYLAND_DISPLAY'] != null)
                 Padding(

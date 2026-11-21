@@ -263,6 +263,26 @@ void main() {
     expect(window.lastNativeIntercept, isFalse); // disabled once in mini mode
   });
 
+  test('miniplayer style picks its window size; unknown style falls back',
+      () async {
+    final (container, window, prefs) = await _createHarness(
+      initialPrefs: {'lw_mini_style': 'card'},
+      hasTrack: true,
+      isPlaying: true,
+    );
+    addTearDown(container.dispose);
+
+    await container.read(miniPlayerProvider.notifier).enter();
+    final card = MiniPlayerController.miniBoundsFor('card');
+    expect(window.size, card.size);
+    expect(window.minSize, card.min);
+
+    await prefs.setMiniPlayerStyle('bogus');
+    expect(prefs.miniPlayerStyle, 'classic');
+    expect(MiniPlayerController.miniBoundsFor('classic').size,
+        MiniPlayerController.miniSize);
+  });
+
   test('minimizeFromMini smart mode restores taskbar before OS minimize and avoids stub',
       () async {
     final (container, window, _) = await _createHarness(
