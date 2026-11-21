@@ -442,6 +442,7 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
               artist: t.artist,
               album: t.album,
               artworkUrl: t.artworkUrl,
+              videoId: t.videoId,
             ),
       ),
       WaveMenuAction(

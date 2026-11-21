@@ -364,7 +364,8 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                                             title: t.name,
                                             artist: t.artist,
                                             artworkUrl:
-                                                t.artworkUrl);
+                                                t.artworkUrl,
+                                            videoId: t.videoId);
                                       }
                                     },
                               overflowItems: order.isEmpty

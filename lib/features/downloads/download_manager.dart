@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/network/dio_factory.dart';
@@ -458,12 +459,26 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
     }
   }
 
+  /// Strict title + artist match first, then the looser best-effort one
+  /// (same order as the history matcher), so a row without a video id
+  /// still finds the song the player would have played.
+  Future<String?> _matchVideoId(String title, String artist) async {
+    final strict = await _tube.findBestMatchOrNull(title, artist);
+    if (strict != null) return strict.videoId;
+    final loose = await _tube.findBestEffortMatchOrNull(title, artist);
+    return loose?.videoId;
+  }
+
   Future<void> downloadTrack({
     required String title,
     required String artist,
     String album = '',
     String artworkUrl = '',
     String year = '',
+    /// The YouTube video the row already plays. Used as-is when given:
+    /// re-searching by title + artist missed tracks with long credits or
+    /// soundtrack titles, so they played fine but failed to download.
+    String videoId = '',
   }) async {
     final key = keyOf(title, artist);
     final generation = _cancelGeneration[key] ?? 0;
@@ -515,15 +530,22 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
         }
       }
       if (stream == null) {
-        final match = await _tube.findBestMatchOrNull(title, artist);
-        if (match == null) {
+        final id = videoId.isNotEmpty
+            ? videoId
+            : await _matchVideoId(title, artist);
+        if (id == null) {
+          DiagnosticsLog.info(
+              'download "$title" - "$artist" stage=match ok=false');
           throw Exception('No playable source found');
         }
         // Opus-first: YouTube's best lossy codec, probed before use.
-        final opus =
-            await _tube.resolveOpusDownloadStream(match.videoId);
-        final yt = opus ?? await _tube.resolveAudioStream(match.videoId);
-        if (yt == null) throw Exception('Stream unavailable');
+        final opus = await _tube.resolveOpusDownloadStream(id);
+        final yt = opus ?? await _tube.resolveAudioStream(id);
+        if (yt == null) {
+          DiagnosticsLog.info(
+              'download "$title" - "$artist" stage=stream video=$id ok=false');
+          throw Exception('Stream unavailable');
+        }
         stream = yt;
         ytCodecHint = yt.audioCodec.toUpperCase();
       }
