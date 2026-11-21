@@ -169,14 +169,22 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
 
   @override
   Widget build(BuildContext context) {
+    // Native frame colour follows the mode and, for Custom / Artwork, the
+    // generated page colour (which changes per song in the Artwork theme).
+    void syncWindow() {
+      final t = ref.read(themeControllerProvider);
+      applyWindowMaterial(
+        isLight: t.effectiveLight,
+        amoled: t.amoled,
+        background: ref.read(paletteSurfacesProvider)?.background,
+      );
+    }
+
     ref.listen(
-        themeControllerProvider.select(
-            (t) => (t.effectiveLight, t.amoled, t.customSurfaces?.background)),
-        (_, mode) => applyWindowMaterial(
-              isLight: mode.$1,
-              amoled: mode.$2,
-              background: mode.$3,
-            ));
+        themeControllerProvider.select((t) => (t.effectiveLight, t.amoled)),
+        (_, _) => syncWindow());
+    ref.listen(paletteSurfacesProvider.select((s) => s?.background),
+        (_, _) => syncWindow());
     // Live auth state drives the gate (login, logout, guest entry,
     // session expiry). Guests count as inside.
     ref.listen(
@@ -192,9 +200,10 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     // custom pick there.
     final accent = ref.watch(accentResolutionProvider).color;
 
-    // Custom theme: one generated palette, published as the dark or the
-    // light theme depending on how bright its base is.
-    final custom = theme.customSurfaces;
+    // Custom / Artwork theme: one generated palette, published as the dark
+    // or the light theme depending on how bright its base is. FluentApp
+    // lerps between themes, so the Artwork tint blends from song to song.
+    final custom = ref.watch(paletteSurfacesProvider);
     final customLight = custom != null && theme.effectiveLight;
     final darkTheme = buildWaveFluentTheme(
       accent: accent,

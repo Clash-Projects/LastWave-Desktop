@@ -135,9 +135,9 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     id: 'appearance.theme',
     section: 'appearance',
     title: 'Theme',
-    subtitle: 'Midnight, Pearl, or your own colours',
+    subtitle: 'Midnight, Pearl, artwork, or your own colours',
     keywords:
-        'dark light midnight pearl custom theme background base tint '
+        'dark light midnight pearl custom artwork cover theme background base tint '
         'accent colour color picker palette mode personalize',
   ),
   SettingsSearchEntry(

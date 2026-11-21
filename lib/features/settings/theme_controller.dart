@@ -17,6 +17,10 @@ class ThemeState {
   /// The Custom theme is selected; surfaces come from [customBase].
   final bool isCustom;
   final Color customBase;
+
+  /// The Artwork theme is selected; surfaces follow the playing cover
+  /// (resolved outside this state, see `artworkSurfacesProvider`).
+  final bool isArtwork;
   final String hazeMaterial;
   final String hazeIntensity;
   final String accentSource;
@@ -35,6 +39,7 @@ class ThemeState {
     this.isLight = false,
     this.isCustom = false,
     this.customBase = const Color(0xFF1A2A44),
+    this.isArtwork = false,
     this.hazeMaterial = 'automatic',
     this.hazeIntensity = 'medium',
     this.accentSource = 'custom',
@@ -61,6 +66,7 @@ class ThemeController extends StateNotifier<ThemeState> {
           isLight: _prefs.isLight,
           isCustom: _prefs.isCustomTheme,
           customBase: Color(_prefs.customThemeBase),
+          isArtwork: _prefs.isArtworkTheme,
           hazeMaterial: _prefs.hazeMaterial,
           hazeIntensity: _prefs.hazeIntensity,
           accentSource: _prefs.accentSource,
@@ -75,6 +81,7 @@ class ThemeController extends StateNotifier<ThemeState> {
       isLight: _prefs.isLight,
       isCustom: _prefs.isCustomTheme,
       customBase: Color(_prefs.customThemeBase),
+      isArtwork: _prefs.isArtworkTheme,
       hazeMaterial: _prefs.hazeMaterial,
       hazeIntensity: _prefs.hazeIntensity,
       accentSource: _prefs.accentSource,
@@ -83,7 +90,7 @@ class ThemeController extends StateNotifier<ThemeState> {
     );
   }
 
-  /// 'dark' (Midnight), 'light' (Pearl) or 'custom'.
+  /// 'dark' (Midnight), 'light' (Pearl), 'custom' or 'artwork'.
   Future<void> setThemeMode(String mode) async {
     await _prefs.setThemeMode(mode);
     refresh();
