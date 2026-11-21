@@ -138,7 +138,9 @@ Future<void> _finish(BuildContext context, WidgetRef ref, String cookie) async {
       await _notice(
         context,
         'Could not reach Spotify',
-        'Check your connection and try again.',
+        "LastWave couldn't reach Spotify's sign-in service. Check your "
+            'connection, firewall or VPN, then try again. Your cookie was '
+            'not rejected.',
       );
     case SpotifySessionCheck.missing:
       await _notice(context, 'No cookie', 'Nothing was entered.');
