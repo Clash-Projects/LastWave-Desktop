@@ -31,4 +31,11 @@ void main() {
         greaterThan(miniPlayerBounds('lyrics').size.width));
     expect(miniPlayerBounds('lyrics').size, miniPlayerBounds('ambient').size);
   });
+
+  test('formatMiniLyric formats commas and periods cleanly', () {
+    expect(formatMiniLyric('hello , world .'), 'hello, world.');
+    expect(formatMiniLyric('hello,world'), 'hello, world');
+    expect(formatMiniLyric('गाड़ी खड़ी पहाड़ी में तेरी कैसेट हो'),
+        'गाड़ी खड़ी पहाड़ी में तेरी कैसेट हो');
+  });
 }

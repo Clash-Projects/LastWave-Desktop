@@ -1861,8 +1861,29 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _prefetchNeighbors();
   }
 
+  Future<void> playNextAll(List<PlayableTrack> tracks) async {
+    if (tracks.isEmpty) return;
+    final queue = List<PlayableTrack>.of(state.queue);
+    final at =
+        state.currentIndex >= 0 ? state.currentIndex + 1 : queue.length;
+    queue.insertAll(at, tracks);
+    _rebuildShuffleOrder(queue.length, state.currentIndex);
+    state = state.copyWith(queue: queue);
+    _schedulePersist();
+    _prefetchNeighbors();
+  }
+
   Future<void> addToQueue(PlayableTrack track) async {
     final queue = List<PlayableTrack>.of(state.queue)..add(track);
+    _rebuildShuffleOrder(queue.length, state.currentIndex);
+    state = state.copyWith(queue: queue);
+    _schedulePersist();
+    _prefetchNeighbors();
+  }
+
+  Future<void> addToQueueAll(List<PlayableTrack> tracks) async {
+    if (tracks.isEmpty) return;
+    final queue = List<PlayableTrack>.of(state.queue)..addAll(tracks);
     _rebuildShuffleOrder(queue.length, state.currentIndex);
     state = state.copyWith(queue: queue);
     _schedulePersist();
@@ -3569,23 +3590,25 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     final seed = state.current;
     if (seed == null || _radioSeeds.contains(seed.mediaId)) return;
     _radioSeeds.add(seed.mediaId);
-    // One source per refill, never both: Spotify's own radio when chosen
-    // and connected, otherwise YouTube Music's related songs.
+    // One source per refill: Spotify's own radio when chosen and
+    // connected, falling back to YouTube Music's related songs if Spotify
+    // is empty, exhausted, or unavailable so the music never stops.
     if (_prefs.recommendationSource == 'spotify' && spotifyRadio != null) {
       try {
         final picks = await spotifyRadio!(seed);
-        if (picks != null) {
-          _appendRadio([
+        if (picks != null && picks.isNotEmpty) {
+          final toAdd = [
             for (final t in picks)
               if (!_isDisallowedRadioTitle(t.title) &&
                   !_isQueued(t, state.queue))
                 t,
-          ].take(10).toList());
-          return;
+          ].take(10).toList();
+          if (toAdd.isNotEmpty) {
+            _appendRadio(toAdd);
+            return;
+          }
         }
-      } catch (_) {
-        return;
-      }
+      } catch (_) {}
     }
     try {
       final videoId = seed.videoId.isNotEmpty

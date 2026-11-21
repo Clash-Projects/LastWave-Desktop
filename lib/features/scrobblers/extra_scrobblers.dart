@@ -64,9 +64,19 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
 
   String get _base => normalizeServer(_prefs.listenBrainzServer, defaultServer);
 
+  static String cleanToken(String token) {
+    var t = token.trim();
+    if (t.toLowerCase().startsWith('token ')) {
+      t = t.substring(6).trim();
+    } else if (t.toLowerCase().startsWith('bearer ')) {
+      t = t.substring(7).trim();
+    }
+    return t.replaceAll('"', '').replaceAll("'", '').trim();
+  }
+
   Options _auth(String token) => Options(
         headers: {
-          'Authorization': 'Token $token',
+          'Authorization': 'Token ${cleanToken(token)}',
           'Content-Type': 'application/json',
         },
         responseType: ResponseType.json,
@@ -76,18 +86,25 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
   /// Checks [token] against [server] and stores it with the user name.
   /// Returns null on success, else the reason.
   Future<String?> connect(String token, {String server = ''}) async {
-    final t = token.trim();
+    final t = cleanToken(token);
     if (t.isEmpty) return 'Paste your user token.';
     final base = normalizeServer(server, defaultServer);
     try {
       final res = await _dio.get<dynamic>('$base/1/validate-token',
           options: _auth(t));
-      final body = res.data;
+      var body = res.data;
+      if (body is String) {
+        try {
+          body = jsonDecode(body);
+        } catch (_) {}
+      }
       final valid = body is Map && body['valid'] == true;
       if (!valid) {
         return (res.statusCode ?? 0) == 0
             ? 'Could not reach $base.'
-            : 'The token was not accepted.';
+            : (body is Map && body['message'] != null
+                ? body['message'].toString()
+                : 'The token was not accepted.');
       }
       await _prefs.setListenBrainz(
         token: t,
@@ -116,6 +133,9 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
 
   Future<bool> _post(String type, Listen l) async {
     if (!connected) return false;
+    final timestamp = l.startedAtSec > 0
+        ? l.startedAtSec
+        : DateTime.now().millisecondsSinceEpoch ~/ 1000;
     try {
       final res = await _dio.post<dynamic>(
         '$_base/1/submit-listens',
@@ -123,7 +143,7 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
           'listen_type': type,
           'payload': [
             {
-              if (type == 'single') 'listened_at': l.startedAtSec,
+              if (type == 'single') 'listened_at': timestamp,
               'track_metadata': _metadata(l),
             },
           ],
@@ -229,11 +249,48 @@ class LibreFmScrobbler implements ExtraScrobbler {
           validateStatus: (_) => true,
         ),
       );
-      final body = jsonDecode('${res.data ?? '{}'}');
-      return body is Map ? Map<String, dynamic>.from(body) : null;
+      final raw = '${res.data ?? ''}'.trim();
+      if (raw.isEmpty) return null;
+      if (raw.startsWith('{')) {
+        final body = jsonDecode(raw);
+        return body is Map ? Map<String, dynamic>.from(body) : null;
+      }
+      if (raw.startsWith('<')) {
+        return parseXml(raw);
+      }
+      return null;
     } catch (_) {
       return null;
     }
+  }
+
+  @visibleForTesting
+  static Map<String, dynamic> parseXml(String xml) {
+    final map = <String, dynamic>{};
+    final key = RegExp(r'<key>([^<]+)</key>').firstMatch(xml)?.group(1);
+    final name = RegExp(r'<name>([^<]+)</name>').firstMatch(xml)?.group(1);
+    final err =
+        RegExp(r'<error[^>]*>([^<]+)</error>').firstMatch(xml)?.group(1);
+    final playcount =
+        RegExp(r'<playcount>([^<]+)</playcount>').firstMatch(xml)?.group(1);
+
+    if (key != null) {
+      map['session'] = {
+        'key': key,
+        if (name != null) 'name': name,
+      };
+    }
+    if (playcount != null) {
+      map['user'] = {'playcount': playcount};
+    }
+    if (err != null) {
+      map['error'] = err;
+      map['message'] = err;
+    }
+    if (xml.contains('status="ok"') || xml.contains("status='ok'")) {
+      map['status'] = 'ok';
+    }
+    return map;
   }
 
   /// Signs in and stores the session. Null on success, else the reason.
@@ -243,22 +300,57 @@ class LibreFmScrobbler implements ExtraScrobbler {
     String server = '',
   }) async {
     final u = user.trim();
-    if (u.isEmpty || password.isEmpty) return 'Enter your username and password.';
+    if (u.isEmpty || password.isEmpty) {
+      return 'Enter your username and password.';
+    }
     final base = normalizeServer(server, defaultServer);
-    // GNU FM's mobile session token: md5(username + md5(password)).
-    final token = md5
-        .convert(utf8.encode(u.toLowerCase() +
-            md5.convert(utf8.encode(password)).toString()))
+
+    // 1. Try standard GNU FM token auth with exact username case: md5(u + md5(password))
+    final tokenExact = md5
+        .convert(utf8.encode(u + md5.convert(utf8.encode(password)).toString()))
         .toString();
-    final body = await _call('$base/2.0/', {
+    var body = await _call('$base/2.0/', {
       'method': 'auth.getMobileSession',
       'username': u,
-      'authToken': token,
+      'authToken': tokenExact,
     });
+
+    // 2. If rejected, try lowercased username token (some servers lowercase internally)
+    if (body == null || body['session'] == null) {
+      final tokenLower = md5
+          .convert(utf8.encode(u.toLowerCase() +
+              md5.convert(utf8.encode(password)).toString()))
+          .toString();
+      if (tokenLower != tokenExact) {
+        final retry = await _call('$base/2.0/', {
+          'method': 'auth.getMobileSession',
+          'username': u,
+          'authToken': tokenLower,
+        });
+        if (retry != null && retry['session'] != null) {
+          body = retry;
+        }
+      }
+    }
+
+    // 3. Fallback: try plain password (for modern/alternative Last.fm compatible servers)
+    if (body == null || body['session'] == null) {
+      final retryPlain = await _call('$base/2.0/', {
+        'method': 'auth.getMobileSession',
+        'username': u,
+        'password': password,
+      });
+      if (retryPlain != null && retryPlain['session'] != null) {
+        body = retryPlain;
+      }
+    }
+
     if (body == null) return 'Could not reach $base.';
     final key = body['session'] is Map ? body['session']['key'] : null;
     if (key is! String || key.isEmpty) {
-      return body['message']?.toString() ?? 'Sign-in was not accepted.';
+      return body['message']?.toString() ??
+          body['error']?.toString() ??
+          'Sign-in was not accepted.';
     }
     final name =
         body['session'] is Map ? '${body['session']['name'] ?? u}' : u;

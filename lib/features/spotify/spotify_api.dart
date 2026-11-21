@@ -443,11 +443,17 @@ class SpotifyApi {
     final sections =
         _at(root, ['data', 'home', 'sectionContainer', 'sections', 'items']);
     if (sections is! List) return const [];
-    final out = <SpotifyHomeSection>[];
+    // Group sections by normalized title to combine single-card micro-shelves
+    // (e.g. multiple "Made for you", "Based on your recent listening", or
+    // "More like <Artist>" sections) into rich horizontal rails.
+    final grouped = <String, ({String title, List<SpotifyHomeItem> items, Set<String> seenIds})>{};
     for (final s in sections) {
-      final title = _text(_at(s, ['data', 'title', 'transformedLabel'])).isNotEmpty
+      final rawTitle = _text(_at(s, ['data', 'title', 'transformedLabel'])).isNotEmpty
           ? _text(_at(s, ['data', 'title', 'transformedLabel']))
           : _text(_at(s, ['data', 'title', 'text']));
+      final title = rawTitle.trim().isEmpty ? 'For you' : rawTitle.trim();
+      final key = title.toLowerCase();
+
       final items = _at(s, ['sectionItems', 'items']);
       if (items is! List) continue;
       final cards = <SpotifyHomeItem>[];
@@ -456,12 +462,26 @@ class SpotifyApi {
         if (card != null) cards.add(card);
       }
       if (cards.isEmpty) continue;
-      out.add(SpotifyHomeSection(
-        title: title.isEmpty ? 'For you' : title,
-        items: cards,
-      ));
+
+      final entry = grouped.putIfAbsent(
+        key,
+        () => (title: title, items: <SpotifyHomeItem>[], seenIds: <String>{}),
+      );
+      for (final card in cards) {
+        final cardKey = '${card.kind}:${card.id}';
+        if (entry.seenIds.add(cardKey)) {
+          entry.items.add(card);
+        }
+      }
     }
-    return out;
+    return [
+      for (final entry in grouped.values)
+        if (entry.items.isNotEmpty)
+          SpotifyHomeSection(
+            title: entry.title,
+            items: entry.items,
+          ),
+    ];
   }
 
   static SpotifyHomeItem? _homeItem(Object? data) {

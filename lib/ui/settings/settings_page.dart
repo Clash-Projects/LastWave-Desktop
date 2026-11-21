@@ -58,7 +58,7 @@ import 'library_settings.dart';
 import 'settings_search.dart';
 import '../theme/wave_icons.dart';
 
-const _waveSettingsSections = [
+const waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
   ('playback', 'Playback', FluentIcons.play),
   ('audio', 'Audio', FluentIcons.speakers),
@@ -66,7 +66,7 @@ const _waveSettingsSections = [
   ('library', 'Library', WaveIcons.library),
   ('lyrics', 'Lyrics', FluentIcons.microphone),
   ('appearance', 'Appearance', FluentIcons.brush),
-  ('lastfm', 'Last.fm', WaveIcons.liked),
+  ('lastfm', 'Scrobbler', WaveIcons.liked),
   ('integrations', 'Integrations', FluentIcons.link),
   ('sources', 'Sources', FluentIcons.cloud),
   ('experimental', 'Experimental', FluentIcons.bug),
@@ -104,7 +104,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
     _railScrollController = ScrollController();
     final initial = widget.initialSection;
     _section =
-        initial != null && _waveSettingsSections.any((s) => s.$1 == initial)
+        initial != null && waveSettingsSections.any((s) => s.$1 == initial)
         ? initial
         : 'general';
   }
@@ -201,7 +201,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final s in _waveSettingsSections)
+                    for (final s in waveSettingsSections)
                       ToggleButton(
                         checked: _section == s.$1,
                         onChanged: (_) => setState(() => _section = s.$1),
@@ -243,7 +243,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                       ),
                       const Text('Settings', style: WaveType.pageTitle),
                       const SizedBox(height: 12),
-                      for (final s in _waveSettingsSections)
+                      for (final s in waveSettingsSections)
                         ListTile.selectable(
                           shape: RoundedRectangleBorder(
                             borderRadius: WaveRadius.controlsRadius,
@@ -1496,8 +1496,8 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
         .toDouble();
     return _Group(
       id: 'lastfm.scrobbling',
-      title: 'Last.fm scrobbling',
-      subtitle: 'Thresholds mirror Last.fm rules',
+      title: 'Scrobbler rules',
+      subtitle: 'Thresholds apply across all connected scrobblers',
       child: Column(
         children: [
           _SwitchRow(
@@ -1505,7 +1505,7 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
             onChanged: (v) =>
                 widget.onUpdate((p) => p.setScrobbler(enabled: v)),
             title: 'Enable scrobbling',
-            subtitle: 'Requires a write-capable session',
+            subtitle: 'Send played tracks to connected scrobbler accounts',
           ),
           _SwitchRow(
             value: prefs.scrobbleNowPlaying,
@@ -3571,13 +3571,13 @@ class _LastFm extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       children: [
-        _Account(onUpdate: onUpdate),
-        const SizedBox(height: 8),
-        const _ApiKeys(),
-        const SizedBox(height: 8),
         _Scrobbler(onUpdate: onUpdate),
         const SizedBox(height: 8),
+        _Account(onUpdate: onUpdate),
+        const SizedBox(height: 8),
         const _OtherScrobblers(),
+        const SizedBox(height: 8),
+        const _ApiKeys(),
       ],
     );
   }
@@ -4113,8 +4113,8 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
     final lf = ref.read(libreFmProvider);
     return _Group(
       id: 'lastfm.others',
-      title: 'Other scrobblers',
-      subtitle: 'ListenBrainz and Libre.fm, alongside or instead of Last.fm',
+      title: 'ListenBrainz & Libre.fm',
+      subtitle: 'Connect accounts to scrobble simultaneously with LastWave',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

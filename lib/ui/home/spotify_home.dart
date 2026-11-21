@@ -2,8 +2,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/track_actions.dart' show playGenerated;
+import '../../features/feed/feed_repository.dart' show GeneratedTrack;
+import '../../features/innertube/innertube_api.dart' show innertubeProvider;
+import '../../features/player/playback_service.dart';
 import '../../features/spotify/spotify_api.dart';
-import '../components/shelf.dart' show WaveMediaCard, WaveRail;
+import '../components/menus.dart';
+import '../components/shelf.dart';
 import '../components/states.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/tokens.dart';
@@ -35,6 +40,129 @@ class SpotifyHomeSlivers extends ConsumerWidget {
         ? '${item.name} ${item.subtitle}'
         : item.name;
     context.go('/search?q=${Uri.encodeComponent(q)}');
+  }
+
+  Future<void> _play(
+    BuildContext context,
+    WidgetRef ref,
+    SpotifyHomeItem item,
+  ) async {
+    if (item.kind == 'playlist') {
+      final content = await ref.read(spotifyApiProvider).playlist(item.id);
+      if (content != null && content.tracks.isNotEmpty && context.mounted) {
+        final gen = [
+          for (final t in content.tracks)
+            GeneratedTrack(
+              name: t.name,
+              artist: t.artist,
+              album: t.album,
+              artworkUrl: t.artworkUrl,
+              durationSeconds: t.durationSeconds,
+            ),
+        ];
+        await playGenerated(
+          ref,
+          context,
+          gen.first,
+          sourceLabel: item.name,
+          queueAll: gen,
+        );
+      }
+      return;
+    }
+    // Albums and artists play through the app's own catalogue.
+    final q = item.kind == 'album' && item.subtitle.isNotEmpty
+        ? '${item.name} ${item.subtitle}'
+        : item.name;
+    final match = await ref
+        .read(innertubeProvider)
+        .findBestMatchOrNull(item.name, item.subtitle);
+    if (match != null && context.mounted) {
+      await playGenerated(
+        ref,
+        context,
+        GeneratedTrack(
+          name: match.title,
+          artist: match.artist,
+          album: item.name,
+          artworkUrl:
+              match.artworkUrl.isNotEmpty ? match.artworkUrl : item.artworkUrl,
+          videoId: match.videoId,
+          durationSeconds: match.durationSeconds,
+        ),
+        sourceLabel: item.name,
+      );
+    } else if (context.mounted) {
+      context.go('/search?q=${Uri.encodeComponent(q)}');
+    }
+  }
+
+  List<WaveMenuItem> _cardMenuItems(
+    BuildContext context,
+    WidgetRef ref,
+    SpotifyHomeItem item,
+  ) {
+    return [
+      WaveMenuAction(
+        leading: const Icon(FluentIcons.play, size: 15),
+        label: 'Play',
+        onPressed: () => _play(context, ref, item),
+      ),
+      if (item.kind == 'playlist') ...[
+        WaveMenuAction(
+          leading: const Icon(FluentIcons.add, size: 15),
+          label: 'Play next',
+          onPressed: () async {
+            final content =
+                await ref.read(spotifyApiProvider).playlist(item.id);
+            if (content != null && content.tracks.isNotEmpty) {
+              final playable = [
+                for (final t in content.tracks)
+                  PlayableTrack(
+                    title: t.name,
+                    artist: t.artist,
+                    album: t.album,
+                    artworkUrl: t.artworkUrl,
+                    duration: Duration(seconds: t.durationSeconds),
+                  ),
+              ];
+              await ref
+                  .read(playbackServiceProvider.notifier)
+                  .playNextAll(playable);
+            }
+          },
+        ),
+        WaveMenuAction(
+          leading: const Icon(FluentIcons.list, size: 15),
+          label: 'Add to queue',
+          onPressed: () async {
+            final content =
+                await ref.read(spotifyApiProvider).playlist(item.id);
+            if (content != null && content.tracks.isNotEmpty) {
+              final playable = [
+                for (final t in content.tracks)
+                  PlayableTrack(
+                    title: t.name,
+                    artist: t.artist,
+                    album: t.album,
+                    artworkUrl: t.artworkUrl,
+                    duration: Duration(seconds: t.durationSeconds),
+                  ),
+              ];
+              await ref
+                  .read(playbackServiceProvider.notifier)
+                  .addToQueueAll(playable);
+            }
+          },
+        ),
+      ],
+      const WaveMenuSeparator(),
+      WaveMenuAction(
+        leading: const Icon(FluentIcons.open_folder_horizontal, size: 15),
+        label: item.kind == 'playlist' ? 'Open playlist' : 'Open',
+        onPressed: () => _open(context, item),
+      ),
+    ];
   }
 
   @override
@@ -79,10 +207,24 @@ class SpotifyHomeSlivers extends ConsumerWidget {
             separatorBuilder: (_, _) => const SizedBox(height: 26),
             itemBuilder: (context, i) {
               final section = sections[i];
+              final hasPlayable =
+                  section.items.any((it) => it.kind == 'playlist');
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(section.title, style: WaveType.sectionTitle),
+                  LWSectionHeader(
+                    title: section.title,
+                    count: section.items.length,
+                    actionLabel: hasPlayable ? 'Play all' : null,
+                    onAction: hasPlayable
+                        ? () => _play(
+                              context,
+                              ref,
+                              section.items
+                                  .firstWhere((it) => it.kind == 'playlist'),
+                            )
+                        : null,
+                  ),
                   const SizedBox(height: 10),
                   WaveRail(
                     height: 216,
@@ -92,12 +234,16 @@ class SpotifyHomeSlivers extends ConsumerWidget {
                       final item = section.items[j];
                       return SizedBox(
                         width: 160,
-                        child: WaveMediaCard(
-                          title: item.name,
-                          subtitle: item.subtitle,
-                          titleFallback: item.name,
-                          artworkUrl: item.artworkUrl,
-                          onTap: () => _open(context, item),
+                        child: WaveContextMenu(
+                          items: () => _cardMenuItems(context, ref, item),
+                          child: WaveMediaCard(
+                            title: item.name,
+                            subtitle: item.subtitle,
+                            titleFallback: item.name,
+                            artworkUrl: item.artworkUrl,
+                            onTap: () => _open(context, item),
+                            onPlay: () => _play(context, ref, item),
+                          ),
                         ),
                       );
                     },

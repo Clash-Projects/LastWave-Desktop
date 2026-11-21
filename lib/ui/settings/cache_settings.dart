@@ -26,7 +26,7 @@ const _groupLabels = {
   'playlist': 'Playlists',
   'library': 'Library',
   'lyrics': 'Lyrics',
-  'lastfm': 'Last.fm',
+  'lastfm': 'Scrobbler',
   'genre': 'Genres',
 };
 
