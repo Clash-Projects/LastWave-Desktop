@@ -39,7 +39,74 @@ List<StoredTrack> mergeLibraryTracks(
       playbackUrl: path,
     ));
   }
-  return out;
+  return [for (final t in out) _wellFormed(t)];
+}
+
+/// Tag text with broken UTF-16 (lone surrogates from badly encoded tags)
+/// throws when painted, which blanked whole Library tabs.
+String wellFormedUtf16(String s) {
+  final units = s.codeUnits;
+  var ok = true;
+  for (var i = 0; i < units.length && ok; i++) {
+    final u = units[i];
+    if (u >= 0xD800 && u <= 0xDBFF) {
+      if (i + 1 < units.length &&
+          units[i + 1] >= 0xDC00 &&
+          units[i + 1] <= 0xDFFF) {
+        i++;
+      } else {
+        ok = false;
+      }
+    } else if (u >= 0xDC00 && u <= 0xDFFF) {
+      ok = false;
+    }
+  }
+  if (ok) return s;
+  final out = <int>[];
+  for (var i = 0; i < units.length; i++) {
+    final u = units[i];
+    if (u >= 0xD800 && u <= 0xDBFF &&
+        i + 1 < units.length &&
+        units[i + 1] >= 0xDC00 &&
+        units[i + 1] <= 0xDFFF) {
+      out..add(u)..add(units[++i]);
+    } else if (u < 0xD800 || u > 0xDFFF) {
+      out.add(u);
+    }
+  }
+  return String.fromCharCodes(out);
+}
+
+StoredTrack _wellFormed(StoredTrack t) {
+  final name = wellFormedUtf16(t.name);
+  final artist = wellFormedUtf16(t.artist);
+  final album = wellFormedUtf16(t.album);
+  if (identical(name, t.name) &&
+      identical(artist, t.artist) &&
+      identical(album, t.album)) {
+    return t;
+  }
+  return StoredTrack(
+    name: name,
+    artist: artist,
+    album: album,
+    artworkUrl: t.artworkUrl,
+    videoId: t.videoId,
+    durationSeconds: t.durationSeconds,
+    playbackUrl: t.playbackUrl,
+    addedAtMillis: t.addedAtMillis,
+  );
+}
+
+/// Individual artists in a credit: "A, B & C feat. D" -> [A, B, C, D].
+List<String> splitArtistCredit(String credit) {
+  final parts = credit
+      .split(RegExp(r'\s*(?:,|;|/|&|\bx\b|\band\b|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b)\s*',
+          caseSensitive: false))
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+  return parts.isEmpty ? [credit.trim()] : parts;
 }
 
 String _norm(String path) => p.normalize(path).toLowerCase();
@@ -110,17 +177,22 @@ List<LibraryAlbum> groupLibraryAlbums(List<StoredTrack> tracks) {
   return albums;
 }
 
-/// Artists A–Z by their credit string.
+/// Artists A–Z, one per person: a song credited to "A, B & C" is listed
+/// under each of A, B and C instead of under a merged "A, B & C".
 List<LibraryArtist> groupLibraryArtists(List<StoredTrack> tracks) {
-  final groups = <String, List<StoredTrack>>{};
+  final groups = <String, (String, List<StoredTrack>)>{};
   for (final t in tracks) {
-    final name = t.artist.trim().isEmpty ? 'Unknown artist' : t.artist.trim();
-    groups.putIfAbsent(name.toLowerCase(), () => []).add(t);
+    final names = t.artist.trim().isEmpty
+        ? const ['Unknown artist']
+        : splitArtistCredit(t.artist);
+    for (final name in names) {
+      groups.putIfAbsent(name.toLowerCase(), () => (name, [])).$2.add(t);
+    }
   }
   final artists = [
-    for (final g in groups.values)
+    for (final (name, g) in groups.values)
       LibraryArtist(
-        name: g.first.artist.trim().isEmpty ? 'Unknown artist' : g.first.artist.trim(),
+        name: name,
         artworkUrl: g
             .firstWhere((t) => t.artworkUrl.isNotEmpty, orElse: () => g.first)
             .artworkUrl,

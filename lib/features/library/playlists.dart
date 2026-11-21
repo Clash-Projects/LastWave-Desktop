@@ -97,6 +97,10 @@ class SavedPlaylist {
   static const String localMode = 'local';
   static const String localTitle = 'Local songs';
 
+  /// A playlist made in the Library from songs on this PC. Never mirrored
+  /// to YouTube Music (only `custom` is), and listed only in the Library.
+  static const String libraryMode = 'library';
+
   const SavedPlaylist({
     required this.id,
     required this.title,
@@ -115,6 +119,8 @@ class SavedPlaylist {
 
   bool get isLocal =>
       mode == localMode || title.toLowerCase() == localTitle.toLowerCase();
+
+  bool get isLibrary => mode == libraryMode;
 }
 
 /// Playlist + liked-songs repository backed by SQLite.
@@ -360,6 +366,20 @@ class PlaylistRepository extends StateNotifier<List<SavedPlaylist>> {
       [jsonEncode(tracks.map((t) => t.toJson()).toList()), id],
     );
     refresh();
+  }
+
+  /// New Library playlist (see [SavedPlaylist.libraryMode]).
+  Future<SavedPlaylist> createLibrary(String title) async {
+    final id = _newId();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final clean = title.trim().isEmpty ? 'New playlist' : title.trim();
+    _db.raw.execute(
+      'INSERT INTO saved_playlists(id, title, subtitle, mode, tracks_json, created_at_millis, is_pinned) '
+      'VALUES(?, ?, ?, ?, ?, ?, 0);',
+      [id, clean, 'On this PC', SavedPlaylist.libraryMode, '[]', now],
+    );
+    refresh();
+    return state.firstWhere((p) => p.id == id);
   }
 
   Future<SavedPlaylist> ensureLocalSongs() async {

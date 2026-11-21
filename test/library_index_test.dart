@@ -22,6 +22,21 @@ void main() {
     expect(names, ['A', 'B', 'Unknown artist']);
   });
 
+  test('a multi-artist credit lists each artist separately', () {
+    const duet = StoredTrack(
+        name: 'Duet',
+        artist: 'Mithoon & Arijit Singh, Raftaar feat. KR\$NA',
+        playbackUrl: r'C:\m\4.mp3');
+    final names = groupLibraryArtists([duet, a1]).map((a) => a.name);
+    expect(names, ['A', 'Arijit Singh', 'KR\$NA', 'Mithoon', 'Raftaar']);
+  });
+
+  test('broken UTF-16 in tags is dropped instead of crashing the view', () {
+    final broken = 'Ok${String.fromCharCode(0xD800)}Song';
+    expect(wellFormedUtf16(broken), 'OkSong');
+    expect(wellFormedUtf16('fine 🎵'), 'fine 🎵');
+  });
+
   test('a download already indexed from a music folder is not listed twice',
       () {
     final merged = mergeLibraryTracks([a1], [

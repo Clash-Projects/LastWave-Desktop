@@ -85,9 +85,10 @@ class _WavePlaylistsPageState
 
   @override
   Widget build(BuildContext context) {
+    // Local songs and Library playlists live in the Library.
     final all = ref
         .watch(playlistRepositoryProvider)
-        .where((p) => !p.isLikedSongs)
+        .where((p) => !p.isLikedSongs && !p.isLocal && !p.isLibrary)
         .toList();
     final shown = all
         .where(
