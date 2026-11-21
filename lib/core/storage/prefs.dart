@@ -377,6 +377,10 @@ class Prefs {
   bool get isLight => themeMode == 'light';
   bool get isCustomTheme => themeMode == 'custom';
 
+  /// 'artwork': surfaces generated from the playing cover (see
+  /// `artworkSurfacesProvider`), Midnight while nothing plays.
+  bool get isArtworkTheme => themeMode == 'artwork';
+
   /// Base colour (ARGB) of the Custom theme. Default: the Ocean preset.
   int get customThemeBase => _sp.getInt('lw_custom_theme_base') ?? 0xFF1A2A44;
   Future<void> setCustomThemeBase(int v) =>
