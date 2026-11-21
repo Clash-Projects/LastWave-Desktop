@@ -5,10 +5,7 @@ import '../../features/library/library_index.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../collections/playlist_dialogs.dart'
-    show
-        showWaveCreatePlaylist,
-        showWaveDeletePlaylist,
-        showWaveRenamePlaylist;
+    show showWaveDeletePlaylist, showWaveRenamePlaylist;
 import '../components/artwork.dart';
 import '../components/buttons.dart' show WaveGhostButton;
 import '../components/states.dart';
@@ -126,10 +123,21 @@ class _LibrarySongsViewState extends ConsumerState<LibrarySongsView> {
               subtitle: _emptyHint,
             ),
           )
+        else if (items.isEmpty)
+          const SliverToBoxAdapter(
+            child: WaveEmpty(
+              icon: WaveIcons.search,
+              title: 'No matches',
+              subtitle: 'Try another title, artist or album.',
+            ),
+          )
         else
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            // sliver: the table returns slivers here; in its default box mode
+            // it crashed the CustomScrollView and the tab painted blank.
             sliver: WaveDesktopTable<StoredTrack>(
+              sliver: true,
               items: items,
               keyOf: _keyOf,
               titleOf: (t) => t.name,
@@ -153,11 +161,6 @@ class _LibrarySongsViewState extends ConsumerState<LibrarySongsView> {
               onRemove: widget.onRemove == null
                   ? null
                   : (i) => widget.onRemove!(items[i]),
-              empty: const WaveEmpty(
-                icon: WaveIcons.search,
-                title: 'No matches',
-                subtitle: 'Try another title, artist or album.',
-              ),
             ),
           ),
       ],
@@ -252,12 +255,20 @@ class _Tile extends StatelessWidget {
   final String artworkUrl;
   final bool circle;
   final VoidCallback onTap;
+
+  /// Look the cover up online ([ArtworkKind.album] / [ArtworkKind.artist],
+  /// cached on disk), showing [artworkUrl] (a song's cover) until then and
+  /// when nothing is found. Null keeps [artworkUrl] as-is (playlists).
+  final ArtworkKind? lookup;
+  final String lookupArtist;
   const _Tile({
     required this.title,
     required this.subtitle,
     required this.artworkUrl,
     required this.onTap,
     this.circle = false,
+    this.lookup,
+    this.lookupArtist = '',
   });
 
   @override
@@ -272,12 +283,18 @@ class _Tile extends StatelessWidget {
                 circle ? CrossAxisAlignment.center : CrossAxisAlignment.start,
             children: [
               WaveArtwork(
-                url: artworkUrl,
+                url: lookup == null ? artworkUrl : '',
+                fallbackUrls: [
+                  if (lookup != null && artworkUrl.isNotEmpty) artworkUrl,
+                ],
                 size: c.maxWidth,
                 decodeExtent: 200,
                 isCircle: circle,
                 label: title,
-                upgrade: false,
+                title: title,
+                artist: lookupArtist,
+                kind: lookup,
+                upgrade: lookup != null,
               ),
               const SizedBox(height: 8),
               Text(title,
@@ -310,7 +327,9 @@ class _GridBrowser<T> extends StatefulWidget {
   final bool circle;
   final IconData emptyIcon;
   final String emptyTitle;
+  final ArtworkKind lookup;
   const _GridBrowser({
+    required this.lookup,
     required this.items,
     required this.placeholder,
     required this.titleOf,
@@ -395,6 +414,10 @@ class _GridBrowserState<T> extends State<_GridBrowser<T>> {
                     subtitle: widget.subtitleOf(item),
                     artworkUrl: widget.artworkOf(item),
                     circle: widget.circle,
+                    lookup: widget.lookup,
+                    lookupArtist: widget.lookup == ArtworkKind.artist
+                        ? widget.titleOf(item)
+                        : widget.subtitleOf(item),
                     onTap: () =>
                         setState(() => _openTitle = widget.titleOf(item)),
                   );
@@ -423,6 +446,7 @@ class LibraryAlbumsView extends ConsumerWidget {
       tracksOf: (a) => a.tracks,
       emptyIcon: WaveIcons.albums,
       emptyTitle: 'No albums yet',
+      lookup: ArtworkKind.album,
     );
   }
 }
@@ -443,6 +467,7 @@ class LibraryArtistsView extends ConsumerWidget {
       circle: true,
       emptyIcon: WaveIcons.artists,
       emptyTitle: 'No artists yet',
+      lookup: ArtworkKind.artist,
     );
   }
 }
@@ -467,11 +492,24 @@ class _LibraryPlaylistsViewState extends ConsumerState<LibraryPlaylistsView> {
   int? _openId;
   String _query = '';
 
+  /// Name it, pick its songs from the Library, then open it.
+  Future<void> _create(BuildContext context) async {
+    final name = await _askName(context);
+    if (name == null || !mounted) return;
+    final created =
+        await ref.read(playlistRepositoryProvider.notifier).createLibrary(name);
+    if (!mounted) return;
+    setState(() => _openId = created.id);
+    if (context.mounted) await _pickSongs(context, ref, created);
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Only playlists made here from songs on this PC; online playlists
+    // live on the Playlists page.
     final mine = [
       for (final p in ref.watch(playlistRepositoryProvider))
-        if (!p.isLikedSongs && !p.isLocal) p,
+        if (p.isLibrary) p,
     ];
     final open = mine.where((p) => p.id == _openId).firstOrNull;
     if (open != null) {
@@ -489,6 +527,11 @@ class _LibraryPlaylistsViewState extends ConsumerState<LibraryPlaylistsView> {
           tracks: open.tracks,
           onBack: () => setState(() => _openId = null),
           actions: [
+            WaveGhostButton(
+              label: 'Add songs',
+              icon: FluentIcons.add,
+              onPressed: () => _pickSongs(context, ref, open),
+            ),
             WaveGhostButton(
               label: 'Rename',
               icon: FluentIcons.rename,
@@ -535,7 +578,7 @@ class _LibraryPlaylistsViewState extends ConsumerState<LibraryPlaylistsView> {
                 ),
                 const SizedBox(width: 12),
                 FilledButton(
-                  onPressed: () => showWaveCreatePlaylist(context, ref),
+                  onPressed: () => _create(context),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -554,10 +597,10 @@ class _LibraryPlaylistsViewState extends ConsumerState<LibraryPlaylistsView> {
             child: WaveEmpty(
               icon: WaveIcons.playlists,
               title: 'No playlists yet',
-              subtitle: "Create one, then add songs from any song's menu "
-                  '(right-click > Add to playlist).',
+              subtitle: 'Make a playlist from the songs on this PC: local '
+                  'files and downloads.',
               actionLabel: 'New playlist',
-              onAction: () => showWaveCreatePlaylist(context, ref),
+              onAction: () => _create(context),
             ),
           )
         else
@@ -584,6 +627,138 @@ class _LibraryPlaylistsViewState extends ConsumerState<LibraryPlaylistsView> {
               ),
             ),
           ),
+      ],
+    );
+  }
+}
+
+Future<String?> _askName(BuildContext context) {
+  final controller = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('New playlist'),
+      content: TextBox(
+        controller: controller,
+        autofocus: true,
+        placeholder: 'Playlist name',
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        FilledButton(
+          child: const Text('Next'),
+          onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+        ),
+      ],
+    ),
+  ).whenComplete(controller.dispose);
+}
+
+/// Pick Library songs (local files + downloads) to add to [playlist].
+Future<void> _pickSongs(
+  BuildContext context,
+  WidgetRef ref,
+  SavedPlaylist playlist,
+) async {
+  final picked = await showDialog<List<StoredTrack>>(
+    context: context,
+    builder: (_) => _SongPicker(
+      songs: ref.read(libraryTracksProvider),
+      already: {for (final t in playlist.tracks) _keyOf(t)},
+    ),
+  );
+  if (picked == null || picked.isEmpty) return;
+  final repo = ref.read(playlistRepositoryProvider.notifier);
+  for (final t in picked) {
+    await repo.addTrack(playlist.id, t);
+  }
+}
+
+class _SongPicker extends StatefulWidget {
+  final List<StoredTrack> songs;
+  final Set<String> already;
+  const _SongPicker({required this.songs, required this.already});
+
+  @override
+  State<_SongPicker> createState() => _SongPickerState();
+}
+
+class _SongPickerState extends State<_SongPicker> {
+  final Set<String> _chosen = {};
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _query.trim().toLowerCase();
+    final shown = [
+      for (final t in widget.songs)
+        if (!widget.already.contains(_keyOf(t)) && _matches(t, q)) t,
+    ];
+    return ContentDialog(
+      constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
+      title: const Text('Add songs'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextBox(
+            placeholder: 'Search your Library',
+            onChanged: (v) => setState(() => _query = v),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 380,
+            child: shown.isEmpty
+                ? Center(
+                    child: Text(
+                      widget.songs.isEmpty
+                          ? 'No songs in your Library yet. Add a music folder '
+                              'or download songs first.'
+                          : 'No matching songs.',
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: shown.length,
+                    itemBuilder: (context, i) {
+                      final t = shown[i];
+                      final key = _keyOf(t);
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Checkbox(
+                          checked: _chosen.contains(key),
+                          onChanged: (v) => setState(() => v == true
+                              ? _chosen.add(key)
+                              : _chosen.remove(key)),
+                          content: Text(
+                            t.artist.isEmpty ? t.name : '${t.name} - ${t.artist}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+      actions: [
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        FilledButton(
+          onPressed: _chosen.isEmpty
+              ? null
+              : () => Navigator.of(context).pop([
+                    for (final t in widget.songs)
+                      if (_chosen.contains(_keyOf(t))) t,
+                  ]),
+          child: Text(_chosen.isEmpty ? 'Add' : 'Add ${_chosen.length}'),
+        ),
       ],
     );
   }

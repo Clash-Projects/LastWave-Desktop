@@ -248,6 +248,9 @@ class SpotifyAuth extends ChangeNotifier {
     );
   }
 
+  /// Per-install anonymous device id (also the web player's `sp_t`).
+  Future<String> deviceId() => _deviceId();
+
   Future<String> _deviceId() async {
     final existing = _prefs.spotifyDeviceId;
     if (existing.isNotEmpty) return existing;

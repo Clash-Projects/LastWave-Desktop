@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/storage/app_database.dart';
 import '../search/shared_providers.dart';
+import 'library_index.dart' show wellFormedUtf16;
 import 'local_audio_tags.dart';
 import 'playlists.dart';
 
@@ -90,10 +91,11 @@ class LocalMusicLibrary {
           if (!seen.add(entity.path.toLowerCase())) continue;
           final name = p.basename(entity.path);
           final tags = LocalAudioTags.read(entity.path, filename: name);
-          final title = tags.title.isEmpty ? name : tags.title;
-          final artist = tags.artist.isEmpty ? 'Local file' : tags.artist;
+          final title = wellFormedUtf16(tags.title.isEmpty ? name : tags.title);
+          final artist =
+              wellFormedUtf16(tags.artist.isEmpty ? 'Local file' : tags.artist);
           final art = await _coverFile(entity.path, tags.coverBytes);
-          final album = tags.album.isEmpty
+          final album = wellFormedUtf16(tags.album).isEmpty
               ? ''
               : (tags.year.isEmpty
                   ? tags.album

@@ -193,8 +193,10 @@ class SpotifyApi {
         ),
       );
       if ((res.statusCode ?? 0) ~/ 100 != 2) {
+        final body = (res.data ?? '').replaceAll(RegExp(r'\s+'), ' ');
         DiagnosticsLog.info(
-          'spotify query op=$operation http=${res.statusCode}',
+          'spotify query op=$operation http=${res.statusCode} '
+          'body=${body.length > 160 ? body.substring(0, 160) : body}',
         );
         return null;
       }
@@ -393,11 +395,14 @@ class SpotifyApi {
     final hash =
         await SpotifyWebPlayer.findHash(_dio, SpotifyWebPlayer.homeOperation);
     if (hash == null) return const [];
+    // Same variables as the web player; without homeEndUserIntegration and
+    // a non-empty sp_t (its anonymous device id) Spotify answers 400.
     final vars = <String, Object?>{
+      'homeEndUserIntegration': 'INTEGRATION_WEB_PLAYER',
       'timeZone': _timeZone(),
-      'sp_t': '',
+      'sp_t': (await _auth.deviceId()).replaceAll('-', ''),
       'facet': '',
-      'sectionItemsLimit': 12,
+      'sectionItemsLimit': 10,
     };
     final root = await _query(SpotifyWebPlayer.homeOperation, vars, hash) ??
         await _post(SpotifyWebPlayer.homeOperation, vars, hash);
@@ -407,11 +412,29 @@ class SpotifyApi {
   }
 
   // shortcut: Windows reports a display name ("India Standard Time"), not
-  // an IANA zone; send UTC then (Home only uses it for time-of-day rows).
-  // Use a timezone package if those rows matter.
+  // an IANA zone, so the zone is derived from the UTC offset (common
+  // half-hour zones mapped, whole hours as Etc/GMT±N). Use a timezone
+  // package if Home's time-of-day rows ever need the exact zone.
   static String _timeZone() {
-    final name = DateTime.now().timeZoneName;
-    return name.contains('/') ? name : 'UTC';
+    final now = DateTime.now();
+    if (now.timeZoneName.contains('/')) return now.timeZoneName;
+    final minutes = now.timeZoneOffset.inMinutes;
+    const halfHours = {
+      330: 'Asia/Kolkata',
+      345: 'Asia/Kathmandu',
+      390: 'Asia/Yangon',
+      570: 'Australia/Darwin',
+      630: 'Australia/Adelaide',
+      -150: 'America/St_Johns',
+      270: 'Asia/Kabul',
+      210: 'Asia/Tehran',
+    };
+    final named = halfHours[minutes];
+    if (named != null) return named;
+    if (minutes == 0 || minutes % 60 != 0) return 'UTC';
+    final h = minutes ~/ 60;
+    // Etc/GMT signs are inverted: UTC+5 is Etc/GMT-5.
+    return h > 0 ? 'Etc/GMT-$h' : 'Etc/GMT+${-h}';
   }
 
   /// `data.home.sectionContainer.sections.items[]` → titled card rows.
