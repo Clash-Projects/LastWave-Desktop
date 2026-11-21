@@ -71,6 +71,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   // Canvas: docked on the RIGHT edge, pushes the page; queue/EQ overlay it.
   bool _canvasOpen = false;
 
+  /// Canvas finished sliding in, so the page may give up its width.
+  bool _canvasDocked = false;
+
   /// F11 pressed away from Now Playing: go fullscreen once the route
   /// arrives. Stamped so a navigation that never lands can't turn a later,
   /// unrelated visit into a fullscreen one.
@@ -839,12 +842,11 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               // beside the page instead of covering it,
                               // so the page re-lays out to the space
                               // left and stays fully usable.
-                              AnimatedPositioned(
-                                duration: waveMotion(
-                                  context,
-                                  WaveMotion.normal,
-                                ),
-                                curve: Curves.easeOutCubic,
+                              // The page is laid out once at its final
+                              // size and slid there: animating its edges
+                              // re-laid-out every page each frame, which
+                              // made the rail toggle and Canvas stutter.
+                              Positioned(
                                 // The expanded rail is the collapsed
                                 // rail grown wider: the page makes room
                                 // for it and it stays until toggled off.
@@ -852,9 +854,14 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 top: 0,
                                 bottom: 0,
                                 // Queue / equalizer overlay the page (they
-                                // do not push it); only Canvas docks.
-                                right: _canvasOpen ? cw : 0,
-                                child: widget.child,
+                                // do not push it); only Canvas docks,
+                                // after its slide-in, so it overlays the
+                                // page while moving.
+                                right: _canvasOpen && _canvasDocked ? cw : 0,
+                                child: _SlideToInset(
+                                  left: railW,
+                                  child: RepaintBoundary(child: widget.child),
+                                ),
                               ),
                               // Canvas — docks on the right edge and pushes
                               // the page. Queue / equalizer are painted
@@ -869,15 +876,26 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 bottom: 0,
                                 right: _canvasOpen ? 0 : -(cw + 12),
                                 width: cw,
+                                onEnd: () {
+                                  if (_canvasDocked != _canvasOpen) {
+                                    setState(
+                                        () => _canvasDocked = _canvasOpen);
+                                  }
+                                },
                                 child: ExcludeFocus(
                                   excluding: !_canvasOpen,
                                   child: IgnorePointer(
                                     ignoring: !_canvasOpen,
+                                    // Stays painted while sliding shut
+                                    // (it used to vanish on the first
+                                    // frame of the close).
                                     child: Offstage(
-                                      offstage: !_canvasOpen,
-                                      child: WaveCanvasPanel(
-                                        open: _canvasOpen,
-                                        onClose: _closeCanvas,
+                                      offstage: !_canvasOpen && !_canvasDocked,
+                                      child: RepaintBoundary(
+                                        child: WaveCanvasPanel(
+                                          open: _canvasOpen,
+                                          onClose: _closeCanvas,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -938,8 +956,11 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     // math); scroll offset is kept.
                                     child: Offstage(
                                       offstage: !_queueOpen && _queueSettled,
-                                      child: _queuePanelCache ??=
-                                          WaveQueuePanel(onClose: _closeQueue),
+                                      child: RepaintBoundary(
+                                        child: _queuePanelCache ??=
+                                            WaveQueuePanel(
+                                                onClose: _closeQueue),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -967,10 +988,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     ignoring: !_equalizerOpen,
                                     child: Offstage(
                                       offstage: !_equalizerOpen && _equalizerSettled,
-                                      child: _equalizerPanelCache ??=
-                                          WaveEqualizerPanel(
-                                            onClose: _closeEqualizer,
-                                          ),
+                                      child: RepaintBoundary(
+                                        child: _equalizerPanelCache ??=
+                                            WaveEqualizerPanel(
+                                              onClose: _closeEqualizer,
+                                            ),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1022,4 +1045,55 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       ),
     );
   }
+}
+
+/// Lays [child] out at its final [left] inset at once and slides it there
+/// with a paint-only translation, so a rail toggle costs one page layout
+/// instead of one per animation frame. The offset tracks the rail's own
+/// width animation (same duration and curve), so the page edge stays glued
+/// to the rail. Overflow during the slide is covered by the rail / panels
+/// painted above, or falls outside the window.
+class _SlideToInset extends StatefulWidget {
+  final double left;
+  final Widget child;
+  const _SlideToInset({required this.left, required this.child});
+
+  @override
+  State<_SlideToInset> createState() => _SlideToInsetState();
+}
+
+class _SlideToInsetState extends State<_SlideToInset>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, value: 1);
+  double _from = 0;
+
+  double get _offset => _from * (1 - WaveMotion.standard.transform(_c.value));
+
+  @override
+  void didUpdateWidget(covariant _SlideToInset old) {
+    super.didUpdateWidget(old);
+    if (old.left == widget.left) return;
+    // Start from wherever the page is painted now, so a re-toggle
+    // mid-flight continues without a jump.
+    _from = _offset + (old.left - widget.left);
+    _c.duration = waveMotion(context, WaveMotion.normal);
+    _c.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  // Always a Transform (identity at rest) so the page subtree is never
+  // reparented when an animation starts or ends.
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        child: widget.child,
+        builder: (context, child) =>
+            Transform.translate(offset: Offset(_offset, 0), child: child),
+      );
 }

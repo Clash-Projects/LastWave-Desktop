@@ -108,7 +108,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
                 WaveEntrance(
                   index: waveListenDestinations.length,
                   rise: 4,
-                  child: _RailSeparator(expanded: expanded),
+                  child: const _RailSeparator(),
                 ),
                 for (var i = 0; i < waveCollectionDestinations.length; i++)
                   _row(
@@ -119,7 +119,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
                   index: waveListenDestinations.length +
                       waveCollectionDestinations.length,
                   rise: 4,
-                  child: _RailSeparator(expanded: expanded),
+                  child: const _RailSeparator(),
                 ),
                 for (var i = 0; i < waveOfflineDestinations.length; i++)
                   _row(
@@ -157,22 +157,14 @@ class _WaveSideRailState extends State<WaveSideRail> {
 }
 
 class _RailSeparator extends StatelessWidget {
-  final bool expanded;
-  const _RailSeparator({required this.expanded});
+  const _RailSeparator();
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Center(
-        child: Container(
-          width: expanded ? double.infinity : 20,
-          height: 1,
-          margin: expanded
-              ? const EdgeInsets.symmetric(horizontal: 10)
-              : EdgeInsets.zero,
-          color: waveDivider(context),
-        ),
-      ),
+    // Same inset line in both states: no width jump when toggling.
+    return Container(
+      height: 1,
+      margin: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
+      color: waveDivider(context),
     );
   }
 }
@@ -192,6 +184,13 @@ class _RailItem extends StatefulWidget {
   @override
   State<_RailItem> createState() => _RailItemState();
 }
+
+/// Inner width of a row in the collapsed rail (60 - 2*6 padding - 2*1
+/// border): the icon sits centred in it in both states.
+const double _iconBox = 46;
+
+/// Label room in the expanded rail (200 - 12 - 2 - [_iconBox]).
+const double _labelWidth = 140;
 
 class _RailItemState extends State<_RailItem> {
   bool _hover = false;
@@ -216,7 +215,7 @@ class _RailItemState extends State<_RailItem> {
         ? (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
         : (dark ? WaveColors.textSecondary : WaveColors.lightTextSecondary);
     final hasFocus = _focus.hasFocus;
-    final itemHeight = widget.expanded ? 36.0 : 40.0;
+    const itemHeight = 40.0;
 
     final content = Focus(
       focusNode: _focus,
@@ -275,68 +274,65 @@ class _RailItemState extends State<_RailItem> {
                   ),
                 ),
                 Positioned.fill(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: widget.expanded ? 14 : 0,
-                    ),
-                    child: Center(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          // Follow the animating rail width, not the
-                          // instant `expanded` flag: the rail container
-                          // animates 60<->200px over WaveMotion.normal
-                          // while the flag flips immediately, which
-                          // overflowed the Row mid-flight.
-                          final isWide =
-                              constraints.maxWidth > 100;
-                          return isWide
-                              ? Row(
-                              children: [
-                                AnimatedScale(
-                                  scale: widget.selected
-                                      ? 1.05
-                                      : (_hover ? 1.02 : 1.0),
-                                  duration: waveMotion(context, WaveMotion.fast),
-                                  curve: Curves.easeOutCubic,
-                                  child: Icon(
-                                    widget.destination.icon,
-                                    size: 16,
-                                    color: widget.selected ? accent : fg,
-                                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      // The icon keeps one size and x position in both
+                      // states; only the label fades in with the
+                      // animating rail width, so nothing snaps mid-flight.
+                      final reveal =
+                          ((constraints.maxWidth - _iconBox) / 90)
+                              .clamp(0.0, 1.0);
+                      return Row(
+                        children: [
+                          SizedBox(
+                            width: _iconBox,
+                            child: Center(
+                              child: AnimatedScale(
+                                scale: widget.selected
+                                    ? 1.06
+                                    : (_hover ? 1.03 : 1.0),
+                                duration:
+                                    waveMotion(context, WaveMotion.fast),
+                                curve: Curves.easeOutCubic,
+                                child: Icon(
+                                  widget.destination.icon,
+                                  size: 18,
+                                  color: widget.selected ? accent : fg,
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    widget.destination.label,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: WaveType.label.copyWith(
-                                      fontSize: 13,
-                                      fontWeight: widget.selected
-                                          ? FontWeight.w600
-                                          : FontWeight.w400,
-                                      color: fg,
+                              ),
+                            ),
+                          ),
+                          if (reveal > 0)
+                            Expanded(
+                              child: ClipRect(
+                                // Laid out once at the full label width
+                                // and clipped, not re-ellipsized per frame.
+                                child: OverflowBox(
+                                  alignment: Alignment.centerLeft,
+                                  minWidth: 0,
+                                  maxWidth: _labelWidth,
+                                  child: Opacity(
+                                    opacity: reveal,
+                                    child: Text(
+                                      widget.destination.label,
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: WaveType.label.copyWith(
+                                        fontSize: 13,
+                                        fontWeight: widget.selected
+                                            ? FontWeight.w600
+                                            : FontWeight.w400,
+                                        color: fg,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ],
-                            )
-                          : AnimatedScale(
-                              scale: widget.selected
-                                  ? 1.06
-                                  : (_hover ? 1.03 : 1.0),
-                              duration:
-                                  waveMotion(context, WaveMotion.fast),
-                              curve: Curves.easeOutCubic,
-                              child: Icon(
-                                widget.destination.icon,
-                                size: 18,
-                                color: widget.selected ? accent : fg,
                               ),
-                            );
-                      },
-                      ),
-                    ),
+                            ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ],
