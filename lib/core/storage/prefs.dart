@@ -143,6 +143,19 @@ class Prefs {
     );
   }
 
+  /// Floating miniplayer look: `'classic'` bar, `'compact'` strip,
+  /// `'card'` artwork square, `'ambient'` wide blurred-artwork panel.
+  static const miniPlayerStyles = ['classic', 'compact', 'card', 'ambient'];
+  String get miniPlayerStyle {
+    final raw = _sp.getString('lw_mini_style') ?? 'classic';
+    return miniPlayerStyles.contains(raw) ? raw : 'classic';
+  }
+
+  Future<void> setMiniPlayerStyle(String style) => _sp.setString(
+        'lw_mini_style',
+        miniPlayerStyles.contains(style) ? style : 'classic',
+      );
+
   Offset? get miniPlayerPosition {
     final x = _sp.getDouble('lw_mini_pos_x');
     final y = _sp.getDouble('lw_mini_pos_y');
