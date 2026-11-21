@@ -620,6 +620,13 @@ class Prefs {
   Future<void> setSpotifyDeviceId(String v) =>
       _sp.setString('spotify_device_id', v);
 
+  /// Last one-time-password secret Spotify accepted, as JSON
+  /// `{"v": version, "c": [char codes]}`; '' when none yet. Tried first on
+  /// the next sign-in so it works even when the secret sources are down.
+  String get spotifyOtpSecret => _sp.getString('spotify_otp_secret') ?? '';
+  Future<void> setSpotifyOtpSecret(String v) =>
+      _sp.setString('spotify_otp_secret', v);
+
   // -- Download folder layout (Android DownloadFolderStructure ids) ---------
   String get downloadStructure {
     final raw = _sp.getString('lw_download_structure') ?? 'flat';
