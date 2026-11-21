@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/network/lastfm_api.dart';
 import '../../core/network/lastfm_crypto.dart';
 import '../../core/storage/prefs.dart';
+import '../scrobblers/extra_scrobblers.dart';
 import 'auth_repository.dart';
 
 /// Scrobble result classification.
@@ -20,11 +21,15 @@ class ScrobbleRepository {
   final LastFmApiService _api;
   final Prefs _prefs;
 
+  /// ListenBrainz / Libre.fm: every listen also goes to each connected
+  /// one, whether or not Last.fm is set up.
+  final ExtraScrobblers? _extras;
+
   String _lastNowPlayingKey = '';
   DateTime _lastWrite = DateTime.fromMillisecondsSinceEpoch(0);
   final List<Map<String, String>> _offlineQueue = [];
 
-  ScrobbleRepository(this._api, this._prefs);
+  ScrobbleRepository(this._api, this._prefs, [this._extras]);
 
   String get _apiKey => _prefs.lastFmApiKey;
   String get _apiSecret => _prefs.lastFmApiSecret;
@@ -71,6 +76,9 @@ class ScrobbleRepository {
     required String track,
     String album = '',
   }) async {
+    if (_prefs.scrobbleNowPlaying) {
+      _extras?.nowPlaying(Listen(artist: artist, track: track, album: album));
+    }
     if (!_prefs.scrobblerEnabled ||
         !_prefs.scrobbleNowPlaying ||
         !_canWrite) {
@@ -103,6 +111,12 @@ class ScrobbleRepository {
     String album = '',
     required int timestampSec,
   }) async {
+    _extras?.submit(Listen(
+      artist: artist,
+      track: track,
+      album: album,
+      startedAtSec: timestampSec,
+    ));
     if (!_prefs.scrobblerEnabled) return ScrobbleOutcome.noSession;
     final entry = {
       'artist': artist,
@@ -191,5 +205,6 @@ final scrobbleRepositoryProvider = Provider<ScrobbleRepository>((ref) {
   return ScrobbleRepository(
     ref.watch(lastFmApiProvider),
     ref.watch(prefsProvider),
+    ref.watch(extraScrobblersProvider),
   );
 });
