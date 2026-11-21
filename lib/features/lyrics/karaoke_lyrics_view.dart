@@ -1174,8 +1174,11 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
       duration: waveMotion(context, const Duration(milliseconds: 240)),
       curve: Curves.easeOutCubic,
       builder: (context, sigma, child) {
-        if (sigma <= 0.05) return child!;
+        // `enabled` instead of returning the bare child: swapping the
+        // wrapper in and out remounted the line (its karaoke painters and
+        // state) every time a line became active or stopped being active.
         return ImageFiltered(
+          enabled: sigma > 0.05,
           imageFilter: ui.ImageFilter.blur(
             sigmaX: sigma,
             sigmaY: sigma,

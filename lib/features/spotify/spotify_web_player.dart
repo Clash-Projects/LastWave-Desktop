@@ -70,6 +70,57 @@ class SpotifyWebPlayer {
     return hash;
   }
 
+  static List<SpotifySecret>? _secrets;
+  static DateTime? _secretsAt;
+  static Future<List<SpotifySecret>>? _secretsInflight;
+
+  /// Most bundles scanned for the one-time-password secrets.
+  static const _maxSecretScripts = 24;
+
+  /// The one-time-password secrets the player carries, newest first.
+  ///
+  /// [script] stops at the first bundle with *either* the GraphQL hashes or
+  /// the secrets, and only looks at four bundles; when the secrets sit in a
+  /// later chunk the sign-in fell back to a single GitHub file, which some
+  /// networks block, and failed every time. This looks through every
+  /// bundle the page links (cached like [script]).
+  static Future<List<SpotifySecret>> playerSecrets(Dio dio) {
+    final at = _secretsAt;
+    final cached = _secrets;
+    if (cached != null &&
+        cached.isNotEmpty &&
+        at != null &&
+        DateTime.now().difference(at) < _cacheTtl) {
+      return Future.value(cached);
+    }
+    return _secretsInflight ??=
+        _readSecrets(dio).whenComplete(() => _secretsInflight = null);
+  }
+
+  static Future<List<SpotifySecret>> _readSecrets(Dio dio) async {
+    final main = await script(dio);
+    if (main != null) {
+      final found = secrets(main);
+      if (found.isNotEmpty) return _keepSecrets(found);
+    }
+    final page = await _get(dio, _playerPage);
+    if (page == null) return const [];
+    for (final bundle in scripts(page).take(_maxSecretScripts)) {
+      final body = await _get(dio, bundle);
+      if (body == null) continue;
+      final found = secrets(body);
+      if (found.isNotEmpty) return _keepSecrets(found);
+    }
+    DiagnosticsLog.info('spotify player secrets=none');
+    return const [];
+  }
+
+  static List<SpotifySecret> _keepSecrets(List<SpotifySecret> found) {
+    _secrets = found;
+    _secretsAt = DateTime.now();
+    return found;
+  }
+
   /// The player's script, or null when it could not be read. Cached for a
   /// few hours: the player changes rarely and the bundle is megabytes.
   static Future<String?> script(Dio dio, {bool force = false}) {
@@ -205,6 +256,9 @@ class SpotifyWebPlayer {
     _readAt = null;
     _inflight = null;
     _hashes.clear();
+    _secrets = null;
+    _secretsAt = null;
+    _secretsInflight = null;
   }
 }
 

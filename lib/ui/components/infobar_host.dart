@@ -173,7 +173,7 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
             : InfoBarSeverity.error,
         isLong: false,
         action: WaveLink(
-          onPressed: () => context.go('/downloads'),
+          onPressed: () => context.go('/library?tab=downloads'),
           child: const Text('Open'),
         ),
         onClose: () {

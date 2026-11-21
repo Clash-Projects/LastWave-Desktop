@@ -181,6 +181,18 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
   static const Size miniSize = Size(380, 78);
   static const Size miniMinSize = Size(300, 64);
 
+  /// Window size and minimum size for each [Prefs.miniPlayerStyle].
+  static ({Size size, Size min}) miniBoundsFor(String style) =>
+      switch (style) {
+        'compact' => (size: const Size(320, 56), min: const Size(260, 48)),
+        'card' => (size: const Size(280, 280), min: const Size(220, 220)),
+        'ambient' => (size: const Size(440, 120), min: const Size(360, 108)),
+        _ => (size: miniSize, min: miniMinSize),
+      };
+
+  Size get _miniSize =>
+      miniBoundsFor(_ref.read(prefsProvider).miniPlayerStyle).size;
+
   final Ref _ref;
   final MiniWindowAdapter _window;
   final bool _nativePreInterceptSupported;
@@ -422,8 +434,10 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
       );
 
       await _safe(() async {
-        await _window.setMinimumSize(miniMinSize);
-        await _window.setSize(miniSize);
+        final bounds =
+            miniBoundsFor(_ref.read(prefsProvider).miniPlayerStyle);
+        await _window.setMinimumSize(bounds.min);
+        await _window.setSize(bounds.size);
         final target = await _resolveMiniPosition();
         if (target != null) {
           await _window.setPosition(target);
@@ -441,12 +455,12 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
   Future<Offset?> _resolveMiniPosition() async {
     final prefs = _ref.read(prefsProvider);
     final saved = prefs.miniPlayerPosition;
+    final size = _miniSize;
     Offset? desired = saved;
     if (desired == null && _savedWindowPos != null && _savedWindowSize != null) {
       desired = Offset(
-        _savedWindowPos!.dx + (_savedWindowSize!.width - miniSize.width - 24),
-        _savedWindowPos!.dy +
-            (_savedWindowSize!.height - miniSize.height - 24),
+        _savedWindowPos!.dx + (_savedWindowSize!.width - size.width - 24),
+        _savedWindowPos!.dy + (_savedWindowSize!.height - size.height - 24),
       );
     }
     if (desired == null) return null;
@@ -455,7 +469,7 @@ class MiniPlayerController extends StateNotifier<MiniPlayerState> {
     await _safe(() async {
       areas = await _window.getDisplayWorkAreas();
     });
-    return clampMiniPositionToWorkAreas(desired, miniSize, areas);
+    return clampMiniPositionToWorkAreas(desired, size, areas);
   }
 
   Future<void> _saveCurrentMiniPosition() async {

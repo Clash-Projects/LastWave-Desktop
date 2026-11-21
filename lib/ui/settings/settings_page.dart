@@ -890,7 +890,7 @@ class _Appearance extends ConsumerWidget {
         _Group(
           id: 'appearance.theme',
           title: 'Theme',
-          subtitle: 'Midnight, Pearl, or your own colours',
+          subtitle: 'Midnight, Pearl, artwork, or your own colours',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -899,6 +899,7 @@ class _Appearance extends ConsumerWidget {
                   for (final (mode, label) in const [
                     ('dark', 'Midnight'),
                     ('light', 'Pearl'),
+                    ('artwork', 'Artwork'),
                     ('custom', 'Custom'),
                   ]) ...[
                     if (mode != 'dark') const SizedBox(width: 8),
@@ -907,7 +908,10 @@ class _Appearance extends ConsumerWidget {
                         checked: switch (mode) {
                           'light' => theme.isLight,
                           'custom' => theme.isCustom,
-                          _ => !theme.isLight && !theme.isCustom,
+                          'artwork' => theme.isArtwork,
+                          _ => !theme.isLight &&
+                              !theme.isCustom &&
+                              !theme.isArtwork,
                         },
                         onChanged: (_) => ref
                             .read(themeControllerProvider.notifier)
@@ -921,6 +925,15 @@ class _Appearance extends ConsumerWidget {
               if (theme.isCustom) ...[
                 const SizedBox(height: 12),
                 _CustomThemeEditor(base: theme.customBase),
+              ],
+              if (theme.isArtwork) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Surfaces take their colour from the song that is playing '
+                  'and blend as tracks change. Midnight while nothing plays.',
+                  style:
+                      WaveType.meta.copyWith(color: waveTextTertiary(context)),
+                ),
               ],
               const SizedBox(height: 12),
               const Text('Accent source', style: WaveType.trackTitle),
@@ -1084,7 +1097,8 @@ class _Appearance extends ConsumerWidget {
             children: [
               _SwitchRow(
                 value: prefs.amoled,
-                enabled: !theme.isLight && !theme.isCustom,
+                enabled:
+                    !theme.isLight && !theme.isCustom && !theme.isArtwork,
                 onChanged: (v) => onUpdate((p) => p.setAmoled(v)),
                 title: 'AMOLED black',
                 subtitle: 'Pure-black surfaces · Midnight only',
@@ -3339,6 +3353,26 @@ class _General extends ConsumerWidget {
                   await onUpdate((p) => p.setMiniTaskbarMode(v));
                   await ref.read(miniPlayerProvider.notifier).syncFromPrefs();
                 },
+              ),
+              const SizedBox(height: 10),
+              _BehaviourSelectRow(
+                title: 'Miniplayer style',
+                subtitle: switch (prefs.miniPlayerStyle) {
+                  'compact' => 'Slim strip with just the essentials.',
+                  'card' =>
+                    'Square artwork card with controls over the cover.',
+                  'ambient' =>
+                    'Wide panel glowing with the blurred artwork and a timed scrubber.',
+                  _ => 'Bar with artwork, transport and window buttons.',
+                },
+                value: prefs.miniPlayerStyle,
+                options: const [
+                  WaveSelectOption(value: 'classic', label: 'Classic bar'),
+                  WaveSelectOption(value: 'compact', label: 'Compact strip'),
+                  WaveSelectOption(value: 'card', label: 'Artwork card'),
+                  WaveSelectOption(value: 'ambient', label: 'Ambient wide'),
+                ],
+                onChanged: (v) => onUpdate((p) => p.setMiniPlayerStyle(v)),
               ),
               if (Platform.isLinux &&
                   Platform.environment['WAYLAND_DISPLAY'] != null)

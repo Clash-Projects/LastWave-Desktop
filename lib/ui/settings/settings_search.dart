@@ -34,7 +34,8 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     subtitle: 'Startup and window defaults',
     keywords:
         'close button minimize tray background window startup '
-        'miniplayer mini player floating always on top taskbar dock',
+        'miniplayer mini player floating always on top taskbar dock '
+        'style compact card ambient classic',
   ),
   SettingsSearchEntry(
     id: 'general.backup',
@@ -134,9 +135,9 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     id: 'appearance.theme',
     section: 'appearance',
     title: 'Theme',
-    subtitle: 'Midnight, Pearl, or your own colours',
+    subtitle: 'Midnight, Pearl, artwork, or your own colours',
     keywords:
-        'dark light midnight pearl custom theme background base tint '
+        'dark light midnight pearl custom artwork cover theme background base tint '
         'accent colour color picker palette mode personalize',
   ),
   SettingsSearchEntry(

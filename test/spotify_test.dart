@@ -109,6 +109,34 @@ void main() {
       );
       expect(SpotifyAuth.cleanSpDc('  "AQabc123"  '), 'AQabc123');
     });
+
+    test('accepts a row copied from the browser cookie table', () {
+      expect(
+        SpotifyAuth.cleanSpDc(
+            'sp_dc\tAQabc123\t.spotify.com\t/\t2027-01-01T00:00:00.000Z'),
+        'AQabc123',
+      );
+      expect(SpotifyAuth.cleanSpDc('AQabc​123﻿'), 'AQabc123');
+      expect(SpotifyAuth.cleanSpDc('sp_dc = AQabc123'), 'AQabc123');
+    });
+  });
+
+  group('otp secret sources', () {
+    test('the published dictionary is read newest version first', () {
+      final secrets =
+          SpotifyAuth.parseSecretDict('{"12":[97,98],"14":[120],"x":[1]}');
+      expect(secrets.map((s) => s.version), [14, 12]);
+      expect(secrets.first.value, 'x');
+      expect(SpotifyAuth.parseSecretDict('not json'), isEmpty);
+    });
+
+    test('the remembered secret round-trips', () {
+      final s = SpotifyAuth.decodeStoredSecret('{"v":61,"c":[65,66]}');
+      expect(s?.version, 61);
+      expect(s?.value, 'AB');
+      expect(SpotifyAuth.decodeStoredSecret(''), isNull);
+      expect(SpotifyAuth.decodeStoredSecret('{"v":1}'), isNull);
+    });
   });
 
   group('web player scraping', () {

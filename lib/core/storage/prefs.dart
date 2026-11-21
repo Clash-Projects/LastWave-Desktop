@@ -143,6 +143,19 @@ class Prefs {
     );
   }
 
+  /// Floating miniplayer look: `'classic'` bar, `'compact'` strip,
+  /// `'card'` artwork square, `'ambient'` wide blurred-artwork panel.
+  static const miniPlayerStyles = ['classic', 'compact', 'card', 'ambient'];
+  String get miniPlayerStyle {
+    final raw = _sp.getString('lw_mini_style') ?? 'classic';
+    return miniPlayerStyles.contains(raw) ? raw : 'classic';
+  }
+
+  Future<void> setMiniPlayerStyle(String style) => _sp.setString(
+        'lw_mini_style',
+        miniPlayerStyles.contains(style) ? style : 'classic',
+      );
+
   Offset? get miniPlayerPosition {
     final x = _sp.getDouble('lw_mini_pos_x');
     final y = _sp.getDouble('lw_mini_pos_y');
@@ -376,6 +389,10 @@ class Prefs {
   Future<void> setThemeMode(String v) => _sp.setString('lw_theme_mode', v);
   bool get isLight => themeMode == 'light';
   bool get isCustomTheme => themeMode == 'custom';
+
+  /// 'artwork': surfaces generated from the playing cover (see
+  /// `artworkSurfacesProvider`), Midnight while nothing plays.
+  bool get isArtworkTheme => themeMode == 'artwork';
 
   /// Base colour (ARGB) of the Custom theme. Default: the Ocean preset.
   int get customThemeBase => _sp.getInt('lw_custom_theme_base') ?? 0xFF1A2A44;
@@ -628,6 +645,13 @@ class Prefs {
   String get spotifyDeviceId => _sp.getString('spotify_device_id') ?? '';
   Future<void> setSpotifyDeviceId(String v) =>
       _sp.setString('spotify_device_id', v);
+
+  /// Last one-time-password secret Spotify accepted, as JSON
+  /// `{"v": version, "c": [char codes]}`; '' when none yet. Tried first on
+  /// the next sign-in so it works even when the secret sources are down.
+  String get spotifyOtpSecret => _sp.getString('spotify_otp_secret') ?? '';
+  Future<void> setSpotifyOtpSecret(String v) =>
+      _sp.setString('spotify_otp_secret', v);
 
   // -- Download folder layout (Android DownloadFolderStructure ids) ---------
   String get downloadStructure {
