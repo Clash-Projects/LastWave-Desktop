@@ -1595,6 +1595,22 @@ class _SpotifyCard extends ConsumerWidget {
           subtitle: 'Use Spotify\'s vertical looping video in the Canvas panel '
               '(needs a connected account)',
         ),
+        const SizedBox(height: 6),
+        _BehaviourSelectRow(
+          title: 'Recommendations',
+          subtitle: prefs.recommendationSource == 'spotify'
+              ? (auth.connected
+                  ? 'Autoplay and radio use Spotify\'s own song radio.'
+                  : 'Spotify is not connected, so YouTube Music is used '
+                      'until you sign in.')
+              : 'Autoplay and radio use YouTube Music\'s related songs.',
+          value: prefs.recommendationSource,
+          options: const [
+            WaveSelectOption(value: 'youtube', label: 'YouTube Music'),
+            WaveSelectOption(value: 'spotify', label: 'Spotify'),
+          ],
+          onChanged: (v) => onUpdate((p) => p.setRecommendationSource(v)),
+        ),
       ],
     );
   }

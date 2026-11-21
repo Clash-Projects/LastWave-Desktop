@@ -632,6 +632,15 @@ class Prefs {
   Future<void> setSpotifyCanvasEnabled(bool v) =>
       _sp.setBool('spotify_canvas_enabled', v);
 
+  /// Which service picks the songs autoplay / endless radio adds:
+  /// `'youtube'` (YouTube Music related songs, default) or `'spotify'`
+  /// (Spotify's own song radio, needs a connected Spotify account). The
+  /// two are never mixed in one refill.
+  String get recommendationSource =>
+      _sp.getString('lw_reco_source') == 'spotify' ? 'spotify' : 'youtube';
+  Future<void> setRecommendationSource(String v) => _sp.setString(
+      'lw_reco_source', v == 'spotify' ? 'spotify' : 'youtube');
+
   /// Per-install id presented to Spotify's client-token endpoint.
   String get spotifyDeviceId => _sp.getString('spotify_device_id') ?? '';
   Future<void> setSpotifyDeviceId(String v) =>

@@ -7,6 +7,8 @@ import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../app/track_actions.dart'
     show playGenerated, playableFromGenerated, relativeTime;
+import '../../core/storage/prefs.dart';
+import '../../features/spotify/spotify_auth.dart';
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/network/network_monitor.dart';
 import '../../features/feed/feed_repository.dart';
@@ -34,6 +36,7 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 import 'discovery_sections.dart';
+import 'spotify_home.dart';
 
 /// Rich editorial Home — every section has a distinct representation.
 ///
@@ -61,6 +64,11 @@ class WaveHomePage extends ConsumerWidget {
     // device state is actually observed.
     final online = ref.watch(networkMonitorProvider);
     final viewport = MediaQuery.sizeOf(context).width;
+    // Spotify as the recommendation source replaces the YouTube Music /
+    // Last.fm feed with Spotify's own Home (never blended).
+    final spotifyHome =
+        ref.watch(prefsProvider).recommendationSource == 'spotify' &&
+            ref.watch(spotifyAuthProvider).connected;
 
     // Responsive shell: <900 single col, 900–1300 two col, 1300+ three col,
     // content capped at 1280 and centered.
@@ -80,7 +88,7 @@ class WaveHomePage extends ConsumerWidget {
     // the moment feed data lands, so sections cascade in together and
     // lazily-built rows never replay the animation during scroll.
     return WaveEntranceGroup(
-      start: feed.hasValue,
+      start: spotifyHome || feed.hasValue,
       child: CustomScrollView(
         slivers: [
         SliverPadding(
@@ -97,6 +105,9 @@ class WaveHomePage extends ConsumerWidget {
             ),
           ),
         ),
+        if (spotifyHome)
+          SpotifyHomeSlivers(side: side, loading: const _HomeSkeleton())
+        else
         feed.when(
           loading: () => SliverPadding(
             padding: EdgeInsets.fromLTRB(side, 18, side, 32),

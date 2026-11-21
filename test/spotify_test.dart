@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lastwave_desktop/features/spotify/spotify_api.dart';
 import 'package:lastwave_desktop/features/spotify/spotify_auth.dart';
 import 'package:lastwave_desktop/features/spotify/spotify_web_login.dart';
 import 'package:lastwave_desktop/features/spotify/spotify_web_player.dart';
@@ -15,6 +16,86 @@ void main() {
       expect(SpotifyAuth.generateOtp(key, 59), '287082');
       expect(SpotifyAuth.generateOtp(key, 1111111109), '081804');
       expect(SpotifyAuth.generateOtp(key, 1234567890), '005924');
+    });
+  });
+
+  group('home', () {
+    test('reads titled rows of playlists, albums and artists', () {
+      final sections = SpotifyApi.parseHome({
+        'data': {
+          'home': {
+            'sectionContainer': {
+              'sections': {
+                'items': [
+                  {
+                    'data': {
+                      'title': {'transformedLabel': 'Made For You'},
+                    },
+                    'sectionItems': {
+                      'items': [
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:playlist:p1',
+                              'name': 'Daily Mix 1',
+                              'images': {
+                                'items': [
+                                  {
+                                    'sources': [
+                                      {'url': 'https://i/p1.jpg'},
+                                    ],
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:artist:a1',
+                              'profile': {'name': 'Raftaar'},
+                            },
+                          },
+                        },
+                        {
+                          'content': {
+                            'data': {
+                              'uri': 'spotify:episode:e1',
+                              'name': 'A podcast',
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    'data': {'title': {'text': 'Empty row'}},
+                    'sectionItems': {'items': []},
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+      expect(sections, hasLength(1));
+      expect(sections.single.title, 'Made For You');
+      expect(sections.single.items.map((i) => i.kind), ['playlist', 'artist']);
+      expect(sections.single.items.first.artworkUrl, 'https://i/p1.jpg');
+      expect(SpotifyApi.parseHome(null), isEmpty);
+    });
+  });
+
+  group('song radio', () {
+    test('reads the radio playlist from a seed_to_playlist answer', () {
+      expect(
+        SpotifyApi.songRadioPlaylistId(
+            '{"mediaItems":[{"uri":"spotify:playlist:37i9dQZF1E4abc"}]}'),
+        '37i9dQZF1E4abc',
+      );
+      expect(SpotifyApi.songRadioPlaylistId('{"mediaItems":[]}'), isNull);
+      expect(SpotifyApi.songRadioPlaylistId('oops'), isNull);
     });
   });
 
