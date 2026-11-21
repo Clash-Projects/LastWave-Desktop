@@ -23,6 +23,16 @@ class SmtcChannel {
   SmtcChannel(flutter::BinaryMessenger* messenger, HWND hwnd);
   ~SmtcChannel();
 
+  // Posted to the main window when a flyout / media-key button is pressed.
+  // SMTC raises ButtonPressed on a thread-pool thread, and Flutter only
+  // delivers channel messages sent from the platform thread, so the press
+  // is marshalled here and forwarded by OnButtonMessage. WPARAM carries
+  // the SystemMediaTransportControlsButton value.
+  static constexpr UINT kButtonMessage = WM_APP + 0x51;
+
+  // Call from the window procedure (platform thread) for kButtonMessage.
+  void OnButtonMessage(WPARAM button);
+
   SmtcChannel(const SmtcChannel&) = delete;
   SmtcChannel& operator=(const SmtcChannel&) = delete;
 
