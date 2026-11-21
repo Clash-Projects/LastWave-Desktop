@@ -910,8 +910,10 @@ void main() {
         matching: find.byType(ImageFiltered),
       );
 
-      expect(activeBlurFinder, findsNothing);
-      expect(inactiveBlurFinder, findsOneWidget);
+      // The filter stays mounted (toggling it remounted the line) but is
+      // disabled on the active line.
+      expect(tester.widget<ImageFiltered>(activeBlurFinder).enabled, isFalse);
+      expect(tester.widget<ImageFiltered>(inactiveBlurFinder).enabled, isTrue);
     });
   });
 

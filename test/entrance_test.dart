@@ -82,4 +82,32 @@ void main() {
       isEmpty,
     );
   });
+
+  testWidgets('the entering child keeps its state through the fade',
+      (tester) async {
+    await tester.pumpWidget(
+      host(
+        WaveEntranceGroup(
+          child: WaveEntrance(index: 0, child: const _Probe()),
+        ),
+      ),
+    );
+    final first = tester.state(find.byType(_Probe));
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pumpAndSettle();
+    // Same State object: the wrapper never changed shape, so no remount.
+    expect(identical(tester.state(find.byType(_Probe)), first), isTrue);
+  });
 }
+
+class _Probe extends StatefulWidget {
+  const _Probe();
+  @override
+  State<_Probe> createState() => _ProbeState();
+}
+
+class _ProbeState extends State<_Probe> {
+  @override
+  Widget build(BuildContext context) => const Text('Home');
+}
+

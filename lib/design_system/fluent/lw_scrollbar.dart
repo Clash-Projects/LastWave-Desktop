@@ -2,7 +2,6 @@ import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../../../ui/theme/tokens.dart';
 
@@ -107,8 +106,8 @@ class WaveScrollBehavior extends FluentScrollBehavior {
 }
 
 /// Intercepts desktop mouse wheel [PointerScrollEvent]s to interpolate
-/// target scroll offsets smoothly over time (160ms easeOutCubic)
-/// via a high-refresh-rate [Ticker] instead of discrete single-frame pixel jumps.
+/// target scroll offsets smoothly over time (200ms easeOutCubic)
+/// as one driven scroll animation instead of discrete single-frame jumps.
 class WaveSmoothScroll extends StatefulWidget {
   final Widget child;
   final ScrollController? controller;
@@ -121,7 +120,7 @@ class WaveSmoothScroll extends StatefulWidget {
     required this.child,
     this.controller,
     this.direction = AxisDirection.down,
-    this.duration = const Duration(milliseconds: 160),
+    this.duration = const Duration(milliseconds: 200),
     this.curve = Curves.easeOutCubic,
   });
 
@@ -129,70 +128,10 @@ class WaveSmoothScroll extends StatefulWidget {
   State<WaveSmoothScroll> createState() => _WaveSmoothScrollState();
 }
 
-class _WaveSmoothScrollState extends State<WaveSmoothScroll>
-    with SingleTickerProviderStateMixin {
-  late final Ticker _ticker;
+class _WaveSmoothScrollState extends State<WaveSmoothScroll> {
+  /// Where the current glide is heading; null when idle. Consecutive notches
+  /// stack onto it so a fast spin keeps gliding instead of stalling.
   double? _targetPixels;
-  double _startPixels = 0.0;
-  Duration _animationStart = Duration.zero;
-  Duration _lastTickElapsed = Duration.zero;
-  ScrollPosition? _activePosition;
-
-  @override
-  void initState() {
-    super.initState();
-    _ticker = createTicker(_onTick);
-  }
-
-  @override
-  void dispose() {
-    _ticker.dispose();
-    super.dispose();
-  }
-
-  void _onTick(Duration elapsed) {
-    _lastTickElapsed = elapsed;
-    final position = _activePosition;
-    if (position == null || !position.hasPixels || _targetPixels == null) {
-      _stopGliding();
-      return;
-    }
-
-    final totalDurationMs = widget.duration.inMilliseconds.toDouble();
-    if (totalDurationMs <= 0) {
-      position.jumpTo(_targetPixels!);
-      _stopGliding();
-      return;
-    }
-
-    final progressMs =
-        (elapsed - _animationStart).inMicroseconds / 1000.0;
-    final t = (progressMs / totalDurationMs).clamp(0.0, 1.0);
-    final curveValue = widget.curve.transform(t);
-
-    final currentPixels =
-        _startPixels + (_targetPixels! - _startPixels) * curveValue;
-    final clamped = currentPixels.clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
-    position.jumpTo(clamped);
-
-    if (t >= 1.0 || (clamped - _targetPixels!).abs() < 0.25) {
-      position.jumpTo(_targetPixels!);
-      _stopGliding();
-    }
-  }
-
-  void _stopGliding() {
-    if (_ticker.isActive) {
-      _ticker.stop();
-    }
-    _targetPixels = null;
-    _activePosition = null;
-    _animationStart = Duration.zero;
-    _lastTickElapsed = Duration.zero;
-  }
 
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
@@ -237,32 +176,33 @@ class _WaveSmoothScrollState extends State<WaveSmoothScroll>
           isVertical ? scrollEvent.scrollDelta.dy : scrollEvent.scrollDelta.dx;
       if (d == 0) return;
 
-      final current = position.pixels;
-      final min = position.minScrollExtent;
-      final max = position.maxScrollExtent;
-
-      // Accumulate target offset so fast consecutive spins glide continuously
-      final base = (_targetPixels != null) ? _targetPixels! : current;
-      final newTarget = (base + d).clamp(min, max);
-
-      _activePosition = position;
-      _startPixels = current;
-      _targetPixels = newTarget;
-
-      if (!_ticker.isActive) {
-        _animationStart = Duration.zero;
-        _lastTickElapsed = Duration.zero;
-        _ticker.start();
-      } else {
-        // Reset animation start point from current position to target
-        _animationStart = _lastTickElapsed;
-      }
+      final base = _targetPixels ?? position.pixels;
+      final target =
+          (base + d).clamp(position.minScrollExtent, position.maxScrollExtent);
+      if (target == _targetPixels) return;
+      _targetPixels = target;
+      // One driven scroll activity instead of a jumpTo per frame: jumpTo
+      // reported a separate start/update/end for every frame (scroll
+      // listeners and the scrollbar churned three times a frame) and the
+      // list never knew it was mid-scroll. A newer notch replaces the
+      // running activity, continuing from wherever it got to.
+      position
+          .animateTo(target, duration: widget.duration, curve: widget.curve)
+          .whenComplete(() {
+        if (_targetPixels == target) _targetPixels = null;
+      });
     });
   }
 
   void _onPointerDown(PointerDownEvent _) {
     // Immediately cancel wheel interpolation if user touches/clicks/drags
-    _stopGliding();
+    if (_targetPixels == null) return;
+    _targetPixels = null;
+    final controller = widget.controller;
+    if (controller != null && controller.positions.length == 1) {
+      final position = controller.position;
+      if (position.hasPixels) position.jumpTo(position.pixels);
+    }
   }
 
   @override
