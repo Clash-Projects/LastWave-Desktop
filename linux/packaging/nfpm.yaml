@@ -2,7 +2,9 @@
 # Built ONLY for releases (v* tags); see .github/workflows/desktop.yml.
 # VERSION comes from the tag (v1.0.0 -> 1.0.0); nFPM expands env vars.
 name: lastwave
-arch: amd64
+# NFPM_ARCH is the packager's own name (amd64/arm64 for deb, x86_64/aarch64
+# for rpm); BUNDLE_ARCH is Flutter's build dir name (x64/arm64).
+arch: ${NFPM_ARCH}
 platform: linux
 version: ${VERSION}
 # Transitional shims for the v1.0.0 rename (lastwave-desktop -> lastwave):
@@ -25,7 +27,7 @@ license: Proprietary — all rights reserved (no LICENSE file yet)
 
 contents:
   # Release bundle straight into /opt.
-  - src: build/linux/x64/release/bundle
+  - src: build/linux/${BUNDLE_ARCH}/release/bundle
     dst: /opt/lastwave
     type: tree
   # CLI entry point.

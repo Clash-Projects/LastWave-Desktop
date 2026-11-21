@@ -22,8 +22,24 @@ permissions:
 
 jobs:
   build-linux:
-    name: Build Linux Bundle
-    runs-on: ubuntu-22.04
+    name: Build Linux Bundle (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+            deb_arch: amd64
+            rpm_arch: x86_64
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+            deb_arch: arm64
+            rpm_arch: aarch64
+    env:
+      BUNDLE_ARCH: ${{ matrix.arch }}
+      DEB_ARCH: ${{ matrix.deb_arch }}
+      RPM_ARCH: ${{ matrix.rpm_arch }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,6 +54,7 @@ jobs:
             libkeybinder-3.0-dev libwebkit2gtk-4.1-dev glib-networking
 
       - name: Setup Flutter
+        if: matrix.arch == 'x64'
         uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -46,6 +63,16 @@ jobs:
           # 3.47.9 is the last engine with crash-free builds.
           flutter-version: 3.47.9
           cache: true
+
+      # Flutter publishes no Linux arm64 archive, so flutter-action cannot
+      # install it there; the git checkout fetches arm64 engine artifacts
+      # on first run instead.
+      - name: Setup Flutter (arm64, from git)
+        if: matrix.arch == 'arm64'
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
 
       # Release builds need the addon backend key: CI has no .env
       # (gitignored), so the repo secret ADDON_CLIENT_SECRET is written
@@ -77,8 +104,10 @@ jobs:
       # linkage (22.04 has no .so.2) to find and bundle libmpv.
       # Icon must stay 512px max and named lastwave.png (matches desktop
       # Icon=lastwave by basename; linuxdeploy rejects anything else).
+      # x64 only for now: linuxdeploy/appimagetool and the multiarch
+      # library paths below are x86_64-specific.
       - name: Build AppImage
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.arch == 'x64'
         run: |
           export VERSION="${GITHUB_REF_NAME#v}"
           echo "Building AppImage for version $VERSION"
@@ -313,7 +342,7 @@ jobs:
       # survives. (22.04 itself has no .so.2 — see release notes.)
       - name: Normalize libmpv linkage
         run: |
-          BUNDLE="build/linux/x64/release/bundle/lib"
+          BUNDLE="build/linux/${BUNDLE_ARCH}/release/bundle/lib"
           for f in "$BUNDLE"/libmedia_kit_video_plugin.so "$BUNDLE"/libmedia_kit_native_event_loop.so; do
             if objdump -p "$f" | grep -q "NEEDED.*libmpv.so.1"; then
               echo "Retargeting $f: libmpv.so.1 -> libmpv.so.2"
@@ -330,8 +359,8 @@ jobs:
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LastWave-Desktop-Linux
-          path: build/linux/x64/release/bundle/
+          name: LastWave-Desktop-Linux-${{ matrix.arch }}
+          path: build/linux/${{ matrix.arch }}/release/bundle/
 
       # System packages are release-only (v* tags): PR/push builds
       # stop at the raw bundle above.
@@ -347,21 +376,24 @@ jobs:
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           export VERSION="${GITHUB_REF_NAME#v}"
           echo "Packaging version $VERSION"
-          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager deb --target ./lastwave_${VERSION}_amd64.deb
-          ~/go/bin/nfpm package --config linux/packaging/nfpm.yaml --packager rpm --target ./lastwave_${VERSION}_x86_64.rpm
-          ls -la lastwave_${VERSION}_amd64.deb lastwave_${VERSION}_x86_64.rpm
+          # nFPM expands env vars in `arch` but not in contents[].src, so
+          # render the bundle dir (x64/arm64) into a temporary config.
+          sed "s|\${BUNDLE_ARCH}|$BUNDLE_ARCH|g" linux/packaging/nfpm.yaml > "$RUNNER_TEMP/nfpm.yaml"
+          NFPM_ARCH="$DEB_ARCH" ~/go/bin/nfpm package --config "$RUNNER_TEMP/nfpm.yaml" --packager deb --target ./lastwave_${VERSION}_${DEB_ARCH}.deb
+          NFPM_ARCH="$RPM_ARCH" ~/go/bin/nfpm package --config "$RUNNER_TEMP/nfpm.yaml" --packager rpm --target ./lastwave_${VERSION}_${RPM_ARCH}.rpm
+          ls -la lastwave_${VERSION}_${DEB_ARCH}.deb lastwave_${VERSION}_${RPM_ARCH}.rpm
 
       - name: Upload Linux Packages
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
-          name: LastWave-Linux-Packages
+          name: LastWave-Linux-Packages-${{ matrix.arch }}
           path: |
-            lastwave_*_amd64.deb
-            lastwave_*_x86_64.rpm
+            lastwave_*_${{ matrix.deb_arch }}.deb
+            lastwave_*_${{ matrix.rpm_arch }}.rpm
 
       - name: Upload Linux AppImage
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.arch == 'x64'
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Linux-AppImage
@@ -461,8 +493,8 @@ jobs:
       # tag artifact is downloaded by exact name (a missing artifact
       # fails its step loudly instead of publishing an empty release).
       # Assets ride the release as raw files:
-      #   lastwave_<ver>_amd64.deb
-      #   lastwave_<ver>_x86_64.rpm
+      #   lastwave_<ver>_amd64.deb / lastwave_<ver>_arm64.deb
+      #   lastwave_<ver>_x86_64.rpm / lastwave_<ver>_aarch64.rpm
       #   lastwave_<ver>_x86_64.AppImage (portable Linux)
       #   lastwave_<ver>_windows-x86_64-setup.exe (installer)
       #   lastwave_<ver>_windows-x86_64-portable.zip (portable)
@@ -480,10 +512,16 @@ jobs:
           name: LastWave-Windows-Portable
           path: dist
 
-      - name: Download Linux packages
+      - name: Download Linux packages (x64)
         uses: actions/download-artifact@v4
         with:
-          name: LastWave-Linux-Packages
+          name: LastWave-Linux-Packages-x64
+          path: dist
+
+      - name: Download Linux packages (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: LastWave-Linux-Packages-arm64
           path: dist
 
       - name: Download Linux AppImage
