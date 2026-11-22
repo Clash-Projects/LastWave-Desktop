@@ -1983,6 +1983,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (state.isPlaying && (_crossfading || _standbyArmed)) {
       cancelCrossfade();
     }
+    _userPaused = state.isPlaying;
     try {
       await _player?.playOrPause();
     } catch (_) {}
@@ -2027,6 +2028,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// DAC has no usable hardware volume).
   Future<void> unlockSoftwareVolume() async {
     _lockSoftwareVolume = false;
+    _hardwareVolume = false;
   }
 
   Future<void> setVolume(double volume, {bool software = true}) async {
@@ -2062,6 +2064,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     _lockSoftwareVolume = lockSoftwareVolume;
+    if (!lockSoftwareVolume) {
+      _hardwareVolume = false;
+    }
     _currentAudioDevice = mpvDevice;
     if (exclusive) {
       cancelCrossfade();
@@ -2142,6 +2147,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       } catch (_) {}
       if (lockSoftwareVolume) {
         await player.setVolume(100);
+      } else {
+        await player.setVolume(_fullDeckVolume);
       }
     }).catchError((e) {
       exclusiveApplied = false;
@@ -3317,6 +3324,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> _onPlayerError({bool recheck = false}) async {
+    // If the listener has paused playback, device invalidations, monitor
+    // standby, or audio route changes must not restart the track or blast audio.
+    if (_userPaused) {
+      _crumb('player error while user paused -> ignoring auto-resume');
+      return;
+    }
     // The outgoing deck died during an AutoMix overlap: the incoming deck
     // is already playing, so finish the hand-off instead of restarting
     // the song that was ending anyway.
@@ -3430,6 +3443,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   void _onTrackCompleted() {
+    // When paused, an audio endpoint disconnect or monitor sleep causes
+    // libmpv to signal EOF / completed. Never advance or retry while paused.
+    if (_userPaused) {
+      _crumb('track completed while user paused -> ignoring premature eof');
+      return;
+    }
     if (_crossfading) {
       _completeCrossfade();
       return;

@@ -206,11 +206,24 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
       lockSoftwareVolume: hw,
       outputFormat: exclusive ? decision?.output : null,
     );
+    final vol = _ref.read(playbackServiceProvider).volume;
     if (hw) {
-      final vol = _ref.read(playbackServiceProvider).volume;
-      await _engine.setHardwareVolume(device!.id, vol);
-      wasapiLog('Hardware Volume: TRUE');
+      bool ok = await _engine.setHardwareVolume(device!.id, vol);
+      if (!ok) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        ok = await _engine.setHardwareVolume(device.id, vol);
+      }
+      if (ok) {
+        await playback.setVolume(vol, software: false);
+        wasapiLog('Hardware Volume: TRUE');
+      } else {
+        wasapiLog('Hardware volume write failed — falling back to software volume');
+        await playback.unlockSoftwareVolume();
+        await playback.setVolume(vol, software: true);
+      }
     } else {
+      await playback.unlockSoftwareVolume();
+      await playback.setVolume(vol, software: true);
       wasapiLog('Hardware Volume: FALSE');
     }
   }
@@ -269,7 +282,18 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
       final selected = state.selectedId;
       await refreshDevices();
       final wasRemoved = events.any((e) =>
-          e.reason == 'removed' && selected.isNotEmpty && selected == e.id);
+          e.reason == 'removed' && (selected.isEmpty || selected == e.id));
+      if (wasRemoved) {
+        await _ref.read(playbackServiceProvider.notifier).pause();
+        state = state.copyWith(
+          path: state.path.copyWith(
+            reason: BitPerfectReason.deviceUnavailable,
+            error: selected.isNotEmpty
+                ? 'DAC disconnected'
+                : 'Audio device disconnected',
+          ),
+        );
+      }
       final shouldApply = events.any((e) =>
           e.reason == 'added' ||
           e.reason == 'default' ||
@@ -277,15 +301,6 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
           e.reason == 'property');
       if (shouldApply || wasRemoved) {
         await applyToPlayer();
-      }
-      if (wasRemoved) {
-        await _ref.read(playbackServiceProvider.notifier).pause();
-        state = state.copyWith(
-          path: state.path.copyWith(
-            reason: BitPerfectReason.deviceUnavailable,
-            error: 'DAC disconnected',
-          ),
-        );
       }
     });
   }
