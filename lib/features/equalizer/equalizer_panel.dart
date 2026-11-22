@@ -51,7 +51,8 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
       width: double.infinity,
       height: double.infinity,
       decoration: BoxDecoration(
-        color: waveSurface(context),
+        // Raised is the opaque floating layer; surface is a film under glass.
+        color: waveSurfaceRaised(context),
         border: widget.embedded
             ? Border.all(
                 color: waveDivider(context).withValues(alpha: dark ? 0.35 : 0.6),

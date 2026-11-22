@@ -46,6 +46,17 @@ String get _artworkHwdec =>
 const int _artworkOutputPx = 384;
 
 class AnimatedArtworkSession extends ChangeNotifier {
+  /// Fixed texture size. Square for cover clips; the canvas panel passes
+  /// 9:16 — a square texture baked pillarbox bars into tall clips that
+  /// BoxFit.cover could not remove.
+  AnimatedArtworkSession({
+    this.outputWidth = _artworkOutputPx,
+    this.outputHeight = _artworkOutputPx,
+  });
+
+  final int outputWidth;
+  final int outputHeight;
+
   Player? _player;
   VideoController? _controller;
   bool _controllerReady = false;
@@ -447,8 +458,8 @@ class AnimatedArtworkSession extends ChangeNotifier {
         // Fixed output size avoids a texture realloc via SetSize on
         // the first frames (the surface later snaps to stream-native
         // on video params, so this is first-frame stability only).
-        width: _artworkOutputPx,
-        height: _artworkOutputPx,
+        width: outputWidth,
+        height: outputHeight,
         // CPU presentation on Linux: media_kit's H/W path renders in
         // an isolated EGL context shared with Flutter's ("H/W
         // rendering with isolated EGL context" in the log), and the
@@ -601,7 +612,12 @@ class AnimatedArtworkSession extends ChangeNotifier {
         // Scale straight to the pre-allocated texture edge (was 480, then
         // scaled again to the 384px texture: two passes per frame).
         await dyn.setProperty('vf',
-            'scale=$_artworkOutputPx:-2:flags=fast_bilinear,fps=24');
+            'scale=$outputWidth:-2:flags=fast_bilinear,fps=24');
+      } catch (_) {}
+      try {
+        // Crop to the texture's aspect instead of letterboxing, so a clip
+        // that is not exactly the texture shape still fills it edge to edge.
+        await dyn.setProperty('panscan', '1.0');
       } catch (_) {}
       try {
         await dyn.setProperty('loop-file', 'inf');
@@ -665,5 +681,5 @@ final animatedArtworkSessionProvider =
 /// player + one texture for the whole run, created lazily on first open.
 final canvasPanelSessionProvider =
     ChangeNotifierProvider<AnimatedArtworkSession>((ref) {
-      return AnimatedArtworkSession();
+      return AnimatedArtworkSession(outputWidth: 432, outputHeight: 768);
     });

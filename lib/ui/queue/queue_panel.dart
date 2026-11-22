@@ -289,7 +289,8 @@ class _Shell extends StatelessWidget {
     // Fully opaque: nothing from the page may show through the panel.
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: waveBackground(context),
+        // Raised, not background: under glass the page colour is clear.
+        color: waveSurfaceRaised(context),
         border: Border(left: BorderSide(color: waveDivider(context))),
       ),
       child: SizedBox(
