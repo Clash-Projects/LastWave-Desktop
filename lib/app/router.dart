@@ -399,11 +399,6 @@ GoRouter buildRouter({required AuthGate gate}) {
                 )),
               ),
               GoRoute(
-                path: '/friends',
-                pageBuilder: (c, s) =>
-                    _page(const WaveFriendsPage()),
-              ),
-              GoRoute(
                 path: '/profile',
                 pageBuilder: (c, s) =>
                     _page(const WaveProfilePage()),

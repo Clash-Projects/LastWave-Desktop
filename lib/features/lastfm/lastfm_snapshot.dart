@@ -61,25 +61,6 @@ final homeTracksSnapshotCodec = SnapshotCodec<List<HomeTrack>>(
   isEmpty: (list) => list.isEmpty,
 );
 
-final friendEntriesSnapshotCodec = SnapshotCodec<List<FriendEntry>>(
-  encode: (list) => jsonEncode({
-    'v': 1,
-    'items': [
-      for (final f in list)
-        {'n': f.name, 'r': f.realName, 'av': f.avatarUrl},
-    ],
-  }),
-  decode: (raw) => _list(
-    raw,
-    (e) => FriendEntry(
-      name: e['n']?.toString() ?? '',
-      realName: e['r']?.toString() ?? '',
-      avatarUrl: e['av']?.toString() ?? '',
-    ),
-  ),
-  isEmpty: (list) => list.isEmpty,
-);
-
 final homeStatsSnapshotCodec = SnapshotCodec<HomeStats>(
   encode: (s) => jsonEncode({
     'v': 1,

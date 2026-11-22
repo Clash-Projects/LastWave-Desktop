@@ -33,6 +33,7 @@ class WaveIcons {
   static const IconData artists = WindowsIcons.microphone;
   static const IconData playlists = WindowsIcons.music_info;
   static const IconData downloads = WindowsIcons.download;
+  static const IconData jam = WindowsIcons.people;
   static const IconData friends = WindowsIcons.people;
   static const IconData settings = WindowsIcons.settings;
   static const IconData history = WindowsIcons.history;

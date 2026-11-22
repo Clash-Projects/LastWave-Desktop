@@ -6,8 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/storage/app_database.dart';
 import 'package:lastwave_desktop/features/feed/feed_repository.dart';
 import 'package:lastwave_desktop/features/home/home_snapshot.dart';
-import 'package:lastwave_desktop/features/home/home_providers.dart';
-import 'package:lastwave_desktop/features/lastfm/home_repository.dart';
 import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
 import 'package:lastwave_desktop/features/search/shared_providers.dart';
 
@@ -117,29 +115,7 @@ void main() {
       expect(personalMixSnapshotCodec.isEmpty(mix), isFalse);
     });
 
-    test('friends activity round-trips, timestamp included', () {
-      final list = [
-        FriendActivity(
-          friend: 'amy',
-          avatarUrl: 'https://img/amy.jpg',
-          track: const HomeTrack(
-            name: 'Song',
-            artist: 'Band',
-            artworkUrl: 'https://img/s.jpg',
-            timestampMillis: 1730000000000,
-            playCount: 3,
-          ),
-        ),
-      ];
-      final back = friendsActivityCodec
-          .decode(friendsActivityCodec.encode(list))!
-          .single;
-      expect(back.friend, 'amy');
-      expect(back.track.timestampMillis, 1730000000000);
-      expect(back.track.playCount, 3);
-    });
-
-    test('keys: albums public vs per-channel, mix and friends need an account', () {
+    test('keys: albums public vs per-channel, mix needs an account', () {
       expect(
         homeNewAlbumsSnapshotKey(
             connected: false, profileEmail: '', activePageId: ''),
@@ -156,8 +132,6 @@ void main() {
             connected: false, profileEmail: '', activePageId: ''),
         isNull,
       );
-      expect(homeFriendsSnapshotKey(''), isNull);
-      expect(homeFriendsSnapshotKey('Bob'), homeFriendsSnapshotKey('bob'));
     });
   });
 

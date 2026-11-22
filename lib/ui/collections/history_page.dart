@@ -19,16 +19,14 @@ import '../theme/wave_icons.dart';
 
 final _waveHistoryProvider =
     FutureProvider<List<HomeTrack>>((ref) {
-  final viewing = ref.watch(viewingProfileProvider);
   final home = ref.watch(homeRepositoryProvider);
   return swrLoad<List<HomeTrack>>(
     ref,
-    key: lastFmCacheKey('recent', ref.read(prefsProvider).username,
-        viewing: viewing),
+    key: lastFmCacheKey('recent', ref.read(prefsProvider).username),
     codec: homeTracksSnapshotCodec,
     group: cacheGroupLastFm,
     maxAge: lastFmCacheMaxAge,
-    fetch: () => home.fetchRecentTracks(viewingAs: viewing, limit: 100),
+    fetch: () => home.fetchRecentTracks(limit: 100),
   );
 });
 

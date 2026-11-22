@@ -12,7 +12,7 @@ import 'destinations.dart';
 /// - 200px expanded / 60px collapsed rail
 /// - small 36px rows, no giant rounded rectangles
 /// - selected = subtle wash + 3px accent bar, nothing loud
-/// - bottom: Friends / Settings pinned, history hidden
+/// - bottom: Jam / Settings pinned, history hidden
 class WaveSideRail extends StatefulWidget {
   final bool expanded;
   final String active;

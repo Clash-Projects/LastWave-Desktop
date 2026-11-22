@@ -16,13 +16,9 @@ import '../../features/home/home_snapshot.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
-import '../components/buttons.dart';
 import '../components/states.dart';
-import 'friends_page.dart' show localFriendsProvider;
 import '../components/track_row.dart';
 import '../theme/tokens.dart';
-
-export 'friends_page.dart' show WaveFriendsPage;
 
 /// Secondary pages re-homed in the Fluent system.
 ///
@@ -126,8 +122,7 @@ class _WaveProfilePageState
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authRepositoryProvider);
-    final viewing = ref.watch(viewingProfileProvider);
-    final user = viewing ?? auth.username;
+    final user = auth.username;
     if (user.isEmpty) {
       return WaveEmpty(
         icon: FluentIcons.contact,
@@ -149,18 +144,14 @@ class _WaveProfilePageState
                 CrossAxisAlignment.start,
             children: [
               Text(
-                'SOCIAL',
+                'PROFILE',
                 style: WaveType.overline.copyWith(
                   color: waveAccent(context),
                 ),
               ),
               Builder(builder: (context) {
                 final stats =
-                    ref.watch(_profileStatsProvider(viewing)).valueOrNull;
-                final isFriend = viewing != null &&
-                    ref.watch(localFriendsProvider).any(
-                          (n) => n.toLowerCase() == viewing.toLowerCase(),
-                        );
+                    ref.watch(_profileStatsProvider(null)).valueOrNull;
                 String n(int v) => v.toString().replaceAllMapped(
                       RegExp(r'\B(?=(\d{3})+(?!\d))'),
                       (m) => ',',
@@ -184,9 +175,7 @@ class _WaveProfilePageState
                           Text(user, style: WaveType.pageTitle),
                           const SizedBox(height: 4),
                           Text(
-                            viewing != null
-                                ? 'Last.fm profile'
-                                : 'Your Last.fm profile',
+                            'Your Last.fm profile',
                             style: WaveType.body.copyWith(
                               color: waveTextSecondary(context),
                             ),
@@ -205,36 +194,6 @@ class _WaveProfilePageState
                               ),
                             ),
                           ],
-                          if (viewing != null) ...[
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                if (isFriend)
-                                  WaveGhostButton(
-                                    label: 'Remove friend',
-                                    onPressed: () => ref
-                                        .read(localFriendsProvider.notifier)
-                                        .remove(viewing),
-                                  )
-                                else
-                                  WavePrimaryButton(
-                                    label: 'Add friend',
-                                    icon: FluentIcons.add,
-                                    onPressed: () => ref
-                                        .read(localFriendsProvider.notifier)
-                                        .add(viewing),
-                                  ),
-                                WaveButton(
-                                  onPressed: () => ref
-                                      .read(viewingProfileProvider.notifier)
-                                      .clear(),
-                                  child: const Text('Back to my profile'),
-                                ),
-                              ],
-                            ),
-                          ],
                         ],
                       ),
                     ),
@@ -243,7 +202,7 @@ class _WaveProfilePageState
               }),
               const SizedBox(height: 16),
               _TopTracksSection(
-                viewing: viewing,
+                viewing: null,
                 period: _period,
                 onPeriod: (v) =>
                     setState(() => _period = v),

@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/storage/prefs.dart';
 import '../features/lastfm/auth_repository.dart';
-import '../features/lastfm/home_repository.dart';
 import '../features/player/playback_service.dart';
 
 /// Startup authentication gate.
@@ -42,9 +41,6 @@ class AuthGate extends ChangeNotifier {
 Future<void> signOutEverywhere(WidgetRef ref) async {
   try {
     await ref.read(playbackServiceProvider.notifier).pause();
-  } catch (_) {}
-  try {
-    ref.read(viewingProfileProvider.notifier).clear();
   } catch (_) {}
   await ref.read(authRepositoryProvider.notifier).signOut();
 }

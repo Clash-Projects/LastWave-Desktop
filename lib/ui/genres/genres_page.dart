@@ -37,11 +37,8 @@ class _WaveGenresPageState extends ConsumerState<WaveGenresPage> {
       _error = null;
     });
     try {
-      final tracks = await ref.read(feedRepositoryProvider).generate(
-            mode: MixMode.tag,
-            tag: genre,
-            total: 25,
-          );
+      final tracks =
+          await ref.read(feedRepositoryProvider).generateForTag(genre);
       if (!mounted) return;
       if (tracks.isEmpty) {
         setState(() {

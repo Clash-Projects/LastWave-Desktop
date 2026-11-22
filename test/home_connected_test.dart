@@ -102,7 +102,6 @@ Future<void> _pump(
           ),
         ),
         personalMixProvider.overrideWith((ref) async => null),
-        friendsActivityProvider.overrideWith((ref) async => const []),
         podcastHomeProvider.overrideWith((ref) async => const []),
       ],
       child: const FluentApp(

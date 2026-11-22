@@ -364,7 +364,6 @@ class WavePlayerDock extends ConsumerWidget {
                   Builder(builder: (context) {
                     // Thresholds are dock-relative (content width), aligned
                     // to canonical 900 breakpoint family.
-                    final showJam = dockW >= 560;
                     final showQuality =
                         dockW >= 900 && player.stream != null;
                     final showVolumeSlider = dockW >= 800;
@@ -389,14 +388,6 @@ class WavePlayerDock extends ConsumerWidget {
                               child: _QualityFlyout(
                                 stream: player.stream!,
                               ),
-                            ),
-                          if (showJam)
-                            _Glyph(
-                              tooltip: 'Jam',
-                              icon: WaveIcons.friends,
-                              active: GoRouterState.of(context).uri.path ==
-                                  '/jam',
-                              onTap: () => context.go('/jam'),
                             ),
                           _Glyph(
                             tooltip: 'Queue',
@@ -435,7 +426,6 @@ class WavePlayerDock extends ConsumerWidget {
                               onTap: onToggleMini,
                             ),
                           _DockOverflow(
-                            showJamItem: !showJam,
                             showQualityItem: !showQuality &&
                                 player.stream != null,
                             showOutputItem: true,
@@ -1694,7 +1684,6 @@ class _VolumeFlyoutGlyphState extends ConsumerState<_VolumeFlyoutGlyph> {
 }
 
 class _DockOverflow extends ConsumerWidget {
-  final bool showJamItem;
   final bool showQualityItem;
   final bool showOutputItem;
   final bool showExpandItem;
@@ -1702,7 +1691,6 @@ class _DockOverflow extends ConsumerWidget {
   final VoidCallback onExpand;
   final VoidCallback onToggleMini;
   const _DockOverflow({
-    this.showJamItem = false,
     this.showQualityItem = false,
     this.showOutputItem = false,
     this.showExpandItem = false,
@@ -1730,7 +1718,6 @@ class _DockOverflow extends ConsumerWidget {
     final outputName = output.selected?.displayName ?? 'System default';
     final outputEntries = _outputEntries(context, ref, output);
     final hasCollapsed =
-        showJamItem ||
         showQualityItem ||
         showOutputItem ||
         showExpandItem ||
@@ -1741,12 +1728,6 @@ class _DockOverflow extends ConsumerWidget {
       menuItems: [
         // Collapsed priority controls reappear here — nothing is lost
         // at narrow widths, nothing overflows the window.
-        if (showJamItem)
-          WaveMenuAction(
-            leading: const Icon(WaveIcons.friends, size: 15),
-            label: 'Jam',
-            onPressed: () => context.go('/jam'),
-          ),
         if (showQualityItem && stream != null)
           WaveMenuAction(
             leading: const Icon(WaveIcons.gauge, size: 15),

@@ -22,7 +22,6 @@ abstract final class HomeShelfId {
   static const because = 'because';
   static const albums = 'albums';
   static const artists = 'artists';
-  static const friends = 'friends';
   static const charts = 'charts';
   static const fresh = 'fresh';
   static const releases = 'releases';
@@ -40,7 +39,6 @@ abstract final class HomeShelfCatalog {
     HomeShelfId.because,
     HomeShelfId.albums,
     HomeShelfId.artists,
-    HomeShelfId.friends,
     HomeShelfId.charts,
     HomeShelfId.fresh,
     HomeShelfId.releases,
@@ -60,7 +58,6 @@ abstract final class HomeShelfCatalog {
     HomeShelfId.because,
     HomeShelfId.artists,
     HomeShelfId.youtubeMore,
-    HomeShelfId.friends,
   ];
 
   static const labels = <String, String>{
@@ -72,7 +69,6 @@ abstract final class HomeShelfCatalog {
     HomeShelfId.because: 'Because You Listened',
     HomeShelfId.albums: 'Albums',
     HomeShelfId.artists: 'Artists',
-    HomeShelfId.friends: 'Friends',
     HomeShelfId.charts: 'Charts',
     HomeShelfId.fresh: 'Fresh Finds',
     HomeShelfId.releases: 'New Releases',

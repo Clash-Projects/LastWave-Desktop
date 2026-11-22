@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../app/track_actions.dart'
-    show playGenerated, playableFromGenerated, relativeTime;
+    show playGenerated, playableFromGenerated;
 import '../../core/storage/prefs.dart';
 import '../../features/spotify/spotify_auth.dart';
 import '../../core/artwork/official_artwork_service.dart';
@@ -417,18 +417,6 @@ class WaveHomePage extends ConsumerWidget {
     sections[HomeShelfId.youtubeMore] = [
       for (final shelf in blend.general) ...shelfSlivers(shelf),
     ];
-    final activities =
-        ref.watch(friendsActivityProvider).valueOrNull ?? const [];
-    if (activities.isNotEmpty) {
-      sections[HomeShelfId.friends] = [
-        ...header(
-          title: 'Friends listening',
-          actionLabel: 'See all',
-          onAction: () => context.go('/friends'),
-        ),
-        rail(_FriendsStrip(activities: activities)),
-      ];
-    }
     if (ref.watch(podcastHomeProvider).valueOrNull?.any(
               (s) => s.shows.isNotEmpty || s.episodes.isNotEmpty,
             ) ==
@@ -694,45 +682,6 @@ class WaveHomePage extends ConsumerWidget {
           padding: EdgeInsets.only(left: side, right: side, top: 10),
           sliver: SliverToBoxAdapter(
             child: _ArtistShelf(tracks: artists),
-          ),
-        ));
-      }
-    }
-
-    use(HomeShelfId.friends);
-    // Friends Listening — real friend activity (friend → latest
-    // scrobble with relative time). Hidden entirely when there is
-    // nothing to show; never placeholder names or faked presence.
-    {
-      final activities =
-          ref.watch(friendsActivityProvider).valueOrNull ??
-              const [];
-      if (activities.isNotEmpty) {
-        gap(26);
-        sink.add(SliverPadding(
-          padding: EdgeInsets.only(left: side, right: side),
-          sliver: SliverToBoxAdapter(
-            child: WaveEntrance(
-              index: slot(),
-              rise: 8,
-              child: LWSectionHeader(
-                overline: 'Social',
-                title: 'Friends Listening',
-                count: activities.length,
-                actionLabel: 'See all',
-                onAction: () => context.go('/friends'),
-              ),
-            ),
-          ),
-        ));
-        sink.add(SliverPadding(
-          padding: EdgeInsets.only(left: side, right: side, top: 10),
-          sliver: SliverToBoxAdapter(
-            child: WaveEntrance(
-              index: slot(),
-              rise: 10,
-              child: _FriendsStrip(activities: activities),
-            ),
           ),
         ));
       }
@@ -2422,91 +2371,6 @@ class _ArtistTileState extends State<_ArtistTile> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Friends Listening: compact 56px activity rows with avatar dot.
-class _FriendsStrip extends ConsumerWidget {
-  final List<FriendActivity> activities;
-  const _FriendsStrip({required this.activities});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Column(
-      children: [
-        for (var i = 0; i < activities.length; i++)
-          _FriendRow(activity: activities[i]),
-      ],
-    );
-  }
-}
-
-class _FriendRow extends ConsumerWidget {
-  final FriendActivity activity;
-  const _FriendRow({required this.activity});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = activity.track;
-    final when = t.timestampMillis == null
-        ? ''
-        : relativeTime(DateTime.fromMillisecondsSinceEpoch(
-            t.timestampMillis!));
-    final avatar = activity.avatarUrl.isNotEmpty
-        ? activity.avatarUrl
-        : t.artworkUrl;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-        onTap: () => playGenerated(
-          ref,
-          context,
-          GeneratedTrack(
-            name: t.name,
-            artist: t.artist,
-            artworkUrl: t.artworkUrl,
-          ),
-          sourceLabel: 'Friends',
-        ),
-        child: Row(
-          children: [
-            WaveArtwork.circle(
-              url: avatar,
-              size: 44,
-              label: activity.friend,
-              title: activity.friend,
-              upgrade: false,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                children: [
-                  Text('${activity.friend} · ${t.name}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.trackTitle
-                          .copyWith(fontSize: 12.5)),
-                  Text(t.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.meta
-                          .copyWith(fontSize: 11.5)),
-                ],
-              ),
-            ),
-            if (when.isNotEmpty)
-              Text(when,
-                  style: WaveType.meta.copyWith(
-                      fontSize: 11,
-                      color:
-                          waveTextTertiary(context))),
-          ],
-        ),
-      )),
     );
   }
 }

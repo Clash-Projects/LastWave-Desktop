@@ -24,10 +24,7 @@ void main() {
     expect(c.decode('nope'), isNull);
   });
 
-  test('friends and stats round-trip; zero stats count as empty', () {
-    final f = friendEntriesSnapshotCodec;
-    final fb = f.decode(f.encode(const [FriendEntry(name: 'x', realName: 'X', avatarUrl: 'a')]))!;
-    expect(fb.single.realName, 'X');
+  test('stats round-trip; zero stats count as empty', () {
     final s = homeStatsSnapshotCodec;
     final sb = s.decode(s.encode(const HomeStats(scrobbles: 9, artistCount: 2, albumCount: 3, trackCount: 4, avatarUrl: 'z')))!;
     expect((sb.scrobbles, sb.artistCount, sb.albumCount, sb.trackCount, sb.avatarUrl), (9, 2, 3, 4, 'z'));

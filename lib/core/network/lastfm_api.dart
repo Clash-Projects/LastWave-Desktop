@@ -38,7 +38,6 @@ class LastFmApiService {
     'user.gettopalbums': Duration(minutes: 2),
     'user.gettoptags': Duration(minutes: 2),
     'user.getinfo': Duration(minutes: 2),
-    'user.getfriends': Duration(minutes: 2),
   };
   static const int _memoCap = 200;
 

@@ -16,7 +16,6 @@ import '../../core/artwork/artwork_cache.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart';
-import '../../features/lastfm/home_repository.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/podcasts/podcast_models.dart';
@@ -62,15 +61,6 @@ final waveSearchPlaylistsProvider = FutureProvider.autoDispose.family<
   return ref.watch(searchRepositoryProvider).search(SearchTab.playlists, q);
 });
 
-/// Last.fm people. [enabled] stays false for ordinary song queries so a
-/// music search does not spend a user.getinfo / user.search call.
-final waveSearchUsersProvider = FutureProvider.autoDispose.family<
-    List<SearchResultItem>, ({String q, bool enabled})>((ref, arg) {
-  if (!arg.enabled || arg.q.trim().length < 2) {
-    return Future.value(const <SearchResultItem>[]);
-  }
-  return ref.watch(searchRepositoryProvider).search(SearchTab.users, arg.q);
-});
 final waveSuggestionsProvider = FutureProvider.autoDispose
     .family<List<SearchSuggestion>, String>((ref, q) async {
   if (q.trim().length < 2) return const <SearchSuggestion>[];
@@ -275,7 +265,7 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
                 controller: _controller,
                 focusNode: _focus,
                 autofocus: true,
-                placeholder: 'Songs, artists, albums, users…',
+                placeholder: 'Songs, artists, albums, playlists…',
                 prefix: Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: Icon(WaveIcons.search,
@@ -541,8 +531,6 @@ class _RecentSearchCardState extends ConsumerState<_RecentSearchCard> {
         return hit.artist.isEmpty ? 'Album' : 'Album · ${hit.artist}';
       case SearchTab.playlists:
         return 'Playlist';
-      case SearchTab.users:
-        return 'Listener';
     }
   }
 
@@ -851,7 +839,6 @@ class _ResultFilters extends StatelessWidget {
       (SearchTab.albums, 'Albums'),
       (SearchTab.artists, 'Artists'),
       (SearchTab.playlists, 'Playlists'),
-      (SearchTab.users, 'Users'),
     ];
     return Wrap(
       spacing: 8,
@@ -884,7 +871,6 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
   List<SearchResultItem> _albums = const [];
   List<SearchResultItem> _artists = const [];
   List<SearchResultItem> _playlists = const [];
-  List<SearchResultItem> _users = const [];
 
   bool _show(SearchTab tab) =>
       widget.filter == null || widget.filter == tab;
@@ -945,16 +931,7 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
         _openPlaylist(hero);
       case SearchTab.tracks:
         if (hero.videoId.isNotEmpty) _playSingle(ref, context, hero);
-      case SearchTab.users:
-        _openUser(hero);
     }
-  }
-
-  void _openUser(SearchResultItem user) {
-    final name = user.entityId.isNotEmpty ? user.entityId : user.name;
-    if (name.isEmpty) return;
-    ref.read(viewingProfileProvider.notifier).view(name);
-    context.go('/profile');
   }
 
   void _openPlaylist(SearchResultItem item) {
@@ -984,16 +961,6 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
     final showAlbums = _show(SearchTab.albums);
     final showArtists = _show(SearchTab.artists);
     final showPlaylists = _show(SearchTab.playlists);
-    final showUsers = widget.filter == SearchTab.users ||
-        (widget.filter == null &&
-            ref
-                .read(searchRepositoryProvider)
-                .looksLikeLastFmUser(widget.query));
-    final usersAsync = ref.watch(waveSearchUsersProvider((
-      q: widget.query,
-      enabled: showUsers,
-    )));
-    final lastFmReady = ref.watch(prefsProvider).lastFmApiKey.isNotEmpty;
     final podcastsOn = ref.watch(prefsProvider).podcastsEnabled &&
         widget.query.trim().isNotEmpty &&
         widget.filter == null;
@@ -1014,55 +981,31 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
     if (playlistsAsync.hasValue) {
       _playlists = playlistsAsync.value ?? _playlists;
     }
-    if (usersAsync.hasValue) {
-      _users = usersAsync.value ?? _users;
-    }
 
     final anyLoading = (showSongs && songsAsync.isLoading) ||
         (showAlbums && albumsAsync.isLoading) ||
         (showArtists && artistsAsync.isLoading) ||
         (showPlaylists && playlistsAsync.isLoading) ||
-        (showUsers && usersAsync.isLoading) ||
         (podcastsOn && podcastAsync.isLoading);
     final allEmpty = (!showSongs || _songs.isEmpty) &&
         (!showAlbums || _albums.isEmpty) &&
         (!showArtists || _artists.isEmpty) &&
         (!showPlaylists || _playlists.isEmpty) &&
-        (!showUsers || _users.isEmpty) &&
         episodes.isEmpty;
-
-    if (widget.filter == SearchTab.users && !lastFmReady && _users.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 20),
-        child: WaveEmpty(
-          icon: WaveIcons.friends,
-          title: 'Connect Last.fm to search people',
-          subtitle: 'User search uses the Last.fm API key from Settings.',
-          actionLabel: 'Open Settings',
-          onAction: () => context.go('/settings?section=lastfm'),
-        ),
-      );
-    }
 
     if (allEmpty && !anyLoading) {
       final anyError = (showSongs && songsAsync.hasError) ||
           (showAlbums && albumsAsync.hasError) ||
           (showArtists && artistsAsync.hasError) ||
-          (showPlaylists && playlistsAsync.hasError) ||
-          (showUsers && usersAsync.hasError);
-      final usersOnly = widget.filter == SearchTab.users;
+          (showPlaylists && playlistsAsync.hasError);
       return Padding(
         padding: const EdgeInsets.only(top: 20),
         child: WaveEmpty(
           icon: anyError ? FluentIcons.error : WaveIcons.search,
-          title: anyError
-              ? 'Search failed'
-              : (usersOnly ? 'No users' : 'No results'),
+          title: anyError ? 'Search failed' : 'No results',
           subtitle: anyError
               ? 'Check your connection and try again.'
-              : (usersOnly
-                  ? 'No Last.fm users match that name.'
-                  : 'Try a different artist, album or track.'),
+              : 'Try a different artist, album or track.',
         ),
       );
     }
@@ -1085,50 +1028,6 @@ class _CombinedResultsState extends ConsumerState<_CombinedResults> {
       child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (showUsers) ...[
-          WaveEntrance(
-            index: slot(),
-            rise: 8,
-            child: _SectionHead(
-              label: 'Users',
-              loading: lastFmReady && usersAsync.isLoading && _users.isEmpty,
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (!lastFmReady)
-            Text(
-              'Connect Last.fm in Settings to search people.',
-              style: WaveType.meta.copyWith(
-                color: waveTextSecondary(context),
-              ),
-            )
-          else if (_users.isEmpty && usersAsync.isLoading)
-            const _SkeletonRows(count: 3)
-          else if (_users.isEmpty)
-            Text(
-              'No matching Last.fm users.',
-              style: WaveType.meta.copyWith(
-                color: waveTextSecondary(context),
-              ),
-            )
-          else
-            for (final user in _users.take(8))
-              ListTile(
-                leading: WaveArtwork.circle(
-                  url: user.artworkUrl,
-                  size: 36,
-                  label: user.name,
-                  title: user.name,
-                  artist: user.name,
-                ),
-                title: Text(user.name),
-                subtitle: Text(
-                  user.subtitle.isEmpty ? 'Last.fm' : user.subtitle,
-                ),
-                onPressed: () => _openUser(user),
-              ),
-          const SizedBox(height: 16),
-        ],
         if (widget.filter == null &&
             (_songs.isNotEmpty ||
             _artists.isNotEmpty ||

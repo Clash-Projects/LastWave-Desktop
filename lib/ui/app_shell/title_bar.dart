@@ -11,7 +11,6 @@ import 'package:window_manager/window_manager.dart';
 import '../../app/track_actions.dart' show playGenerated;
 import '../../features/feed/feed_repository.dart' show GeneratedTrack;
 import '../../features/lastfm/auth_repository.dart';
-import '../../features/lastfm/home_repository.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../../app/accessibility.dart';
@@ -152,7 +151,6 @@ class WaveTitleBar extends ConsumerWidget {
                       ? 'Profile, ${auth.username}'
                       : 'Connect Last.fm',
                   onTap: () {
-                    ref.read(viewingProfileProvider.notifier).clear();
                     context.go(
                       auth.status == AuthStatus.signedIn
                           ? '/profile'
@@ -163,10 +161,6 @@ class WaveTitleBar extends ConsumerWidget {
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
                   onTap: () {
-                    // Your avatar always means your profile: drop any
-                    // stale friend view, otherwise /profile would show
-                    // whoever you last checked out.
-                    ref.read(viewingProfileProvider.notifier).clear();
                     context.go(
                       auth.status == AuthStatus.signedIn
                           ? '/profile'

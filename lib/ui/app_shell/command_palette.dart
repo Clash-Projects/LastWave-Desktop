@@ -347,7 +347,6 @@ String searchTabLabel(SearchTab tab) => switch (tab) {
       SearchTab.artists => 'Artists',
       SearchTab.albums => 'Albums',
       SearchTab.playlists => 'Playlists',
-      SearchTab.users => 'People',
     };
 
 /// Navigate helper that preserves title/artist resolution context.

@@ -360,12 +360,6 @@ String? homePersonalMixSnapshotKey({
         ? 'home_mix_v1|${profileEmail.trim().toLowerCase()}|$activePageId'
         : null;
 
-/// Cache key for the friends strip; null without a Last.fm user.
-String? homeFriendsSnapshotKey(String username) {
-  final u = username.trim().toLowerCase();
-  return u.isEmpty ? null : 'home_friends_v1|$u';
-}
-
 final entitiesSnapshotCodec = SnapshotCodec<List<YouTubeMusicEntity>>(
   encode: (list) => jsonEncode({
     'v': _version,
