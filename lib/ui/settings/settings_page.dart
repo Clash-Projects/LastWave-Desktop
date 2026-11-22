@@ -2844,6 +2844,14 @@ Future<void> _ytSignInFailed(BuildContext context, WidgetRef ref) async {
           'Windows, WebKitGTK on Linux), so the sign-in window cannot '
           'open. Install the runtime, or connect with cookies instead — '
           'that path does not need a WebView.';
+    case YtSignInFailure.startFailed:
+      title = 'The sign-in window could not start';
+      body =
+          'WebView2 is installed, but the sign-in window failed to start '
+          'twice. Quit LastWave completely (including the tray icon), '
+          'open it again and retry. If it keeps happening, connect with '
+          'cookies instead — that path does not need the window. The '
+          'reason is recorded in the exported diagnostic logs.';
     case YtSignInFailure.blankPage:
       title = 'The sign-in window did not load';
       body =

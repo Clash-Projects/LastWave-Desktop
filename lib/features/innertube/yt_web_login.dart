@@ -5,6 +5,7 @@ import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show WidgetsBinding;
 
+import '../../core/diagnostics/diagnostics_log.dart';
 import 'webview_profile.dart';
 import 'yt_webview_guard.dart';
 
@@ -21,6 +22,10 @@ enum YtSignInFailure {
 
   /// No usable system WebView (missing WebView2 / WebKitGTK).
   unavailable,
+
+  /// The runtime is installed but the sign-in window failed to start
+  /// (the plugin's create call errored, twice). Reason in the logs.
+  startFailed,
 
   /// The user closed the sign-in window.
   windowClosed,
@@ -457,10 +462,43 @@ class YtWebLogin {
       _cachedWindow = null;
     }
     try {
-      if (!await WebviewWindow.isWebviewAvailable()) return null;
-    } catch (_) {
+      if (!await WebviewWindow.isWebviewAvailable()) {
+        _windowFailure = YtSignInFailure.unavailable;
+        DiagnosticsLog.info('yt signin: no WebView runtime');
+        return null;
+      }
+    } catch (e) {
+      _windowFailure = YtSignInFailure.unavailable;
+      DiagnosticsLog.info('yt signin: runtime check failed: $e');
       return null;
     }
+    // One creation at a time: a second click while the first window is
+    // still starting used to start a second WebView2 on the same profile,
+    // which fails and reported "no WebView" over a blank first window.
+    return _creating ??= _createWindow(show).whenComplete(() {
+      _creating = null;
+    });
+  }
+
+  static Future<Webview?>? _creating;
+
+  /// Why the last [_ensureWindow] returned null (runtime missing vs the
+  /// window failing to start).
+  static YtSignInFailure _windowFailure = YtSignInFailure.unavailable;
+
+  static Future<Webview?> _createWindow(bool show) async {
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      final w = await _createWindowOnce(show);
+      if (w != null) return w;
+      if (attempt == 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+      }
+    }
+    _windowFailure = YtSignInFailure.startFailed;
+    return null;
+  }
+
+  static Future<Webview?> _createWindowOnce(bool show) async {
     try {
       final folder = await _userDataFolder('auth');
       // The Windows plugin creates every window WS_VISIBLE and centered,
@@ -516,8 +554,10 @@ class YtWebLogin {
         await _foreground(w);
       }
       return w;
-    } catch (_) {
-      // No usable system WebView (missing webkit2gtk/WebView2/etc).
+    } catch (e) {
+      // The runtime is present (checked above); the plugin failed to
+      // start the window or its WebView2 environment.
+      DiagnosticsLog.info('yt signin: window create failed: $e');
       return null;
     }
   }
@@ -534,7 +574,7 @@ class YtWebLogin {
   static Future<String?> signInFresh() async {
     final w = await _ensureWindow();
     if (w == null) {
-      lastFailure = YtSignInFailure.unavailable;
+      lastFailure = _windowFailure;
       return null;
     }
     try {
@@ -643,7 +683,7 @@ class YtWebLogin {
     lastCapturedPageId = null;
     final w = await _ensureWindow();
     if (w == null) {
-      lastFailure = YtSignInFailure.unavailable;
+      lastFailure = _windowFailure;
       return null;
     }
     try {
