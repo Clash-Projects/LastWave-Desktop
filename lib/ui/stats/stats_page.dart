@@ -139,6 +139,7 @@ class WaveStatsPage extends ConsumerWidget {
               );
             },
           ),
+          const WaveDockSpacer(),
         ],
       ),
     );

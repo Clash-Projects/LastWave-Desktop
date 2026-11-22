@@ -202,6 +202,7 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
     void remember() =>
         ref.read(prefsProvider).setJamDisplayName(_name.text);
     return SingleChildScrollView(
+      padding: waveDockPadding(context, EdgeInsets.zero),
       child: Align(
         alignment: Alignment.topLeft,
         child: ConstrainedBox(
@@ -408,6 +409,7 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
     final body = LayoutBuilder(builder: (context, box) {
       if (box.maxWidth < 860) {
         return SingleChildScrollView(
+          padding: waveDockPadding(context, EdgeInsets.zero),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

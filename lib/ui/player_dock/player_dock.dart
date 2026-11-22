@@ -113,10 +113,12 @@ class WavePlayerDock extends ConsumerWidget {
       duration: waveMotion(context, WaveMotion.normal),
       curve: Curves.easeOutCubic,
       builder: (context, animatedBase, child) {
+        final glass = waveGlassOn(context);
         return WaveHaze(
-          level: LwHazeLevel.l1,
-          // Glass: frosted, so the backdrop reads blurred through it.
-          enableBlur: waveGlassOn(context),
+          // Glass: the page scrolls on under the dock, frosted through
+          // the deepest haze level.
+          level: glass ? LwHazeLevel.l3 : LwHazeLevel.l1,
+          enableBlur: glass,
           base: animatedBase ?? targetBase,
           // Glass: a bright top edge, the highlight that makes it read
           // as a pane rather than a strip.
@@ -128,7 +130,23 @@ class WavePlayerDock extends ConsumerWidget {
                   : waveDivider(context),
             ),
           ),
-          child: child!,
+          child: glass
+              // Liquid sheen: light pooling along the top of the pane.
+              ? DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withValues(alpha: dark ? 0.08 : 0.30),
+                        Colors.white.withValues(alpha: 0),
+                      ],
+                      stops: const [0.0, 0.7],
+                    ),
+                  ),
+                  child: child,
+                )
+              : child!,
         );
       },
       child: SizedBox(

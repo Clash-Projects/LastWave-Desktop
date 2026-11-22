@@ -793,6 +793,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     // HardwareKeyboard handler reads these fields).
     _lastCollapsed = collapsed;
     _lastIsNowPlaying = isNowPlaying;
+    // Glassmorphism: the dock floats over the page so content scrolls on
+    // under the frosted glass. Pages get its height as bottom padding
+    // (WaveDockSpacer / MediaQuery) to keep their last row reachable.
+    // Now Playing lays its own stage out around the dock, so it keeps it.
+    final floatDock = waveGlassOn(context) && !immersive && !isNowPlaying;
+    const floatDockH = WaveDensity.dock + 1;
 
     if (_miniOpen) {
       return Mica(
@@ -935,7 +941,19 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 right: _canvasOpen && _canvasDocked ? cw : 0,
                                 child: _SlideToInset(
                                   left: railW,
-                                  child: RepaintBoundary(child: widget.child),
+                                  child: RepaintBoundary(
+                                    child: floatDock
+                                        ? MediaQuery(
+                                            data: MediaQuery.of(context)
+                                                .copyWith(
+                                              padding: MediaQuery.paddingOf(
+                                                      context)
+                                                  .copyWith(bottom: floatDockH),
+                                            ),
+                                            child: widget.child,
+                                          )
+                                        : widget.child,
+                                  ),
                                 ),
                               ),
                               // Canvas — docks on the right edge and pushes
@@ -948,7 +966,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 ),
                                 curve: Curves.easeOutCubic,
                                 top: 0,
-                                bottom: 0,
+                                bottom: floatDock ? floatDockH : 0,
                                 right: _canvasOpen ? 0 : -(cw + 12),
                                 width: cw,
                                 onEnd: () {
@@ -982,7 +1000,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 Positioned(
                                   left: 0,
                                   top: 0,
-                                  bottom: 0,
+                                  bottom: floatDock ? floatDockH : 0,
                                   child: WaveSideRail(
                                     expanded: !collapsed,
                                     active: active,
@@ -1009,7 +1027,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 ),
                                 curve: Curves.easeOutCubic,
                                 top: 0,
-                                bottom: 0,
+                                bottom: floatDock ? floatDockH : 0,
                                 right: _queueOpen ? 0 : -(qw + 12),
                                 onEnd: () {
                                   if (_queueSettled == _queueOpen) {
@@ -1048,7 +1066,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 ),
                                 curve: Curves.easeOutCubic,
                                 top: 0,
-                                bottom: 0,
+                                bottom: floatDock ? floatDockH : 0,
                                 right: _equalizerOpen ? 0 : -(ew + 12),
                                 onEnd: () {
                                   if (_equalizerSettled == _equalizerOpen) {
@@ -1098,13 +1116,27 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     ),
                                   ),
                                 ),
+                              // Glassmorphism: the dock over the page,
+                              // content scrolling on under the glass.
+                              if (floatDock)
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  child: _dockFor(
+                                    lyricsActive: isNowPlaying,
+                                    queueActive: _queueOpen,
+                                    equalizerActive: _equalizerOpen,
+                                    canvasActive: _canvasOpen,
+                                  ),
+                                ),
                             ],
                           );
                         },
                       ),
                     ),
                   ),
-                  if (!immersive)
+                  if (!immersive && !floatDock)
                     _dockFor(
                       lyricsActive: isNowPlaying,
                       queueActive: _queueOpen,

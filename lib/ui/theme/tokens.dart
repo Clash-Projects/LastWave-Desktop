@@ -751,3 +751,21 @@ class WaveElevation {
         ),
       ];
 }
+
+/// End-of-page room for a dock floating over the page (glassmorphism):
+/// the shell reports the dock height as bottom MediaQuery padding, so the
+/// last row scrolls clear of the glass. Zero height otherwise. Place last
+/// in a page's `slivers:`.
+class WaveDockSpacer extends StatelessWidget {
+  const WaveDockSpacer({super.key});
+
+  @override
+  Widget build(BuildContext context) => SliverToBoxAdapter(
+        child: SizedBox(height: MediaQuery.paddingOf(context).bottom),
+      );
+}
+
+/// [base] plus room for a dock floating over the page (see
+/// [WaveDockSpacer]): for scroll views that set their own padding.
+EdgeInsets waveDockPadding(BuildContext context, EdgeInsets base) =>
+    base.copyWith(bottom: base.bottom + MediaQuery.paddingOf(context).bottom);

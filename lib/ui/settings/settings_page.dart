@@ -187,7 +187,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
             child: ListView(
               controller: _narrowScrollController,
               physics: const ClampingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              padding: waveDockPadding(context, const EdgeInsets.fromLTRB(16, 16, 16, 24)),
               children: [
                 Text(
                   'SYSTEM',
@@ -229,7 +229,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                 child: SingleChildScrollView(
                   controller: _railScrollController,
                   physics: const ClampingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(24, 20, 12, 20),
+                  padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 12, 20)),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -265,7 +265,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                 child: ListView(
                   controller: _contentScrollController,
                   physics: const ClampingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                  padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 24, 24)),
                   children: [
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 640),
@@ -887,6 +887,9 @@ class _Appearance extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     final theme = ref.watch(themeControllerProvider);
+    // Each font's name drawn in its own typeface in the picker.
+    final previews =
+        ref.watch(appFontPreviewsProvider).valueOrNull ?? const {};
     return Column(
       children: [
         _Group(
@@ -1115,7 +1118,11 @@ class _Appearance extends ConsumerWidget {
             value: appFonts.any((f) => f.id == theme.font) ? theme.font : '',
             options: [
               for (final f in appFonts)
-                WaveSelectOption(value: f.id, label: f.label),
+                WaveSelectOption(
+                  value: f.id,
+                  label: f.label,
+                  fontFamily: previews[f.id],
+                ),
             ],
             onChanged: (v) => onUpdate((p) => p.setAppFont(v)),
           ),

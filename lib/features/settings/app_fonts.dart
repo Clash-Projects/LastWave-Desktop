@@ -57,15 +57,19 @@ final _dio = DioFactory.create();
 /// family with real 400–700 faces, so bold text is not synthesised. Weights
 /// a family lacks (Lato has no 500/600) are skipped; the engine picks the
 /// nearest face. Null when nothing could be loaded (offline, first use).
-Future<String?> _loadWebFont(String id) async {
-  final family = 'LW $id';
+Future<String?> _loadWebFont(
+  String id, {
+  List<int> weights = _weights,
+  String? family,
+}) async {
+  family ??= 'LW $id';
   if (_loaded.contains(family)) return family;
   final dir = Directory(
       '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}fonts');
   await dir.create(recursive: true);
   final loader = FontLoader(family);
   var faces = 0;
-  for (final w in _weights) {
+  for (final w in weights) {
     final file = File('${dir.path}${Platform.pathSeparator}$id-$w.ttf');
     if (!await file.exists()) {
       try {
@@ -105,4 +109,24 @@ final appFontFamilyProvider = FutureProvider<String?>((ref) async {
   } catch (_) {
     return null;
   }
+});
+
+/// Each font's family for drawing its own name in the picker: system
+/// fonts as-is, web fonts' regular face only (one small file each, the
+/// same cache the full font uses). Loaded when the Font setting shows.
+final appFontPreviewsProvider =
+    FutureProvider<Map<String, String>>((ref) async {
+  final out = <String, String>{
+    for (final f in appFonts)
+      if (!f.web && f.id.isNotEmpty) f.id: f.id,
+  };
+  await Future.wait([
+    for (final f in appFonts)
+      if (f.web)
+        _loadWebFont(f.id, weights: const [400], family: 'LW preview ${f.id}')
+            .then((family) {
+          if (family != null) out[f.id] = family;
+        }).catchError((_) {}),
+  ]);
+  return out;
 });

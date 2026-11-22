@@ -449,12 +449,15 @@ class _WaveDesktopTableState<T extends Object>
         } else {
           list = CustomScrollView(
             controller: widget.scrollController,
-            slivers: _tableSlivers(
-              showAlbum: showAlbum,
-              showQuality: showQuality,
-              showAdded: showAdded,
-              showArtist: showArtist,
-            ),
+            slivers: [
+              ..._tableSlivers(
+                showAlbum: showAlbum,
+                showQuality: showQuality,
+                showAdded: showAdded,
+                showArtist: showArtist,
+              ),
+              const WaveDockSpacer(),
+            ],
           );
         }
 

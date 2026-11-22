@@ -181,6 +181,7 @@ class WaveYtShelfPage extends ConsumerWidget {
               ),
             ),
           ),
+          const WaveDockSpacer(),
         ],
       ),
     );

@@ -258,7 +258,7 @@ class _WaveSearchPageState extends ConsumerState<WaveSearchPage> {
       onKeyEvent: (_, e) => _onPageKey(e, suggestions),
       child: ListView(
         physics: const ClampingScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(side, 22, side, 32),
+        padding: waveDockPadding(context, EdgeInsets.fromLTRB(side, 22, side, 32)),
         children: [
           WaveEntrance(
             rise: 10,

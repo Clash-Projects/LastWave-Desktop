@@ -721,7 +721,7 @@ class _WaveArtistPageState extends ConsumerState<WaveArtistPage> {
         );
     return WaveEntranceGroup(
           child: ListView(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
+          padding: waveDockPadding(context, const EdgeInsets.fromLTRB(28, 24, 28, 32)),
           children: [
             ConstrainedBox(
               constraints: const BoxConstraints(

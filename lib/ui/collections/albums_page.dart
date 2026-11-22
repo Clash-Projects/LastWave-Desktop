@@ -166,6 +166,7 @@ class WaveAlbumsPage extends ConsumerWidget {
                 ),
               ),
             ),
+            const WaveDockSpacer(),
           ],
           ),
         );

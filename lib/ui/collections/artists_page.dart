@@ -145,6 +145,7 @@ class WaveArtistsPage extends ConsumerWidget {
                 ),
               ),
             ),
+            const WaveDockSpacer(),
           ],
           ),
         );

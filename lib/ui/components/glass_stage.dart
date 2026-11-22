@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,13 +24,13 @@ import 'ambient.dart';
 /// dimming). Pearl, the light theme, always takes the white wash instead.
 enum GlassFlavor {
   /// Calm and neutral: softened colour under a graphite tint.
-  midnight(0.85, 0.30, 0.85),
+  midnight(0.95, 0.22, 0.92),
 
   /// The cover at full strength, no tint.
-  artwork(1.45, 0.0, 1.0),
+  artwork(1.5, 0.0, 1.0),
 
   /// The user's colour leads: muted cover under a strong custom tint.
-  custom(0.55, 0.50, 1.0);
+  custom(0.6, 0.42, 1.0);
 
   final double saturation;
   final double tint;
@@ -113,6 +114,21 @@ class _WaveGlassStageState extends ConsumerState<WaveGlassStage> {
                   ),
           ),
         ),
+        // Sheen: light falling from the top-left, the glossy part.
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: const Alignment(0.3, 0.3),
+                colors: [
+                  const Color(0xFFFFFFFF).withValues(alpha: light ? 0.35 : 0.07),
+                  const Color(0x00FFFFFF),
+                ],
+              ),
+            ),
+          ),
+        ),
         // Breaks the 8-bit banding of the large soft gradients.
         const IgnorePointer(child: RepaintBoundary(child: WaveDither())),
         widget.child,
@@ -142,26 +158,17 @@ class _CoverWash extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Clamp: a blur sampling past the edge would darken the borders.
-        ImageFiltered(
-          imageFilter:
-              ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24, tileMode: TileMode.clamp),
-          child: ColorFiltered(
-            colorFilter: ColorFilter.matrix(_grade(saturation, dim)),
-            child: Transform.scale(
-              // Zoomed past the edges, as a wash rather than a picture.
-              scale: 1.2,
-              child: RawImage(
-                image: image,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.medium,
-              ),
-            ),
-          ),
+        // One cached drawing, no layers: a full-window blur or colour
+        // filter layer is recomputed on every frame the window paints,
+        // which made the whole app feel slow. The 256px aura texture is
+        // already blurred; scaled up with high-quality filtering it stays
+        // smooth, and the grade rides on the paint.
+        CustomPaint(
+          painter: _CoverPainter(image, _grade(saturation, dim)),
         ),
         if (light)
           // Pearl: a pale tint of the cover under the page colour.
-          ColoredBox(color: veil.withValues(alpha: 0.80))
+          ColoredBox(color: veil.withValues(alpha: 0.74))
         else ...[
           // The theme's own colour over the cover (none for Artwork).
           if (tint > 0) ColoredBox(color: veil.withValues(alpha: tint)),
@@ -172,8 +179,8 @@ class _CoverWash extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  const Color(0xFF000000).withValues(alpha: 0.12),
-                  const Color(0xFF000000).withValues(alpha: 0.55),
+                  const Color(0xFF000000).withValues(alpha: 0.06),
+                  const Color(0xFF000000).withValues(alpha: 0.40),
                 ],
               ),
             ),
@@ -184,7 +191,7 @@ class _CoverWash extends StatelessWidget {
                 radius: 1.1,
                 colors: [
                   const Color(0x00000000),
-                  const Color(0xFF000000).withValues(alpha: 0.28),
+                  const Color(0xFF000000).withValues(alpha: 0.18),
                 ],
               ),
             ),
@@ -234,15 +241,15 @@ List<double> _grade(double s, double dim) {
   ];
 }
 
-/// How far to dim the cover in dark themes: half brightness by default,
+/// How far to dim the cover in dark themes: 62% brightness by default,
 /// lower for pale covers, so the brightest part of the wash (the top,
-/// under 12% shade) stays dark enough for primary text at WCAG AA.
+/// under 6% shade) stays dark enough for primary text at WCAG AA.
 double glassDim(ArtworkPalette? p) {
-  if (p == null) return 0.5;
+  if (p == null) return 0.62;
   final brightest = [p.cream, p.lightVibrant, p.vibrant, p.primary]
       .map((c) => c.computeLuminance())
       .reduce(math.max);
-  return (0.13 / (brightest * 0.88 + 1e-6)).clamp(0.15, 0.5);
+  return (0.13 / (brightest * 0.94 + 1e-6)).clamp(0.15, 0.62);
 }
 
 /// A colour made safe to put text on: saturation capped, lightness held
@@ -266,4 +273,40 @@ Color glassTone(Color c, Color veil, bool light) {
 double _contrast(Color a, Color b) {
   final la = a.computeLuminance(), lb = b.computeLuminance();
   return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+}
+
+/// The cover stretched (zoomed 1.2x past the edges) and graded in one
+/// draw call. Repaints only when the image or grade changes.
+class _CoverPainter extends CustomPainter {
+  final ui.Image image;
+  final List<double> grade;
+  const _CoverPainter(this.image, this.grade);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final src =
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
+    // Cover-fit, then zoom so the soft edges never show.
+    final scale =
+        math.max(size.width / src.width, size.height / src.height) * 1.2;
+    final dst = Rect.fromCenter(
+      center: size.center(Offset.zero),
+      width: src.width * scale,
+      height: src.height * scale,
+    );
+    canvas.clipRect(Offset.zero & size);
+    canvas.drawImageRect(
+      image,
+      src,
+      dst,
+      Paint()
+        ..filterQuality = FilterQuality.high
+        ..colorFilter = ColorFilter.matrix(grade),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_CoverPainter old) =>
+      !identical(old.image, image) || !listEquals(old.grade, grade);
 }

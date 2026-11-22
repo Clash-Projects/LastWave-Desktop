@@ -436,6 +436,7 @@ class _WavePlaylistDetailPageState
         const SliverToBoxAdapter(
           child: SizedBox(height: 24),
         ),
+          const WaveDockSpacer(),
         ],
       ),
     );

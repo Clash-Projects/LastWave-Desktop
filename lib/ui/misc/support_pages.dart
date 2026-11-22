@@ -139,7 +139,7 @@ class _WaveProfilePageState
       );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+      padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 24, 24)),
       children: [
         ConstrainedBox(
           constraints: const BoxConstraints(
@@ -629,7 +629,7 @@ class _WaveMixLabPageState extends ConsumerState<WaveMixLabPage> {
       playbackServiceProvider.select((s) => s.current?.queueKey),
     );
     return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+      padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 24, 24)),
       children: [
         ConstrainedBox(
           constraints: const BoxConstraints(

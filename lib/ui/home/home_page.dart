@@ -212,6 +212,7 @@ class WaveHomePage extends ConsumerWidget {
             return _feedSlivers(context, ref, data, side, quickCols);
           },
         ),
+          const WaveDockSpacer(),
         ],
       ),
     );

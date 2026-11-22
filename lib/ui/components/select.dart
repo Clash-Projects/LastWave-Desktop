@@ -14,10 +14,14 @@ class WaveSelectOption<T> {
   /// Optional muted trailing note (e.g. "default").
   final String? hint;
 
+  /// Draws this option's row in the given family (font picker previews).
+  final String? fontFamily;
+
   const WaveSelectOption({
     required this.value,
     required this.label,
     this.hint,
+    this.fontFamily,
   });
 }
 
@@ -153,6 +157,7 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
                   : const SizedBox(width: 13),
               label: option.label,
               hint: option.hint,
+              fontFamily: option.fontFamily,
               onPressed: () => onChanged(option.value),
             ),
         ],

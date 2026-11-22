@@ -133,7 +133,7 @@ class _WavePlaylistsPageState
     // below fills the viewport instead of bunching in a centered cap.
     return WaveEntranceGroup(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 24, 24)),
         children: [
         ConstrainedBox(
           constraints: const BoxConstraints(

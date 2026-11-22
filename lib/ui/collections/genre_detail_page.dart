@@ -166,6 +166,7 @@ class _BodyState extends ConsumerState<_Body> {
             ),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const WaveDockSpacer(),
         ],
       ),
     );

@@ -44,8 +44,8 @@ void main() {
         primary: c, vibrant: c, darkMuted: c, lightVibrant: c, cream: c, shadow: c);
       final dim = glassDim(p);
       // Brightest part of the wash: the cover's lightest tone, dimmed,
-      // under the 12% shade at the top (veil and vignette only darken).
-      final lum = c.computeLuminance() * dim * 0.88;
+      // under the 6% shade at the top (veil and vignette only darken).
+      final lum = c.computeLuminance() * dim * 0.94;
       final contrast = (WaveColors.textPrimary.computeLuminance() + 0.05) /
           (lum + 0.05);
       expect(contrast, greaterThan(4.5), reason: '$c dim=$dim');

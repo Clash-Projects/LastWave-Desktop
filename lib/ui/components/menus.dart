@@ -78,11 +78,15 @@ class WaveMenuAction extends WaveMenuEntry {
   final String label;
   final String? hint;
   final VoidCallback? onPressed;
+
+  /// Draws the label in this family (the font picker previews each font).
+  final String? fontFamily;
   const WaveMenuAction({
     this.leading,
     required this.label,
     this.hint,
     this.onPressed,
+    this.fontFamily,
   });
 }
 
@@ -634,6 +638,9 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
                 entry.label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
+                style: entry.fontFamily == null
+                    ? null
+                    : TextStyle(fontFamily: entry.fontFamily),
               ),
               trailing: entry.hint == null
                   ? null
@@ -649,22 +656,17 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
           ));
         }
       }
-      body = Scrollbar(
-        controller: _scrollController,
-        interactive: true,
-        // Desktop ScrollBehavior would add its own Scrollbar on top of the
-        // explicit one above (doubled bars), so switch the implicit one off.
-        child: ScrollConfiguration(
-          behavior:
-              ScrollConfiguration.of(context).copyWith(scrollbars: false),
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            physics: const ClampingScrollPhysics(),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: rows,
-            ),
+      // Scrolls by wheel and keyboard with no bar: a scrollbar line read as
+      // a stray stroke down the menu's edge.
+      body = ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          physics: const ClampingScrollPhysics(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: rows,
           ),
         ),
       );
@@ -716,7 +718,8 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
             ? BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
                 child: ColoredBox(
-                  color: theme.menuColor.withValues(alpha: dark ? 0.55 : 0.68),
+                  color: waveSurfaceRaised(context)
+                      .withValues(alpha: dark ? 0.55 : 0.72),
                   child: content,
                 ),
               )
@@ -877,6 +880,12 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
   Timer? _hoverTimer;
   bool _flipLeft = false;
 
+  /// Opens upward (bottom-aligned to the row) when there is more room
+  /// above than below; [_maxHeight] caps it to that room so a submenu
+  /// near the window's bottom scrolls instead of running off screen.
+  bool _openUp = false;
+  double? _maxHeight;
+
   bool get isOpen => _portal.isShowing;
 
   @override
@@ -896,9 +905,16 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
     // Flip to the left when the submenu (max 280 wide) would run off screen.
     final box = context.findRenderObject();
     if (box is RenderBox && box.hasSize) {
-      final right = box.localToGlobal(Offset(box.size.width, 0)).dx;
-      final screenW = MediaQuery.sizeOf(context).width;
-      _flipLeft = right + 284 > screenW;
+      final topLeft = box.localToGlobal(Offset.zero);
+      final right = topLeft.dx + box.size.width;
+      final screen = MediaQuery.sizeOf(context);
+      _flipLeft = right + 284 > screen.width;
+      const margin = 12.0;
+      final cap = math.min(screen.height * 0.65, 380.0);
+      final below = screen.height - topLeft.dy - margin;
+      final above = topLeft.dy + box.size.height - margin;
+      _openUp = below < math.min(cap, 220.0) && above > below;
+      _maxHeight = math.max(120.0, math.min(cap, _openUp ? above : below));
     }
     _portal.show();
     widget.onOpened(this);
@@ -915,12 +931,20 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
           child: CompositedTransformFollower(
             link: _link,
             showWhenUnlinked: false,
-            targetAnchor:
-                _flipLeft ? Alignment.topLeft : Alignment.topRight,
-            followerAnchor:
-                _flipLeft ? Alignment.topRight : Alignment.topLeft,
-            offset: Offset(_flipLeft ? -2 : 2, -WaveMenuRow.inset),
-            child: WaveFlyoutPanel.items(entries: widget.entry.items()),
+            targetAnchor: _openUp
+                ? (_flipLeft ? Alignment.bottomLeft : Alignment.bottomRight)
+                : (_flipLeft ? Alignment.topLeft : Alignment.topRight),
+            followerAnchor: _openUp
+                ? (_flipLeft ? Alignment.bottomRight : Alignment.bottomLeft)
+                : (_flipLeft ? Alignment.topRight : Alignment.topLeft),
+            offset: Offset(
+              _flipLeft ? -2 : 2,
+              _openUp ? WaveMenuRow.inset : -WaveMenuRow.inset,
+            ),
+            child: WaveFlyoutPanel.items(
+              entries: widget.entry.items(),
+              maxHeight: _maxHeight,
+            ),
           ),
         ),
         child: _row(),

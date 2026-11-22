@@ -163,6 +163,7 @@ class _LibrarySongsViewState extends ConsumerState<LibrarySongsView> {
                   : (i) => widget.onRemove!(items[i]),
             ),
           ),
+        const WaveDockSpacer(),
       ],
     );
   }
@@ -426,6 +427,7 @@ class _GridBrowserState<T> extends State<_GridBrowser<T>> {
               ),
             ),
           ),
+        const WaveDockSpacer(),
       ],
     );
   }
@@ -627,6 +629,7 @@ class _LibraryPlaylistsViewState extends ConsumerState<LibraryPlaylistsView> {
               ),
             ),
           ),
+        const WaveDockSpacer(),
       ],
     );
   }

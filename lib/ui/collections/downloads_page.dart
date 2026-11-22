@@ -228,6 +228,7 @@ class _WaveDownloadsPageState extends ConsumerState<WaveDownloadsPage> {
         const SliverToBoxAdapter(
           child: SizedBox(height: 24),
         ),
+          const WaveDockSpacer(),
         ],
       ),
     );

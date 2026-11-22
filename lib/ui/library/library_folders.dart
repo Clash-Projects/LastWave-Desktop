@@ -32,7 +32,7 @@ class LibraryFoldersView extends ConsumerWidget {
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 16, 24, 24)),
       children: [
         Row(
           children: [
