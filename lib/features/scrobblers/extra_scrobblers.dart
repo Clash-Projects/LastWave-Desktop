@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:synchronized/synchronized.dart';
+import 'package:xml/xml.dart';
 
 import '../../core/app_info.dart';
 import '../../core/diagnostics/diagnostics_log.dart';
@@ -24,6 +27,12 @@ class Listen {
     this.album = '',
     this.startedAtSec = 0,
   });
+
+  (String, String, int) get _key => (
+    artist.trim().toLowerCase(),
+    track.trim().toLowerCase(),
+    startedAtSec,
+  );
 }
 
 /// Scrobble services besides Last.fm. Each is independent: its own
@@ -35,6 +44,8 @@ abstract class ExtraScrobbler {
   bool get connected;
   String get username;
   Future<bool> nowPlaying(Listen l);
+
+  /// False keeps this listen queued; true also consumes permanent rejections.
   Future<bool> submit(Listen l);
 
   /// Lifetime listens on the service, or null when unavailable.
@@ -100,7 +111,10 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
           body = jsonDecode(body);
         } catch (_) {}
       }
-      final valid = body is Map && body['valid'] == true;
+      final valid =
+          (res.statusCode ?? 0) ~/ 100 == 2 &&
+          body is Map &&
+          body['valid'] == true;
       if (!valid) {
         return (res.statusCode ?? 0) == 0
             ? 'Could not reach $base.'
@@ -153,15 +167,11 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
         options: _auth(_prefs.listenBrainzToken),
       );
       final ok = (res.statusCode ?? 0) ~/ 100 == 2;
-      // The body says why, e.g. 401 for an unverified MetaBrainz email.
       if (!ok) {
-        final body = res.data;
-        DiagnosticsLog.info(
-          'listenbrainz $type http=${res.statusCode} '
-          '${body is Map ? body['error'] ?? body['message'] ?? '' : ''}',
-        );
+        DiagnosticsLog.info('listenbrainz $type http=${res.statusCode}');
       }
-      return ok;
+      // A rejected payload cannot become valid by retrying and would block later listens.
+      return ok || (type == 'single' && res.statusCode == 400);
     } catch (_) {
       return false;
     }
@@ -180,6 +190,7 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
         '$_base/1/user/${Uri.encodeComponent(username)}/listen-count',
         options: _auth(_prefs.listenBrainzToken),
       );
+      if ((res.statusCode ?? 0) ~/ 100 != 2) return null;
       final data = res.data;
       final payload = data is Map ? data['payload'] : null;
       final count = payload is Map ? payload['count'] : null;
@@ -255,6 +266,10 @@ class LibreFmScrobbler implements ExtraScrobbler {
           validateStatus: (_) => true,
         ),
       );
+      if ((res.statusCode ?? 0) ~/ 100 != 2) {
+        DiagnosticsLog.info('librefm ${params['method']} http=${res.statusCode}');
+        return null;
+      }
       final raw = '${res.data ?? ''}'.trim();
       if (raw.isEmpty) return null;
       if (raw.startsWith('{')) {
@@ -272,28 +287,42 @@ class LibreFmScrobbler implements ExtraScrobbler {
 
   @visibleForTesting
   static Map<String, dynamic> parseXml(String xml) {
-    final map = <String, dynamic>{};
-    final key = RegExp(r'<key>([^<]+)</key>').firstMatch(xml)?.group(1);
-    final name = RegExp(r'<name>([^<]+)</name>').firstMatch(xml)?.group(1);
-    final err = RegExp(r'<error[^>]*>([^<]+)</error>')
-        .firstMatch(xml)
-        ?.group(1);
-    final playcount = RegExp(r'<playcount>([^<]+)</playcount>')
-        .firstMatch(xml)
-        ?.group(1);
-
-    if (key != null) {
-      map['session'] = {'key': key, if (name != null) 'name': name};
+    final root = XmlDocument.parse(xml).rootElement;
+    if (root.name.local != 'lfm') return {};
+    final map = <String, dynamic>{'status': root.getAttribute('status')};
+    final error = root.getElement('error');
+    if (error != null) {
+      map['error'] = error.innerText;
+      map['message'] = error.innerText;
     }
+    if (map['status'] != 'ok') return map;
+    final session = root.getElement('session');
+    if (session != null) {
+      map['session'] = {
+        'key': session.getElement('key')?.innerText,
+        'name': session.getElement('name')?.innerText,
+      };
+    }
+    final playcount = root.getElement('user')?.getElement('playcount')?.innerText;
     if (playcount != null) {
       map['user'] = {'playcount': playcount};
     }
-    if (err != null) {
-      map['error'] = err;
-      map['message'] = err;
+    final scrobbles = root.getElement('scrobbles');
+    if (scrobbles != null) {
+      map['scrobbles'] = {
+        '@attr': {
+          'accepted': scrobbles.getAttribute('accepted'),
+          'ignored': scrobbles.getAttribute('ignored'),
+        },
+        if (scrobbles.getElement('scrobble') != null)
+          'scrobble': <String, dynamic>{},
+      };
     }
-    if (xml.contains('status="ok"') || xml.contains("status='ok'")) {
-      map['status'] = 'ok';
+    if (root.getElement('nowplaying') != null) {
+      map['nowplaying'] = <String, dynamic>{};
+    }
+    for (final ignored in root.findAllElements('ignoredMessage')) {
+      map['ignoredMessageCode'] = ignored.getAttribute('code');
     }
     return map;
   }
@@ -376,12 +405,31 @@ class LibreFmScrobbler implements ExtraScrobbler {
       for (final e in extra.entries)
         if (e.value.isNotEmpty) e.key: e.value,
     });
-    final ok = body != null && !body.containsKey('error');
+    final scrobbles = body?['scrobbles'];
+    final attributes = scrobbles is Map ? scrobbles['@attr'] : null;
+    final accepted =
+        int.tryParse('${attributes is Map ? attributes['accepted'] : null}') ?? 0;
+    final result = method == 'track.scrobble'
+        ? (scrobbles is Map ? scrobbles['scrobble'] : null)
+        : body?['nowplaying'];
+    final ignored = result is Map ? result['ignoredMessage'] : null;
+    final rawCode =
+        body?['ignoredMessageCode'] ?? (ignored is Map ? ignored['code'] : null);
+    final code = int.tryParse('$rawCode');
+    // Retrying rejected metadata (1–4) or duplicates (91) would block later listens.
+    final consumedCode =
+        rawCode == null ||
+        code != null && (code >= 0 && code <= 4 || code == 91);
+    final ok =
+        body != null &&
+        !body.containsKey('error') &&
+        (body['status'] == null || body['status'] == 'ok') &&
+        (result is Map || method == 'track.scrobble' && accepted > 0) &&
+        consumedCode;
     if (!ok) {
-      DiagnosticsLog.info(
-        'librefm $method ok=false '
-        '${body?['message'] ?? body?['error'] ?? 'no response'}',
-      );
+      DiagnosticsLog.info('librefm $method ok=false');
+    } else if (code != null && code >= 1 && code <= 4) {
+      DiagnosticsLog.info('librefm $method ignored=$code');
     }
     return ok;
   }
@@ -432,12 +480,18 @@ String normalizeServer(String raw, String fallback) {
 
 // -- fan-out ----------------------------------------------------------------------
 
+class _ScrobbleQueue {
+  final lock = Lock();
+  final listens = <Listen>[];
+  final consumed = LinkedHashSet<(String, String, int)>();
+}
+
 /// Sends every listen to each connected service. Failed submits wait in a
 /// per-service queue (max 200) and go out before that service's next one.
 class ExtraScrobblers {
   ExtraScrobblers(this.services);
   final List<ExtraScrobbler> services;
-  final Map<String, List<Listen>> _queues = {};
+  final _queues = <ExtraScrobbler, _ScrobbleQueue>{};
 
   void nowPlaying(Listen l) {
     for (final s in services) {
@@ -452,15 +506,31 @@ class ExtraScrobblers {
   }
 
   Future<void> _submit(ExtraScrobbler s, Listen l) async {
-    final queue = _queues.putIfAbsent(s.name, () => []);
-    queue.add(l);
-    while (queue.isNotEmpty) {
-      if (!await s.submit(queue.first)) break;
-      queue.removeAt(0);
-    }
-    while (queue.length > 200) {
-      queue.removeAt(0);
-    }
+    final state = _queues.putIfAbsent(s, _ScrobbleQueue.new);
+    await state.lock.synchronized(() async {
+      final queue = state.listens;
+      if (!state.consumed.contains(l._key) &&
+          !queue.any((pending) => pending._key == l._key)) {
+        queue.add(l);
+      }
+      while (queue.length > 200) {
+        queue.removeAt(0);
+      }
+      while (s.connected && queue.isNotEmpty) {
+        final pending = queue.first;
+        try {
+          if (!await s.submit(pending)) break;
+        } catch (_) {
+          DiagnosticsLog.info('${s.name} submission failed');
+          break;
+        }
+        queue.removeAt(0);
+        state.consumed.add(pending._key);
+        if (state.consumed.length > 200) {
+          state.consumed.remove(state.consumed.first);
+        }
+      }
+    });
   }
 }
 
