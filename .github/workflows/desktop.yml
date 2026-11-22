@@ -21,6 +21,34 @@ permissions:
   contents: write
 
 jobs:
+  scrobbler-regressions:
+    name: Scrobbler regressions
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.9
+          cache: true
+
+      - name: Generate empty test secrets
+        run: dart tool/obfuscate_secrets.dart
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Test scrobbler delivery and HTTP responses
+        run: flutter test test/extra_scrobblers_test.dart
+
+      - name: Analyze scrobbler changes
+        run: flutter analyze --no-fatal-infos lib/features/scrobblers/extra_scrobblers.dart test/extra_scrobblers_test.dart
+
   build-linux:
     name: Build Linux Bundle (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
