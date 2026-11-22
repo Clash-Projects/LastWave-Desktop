@@ -18,6 +18,8 @@ import '../../core/audio/stream_models.dart';
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/env/app_env.dart';
 import '../../core/storage/prefs.dart';
+import '../../core/l10n/app_language.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../features/settings/app_fonts.dart';
 import '../../features/scrobblers/extra_scrobblers.dart';
 import '../../features/addons/addon_api.dart';
@@ -87,6 +89,25 @@ class WaveSettingsPage extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<WaveSettingsPage> createState() => _WaveSettingsPageState();
+}
+
+String _sectionTitle(BuildContext context, String key, String fallback) {
+  final l10n = context.l10n;
+  return switch (key) {
+    'general' => l10n.settingsGeneral,
+    'playback' => l10n.settingsPlayback,
+    'audio' => l10n.settingsAudio,
+    'downloads' => l10n.settingsDownloads,
+    'library' => l10n.settingsLibrary,
+    'lyrics' => l10n.settingsLyrics,
+    'appearance' => l10n.settingsAppearance,
+    'lastfm' => l10n.settingsScrobbler,
+    'integrations' => l10n.settingsIntegrations,
+    'sources' => l10n.settingsSources,
+    'experimental' => l10n.settingsExperimental,
+    'about' => l10n.settingsAbout,
+    _ => fallback,
+  };
 }
 
 class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
@@ -203,7 +224,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                       ToggleButton(
                         checked: _section == s.$1,
                         onChanged: (_) => setState(() => _section = s.$1),
-                        child: Text(s.$2),
+                        child: Text(_sectionTitle(context, s.$1, s.$2)),
                       ),
                   ],
                 ),
@@ -239,7 +260,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                           color: waveAccent(context),
                         ),
                       ),
-                      const Text('Settings', style: WaveType.pageTitle),
+                      Text(context.l10n.navSettings, style: WaveType.pageTitle),
                       const SizedBox(height: 12),
                       for (final s in waveSettingsSections)
                         ListTile.selectable(
@@ -249,7 +270,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                           selected: _section == s.$1,
                           selectionMode: ListTileSelectionMode.single,
                           leading: Icon(s.$3, size: 15),
-                          title: Text(s.$2),
+                          title: Text(_sectionTitle(context, s.$1, s.$2)),
                           onPressed: () => setState(() => _section = s.$1),
                         ),
                     ],
@@ -3365,6 +3386,13 @@ class _General extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 16),
+        _Group(
+          id: 'general.language',
+          title: context.l10n.settingsLanguage,
+          subtitle: context.l10n.settingsLanguageSub,
+          child: const _LanguageSelectRow(),
+        ),
+        const SizedBox(height: 16),
         const _Group(
           id: 'general.backup',
           title: 'Backup',
@@ -4094,6 +4122,36 @@ class _BehaviourSelectRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LanguageSelectRow extends ConsumerWidget {
+  const _LanguageSelectRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(appLanguageProvider);
+    final l10n = context.l10n;
+    final sub = current == AppLanguage.system
+        ? l10n.tr('settings_language_system_sub')
+        : (current.nativeDisplayName == current.englishName
+            ? current.englishName
+            : '${current.nativeDisplayName} (${current.englishName})');
+    return _BehaviourSelectRow(
+      title: l10n.settingsLanguage,
+      subtitle: sub,
+      value: current.tag,
+      options: AppLanguage.values.map((lang) {
+        final label = lang == AppLanguage.system
+            ? l10n.tr('settings_language_system')
+            : (lang.nativeDisplayName == lang.englishName
+                ? lang.englishName
+                : '${lang.nativeDisplayName} — ${lang.englishName}');
+        return WaveSelectOption(value: lang.tag, label: label);
+      }).toList(),
+      onChanged: (tag) =>
+          ref.read(appLanguageProvider.notifier).setLanguage(AppLanguage.fromTag(tag)),
     );
   }
 }

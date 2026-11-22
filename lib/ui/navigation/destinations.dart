@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../core/l10n/app_localizations.dart';
 import '../theme/wave_icons.dart';
 
 /// Rebuilt navigation — music first, panels secondary.
@@ -16,6 +17,26 @@ class WaveDestination {
   final String label;
   final IconData icon;
   const WaveDestination(this.path, this.label, this.icon);
+
+  /// Localized label with automatic fallback to default [label] (English).
+  String localizedLabel(BuildContext context) {
+    try {
+      final l10n = context.l10n;
+      return switch (path) {
+        '/home' => l10n.navHome,
+        '/stats' => l10n.navStats,
+        '/search' => l10n.navSearch,
+        '/podcasts' => l10n.navPodcasts,
+        '/playlists' => l10n.navPlaylists,
+        '/library' => l10n.navLibrary,
+        '/jam' => l10n.navJam,
+        '/settings' => l10n.navSettings,
+        _ => label,
+      };
+    } catch (_) {
+      return label;
+    }
+  }
 }
 
 const waveListenDestinations = [

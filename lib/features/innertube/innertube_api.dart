@@ -17,6 +17,7 @@ import '../../core/network/lastfm_crypto.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/prefs.dart';
 import '../../core/storage/secure_store.dart';
+import '../../core/l10n/app_language.dart';
 import '../podcasts/podcast_models.dart';
 import '../podcasts/podcast_parser.dart';
 import '../search/shared_providers.dart';
@@ -902,6 +903,16 @@ class InnerTubeMusicApi {
   YtConnection get connection => _connection;
 
   void setConnection(YtConnection c) => _connection = c;
+
+  /// InnerTube language tag (e.g. 'en', 'tr', 'zh-Hans', 'ru', etc.).
+  /// Maps only supported Limusic languages; non-supported fallback to 'en'.
+  String _hl = 'en';
+  String get hl => _hl;
+  set hl(String val) {
+    if (val.isNotEmpty && _hl != val) {
+      _hl = val;
+    }
+  }
 
   // -- cookie rotation ---------------------------------------------------------
 
@@ -2353,7 +2364,7 @@ class InnerTubeMusicApi {
       'client': {
         'clientName': name,
         'clientVersion': version,
-        'hl': 'en',
+        'hl': _hl,
         'gl': 'US',
         if (visitorData != null && visitorData.isNotEmpty)
           'visitorData': visitorData,
@@ -2443,6 +2454,7 @@ class InnerTubeMusicApi {
       'X-Goog-Api-Format-Version': '1',
       'X-YouTube-Client-Name': clientIds[clientName] ?? clientName,
       'X-YouTube-Client-Version': clientVersion,
+      'Accept-Language': '$_hl, *;q=0.5',
       if (visitorData != null && visitorData.isNotEmpty)
         'X-Goog-Visitor-Id': visitorData,
       // Account surface only when requested AND connected â€”
@@ -7638,6 +7650,11 @@ final innerTubeProvider = Provider<InnerTubeMusicApi>((ref) {
     ref.watch(secureStoreProvider),
     ref.watch(poTokenEngineProvider),
   );
+  // Wire dynamic language from appLanguageProvider (Limusic whitelist)
+  api.hl = ref.read(appLanguageProvider).innertubeHl;
+  ref.listen<AppLanguage>(appLanguageProvider, (_, lang) {
+    api.hl = lang.innertubeHl;
+  });
   // Keep the reactive stale flag in sync (expired session → Reconnect).
   api.onAuthStaleChanged = (stale) {
     try {

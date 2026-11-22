@@ -11,6 +11,8 @@ import '../../app/window_lifecycle.dart';
 import '../../app/auth_gate.dart';
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/storage/prefs.dart';
+import '../../core/l10n/app_language.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../ui/theme/fluent_theme.dart';
@@ -242,21 +244,29 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
       builder: (context, p, _) {
         // Same colours as last frame (the fade is quantised below): hand
         // back the identical widget so Flutter skips rebuilding the app.
-        // Everything _themed reads: palette, theme state, brightness, font.
+        // Everything _themed reads: palette, theme state, brightness, font, language.
+        final currentLanguage = ref.watch(appLanguageProvider);
         final key = (
           p,
           theme,
           light,
           ref.watch(appFontFamilyProvider).valueOrNull,
+          currentLanguage,
         );
         if (key == _themedKey && _themedApp != null) return _themedApp!;
         _themedKey = key;
-        return _themedApp = _themed(theme, p.$1, p.$2, light);
+        return _themedApp = _themed(theme, p.$1, p.$2, light, currentLanguage);
       },
     );
   }
 
-  Widget _themed(ThemeState theme, Color accent, WaveSurfaces base, bool light) {
+  Widget _themed(
+    ThemeState theme,
+    Color accent,
+    WaveSurfaces base,
+    bool light,
+    AppLanguage lang,
+  ) {
     final surfaces = theme.glass ? base.glass(light: light) : base;
     final font = ref.watch(appFontFamilyProvider).valueOrNull;
     final darkTheme = buildWaveFluentTheme(
@@ -294,6 +304,12 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           themeMode:
               theme.effectiveLight ? ThemeMode.light : ThemeMode.dark,
           routerConfig: _router,
+          locale: lang.locale,
+          supportedLocales: AppLanguage.supportedLocales,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            FluentLocalizations.delegate,
+          ],
           // ONE Fluent scrollbar treatment everywhere: thin, fades when
           // idle, no browser-style horizontal bars under carousels.
           scrollBehavior: const WaveScrollBehavior(),
@@ -304,6 +320,11 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           // solid flyouts read identically. (Own haze system untouched.)
           builder: (context, child) {
             final page = child ?? const SizedBox.shrink();
+            final directed = Directionality(
+              textDirection:
+                  lang.isRtl ? TextDirection.rtl : TextDirection.ltr,
+              child: page,
+            );
             return DisableAcrylic(
               child: theme.glass
                   ? WaveGlassStage(
@@ -315,9 +336,9 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                           : theme.isCustom
                               ? GlassFlavor.custom
                               : GlassFlavor.midnight,
-                      child: page,
+                      child: directed,
                     )
-                  : page,
+                  : directed,
             );
           },
         ),

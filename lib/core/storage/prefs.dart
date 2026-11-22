@@ -93,6 +93,7 @@ class Prefs {
       _sp.setInt('lw_lossless_quality', _clampQuality(q));
   Future<void> setDownloadQuality(int q) =>
       _sp.setInt('lw_download_quality', _clampQuality(q));
+
   // -- Window behaviour ---------------------------------------------------
   /// Close button / Alt+F4 hides to the tray instead of quitting.
   /// Real quit stays in tray → Quit (ordered player teardown first).

@@ -206,6 +206,7 @@ class _RailItemState extends State<_RailItem> {
 
   @override
   Widget build(BuildContext context) {
+    final label = widget.destination.localizedLabel(context);
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
     final bg = widget.selected
@@ -316,7 +317,7 @@ class _RailItemState extends State<_RailItem> {
                                   child: Opacity(
                                     opacity: reveal,
                                     child: Text(
-                                      widget.destination.label,
+                                      label,
                                       maxLines: 1,
                                       softWrap: false,
                                       overflow: TextOverflow.ellipsis,
@@ -346,14 +347,14 @@ class _RailItemState extends State<_RailItem> {
     final labelled = Semantics(
       button: true,
       selected: widget.selected,
-      label: widget.destination.label,
+      label: label,
       onTap: widget.onTap,
       excludeSemantics: true,
       child: content,
     );
     if (widget.expanded) return labelled;
     return LWTooltip(
-      message: widget.destination.label,
+      message: label,
       child: labelled,
     );
   }
