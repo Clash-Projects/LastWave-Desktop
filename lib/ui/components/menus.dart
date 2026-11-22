@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +19,7 @@ import '../../features/search/shared_providers.dart';
 import '../app_shell/wave_hotkeys.dart';
 import '../collections/playlist_dialogs.dart';
 import '../navigation/wave_nav.dart';
+import '../theme/haze.dart';
 import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip, WaveButton, WaveFilledButton;
 import '../theme/wave_icons.dart';
@@ -671,31 +673,54 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
     final screenH = MediaQuery.maybeSizeOf(context)?.height ?? 600;
     final effectiveMaxHeight = widget.maxHeight ?? math.min(screenH * 0.65, 380.0);
 
+    final dark = theme.brightness == Brightness.dark;
+    // Glassmorphism: frosted glass, the page blurred through a thin film,
+    // with a light hairline edge. Solid material keeps it opaque.
+    final frosted = waveGlassOn(context) && WaveHazeScope.blurEnabled(context);
+    final content = ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: widget.maxWidth,
+        maxHeight: effectiveMaxHeight,
+      ),
+      child: Padding(
+        // [WaveMenuRow.inset]: keeps row fills clear of the panel's
+        // rounded edge, and is what the row radius is measured against.
+        padding: const EdgeInsetsDirectional.all(WaveMenuRow.inset),
+        child: body,
+      ),
+    );
     final panel = Container(
       decoration: BoxDecoration(
-        color: theme.menuColor,
+        color: frosted ? null : theme.menuColor,
         borderRadius: WaveRadius.menuRadius,
         // The pearl theme has no value step left above a card
         // (`lightSurface == lightSurfaceRaised`), so a menu opened over one
         // has nothing but its shadow to separate it — the same hairline the
         // command palette carries gives it an edge again.
-        border: Border.all(color: waveDivider(context)),
-        boxShadow: WaveElevation.flyout(theme.brightness == Brightness.dark),
+        border: frosted ? null : Border.all(color: waveDivider(context)),
+        boxShadow: WaveElevation.flyout(dark),
       ),
+      // Over the frosted fill, so the edge stays visible.
+      foregroundDecoration: frosted
+          ? BoxDecoration(
+              borderRadius: WaveRadius.menuRadius,
+              border: Border.all(
+                color: (dark ? Colors.white : Colors.black)
+                    .withValues(alpha: dark ? 0.14 : 0.10),
+              ),
+            )
+          : null,
       child: ClipRRect(
         borderRadius: WaveRadius.menuRadius,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: widget.maxWidth,
-            maxHeight: effectiveMaxHeight,
-          ),
-          child: Padding(
-            // [WaveMenuRow.inset]: keeps row fills clear of the panel's
-            // rounded edge, and is what the row radius is measured against.
-            padding: const EdgeInsetsDirectional.all(WaveMenuRow.inset),
-            child: body,
-          ),
-        ),
+        child: frosted
+            ? BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+                child: ColoredBox(
+                  color: theme.menuColor.withValues(alpha: dark ? 0.55 : 0.68),
+                  child: content,
+                ),
+              )
+            : content,
       ),
     );
 

@@ -166,24 +166,29 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
     outlineSoft: WaveColors.lightOutlineSoft,
   );
 
-  /// Glassmorphism: the page goes clear so the app-wide aura shows
-  /// through, and each layer above it keeps its own tone as a frosted
-  /// tint. Menus and dialogs stay nearly opaque so their text reads.
-  /// isCustom so the helpers read these values in both brightnesses.
+  /// Glassmorphism: the page and rail go clear over the cover wash, and
+  /// every layer above is plain white (black in light themes) at a few
+  /// percent: cards 6%, hover 9%, hairlines 8%. Tinted fills read muddy
+  /// over a colourful backdrop; a thin neutral film reads as glass. The
+  /// dock is a light dark film; menus and dialogs stay nearly opaque so
+  /// their text reads. isCustom so the helpers read these in both
+  /// brightnesses.
   WaveSurfaces glass({required bool light}) {
-    Color a(Color c, double dark, double pearl) =>
-        c.withValues(alpha: light ? pearl : dark);
-    final line = light ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+    final ink = light ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+    Color film(double dark, double pearl) =>
+        ink.withValues(alpha: light ? pearl : dark);
     return WaveSurfaces(
       background: background.withValues(alpha: 0),
-      surface: a(surface, 0.38, 0.48),
-      surfaceRaised: a(surfaceRaised, 0.88, 0.90),
-      surfaceOverlay: a(surfaceOverlay, 0.42, 0.55),
-      panelTranslucent: a(panelTranslucent, 0.40, 0.50),
-      dockTranslucent: a(dockTranslucent, 0.30, 0.42),
-      railTranslucent: a(railTranslucent, 0.22, 0.34),
-      outline: line.withValues(alpha: light ? 0.12 : 0.14),
-      outlineSoft: line.withValues(alpha: light ? 0.07 : 0.08),
+      surface: film(0.06, 0.04),
+      surfaceRaised: surfaceRaised.withValues(alpha: light ? 0.92 : 0.90),
+      surfaceOverlay: film(0.09, 0.06),
+      panelTranslucent: film(0.06, 0.04),
+      dockTranslucent: light
+          ? const Color(0x73FFFFFF)
+          : const Color(0x70000000),
+      railTranslucent: background.withValues(alpha: 0),
+      outline: film(0.16, 0.12),
+      outlineSoft: film(0.08, 0.07),
       isCustom: true,
     );
   }

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lastwave_desktop/ui/components/ambient.dart';
 import 'package:lastwave_desktop/ui/components/glass_stage.dart';
 import 'package:lastwave_desktop/ui/theme/tokens.dart';
 
@@ -34,6 +35,20 @@ void main() {
       final bg = glassTone(c, WaveColors.lightBackground, true);
       expect(_contrast(WaveColors.lightTextSecondary, bg), greaterThan(4.5),
           reason: '$c');
+    }
+  });
+
+  test('cover wash dims pale covers enough for primary text', () {
+    for (final c in covers) {
+      final p = ArtworkPalette(
+        primary: c, vibrant: c, darkMuted: c, lightVibrant: c, cream: c, shadow: c);
+      final dim = glassDim(p);
+      // Brightest part of the wash: the cover's lightest tone, dimmed,
+      // under the 12% shade at the top (veil and vignette only darken).
+      final lum = c.computeLuminance() * dim * 0.88;
+      final contrast = (WaveColors.textPrimary.computeLuminance() + 0.05) /
+          (lum + 0.05);
+      expect(contrast, greaterThan(4.5), reason: '$c dim=$dim');
     }
   });
 }

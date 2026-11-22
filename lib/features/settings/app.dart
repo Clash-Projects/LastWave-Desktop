@@ -295,6 +295,11 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                       veil: base.background,
                       light: light,
                       accent: accent,
+                      flavor: theme.isArtwork
+                          ? GlassFlavor.artwork
+                          : theme.isCustom
+                              ? GlassFlavor.custom
+                              : GlassFlavor.midnight,
                       child: page,
                     )
                   : page,

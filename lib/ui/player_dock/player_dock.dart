@@ -115,10 +115,18 @@ class WavePlayerDock extends ConsumerWidget {
       builder: (context, animatedBase, child) {
         return WaveHaze(
           level: LwHazeLevel.l1,
-          enableBlur: false,
+          // Glass: frosted, so the backdrop reads blurred through it.
+          enableBlur: waveGlassOn(context),
           base: animatedBase ?? targetBase,
+          // Glass: a bright top edge, the highlight that makes it read
+          // as a pane rather than a strip.
           border: Border(
-            top: BorderSide(color: waveDivider(context)),
+            top: BorderSide(
+              color: waveGlassOn(context)
+                  ? (dark ? Colors.white : Colors.black)
+                      .withValues(alpha: dark ? 0.16 : 0.10)
+                  : waveDivider(context),
+            ),
           ),
           child: child!,
         );
