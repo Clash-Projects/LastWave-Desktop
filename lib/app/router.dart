@@ -163,7 +163,7 @@ Page<void> _anchoredPage(Widget child) {
 /// Playlists · Downloads · Friends / Settings · Now / Lyrics ·
 ///
 /// Album / Artist details are first-class music layouts.
-/// History + Mix Lab stay routable but off prime nav.
+/// History stays routable but off prime nav.
 GoRouter buildRouter({required AuthGate gate}) {
   return GoRouter(
     initialLocation: '/home',
@@ -382,11 +382,6 @@ GoRouter buildRouter({required AuthGate gate}) {
           ),
           StatefulShellBranch(
             routes: [
-              GoRoute(
-                path: '/mixes',
-                pageBuilder: (c, s) =>
-                    _page(const WaveMixLabPage()),
-              ),
               GoRoute(
                 path: '/history',
                 pageBuilder: (c, s) =>

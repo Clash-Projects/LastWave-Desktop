@@ -201,12 +201,80 @@ class ListenBrainzScrobbler implements ExtraScrobbler {
   }
 
   @override
-  Uri get profileUrl {
+  Uri get profileUrl => profileUrlFor(username);
+
+  /// Public profile page for any ListenBrainz user.
+  Uri profileUrlFor(String user) {
     final base = _base;
     // The public site for the default API host; self-hosted servers serve
     // both from one origin.
     final site = base == defaultServer ? 'https://listenbrainz.org' : base;
-    return Uri.parse('$site/user/${Uri.encodeComponent(username)}/');
+    return Uri.parse('$site/user/${Uri.encodeComponent(user)}/');
+  }
+
+  // -- social (Friends tab) ------------------------------------------------
+  // Shapes verified against api.listenbrainz.org:
+  //   GET  /1/user/{name}/following     -> {"following": ["name", ...]}
+  //   GET  /1/search/users/?search_term -> {"users": [{"user_name": ...}]}
+  //   POST /1/user/{name}/follow|unfollow (token; 401 without)
+
+  /// Users the connected account follows; null when it could not be read.
+  Future<List<String>?> following() async {
+    if (!connected || username.isEmpty) return null;
+    try {
+      final res = await _dio.get<dynamic>(
+        '$_base/1/user/${Uri.encodeComponent(username)}/following',
+        options: _auth(_prefs.listenBrainzToken),
+      );
+      if ((res.statusCode ?? 0) ~/ 100 != 2) return null;
+      final list = res.data is Map ? res.data['following'] : null;
+      return list is List ? [for (final n in list) '$n'] : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// User names matching [query] (empty on failure).
+  Future<List<String>> searchUsers(String query) async {
+    final q = query.trim();
+    if (!connected || q.length < 2) return const [];
+    try {
+      // The trailing slash matters: without it the API answers 308.
+      final res = await _dio.get<dynamic>(
+        '$_base/1/search/users/',
+        queryParameters: {'search_term': q},
+        options: _auth(_prefs.listenBrainzToken),
+      );
+      if ((res.statusCode ?? 0) ~/ 100 != 2) return const [];
+      final users = res.data is Map ? res.data['users'] : null;
+      if (users is! List) return const [];
+      return [
+        for (final u in users)
+          if (u is Map && '${u['user_name'] ?? ''}'.isNotEmpty) '${u['user_name']}',
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Follows (or unfollows) [user] on ListenBrainz. Null on success,
+  /// else the server's reason.
+  Future<String?> setFollowing(String user, {required bool follow}) async {
+    if (!connected) return 'ListenBrainz is not connected.';
+    try {
+      final res = await _dio.post<dynamic>(
+        '$_base/1/user/${Uri.encodeComponent(user)}/'
+        '${follow ? 'follow' : 'unfollow'}',
+        options: _auth(_prefs.listenBrainzToken),
+      );
+      if ((res.statusCode ?? 0) ~/ 100 == 2) return null;
+      final body = res.data;
+      return body is Map
+          ? '${body['error'] ?? body['message'] ?? 'HTTP ${res.statusCode}'}'
+          : 'HTTP ${res.statusCode}';
+    } catch (_) {
+      return 'Could not reach ListenBrainz.';
+    }
   }
 }
 
@@ -461,9 +529,35 @@ class LibreFmScrobbler implements ExtraScrobbler {
   }
 
   @override
-  Uri get profileUrl => Uri.parse(
-    '${normalizeServer(_prefs.libreFmServer, defaultServer)}/user/${Uri.encodeComponent(username)}',
+  Uri get profileUrl => profileUrlFor(username);
+
+  /// Public profile page for any Libre.fm user.
+  Uri profileUrlFor(String user) => Uri.parse(
+    '${normalizeServer(_prefs.libreFmServer, defaultServer)}/user/${Uri.encodeComponent(user)}',
   );
+
+  /// A user's public name and largest avatar via `user.getInfo`, or null
+  /// when the server does not know the name. GNU FM has no friends API
+  /// (`user.getFriends` answers "Invalid Method", checked live), so the
+  /// Friends tab keeps Libre.fm friends on this device and uses this to
+  /// confirm a name and fetch its picture.
+  Future<({String name, String avatar})?> userCard(String user) async {
+    final u = user.trim();
+    if (!connected || u.isEmpty) return null;
+    final body = await _call(_endpoint, {'method': 'user.getInfo', 'user': u});
+    final info = body?['user'];
+    if (info is! Map) return null;
+    var avatar = '';
+    final images = info['image'];
+    if (images is List) {
+      for (final i in images) {
+        final url = i is Map ? '${i['#text'] ?? ''}' : '';
+        if (url.isNotEmpty) avatar = url; // listed small to large
+      }
+    }
+    final name = '${info['name'] ?? ''}';
+    return (name: name.isEmpty ? u : name, avatar: avatar);
+  }
 }
 
 /// `https://host[:port][/path]` without a trailing slash; [fallback] when

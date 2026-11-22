@@ -99,14 +99,27 @@ class _WavePlaylistsPageState
     // YouTube Music playlists not linked to a row above: the ones saved from
     // other people, which YouTube won't let this account edit. Read-only.
     final linked = ref.watch(ytSyncStatusProvider).linkedRemoteIds;
-    final ytLists = (ref.watch(ytAccountPlaylistsProvider).value ??
+    // Liked Songs leads the YouTube Music row (it replaced the rail item).
+    // It opens the Liked page itself, so the songs are exactly the same.
+    final likedArt = (ref
+                .watch(playlistRepositoryProvider)
+                .where((p) => p.isLikedSongs)
+                .firstOrNull
+                ?.tracks ??
             const [])
-        .where(
-          (p) =>
-              !linked.contains(YtLibrarySync.bareId(p.id)) &&
-              p.title.toLowerCase().contains(_q.toLowerCase()),
-        )
-        .toList();
+        .map((t) => t.artworkUrl)
+        .firstWhere((u) => u.isNotEmpty, orElse: () => '');
+    final ytLists = [
+      if ('liked songs'.contains(_q.toLowerCase()))
+        YouTubePlaylistSummary(
+            id: 'LM', title: 'Liked Songs', artworkUrl: likedArt),
+      ...(ref.watch(ytAccountPlaylistsProvider).value ?? const [])
+          .where(
+            (p) =>
+                !linked.contains(YtLibrarySync.bareId(p.id)) &&
+                p.title.toLowerCase().contains(_q.toLowerCase()),
+          ),
+    ];
     // Spotify account playlists + Liked Songs. Shown here only: Spotify
     // likes are deliberately never merged into the app's own Liked page.
     final spLists = (ref.watch(spotifyPlaylistsProvider).value ??
@@ -349,9 +362,11 @@ class _YtCardState extends ConsumerState<_YtCard> {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final p = widget.lists[widget.index];
-    void play() => waveOpen(context, '/ytplaylist/${p.id}'
-        '?title=${Uri.encodeComponent(p.title)}'
-        '&art=${Uri.encodeComponent(p.artworkUrl)}');
+    void play() => InnerTubeMusicApi.isLikedMusicId(p.id)
+        ? waveOpen(context, '/liked')
+        : waveOpen(context, '/ytplaylist/${p.id}'
+            '?title=${Uri.encodeComponent(p.title)}'
+            '&art=${Uri.encodeComponent(p.artworkUrl)}');
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),

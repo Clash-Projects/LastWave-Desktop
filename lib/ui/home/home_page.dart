@@ -605,8 +605,6 @@ class WaveHomePage extends ConsumerWidget {
                 overline: becauseKicker,
                 title: 'Made For You',
                 count: mixes.length,
-                actionLabel: 'Open Mix Lab',
-                onAction: () => context.go('/mixes'),
             ),
           ),
         ),

@@ -4,12 +4,14 @@ import 'dart:convert';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../features/lastfm/auth_repository.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/home/home_snapshot.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/lastfm/lastfm_snapshot.dart';
+import '../../features/scrobblers/extra_scrobblers.dart';
 import '../../features/search/search_repository.dart';
 import '../../features/search/shared_providers.dart' show databaseProvider;
 import '../components/artwork.dart';
@@ -18,14 +20,27 @@ import '../components/states.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
-/// Friends you added yourself. Last.fm has no public "add friend" call, so
-/// these are kept on this device (kv_store) and shown next to the friends
-/// Last.fm already lists for you.
+/// Where a friend comes from. The Friends tab combines every connected
+/// scrobbler: Last.fm friends, the ListenBrainz users you follow, and
+/// Libre.fm users you added here.
+enum FriendSource {
+  lastfm('Last.fm'),
+  listenbrainz('ListenBrainz'),
+  librefm('Libre.fm');
+
+  final String label;
+  const FriendSource(this.label);
+}
+
+/// Friends added on this device, by name. Last.fm and Libre.fm have no
+/// public "add friend" call, so these live in kv_store next to the
+/// friends each service lists for you.
 class LocalFriends extends StateNotifier<List<String>> {
   final void Function(String json) _save;
   LocalFriends(String? stored, this._save) : super(_decode(stored));
 
   static const storageKey = 'friends_local_v1';
+  static const libreStorageKey = 'friends_librefm_v1';
 
   static List<String> _decode(String? raw) {
     if (raw == null || raw.isEmpty) return const [];
@@ -55,21 +70,43 @@ class LocalFriends extends StateNotifier<List<String>> {
   }
 }
 
-final localFriendsProvider =
-    StateNotifierProvider<LocalFriends, List<String>>((ref) {
+LocalFriends _localFriends(Ref ref, String key) {
   final db = ref.watch(databaseProvider);
   String? raw;
   try {
-    raw = db.kvGet(LocalFriends.storageKey);
+    raw = db.kvGet(key);
   } catch (_) {}
   return LocalFriends(raw, (json) {
     try {
-      db.kvSet(LocalFriends.storageKey, json);
+      db.kvSet(key, json);
     } catch (_) {}
   });
+}
+
+/// Last.fm names added here.
+final localFriendsProvider =
+    StateNotifierProvider<LocalFriends, List<String>>(
+        (ref) => _localFriends(ref, LocalFriends.storageKey));
+
+/// Libre.fm names added here.
+final localLibreFriendsProvider =
+    StateNotifierProvider<LocalFriends, List<String>>(
+        (ref) => _localFriends(ref, LocalFriends.libreStorageKey));
+
+/// Which scrobblers are connected (Last.fm: a signed-in session).
+final _connectedProvider =
+    Provider<({bool lastfm, bool listenbrainz, bool librefm})>((ref) {
+  ref.watch(extraScrobblersRevisionProvider);
+  final auth = ref.watch(authRepositoryProvider);
+  return (
+    lastfm: auth.status == AuthStatus.signedIn && auth.username.isNotEmpty,
+    listenbrainz: ref.watch(listenBrainzProvider).connected,
+    librefm: ref.watch(libreFmProvider).connected,
+  );
 });
 
-final _lastFmFriendsProvider = FutureProvider<List<FriendEntry>>((ref) {
+final _lastFmFriendsProvider = FutureProvider<List<FriendEntry>>((ref) async {
+  if (!ref.watch(_connectedProvider).lastfm) return const [];
   // Always your own friends: it must not follow viewingProfileProvider.
   final home = ref.watch(homeRepositoryProvider);
   return swrLoad<List<FriendEntry>>(
@@ -82,25 +119,64 @@ final _lastFmFriendsProvider = FutureProvider<List<FriendEntry>>((ref) {
   );
 });
 
-/// Avatar for a friend added here (stored by name only, so it has none).
-/// Not autoDispose: looked up once per session and kept, so the Friends
-/// tab shows the same pictures instantly on every return.
+/// The ListenBrainz users you follow (its real follow list).
+final _lbFollowingProvider = FutureProvider<List<String>>((ref) async {
+  if (!ref.watch(_connectedProvider).listenbrainz) return const [];
+  return await ref.watch(listenBrainzProvider).following() ?? const [];
+});
+
+/// Avatar for a Last.fm name added here (stored by name only). Not
+/// autoDispose: looked up once per session, instant on every return.
 final _friendAvatarProvider =
     FutureProvider.family<String, String>((ref, name) async {
-  final user =
-      await ref.watch(searchRepositoryProvider).lookupUser(name);
+  final user = await ref.watch(searchRepositoryProvider).lookupUser(name);
   return user?.artworkUrl ?? '';
 });
 
-final _friendSearchProvider = FutureProvider.autoDispose
-    .family<List<SearchResultItem>, String>((ref, q) {
-  if (q.trim().length < 2) return const [];
-  return ref.watch(searchRepositoryProvider).search(SearchTab.users, q);
+/// Avatar for a Libre.fm name added here. Kept for the session: Libre.fm
+/// rate-limits quickly, so each name is looked up once.
+final _libreAvatarProvider =
+    FutureProvider.family<String, String>((ref, name) async {
+  return (await ref.watch(libreFmProvider).userCard(name))?.avatar ?? '';
 });
 
-void _openProfile(BuildContext context, WidgetRef ref, String name) {
-  ref.read(viewingProfileProvider.notifier).view(name);
-  context.go('/profile');
+/// Search across every connected service.
+final _friendSearchProvider = FutureProvider.autoDispose
+    .family<List<_Person>, String>((ref, q) async {
+  if (q.trim().length < 2) return const [];
+  final on = ref.watch(_connectedProvider);
+  final results = await Future.wait([
+    if (on.lastfm)
+      ref
+          .watch(searchRepositoryProvider)
+          .search(SearchTab.users, q)
+          .then((users) => [
+                for (final u in users)
+                  _Person(u.name, FriendSource.lastfm,
+                      subtitle: u.subtitle, avatar: u.artworkUrl),
+              ])
+          .catchError((_) => <_Person>[]),
+    if (on.listenbrainz)
+      ref.watch(listenBrainzProvider).searchUsers(q).then((names) => [
+            for (final n in names) _Person(n, FriendSource.listenbrainz),
+          ]),
+    // Libre.fm has no user search: an exact name is looked up.
+    if (on.librefm)
+      ref.watch(libreFmProvider).userCard(q).then((card) => [
+            if (card != null)
+              _Person(card.name, FriendSource.librefm, avatar: card.avatar),
+          ]),
+  ]);
+  return [for (final r in results) ...r];
+});
+
+class _Person {
+  final String name;
+  final FriendSource source;
+  final String subtitle;
+  final String avatar;
+  const _Person(this.name, this.source,
+      {this.subtitle = '', this.avatar = ''});
 }
 
 class WaveFriendsPage extends ConsumerStatefulWidget {
@@ -114,6 +190,9 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
   final _controller = TextEditingController();
   Timer? _debounce;
   String _query = '';
+
+  /// Last ListenBrainz follow/unfollow failure, shown under the search.
+  String? _lbError;
 
   @override
   void dispose() {
@@ -130,23 +209,137 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
     });
   }
 
+  String _me(FriendSource s) => switch (s) {
+        FriendSource.lastfm => ref.read(authRepositoryProvider).username,
+        FriendSource.listenbrainz => ref.read(listenBrainzProvider).username,
+        FriendSource.librefm => ref.read(libreFmProvider).username,
+      }
+          .toLowerCase();
+
+  void _openProfile(_Person p) {
+    switch (p.source) {
+      case FriendSource.lastfm:
+        ref.read(viewingProfileProvider.notifier).view(p.name);
+        context.go('/profile');
+      case FriendSource.listenbrainz:
+        unawaited(launchUrl(
+            ref.read(listenBrainzProvider).profileUrlFor(p.name),
+            mode: LaunchMode.externalApplication));
+      case FriendSource.librefm:
+        unawaited(launchUrl(ref.read(libreFmProvider).profileUrlFor(p.name),
+            mode: LaunchMode.externalApplication));
+    }
+  }
+
+  Future<void> _setListenBrainzFollow(String name, bool follow) async {
+    final err = await ref
+        .read(listenBrainzProvider)
+        .setFollowing(name, follow: follow);
+    if (!mounted) return;
+    setState(() => _lbError = err == null
+        ? null
+        : 'ListenBrainz: couldn\'t ${follow ? 'follow' : 'unfollow'} $name ($err)');
+    ref.invalidate(_lbFollowingProvider);
+  }
+
+  /// Everyone you follow, across the connected services.
+  List<_Person> _friends() {
+    final out = <_Person>[];
+    final lastFm = ref.watch(_lastFmFriendsProvider).valueOrNull ?? const [];
+    final seenLastFm = <String>{};
+    for (final f in lastFm) {
+      seenLastFm.add(f.name.toLowerCase());
+      out.add(_Person(f.name, FriendSource.lastfm,
+          subtitle: f.realName, avatar: f.avatarUrl));
+    }
+    if (ref.watch(_connectedProvider).lastfm) {
+      for (final n in ref.watch(localFriendsProvider)) {
+        if (seenLastFm.add(n.toLowerCase())) {
+          out.add(_Person(n, FriendSource.lastfm,
+              avatar: ref
+                      .watch(_friendAvatarProvider(n.toLowerCase()))
+                      .valueOrNull ??
+                  ''));
+        }
+      }
+    }
+    for (final n in ref.watch(_lbFollowingProvider).valueOrNull ?? const []) {
+      out.add(_Person(n, FriendSource.listenbrainz));
+    }
+    if (ref.watch(_connectedProvider).librefm) {
+      for (final n in ref.watch(localLibreFriendsProvider)) {
+        out.add(_Person(n, FriendSource.librefm,
+            avatar: ref.watch(_libreAvatarProvider(n.toLowerCase())).valueOrNull ??
+                ''));
+      }
+    }
+    return out;
+  }
+
+  /// Whether [p] is already a friend, and whether it can be removed here
+  /// (Last.fm's own list is managed on Last.fm).
+  ({bool added, bool canRemove}) _state(_Person p) {
+    final n = p.name.toLowerCase();
+    switch (p.source) {
+      case FriendSource.lastfm:
+        final official = (ref.watch(_lastFmFriendsProvider).valueOrNull ??
+                const [])
+            .any((f) => f.name.toLowerCase() == n);
+        final local = ref.watch(localFriendsProvider.notifier).has(p.name);
+        return (added: official || local, canRemove: !official);
+      case FriendSource.listenbrainz:
+        final following =
+            (ref.watch(_lbFollowingProvider).valueOrNull ?? const [])
+                .any((f) => f.toLowerCase() == n);
+        return (added: following, canRemove: true);
+      case FriendSource.librefm:
+        return (
+          added: ref.watch(localLibreFriendsProvider.notifier).has(p.name),
+          canRemove: true,
+        );
+    }
+  }
+
+  void _toggle(_Person p) {
+    final s = _state(p);
+    switch (p.source) {
+      case FriendSource.lastfm:
+        final n = ref.read(localFriendsProvider.notifier);
+        s.added ? n.remove(p.name) : n.add(p.name);
+      case FriendSource.listenbrainz:
+        unawaited(_setListenBrainzFollow(p.name, !s.added));
+      case FriendSource.librefm:
+        final n = ref.read(localLibreFriendsProvider.notifier);
+        s.added ? n.remove(p.name) : n.add(p.name);
+    }
+  }
+
+  Widget _row(_Person p) {
+    final s = _state(p);
+    return _PersonRow(
+      name: p.name,
+      source: p.source,
+      subtitle: p.subtitle,
+      avatarUrl: p.avatar,
+      isYou: p.name.toLowerCase() == _me(p.source),
+      added: s.added,
+      canRemove: s.canRemove,
+      onView: () => _openProfile(p),
+      onToggle: () => _toggle(p),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final lastFm = ref.watch(_lastFmFriendsProvider);
-    final local = ref.watch(localFriendsProvider);
-    final me = ref.watch(authRepositoryProvider).username.toLowerCase();
-
-    // Last.fm friends + the ones added here, one list.
-    final friends = <FriendEntry>[
-      ...(lastFm.valueOrNull ?? const <FriendEntry>[]),
-    ];
-    final seen = friends.map((f) => f.name.toLowerCase()).toSet();
-    for (final n in local) {
-      if (seen.add(n.toLowerCase())) friends.add(FriendEntry(name: n));
-    }
+    final on = ref.watch(_connectedProvider);
+    final anyConnected = on.lastfm || on.listenbrainz || on.librefm;
+    final loading = ref.watch(_lastFmFriendsProvider).isLoading ||
+        ref.watch(_lbFollowingProvider).isLoading;
+    final friends = anyConnected ? _friends() : const <_Person>[];
 
     return ListView(
-      padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 24, 24)),
+      padding:
+          waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 24, 24)),
       children: [
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: WaveDensity.contentMax),
@@ -158,29 +351,58 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
                 style: WaveType.overline.copyWith(color: waveAccent(context)),
               ),
               const Text('Friends', style: WaveType.pageTitle),
-              const SizedBox(height: 14),
-              TextBox(
-                controller: _controller,
-                placeholder: 'Search users to add',
-                prefix: const Padding(
-                  padding: EdgeInsets.only(left: 10),
-                  child: Icon(WaveIcons.search, size: 14),
+              if (anyConnected)
+                Text(
+                  'From ${[
+                    if (on.lastfm) 'Last.fm',
+                    if (on.listenbrainz) 'ListenBrainz',
+                    if (on.librefm) 'Libre.fm',
+                  ].join(', ')}',
+                  style:
+                      WaveType.meta.copyWith(color: waveTextTertiary(context)),
                 ),
-                suffix: _controller.text.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(FluentIcons.clear, size: 12),
-                        onPressed: () {
-                          _controller.clear();
-                          _debounce?.cancel();
-                          setState(() => _query = '');
-                        },
-                      ),
-                onChanged: _onChanged,
-              ),
               const SizedBox(height: 14),
-              if (_query.length >= 2) _results(context, me) else ...[
-                if (lastFm.isLoading && friends.isEmpty)
+              if (!anyConnected)
+                WaveEmpty(
+                  icon: WaveIcons.friends,
+                  title: 'Connect a scrobbler',
+                  subtitle: 'Friends come from Last.fm, ListenBrainz or '
+                      'Libre.fm. Connect any of them to see who you follow '
+                      'and add people.',
+                  actionLabel: 'Open scrobbler settings',
+                  onAction: () => context.go('/settings?section=lastfm'),
+                )
+              else ...[
+                TextBox(
+                  controller: _controller,
+                  placeholder: on.librefm && !on.lastfm && !on.listenbrainz
+                      ? 'Exact Libre.fm username to add'
+                      : 'Search users to add',
+                  prefix: const Padding(
+                    padding: EdgeInsets.only(left: 10),
+                    child: Icon(WaveIcons.search, size: 14),
+                  ),
+                  suffix: _controller.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(FluentIcons.clear, size: 12),
+                          onPressed: () {
+                            _controller.clear();
+                            _debounce?.cancel();
+                            setState(() => _query = '');
+                          },
+                        ),
+                  onChanged: _onChanged,
+                ),
+                if (_lbError != null) ...[
+                  const SizedBox(height: 6),
+                  Text(_lbError!,
+                      style: WaveType.meta.copyWith(color: Colors.red)),
+                ],
+                const SizedBox(height: 14),
+                if (_query.length >= 2)
+                  _results(context)
+                else if (loading && friends.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 32),
                     child: Center(child: ProgressRing()),
@@ -199,30 +421,7 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
                         .copyWith(color: waveTextTertiary(context)),
                   ),
                   const SizedBox(height: 6),
-                  for (final f in friends)
-                    _PersonRow(
-                      name: f.name,
-                      subtitle: f.realName,
-                      avatarUrl: f.avatarUrl.isNotEmpty
-                          ? f.avatarUrl
-                          : ref
-                                  .watch(_friendAvatarProvider(
-                                      f.name.toLowerCase()))
-                                  .valueOrNull ??
-                              '',
-                      added: true,
-                      // Only friends added here can be removed; Last.fm's own
-                      // list is managed on Last.fm.
-                      canRemove: ref.read(localFriendsProvider.notifier).has(
-                            f.name,
-                          ) &&
-                          !(lastFm.valueOrNull ?? const <FriendEntry>[]).any(
-                            (l) => l.name.toLowerCase() == f.name.toLowerCase(),
-                          ),
-                      onView: () => _openProfile(context, ref, f.name),
-                      onToggle: () =>
-                          ref.read(localFriendsProvider.notifier).remove(f.name),
-                    ),
+                  for (final f in friends) _row(f),
                 ],
               ],
             ],
@@ -232,14 +431,8 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
     );
   }
 
-  Widget _results(BuildContext context, String me) {
+  Widget _results(BuildContext context) {
     final async = ref.watch(_friendSearchProvider(_query));
-    final local = ref.watch(localFriendsProvider);
-    final lastFmNames = {
-      for (final f in ref.watch(_lastFmFriendsProvider).valueOrNull ??
-          const <FriendEntry>[])
-        f.name.toLowerCase(),
-    };
     return async.when(
       loading: () => const Padding(
         padding: EdgeInsets.symmetric(vertical: 32),
@@ -255,7 +448,7 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
           return const WaveEmpty(
             icon: WaveIcons.search,
             title: 'No users found',
-            subtitle: 'Try the exact Last.fm username.',
+            subtitle: 'Try the exact username.',
           );
         }
         return Column(
@@ -263,25 +456,11 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
           children: [
             Text(
               'USERS · ${users.length}',
-              style: WaveType.overline
-                  .copyWith(color: waveTextTertiary(context)),
+              style:
+                  WaveType.overline.copyWith(color: waveTextTertiary(context)),
             ),
             const SizedBox(height: 6),
-            for (final u in users)
-              _PersonRow(
-                name: u.name,
-                subtitle: u.subtitle,
-                avatarUrl: u.artworkUrl,
-                isYou: u.name.toLowerCase() == me,
-                added: lastFmNames.contains(u.name.toLowerCase()) ||
-                    local.any((n) => n.toLowerCase() == u.name.toLowerCase()),
-                canRemove: !lastFmNames.contains(u.name.toLowerCase()),
-                onView: () => _openProfile(context, ref, u.name),
-                onToggle: () {
-                  final n = ref.read(localFriendsProvider.notifier);
-                  n.has(u.name) ? n.remove(u.name) : n.add(u.name);
-                },
-              ),
+            for (final u in users) _row(u),
           ],
         );
       },
@@ -291,6 +470,7 @@ class _WaveFriendsPageState extends ConsumerState<WaveFriendsPage> {
 
 class _PersonRow extends StatelessWidget {
   final String name;
+  final FriendSource source;
   final String subtitle;
   final String avatarUrl;
   final bool added;
@@ -301,6 +481,7 @@ class _PersonRow extends StatelessWidget {
 
   const _PersonRow({
     required this.name,
+    required this.source,
     required this.subtitle,
     required this.avatarUrl,
     required this.added,
@@ -334,11 +515,19 @@ class _PersonRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      isYou ? '$name (you)' : name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.trackTitle,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            isYou ? '$name (you)' : name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: WaveType.trackTitle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _SourceChip(source),
+                      ],
                     ),
                     if (subtitle.isNotEmpty)
                       Text(
@@ -356,12 +545,19 @@ class _PersonRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 if (!added)
                   WavePrimaryButton(
-                    label: 'Add',
+                    label: source == FriendSource.listenbrainz
+                        ? 'Follow'
+                        : 'Add',
                     icon: FluentIcons.add,
                     onPressed: onToggle,
                   )
                 else if (canRemove)
-                  WaveGhostButton(label: 'Remove', onPressed: onToggle)
+                  WaveGhostButton(
+                    label: source == FriendSource.listenbrainz
+                        ? 'Unfollow'
+                        : 'Remove',
+                    onPressed: onToggle,
+                  )
                 else
                   Text(
                     'Friends',
@@ -371,6 +567,30 @@ class _PersonRow extends StatelessWidget {
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small label naming the service a person is from.
+class _SourceChip extends StatelessWidget {
+  final FriendSource source;
+  const _SourceChip(this.source);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(WaveRadius.tiny),
+        border: Border.all(color: waveOutline(context)),
+      ),
+      child: Text(
+        source.label,
+        style: WaveType.meta.copyWith(
+          fontSize: 10.5,
+          color: waveTextTertiary(context),
         ),
       ),
     );

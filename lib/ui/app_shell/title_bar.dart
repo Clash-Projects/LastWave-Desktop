@@ -763,11 +763,6 @@ class _AppMenu extends StatelessWidget {
           label: 'History',
           onPressed: () => context.go('/history'),
         ),
-        WaveMenuAction(
-          leading: const Icon(WaveIcons.mixes, size: 15),
-          label: 'Mix Lab',
-          onPressed: () => context.go('/mixes'),
-        ),
         const WaveMenuSeparator(),
         WaveMenuAction(
           leading: const Icon(WaveIcons.settings, size: 15),

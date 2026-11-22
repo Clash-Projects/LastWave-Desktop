@@ -31,7 +31,6 @@ Future<void> showWaveCommandPalette(
     (('/artists'), 'Go to Artists', FluentIcons.contact),
     (('/playlists'), 'Go to Playlists', WaveIcons.playlists),
     (('/podcasts'), 'Go to Podcasts', FluentIcons.headset),
-    (('/mixes'), 'Open Mix Lab', FluentIcons.lightbulb),
     (('/library'), 'Go to Library', FluentIcons.library),
     (('/library?tab=downloads'), 'Go to Downloads', FluentIcons.download),
     (('/history'), 'Go to History', WaveIcons.history),

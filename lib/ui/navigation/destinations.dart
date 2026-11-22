@@ -6,13 +6,11 @@ import '../theme/wave_icons.dart';
 ///
 /// Layout:
 /// - Top: Home / Discover / Stats / Search (daily music use)
-/// - Middle: Liked / Albums / Artists / Playlists (your collections)
+/// - Middle: Podcasts / Playlists (Liked Songs is a tile in Playlists)
 /// - Then: Library (local files, downloads, your playlists)
 /// - Bottom (pinned): Friends / Settings
 ///
 /// History stays routable but is not on the rail.
-/// Mix Lab is a listen destination, so [/mixes] matches the loop above
-/// before the fallback at the bottom of [waveActivePath].
 class WaveDestination {
   final String path;
   final String label;
@@ -24,11 +22,9 @@ const waveListenDestinations = [
   WaveDestination('/home', 'Home', WaveIcons.home),
   WaveDestination('/stats', 'Stats', WaveIcons.stats),
   WaveDestination('/search', 'Search', WaveIcons.search),
-  WaveDestination('/mixes', 'Mix Lab', WaveIcons.mixes),
 ];
 
 const waveCollectionDestinations = [
-  WaveDestination('/liked', 'Liked Songs', WaveIcons.liked),
   WaveDestination('/podcasts', 'Podcasts', WaveIcons.podcasts),
   WaveDestination('/playlists', 'Playlists', WaveIcons.playlists),
 ];
@@ -67,7 +63,7 @@ String waveActivePath(String location) {
   if (path == '/home-layout' || path.startsWith('/home-layout/')) {
     return '/home';
   }
-  if (path.startsWith('/mixes')) return '/home';
+  if (path.startsWith('/liked')) return '/playlists';
   if (path.startsWith('/profile')) return '/friends';
   return '/home';
 }
