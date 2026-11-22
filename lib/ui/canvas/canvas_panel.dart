@@ -8,7 +8,6 @@ import '../../core/artwork/animated_artwork_session.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/spotify/canvas_clip.dart';
 import '../theme/tokens.dart';
-import 'canvas_geometry.dart';
 
 export 'canvas_geometry.dart';
 import '../theme/wave_icons.dart';
@@ -101,32 +100,17 @@ class _WaveCanvasPanelState extends ConsumerState<WaveCanvasPanel> {
 
     return ColoredBox(
       color: dark ? const Color(0xFF000000) : const Color(0xFF111111),
-      child: LayoutBuilder(
-        builder: (context, c) {
-          // The largest exact 9:16 frame that fits the panel.
-          var w = c.maxWidth;
-          var h = w / kCanvasAspect;
-          if (h > c.maxHeight) {
-            h = c.maxHeight;
-            w = h * kCanvasAspect;
-          }
-          return Center(
-            child: SizedBox(
-              width: w,
-              height: h,
-              child: _Frame(
-                title: track?.title ?? '',
-                artist: track?.artist ?? '',
-                artworkUrl: track?.artworkUrl ?? '',
-                clip: clip,
-                loading: loading,
-                note: note,
-                open: widget.open,
-                onClose: widget.onClose,
-              ),
-            ),
-          );
-        },
+      // Fill the whole panel: cover and clip both crop (BoxFit.cover), so an
+      // exact 9:16 box only left black bars when the panel was wider.
+      child: _Frame(
+        title: track?.title ?? '',
+        artist: track?.artist ?? '',
+        artworkUrl: track?.artworkUrl ?? '',
+        clip: clip,
+        loading: loading,
+        note: note,
+        open: widget.open,
+        onClose: widget.onClose,
       ),
     );
   }
