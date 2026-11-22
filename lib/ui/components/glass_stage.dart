@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show listEquals;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -114,30 +113,17 @@ class _WaveGlassStageState extends ConsumerState<WaveGlassStage> {
                   ),
           ),
         ),
-        // Sheen: light falling from the top-left, the glossy part.
-        IgnorePointer(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: const Alignment(0.3, 0.3),
-                colors: [
-                  const Color(0xFFFFFFFF).withValues(alpha: light ? 0.35 : 0.07),
-                  const Color(0x00FFFFFF),
-                ],
-              ),
-            ),
-          ),
-        ),
-        // Breaks the 8-bit banding of the large soft gradients.
-        const IgnorePointer(child: RepaintBoundary(child: WaveDither())),
         widget.child,
       ],
     );
   }
 }
 
-class _CoverWash extends StatelessWidget {
+/// The shader is compiled once per process; widgets wait on this.
+final Future<ui.FragmentProgram> _stageProgram =
+    ui.FragmentProgram.fromAsset('shaders/glass_stage.frag');
+
+class _CoverWash extends StatefulWidget {
   final ui.Image image;
   final double dim;
   final double saturation;
@@ -154,52 +140,93 @@ class _CoverWash extends StatelessWidget {
   });
 
   @override
+  State<_CoverWash> createState() => _CoverWashState();
+}
+
+class _CoverWashState extends State<_CoverWash> {
+  ui.FragmentShader? _shader;
+
+  @override
+  void initState() {
+    super.initState();
+    _stageProgram.then((program) {
+      if (mounted) setState(() => _shader = program.fragmentShader());
+    }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _shader?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // One cached drawing, no layers: a full-window blur or colour
-        // filter layer is recomputed on every frame the window paints,
-        // which made the whole app feel slow. The 256px aura texture is
-        // already blurred; scaled up with high-quality filtering it stays
-        // smooth, and the grade rides on the paint.
-        CustomPaint(
-          painter: _CoverPainter(image, _grade(saturation, dim)),
-        ),
-        if (light)
-          // Pearl: a pale tint of the cover under the page colour.
-          ColoredBox(color: veil.withValues(alpha: 0.74))
-        else ...[
-          // The theme's own colour over the cover (none for Artwork).
-          if (tint > 0) ColoredBox(color: veil.withValues(alpha: tint)),
-          // Darker toward the dock, where the controls sit.
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  const Color(0xFF000000).withValues(alpha: 0.06),
-                  const Color(0xFF000000).withValues(alpha: 0.40),
-                ],
-              ),
-            ),
-          ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                radius: 1.1,
-                colors: [
-                  const Color(0x00000000),
-                  const Color(0xFF000000).withValues(alpha: 0.18),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ],
+    final shader = _shader;
+    // The page colour for the few frames before the shader is ready.
+    if (shader == null) return ColoredBox(color: widget.veil);
+    return CustomPaint(
+      painter: _StagePainter(
+        shader: shader,
+        image: widget.image,
+        saturation: widget.saturation,
+        dim: widget.dim,
+        veil: widget.veil,
+        tint: widget.tint,
+        light: widget.light,
+      ),
     );
   }
+}
+
+/// Feeds [WaveGlassStage]'s grade to `shaders/glass_stage.frag` and fills
+/// the canvas with it: one draw call, repainted only when an input changes.
+class _StagePainter extends CustomPainter {
+  final ui.FragmentShader shader;
+  final ui.Image image;
+  final double saturation;
+  final double dim;
+  final Color veil;
+  final double tint;
+  final bool light;
+  const _StagePainter({
+    required this.shader,
+    required this.image,
+    required this.saturation,
+    required this.dim,
+    required this.veil,
+    required this.tint,
+    required this.light,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    shader
+      ..setFloat(0, size.width)
+      ..setFloat(1, size.height)
+      ..setFloat(2, saturation)
+      ..setFloat(3, dim)
+      ..setFloat(4, veil.r)
+      ..setFloat(5, veil.g)
+      ..setFloat(6, veil.b)
+      ..setFloat(7, tint)
+      ..setFloat(8, light ? 1 : 0)
+      ..setFloat(9, light ? 0.35 : 0.07)
+      ..setFloat(10, 1.2)
+      // Bilinear: the texture is pre-blurred, so plain filtering is smooth.
+      ..setImageSampler(0, image, filterQuality: FilterQuality.low);
+    canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
+  }
+
+  @override
+  bool shouldRepaint(_StagePainter old) =>
+      !identical(old.image, image) ||
+      old.saturation != saturation ||
+      old.dim != dim ||
+      old.veil != veil ||
+      old.tint != tint ||
+      old.light != light;
 }
 
 /// Nothing playing: a soft light in the accent colour.
@@ -225,20 +252,10 @@ class _AccentWash extends StatelessWidget {
           colors: [glow, veil],
         ),
       ),
+      // Breaks the gradient's 8-bit banding.
+      child: const RepaintBoundary(child: WaveDither()),
     );
   }
-}
-
-/// Saturation [s] and brightness [dim] as one colour matrix.
-List<double> _grade(double s, double dim) {
-  const r = 0.2126, g = 0.7152, b = 0.0722;
-  final i = 1 - s;
-  return [
-    (i * r + s) * dim, i * g * dim, i * b * dim, 0, 0, //
-    i * r * dim, (i * g + s) * dim, i * b * dim, 0, 0, //
-    i * r * dim, i * g * dim, (i * b + s) * dim, 0, 0, //
-    0, 0, 0, 1, 0, //
-  ];
 }
 
 /// How far to dim the cover in dark themes: 62% brightness by default,
@@ -273,40 +290,4 @@ Color glassTone(Color c, Color veil, bool light) {
 double _contrast(Color a, Color b) {
   final la = a.computeLuminance(), lb = b.computeLuminance();
   return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
-}
-
-/// The cover stretched (zoomed 1.2x past the edges) and graded in one
-/// draw call. Repaints only when the image or grade changes.
-class _CoverPainter extends CustomPainter {
-  final ui.Image image;
-  final List<double> grade;
-  const _CoverPainter(this.image, this.grade);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.isEmpty) return;
-    final src =
-        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
-    // Cover-fit, then zoom so the soft edges never show.
-    final scale =
-        math.max(size.width / src.width, size.height / src.height) * 1.2;
-    final dst = Rect.fromCenter(
-      center: size.center(Offset.zero),
-      width: src.width * scale,
-      height: src.height * scale,
-    );
-    canvas.clipRect(Offset.zero & size);
-    canvas.drawImageRect(
-      image,
-      src,
-      dst,
-      Paint()
-        ..filterQuality = FilterQuality.high
-        ..colorFilter = ColorFilter.matrix(grade),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_CoverPainter old) =>
-      !identical(old.image, image) || !listEquals(old.grade, grade);
 }

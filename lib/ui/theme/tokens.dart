@@ -184,8 +184,8 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
       surfaceOverlay: film(0.09, 0.06),
       panelTranslucent: film(0.06, 0.04),
       dockTranslucent: light
-          ? const Color(0x73FFFFFF)
-          : const Color(0x70000000),
+          ? const Color(0x5CFFFFFF)
+          : const Color(0x5C000000),
       railTranslucent: background.withValues(alpha: 0),
       outline: film(0.16, 0.12),
       outlineSoft: film(0.08, 0.07),

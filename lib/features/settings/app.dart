@@ -52,6 +52,8 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
   DateTime _songFadeUntil = DateTime(0);
   (Color, WaveSurfaces)? _target;
   bool _fade = false;
+  Object? _themedKey;
+  Widget? _themedApp;
 
   StreamSubscription<String>? _linkSub;
   AppLifecycleListener? _lifecycle;
@@ -237,7 +239,20 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
       tween: _PaletteTween(end: target),
       duration: _fade ? const Duration(milliseconds: 1400) : Duration.zero,
       curve: Curves.easeInOutCubic,
-      builder: (context, p, _) => _themed(theme, p.$1, p.$2, light),
+      builder: (context, p, _) {
+        // Same colours as last frame (the fade is quantised below): hand
+        // back the identical widget so Flutter skips rebuilding the app.
+        // Everything _themed reads: palette, theme state, brightness, font.
+        final key = (
+          p,
+          theme,
+          light,
+          ref.watch(appFontFamilyProvider).valueOrNull,
+        );
+        if (key == _themedKey && _themedApp != null) return _themedApp!;
+        _themedKey = key;
+        return _themedApp = _themed(theme, p.$1, p.$2, light);
+      },
     );
   }
 
@@ -315,9 +330,18 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
 class _PaletteTween extends Tween<(Color, WaveSurfaces)> {
   _PaletteTween({super.end});
 
+  /// Colour steps across a fade. Each step rebuilds every themed widget,
+  /// so one per display frame (85 at 60 Hz, 200 at 144 Hz) was a burst of
+  /// full-app rebuilds on every Artwork song change; 30 steps over 1.4 s
+  /// read as the same smooth blend.
+  static const _steps = 30;
+
   @override
-  (Color, WaveSurfaces) lerp(double t) => (
-        Color.lerp(begin!.$1, end!.$1, t)!,
-        begin!.$2.lerp(end!.$2, t),
-      );
+  (Color, WaveSurfaces) lerp(double t) {
+    final q = (t * _steps).round() / _steps;
+    return (
+      Color.lerp(begin!.$1, end!.$1, q)!,
+      begin!.$2.lerp(end!.$2, q),
+    );
+  }
 }

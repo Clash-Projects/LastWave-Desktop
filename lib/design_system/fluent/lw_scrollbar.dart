@@ -1,7 +1,9 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../../ui/theme/tokens.dart';
 
@@ -73,18 +75,11 @@ class WaveScrollBehavior extends FluentScrollBehavior {
   Widget buildScrollbar(
       BuildContext context, Widget child, ScrollableDetails details) {
     Widget scrollbar;
-    // Horizontal carousels: deliberate scroll, no permanent bar.
+    // Horizontal carousels: no bar. Even a fading one drew a line across
+    // the artwork row; wheel, trackpad and drag scroll them.
     if (details.direction == AxisDirection.left ||
         details.direction == AxisDirection.right) {
-      scrollbar = RawScrollbar(
-        controller: details.controller,
-        thumbVisibility: false,
-        thickness: 4,
-        radius: const Radius.circular(WaveRadius.tiny),
-        fadeDuration: WaveMotion.fast,
-        timeToFade: const Duration(milliseconds: 600),
-        child: child,
-      );
+      scrollbar = child;
     } else {
       scrollbar = RawScrollbar(
         controller: details.controller,
@@ -105,103 +100,87 @@ class WaveScrollBehavior extends FluentScrollBehavior {
   }
 }
 
-/// Intercepts desktop mouse wheel [PointerScrollEvent]s to interpolate
-/// target scroll offsets smoothly over time (200ms easeOutCubic)
-/// as one driven scroll animation instead of discrete single-frame jumps.
+/// Desktop mouse-wheel smoothing that feels native.
+///
+/// Each wheel notch moves a target; one [_GlideActivity] chases it every
+/// frame with exponential easing. Notches that arrive mid-glide just move
+/// the target, so a fast spin is one continuous motion. The previous
+/// version restarted a 200ms ease-out per notch, dropping to zero speed at
+/// every notch: the surge-and-stall that read as jitter. The activity also
+/// reports its real velocity, so image providers defer decoding while the
+/// list moves fast instead of hitching mid-scroll.
 class WaveSmoothScroll extends StatefulWidget {
   final Widget child;
   final ScrollController? controller;
   final AxisDirection direction;
-  final Duration duration;
-  final Curve curve;
 
   const WaveSmoothScroll({
     super.key,
     required this.child,
     this.controller,
     this.direction = AxisDirection.down,
-    this.duration = const Duration(milliseconds: 200),
-    this.curve = Curves.easeOutCubic,
   });
 
   @override
   State<WaveSmoothScroll> createState() => _WaveSmoothScrollState();
 }
 
-class _WaveSmoothScrollState extends State<WaveSmoothScroll> {
-  /// Where the current glide is heading; null when idle. Consecutive notches
-  /// stack onto it so a fast spin keeps gliding instead of stalling.
-  double? _targetPixels;
+class _WaveSmoothScrollState extends State<WaveSmoothScroll>
+    with TickerProviderStateMixin {
+  /// The running glide, if any. Kept here because
+  /// [ScrollPosition.activity] is protected; the activity flags itself
+  /// [_GlideActivity.done] once the position replaces or drops it.
+  _GlideActivity? _glide;
 
+  bool get _gliding => _glide != null && !_glide!.done;
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
-
     final isVertical = widget.direction == AxisDirection.down ||
         widget.direction == AxisDirection.up;
     final delta = isVertical ? event.scrollDelta.dy : event.scrollDelta.dx;
     if (delta == 0) return;
 
-    // Distinguish physical notched mouse wheel from trackpad:
-    // Physical mouse wheel events on Windows/desktop have event.kind == PointerDeviceKind.mouse
-    // and discrete delta magnitude >= 20.0 (typically 40, 100, or 120 per notch).
-    // Trackpads emit continuous micro-deltas or PointerDeviceKind.trackpad.
-    final isNotchedMouseWheel =
-        event.kind == PointerDeviceKind.mouse && delta.abs() >= 20.0;
-    if (!isNotchedMouseWheel) {
-      // Trackpads use standard fluid platform handling
-      return;
-    }
+    // Notched mouse wheel only (|delta| >= 20 per notch on Windows);
+    // trackpads already deliver fine-grained deltas.
+    if (event.kind != PointerDeviceKind.mouse || delta.abs() < 20.0) return;
 
-    // Only claim the wheel when THIS scrollable can actually move in the
-    // wheel's direction. Registering unconditionally let a non-scrollable
-    // (or shrink-wrapped / edge-pinned) inner list swallow the event, so the
-    // page scrollable behind it never saw it. Unclaimed events fall through
-    // to the next scrollable up the hit-test chain.
+    // Claim the wheel only when THIS scrollable can move that way, so an
+    // edge-pinned inner list lets the page behind it scroll.
     final controller = widget.controller;
     if (controller == null || controller.positions.length != 1) return;
     final position = controller.position;
-    if (!position.hasPixels) return;
+    if (position is! ScrollPositionWithSingleContext || !position.hasPixels) {
+      return;
+    }
+    if (position.maxScrollExtent <= position.minScrollExtent) return;
+    final gliding = _gliding;
     final atStart = position.pixels <= position.minScrollExtent;
     final atEnd = position.pixels >= position.maxScrollExtent;
-    if (position.maxScrollExtent <= position.minScrollExtent) return;
-    if ((delta < 0 && atStart) || (delta > 0 && atEnd)) {
-      if (_targetPixels == null) return;
-    }
+    if (!gliding && ((delta < 0 && atStart) || (delta > 0 && atEnd))) return;
 
-    // Register with pointerSignalResolver so Flutter's default stepped pointerScroll does NOT fire
     GestureBinding.instance.pointerSignalResolver.register(event, (resolved) {
       if (!mounted) return;
-      final scrollEvent = resolved as PointerScrollEvent;
-      final d =
-          isVertical ? scrollEvent.scrollDelta.dy : scrollEvent.scrollDelta.dx;
+      final e = resolved as PointerScrollEvent;
+      final d = isVertical ? e.scrollDelta.dy : e.scrollDelta.dx;
       if (d == 0) return;
-
-      final base = _targetPixels ?? position.pixels;
-      final target =
-          (base + d).clamp(position.minScrollExtent, position.maxScrollExtent);
-      if (target == _targetPixels) return;
-      _targetPixels = target;
-      // One driven scroll activity instead of a jumpTo per frame: jumpTo
-      // reported a separate start/update/end for every frame (scroll
-      // listeners and the scrollbar churned three times a frame) and the
-      // list never knew it was mid-scroll. A newer notch replaces the
-      // running activity, continuing from wherever it got to.
-      position
-          .animateTo(target, duration: widget.duration, curve: widget.curve)
-          .whenComplete(() {
-        if (_targetPixels == target) _targetPixels = null;
-      });
+      final current = _glide;
+      if (_gliding && identical(current!.position, position)) {
+        current.retarget(current.target + d);
+      } else {
+        final glide = _GlideActivity(position, this, position.pixels + d);
+        _glide = glide;
+        position.beginActivity(glide);
+      }
     });
   }
 
   void _onPointerDown(PointerDownEvent _) {
-    // Immediately cancel wheel interpolation if user touches/clicks/drags
-    if (_targetPixels == null) return;
-    _targetPixels = null;
+    // A click or drag stops the glide where it is.
     final controller = widget.controller;
-    if (controller != null && controller.positions.length == 1) {
-      final position = controller.position;
-      if (position.hasPixels) position.jumpTo(position.pixels);
+    if (controller == null || controller.positions.length != 1) return;
+    final position = controller.position;
+    if (_gliding && position is ScrollPositionWithSingleContext) {
+      position.goIdle();
     }
   }
 
@@ -212,5 +191,74 @@ class _WaveSmoothScrollState extends State<WaveSmoothScroll> {
       onPointerDown: _onPointerDown,
       child: widget.child,
     );
+  }
+}
+
+/// Moves the position toward [target] each frame: a fixed fraction of the
+/// remaining distance per unit time (time constant [_tau]), so speed
+/// carries smoothly between notches and eases out at the end.
+class _GlideActivity extends ScrollActivity {
+  _GlideActivity(this._position, TickerProvider vsync, double target)
+      : _target = _clamp(_position, target),
+        super(_position) {
+    _ticker = vsync.createTicker(_tick)..start();
+  }
+
+  static const double _tau = 0.085; // seconds
+
+  final ScrollPositionWithSingleContext _position;
+  late final Ticker _ticker;
+  double _target;
+  Duration _last = Duration.zero;
+  double _velocity = 0;
+
+  double get target => _target;
+  ScrollPosition get position => _position;
+
+  /// Set when the position replaced or dropped this activity.
+  bool done = false;
+
+  static double _clamp(ScrollPosition p, double v) =>
+      v.clamp(p.minScrollExtent, p.maxScrollExtent).toDouble();
+
+  void retarget(double target) => _target = _clamp(_position, target);
+
+  void _tick(Duration elapsed) {
+    final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
+    _last = elapsed;
+    if (dt == 0) return;
+    // Extents can change mid-glide (lazy lists growing).
+    _target = _clamp(_position, _target);
+    final from = _position.pixels;
+    final remaining = _target - from;
+    if (remaining.abs() < 0.5) {
+      _position.setPixels(_target);
+      _velocity = 0;
+      delegate.goIdle();
+      return;
+    }
+    final step = remaining * (1 - math.exp(-dt / _tau));
+    _velocity = step / dt;
+    if (_position.setPixels(from + step) != 0) {
+      // Hit an edge: stop instead of fighting the boundary.
+      _velocity = 0;
+      delegate.goIdle();
+    }
+  }
+
+  @override
+  bool get shouldIgnorePointer => false;
+
+  @override
+  bool get isScrolling => true;
+
+  @override
+  double get velocity => _velocity;
+
+  @override
+  void dispose() {
+    done = true;
+    _ticker.dispose();
+    super.dispose();
   }
 }
