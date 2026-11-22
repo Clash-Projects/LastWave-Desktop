@@ -471,7 +471,6 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
   }
 
   Widget _panel(BuildContext overlayContext) {
-    final dark = waveIsDark(overlayContext);
     final hits = _shown;
     if (hits.isEmpty) return const SizedBox.shrink();
     final box = context.findRenderObject();
@@ -490,9 +489,9 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
             key: _panelKey,
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: dark
-                  ? waveSurfaceRaised(overlayContext)
-                  : waveSurfaceOverlay(overlayContext),
+              // Raised is the opaque floating layer; overlay is a 6% film
+              // under glass, which made results unreadable.
+              color: waveSurfaceRaised(overlayContext),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: waveDivider(overlayContext)),
               boxShadow: [

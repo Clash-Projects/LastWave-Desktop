@@ -420,13 +420,17 @@ class _WaveJamPageState extends ConsumerState<WaveJamPage> {
           ),
         );
       }
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(width: 340, child: SingleChildScrollView(child: info)),
-          const SizedBox(width: 16),
-          Expanded(child: chat),
-        ],
+      // Keep the chat input above the floating player bar.
+      return Padding(
+        padding: waveDockPadding(context, EdgeInsets.zero),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(width: 340, child: SingleChildScrollView(child: info)),
+            const SizedBox(width: 16),
+            Expanded(child: chat),
+          ],
+        ),
       );
     });
     if (jam.notice.isEmpty) return body;

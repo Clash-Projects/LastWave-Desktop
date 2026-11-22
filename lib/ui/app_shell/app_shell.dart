@@ -568,7 +568,12 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       return;
     }
     final branchIndex = _branchForPath(path);
-    if (branchIndex != null && widget.child is StatefulNavigationShell) {
+    // goBranch lands on the tab's root, so detail paths (/album/<id>,
+    // /artist/<name>) must go by path or they open the 30-item list.
+    final isTabRoot = Uri.parse(path).pathSegments.length <= 1;
+    if (branchIndex != null &&
+        isTabRoot &&
+        widget.child is StatefulNavigationShell) {
       final shell = widget.child as StatefulNavigationShell;
       // Defensive: only goBranch if index is in bounds
       if (branchIndex >= 0 && branchIndex < shell.route.branches.length) {
