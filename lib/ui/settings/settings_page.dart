@@ -2071,6 +2071,9 @@ class _CardActions extends ConsumerWidget {
             final tube = ref.read(innerTubeProvider);
             await tube.signOut();
             ref.read(ytConnectionProvider.notifier).state = tube.connection;
+            // Otherwise the window's persisted Google login is re-captured
+            // instantly on the next Connect.
+            await YtWebLogin.signOutWebview();
           },
           child: const Text('Disconnect'),
         ),

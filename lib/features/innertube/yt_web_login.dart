@@ -491,6 +491,13 @@ class YtWebLogin {
       final w = await _createWindowOnce(show);
       if (w != null) return w;
       if (attempt == 1) {
+        // A profile left broken by an unclean exit fails every create;
+        // start the retry on a fresh one (costs only the webview's own
+        // Google login, which was unusable anyway).
+        if (Platform.isWindows) {
+          DiagnosticsLog.info('yt signin: resetting auth webview profile');
+          await resetWebviewProfile('auth');
+        }
         await Future<void>.delayed(const Duration(milliseconds: 800));
       }
     }
@@ -570,6 +577,22 @@ class YtWebLogin {
   /// out in place (no window destroy — `clearAll` would close windows
   /// into the upstream destroy bug), then runs the normal capture.
   static const _logoutUrl = 'https://accounts.google.com/Logout';
+
+  /// Signs the sign-in window's own Google session out (hidden), so the
+  /// next Connect asks for an account instead of re-capturing the old
+  /// one. Used by Disconnect; the jar persists across restarts, so
+  /// clearing it here is what makes Disconnect stick.
+  static Future<void> signOutWebview() async {
+    if (_inflight) return;
+    final w = await _ensureWindow(show: false);
+    if (w == null) return;
+    try {
+      w.launch(_logoutUrl, triggerOnUrlRequestEvent: false);
+      // Same wait as [signInFresh]: let the logout round-trip land.
+      await Future<void>.delayed(const Duration(seconds: 4));
+    } catch (_) {}
+    await hideWindow();
+  }
 
   static Future<String?> signInFresh() async {
     final w = await _ensureWindow();

@@ -180,7 +180,9 @@ class WaveSurfaces extends ThemeExtension<WaveSurfaces> {
     return WaveSurfaces(
       background: background.withValues(alpha: 0),
       surface: film(0.06, 0.04),
-      surfaceRaised: surfaceRaised.withValues(alpha: light ? 0.92 : 0.90),
+      // Opaque: the floating layer (dialogs, menus, palette) must stay
+      // readable over a busy cover; 90% let the art bleed through.
+      surfaceRaised: surfaceRaised.withValues(alpha: 1),
       surfaceOverlay: film(0.09, 0.06),
       panelTranslucent: film(0.06, 0.04),
       dockTranslucent: light

@@ -107,7 +107,8 @@ FluentThemeData buildWaveFluentTheme({
         glowFactor: 2.0,
       ),
       buttonTheme: buttonTheme,
-      dialogTheme: _waveDialogTheme(surface: card),
+      // Raised, not card: under glass the card is a 4% film.
+      dialogTheme: _waveDialogTheme(surface: custom?.surfaceRaised ?? card),
       tooltipTheme: _waveTooltipTheme,
       extensions: [custom ?? WaveSurfaces.graphite],
     );

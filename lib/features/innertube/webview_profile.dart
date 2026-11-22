@@ -16,6 +16,31 @@ import 'package:path_provider/path_provider.dart';
 ///
 /// Distinct slots (`auth`, `botguard`) must never share a folder: two
 /// live WebView2 environments pointed at one user-data folder conflict.
+/// Moves a slot's profile aside so the next create starts clean.
+///
+/// An unclean exit can leave a WebView2 profile that never starts again
+/// (window create fails every time until the folder is renamed by hand).
+/// Renamed, not deleted, so a still-locked file can't block recovery;
+/// older `<slot>_broken*` copies are deleted best-effort.
+Future<void> resetWebviewProfile(String slot) async {
+  try {
+    final dir = Directory(await webviewUserDataFolder(slot));
+    if (!await dir.exists()) return;
+    final parent = dir.parent;
+    await for (final e in parent.list()) {
+      final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
+      if (e is Directory && name.startsWith('${slot}_broken')) {
+        try {
+          await e.delete(recursive: true);
+        } catch (_) {}
+      }
+    }
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    await dir.rename(
+        '${parent.path}${Platform.pathSeparator}${slot}_broken_$stamp');
+  } catch (_) {}
+}
+
 Future<String> webviewUserDataFolder(String slot) async {
   try {
     final base = await getApplicationSupportDirectory();
