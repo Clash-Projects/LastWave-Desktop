@@ -32,6 +32,7 @@ import '../../features/innertube/yt_session_keeper.dart';
 import '../../features/innertube/yt_web_login.dart';
 import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
+import '../app_shell/title_bar.dart' show searchBarPositionProvider;
 import '../components/select.dart';
 import '../now_playing/immersive.dart' show nowPlayingAutoHideSecondsProvider;
 import 'now_playing_style_picker.dart';
@@ -1373,6 +1374,34 @@ class _Appearance extends ConsumerWidget {
                 ),
             ],
             onChanged: (v) => ref.read(uiScaleProvider.notifier).setScale(v),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _Group(
+          id: 'appearance.search_bar_position',
+          title: 'Search bar placement',
+          subtitle:
+              'Position of the search box in the top title bar navigation',
+          child: Row(
+            children: [
+              for (final (pos, label) in const [
+                ('left', 'Left'),
+                ('center', 'Center'),
+                ('right', 'Right'),
+                ('icon', 'Icon only'),
+              ]) ...[
+                if (pos != 'left') const SizedBox(width: 8),
+                Expanded(
+                  child: ToggleButton(
+                    checked: ref.watch(searchBarPositionProvider) == pos,
+                    onChanged: (_) => ref
+                        .read(searchBarPositionProvider.notifier)
+                        .setPosition(pos),
+                    child: Text(label),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
         const SizedBox(height: 16),

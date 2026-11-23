@@ -443,6 +443,12 @@ class Prefs {
   double get uiScale => _sp.getDouble('lw_ui_scale') ?? 1.0;
   Future<void> setUiScale(double v) => _sp.setDouble('lw_ui_scale', v);
 
+  /// Title bar search bar placement: 'left' (default), 'center', 'right', 'icon'.
+  String get searchBarPosition =>
+      _sp.getString('lw_search_bar_position') ?? 'left';
+  Future<void> setSearchBarPosition(String v) =>
+      _sp.setString('lw_search_bar_position', v);
+
   // -- Scrobbler --------------------------------------------------------------
   bool get scrobblerEnabled => _sp.getBool('lw_scrobbler_enabled') ?? false;
 

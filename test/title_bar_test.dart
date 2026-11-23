@@ -37,8 +37,10 @@ void main() {
   Widget createSubject({
     String username = 'Ayush',
     String avatarUrl = '',
+    Key? key,
   }) {
     return ProviderScope(
+      key: key ?? UniqueKey(),
       overrides: [
         prefsProvider.overrideWithValue(prefs),
         databaseProvider.overrideWithValue(db),
@@ -112,5 +114,45 @@ void main() {
     expect(find.text('Discord Server'), findsOneWidget);
     expect(find.byType(TelegramIcon), findsOneWidget);
     expect(find.byType(DiscordIcon), findsOneWidget);
+  });
+
+  testWidgets('WaveTitleBar adapts layout to searchBarPosition preference', (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    // 1. Default ('left')
+    await tester.pumpWidget(createSubject());
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('drag_left')), findsOneWidget);
+    expect(find.text('Search'), findsOneWidget);
+
+    // 2. Center placement
+    await prefs.setSearchBarPosition('center');
+    await tester.pumpWidget(createSubject());
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('drag_center_left')), findsOneWidget);
+    expect(find.byKey(const ValueKey('drag_center_right')), findsOneWidget);
+
+    // 3. Right placement
+    await prefs.setSearchBarPosition('right');
+    await tester.pumpWidget(createSubject());
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('drag_right')), findsOneWidget);
+
+    // 4. Icon only mode (collapsed initially)
+    await prefs.setSearchBarPosition('icon');
+    await tester.pumpWidget(createSubject());
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('drag_icon')), findsOneWidget);
+    // In collapsed icon mode, search input box is not showing its placeholder text
+    expect(find.text('Search'), findsNothing);
+
+    // Tapping the search icon expands the search box
+    final searchIconBtn = find.byTooltip('Search (Ctrl+F)');
+    expect(searchIconBtn, findsOneWidget);
+    await tester.tap(searchIconBtn);
+    await tester.pumpAndSettle();
+    expect(find.text('Search'), findsOneWidget);
   });
 }
