@@ -61,6 +61,33 @@ class SpotifyAuth extends ChangeNotifier {
     'https://cdn.jsdelivr.net/gh/xyloflake/spot-secrets-go@main/secrets/secretDict.json',
   ];
 
+  /// Last-resort copy of the current player secrets, used only if the live
+  /// player page and both remote dictionary mirrors are all unreachable.
+  static final _fallbackSecrets = <SpotifySecret>[
+    SpotifySecret(
+      String.fromCharCodes(const [
+        44, 55, 47, 42, 70, 40, 34, 114, 76, 74, 50, 111, 120,
+        97, 75, 76, 94, 102, 43, 69, 49, 120, 118, 80, 64, 78,
+      ]),
+      61,
+    ),
+    SpotifySecret(
+      String.fromCharCodes(const [
+        79, 109, 69, 123, 90, 65, 46, 74, 94, 34, 58, 48, 70,
+        71, 92, 85, 122, 63, 91, 64, 87, 87,
+      ]),
+      60,
+    ),
+    SpotifySecret(
+      String.fromCharCodes(const [
+        123, 105, 79, 70, 110, 59, 52, 125, 60, 49, 80, 70, 89,
+        75, 80, 86, 63, 53, 123, 37, 117, 49, 52, 93, 77, 62,
+        47, 86, 48, 104, 68, 72,
+      ]),
+      59,
+    ),
+  ];
+
   /// Secrets tried per sign-in before giving up (two requests each).
   static const _maxSecretAttempts = 4;
   static const _clientTokenUa =
@@ -310,12 +337,13 @@ class SpotifyAuth extends ChangeNotifier {
   /// the local clock: a PC whose clock is off by more than a step used to
   /// send a wrong `totpServer` whenever `server-time` failed.
   Future<int> _serverSeconds(String cookie) async {
+    final headers = _webHeaders(cookie);
     try {
       final res = await _dio.get<String>(
         _serverTimeUrl,
         options: Options(
           responseType: ResponseType.plain,
-          headers: _webHeaders(cookie),
+          headers: headers,
           validateStatus: (_) => true,
         ),
       );
@@ -328,7 +356,20 @@ class SpotifyAuth extends ChangeNotifier {
       if (date != null) {
         return HttpDate.parse(date).millisecondsSinceEpoch ~/ 1000;
       }
-    } catch (_) {}
+    } catch (_) {
+      final fallback = await SpotifyWebPlayer.curlGet(
+        _serverTimeUrl,
+        headers: headers,
+        timeoutSeconds: 15,
+      );
+      if (fallback != null && fallback.status ~/ 100 == 2) {
+        try {
+          final body = jsonDecode(fallback.body);
+          final t = body is Map ? body['serverTime'] : null;
+          if (t is num) return t.toInt();
+        } catch (_) {}
+      }
+    }
     return DateTime.now().millisecondsSinceEpoch ~/ 1000;
   }
 
@@ -384,6 +425,10 @@ class SpotifyAuth extends ChangeNotifier {
         if (fresh(s)) yield s;
       }
     }
+
+    for (final s in _fallbackSecrets) {
+      if (fresh(s)) yield s;
+    }
   }
 
   Future<List<SpotifySecret>> _readSecretDict(String url) async {
@@ -398,7 +443,13 @@ class SpotifyAuth extends ChangeNotifier {
       );
       return parseSecretDict(res.data ?? '');
     } catch (_) {
-      DiagnosticsLog.info('spotify auth secretDict unreachable host=${Uri.parse(url).host}');
+      final fallback = await SpotifyWebPlayer.curlGet(url, timeoutSeconds: 15);
+      if (fallback != null && fallback.status >= 200 && fallback.status < 300) {
+        return parseSecretDict(fallback.body);
+      }
+      DiagnosticsLog.info(
+        'spotify auth secretDict unreachable host=${Uri.parse(url).host}',
+      );
       return const [];
     }
   }
@@ -467,12 +518,13 @@ class SpotifyAuth extends ChangeNotifier {
         '$_sessionTokenUrl?reason=$reason&productType=web-player'
         '&totp=${totp.otpClient}&totpServer=${totp.otpServer}'
         '&totpVer=${totp.version}';
+    final headers = _webHeaders(cookie);
     try {
       final res = await _dio.get<String>(
         url,
         options: Options(
           responseType: ResponseType.plain,
-          headers: _webHeaders(cookie),
+          headers: headers,
           validateStatus: (_) => true,
         ),
       );
@@ -484,7 +536,34 @@ class SpotifyAuth extends ChangeNotifier {
       }
       final body = jsonDecode(res.data ?? '{}');
       return body is Map ? Map<String, dynamic>.from(body) : null;
-    } catch (_) {
+    } on DioException catch (e) {
+      DiagnosticsLog.info(
+        'spotify auth reason=$reason dio-error=${e.type.name} '
+        'err=${e.error?.runtimeType}',
+      );
+    } catch (e) {
+      DiagnosticsLog.info('spotify auth reason=$reason err=${e.runtimeType}');
+      return null;
+    }
+    final fallback = await SpotifyWebPlayer.curlGet(
+      url,
+      headers: headers,
+      timeoutSeconds: 15,
+    );
+    if (fallback == null) return null;
+    if (fallback.status ~/ 100 != 2) {
+      DiagnosticsLog.info(
+        'spotify auth reason=$reason via=curl http=${fallback.status}',
+      );
+      return null;
+    }
+    try {
+      final body = jsonDecode(fallback.body);
+      return body is Map ? Map<String, dynamic>.from(body) : null;
+    } catch (e) {
+      DiagnosticsLog.info(
+        'spotify auth reason=$reason via=curl err=${e.runtimeType}',
+      );
       return null;
     }
   }
