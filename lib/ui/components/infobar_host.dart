@@ -109,19 +109,13 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
         onClose: () => setState(() => _dismissedAuth = true),
       ));
     }
-    // YouTube Music session the server has rejected. Not silent noise:
-    // library, history and uploads all stay empty until this is fixed.
+    // YouTube Music session refresh runs silently in the background on startup
+    // without pushing the screen down. Only surface a banner if background
+    // recovery has already finished and the session is still stale.
     if (ref.watch(ytConnectionProvider).connected &&
         ref.watch(ytAuthStaleProvider) &&
-        _ytRecovering) {
-      bars.add(const InfoBar(
-        title: Text('Reconnecting YouTube Music…'),
-        content: Text('Refreshing the saved session in the background.'),
-        severity: InfoBarSeverity.info,
-        isLong: false,
-      ));
-    } else if (ref.watch(ytConnectionProvider).connected &&
-        ref.watch(ytAuthStaleProvider) &&
+        !_ytRecovering &&
+        YtSessionKeeper.autoAttempted &&
         !_dismissedYt) {
       bars.add(InfoBar(
         title: const Text('YouTube Music session expired'),
