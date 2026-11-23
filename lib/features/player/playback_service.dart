@@ -651,6 +651,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
             return;
           }
           _lastPositionEmit = now;
+          if (_playbackAttempt > 0 &&
+              _audioOpenDoneAt != null &&
+              now.difference(_audioOpenDoneAt!) >= const Duration(seconds: 5)) {
+            _playbackAttempt = 0;
+          }
           // Gated to 10Hz: identical scrobble accuracy (wall-clock delta),
           // prefetch is once-per-track. Saves 60Hz DateTime+prefs wakes.
           _tickScrobble(v);
@@ -728,6 +733,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
             debugPrint('LastWave-Player: mpv error: $e');
             _dumpMpvLog('p.stream.error');
           }
+          _crumb('player error: $e');
           unawaited(runGuardedAsync(
               'player.error', () => _onPlayerError()));
         });
@@ -3518,6 +3524,30 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (track == null || _resolving || state.error != null ||
         _activeQueueKey != track.queueKey ||
         _failedGeneration == generation) {
+      return;
+    }
+    // If the stream is currently playing, verify whether it is actually dead
+    // before tearing it down. mpv/ffmpeg emits transient socket read errors
+    // (such as `tcp: ffurl_read returned 0xffffd8ba`) while ffmpeg's protocol
+    // layer automatically reconnects in the background and audio continues
+    // playing from the demuxer buffer. Tearing down playback on an internal
+    // reconnect notice destroys healthy playback and causes spurious track skips.
+    if (!recheck && state.isPlaying) {
+      final gen = generation;
+      final key = track.queueKey;
+      final before = state.position;
+      Future<void>.delayed(const Duration(milliseconds: 1500), () {
+        if (gen != _resolveGeneration || _resolving) return;
+        if (state.current?.queueKey != key) return;
+        if (_userPaused) return;
+        if (state.position > before) {
+          _crumb('transient player error ignored (stream moving: '
+              '${state.position.inSeconds}s > ${before.inSeconds}s) key=$key');
+          return;
+        }
+        _crumb('stream stalled after player error -> proceeding with recovery key=$key');
+        unawaited(_onPlayerError(recheck: true));
+      });
       return;
     }
     _failedGeneration = generation;
