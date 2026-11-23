@@ -257,7 +257,7 @@ class WavePlayerDock extends ConsumerWidget {
                                   _LikeGlyph(track: current),
                                   if (!narrow)
                                     _Glyph(
-                                      tooltip: 'More',
+                                      tooltip: 'Track actions',
                                       icon: WaveIcons.more,
                                       onTap: null,
                                       menuItems: waveTrackMenuItems(
@@ -300,6 +300,7 @@ class WavePlayerDock extends ConsumerWidget {
                                   active: player.shuffleEnabled && !jamLive,
                                   onTap: jamLive ? null : notifier.toggleShuffle,
                                 ),
+                                const SizedBox(width: 4),
                                 _Glyph(
                                   tooltip: jamLive
                                       ? 'Live station'
@@ -312,6 +313,7 @@ class WavePlayerDock extends ConsumerWidget {
                                       ? null
                                       : notifier.previous,
                                 ),
+                                const SizedBox(width: 6),
                                 _PlayGlyph(
                                   playing: player.isPlaying,
                                   buffering: player.isBuffering,
@@ -322,6 +324,7 @@ class WavePlayerDock extends ConsumerWidget {
                                       !(jamLocked && player.isPlaying),
                                   onTap: notifier.toggle,
                                 ),
+                                const SizedBox(width: 6),
                                 _Glyph(
                                   tooltip: jamLive
                                       ? 'Live station'
@@ -334,6 +337,7 @@ class WavePlayerDock extends ConsumerWidget {
                                       ? null
                                       : notifier.next,
                                 ),
+                                const SizedBox(width: 4),
                                 _Glyph(
                                   tooltip: jamLive
                                       ? 'Live station'
@@ -381,50 +385,67 @@ class WavePlayerDock extends ConsumerWidget {
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          if (showQuality)
-                            Padding(
-                              padding:
-                                  const EdgeInsets.only(right: 2),
-                              child: _QualityFlyout(
-                                stream: player.stream!,
-                              ),
+                          // Cluster 1: Audio info & panels
+                          if (showQuality) ...[
+                            _QualityFlyout(
+                              stream: player.stream!,
                             ),
+                            const SizedBox(width: 6),
+                          ],
                           _Glyph(
                             tooltip: 'Queue',
                             icon: WaveIcons.queue,
                             active: queueActive,
                             onTap: onToggleQueue,
                           ),
-                          if (onToggleEqualizer != null)
+                          if (onToggleEqualizer != null) ...[
+                            const SizedBox(width: 2),
                             _Glyph(
                               tooltip: 'Equalizer',
                               icon: WaveIcons.equalizer,
                               active: equalizerActive,
                               onTap: onToggleEqualizer!,
                             ),
-                          if (onToggleCanvas != null)
+                          ],
+                          if (onToggleCanvas != null) ...[
+                            const SizedBox(width: 2),
                             _Glyph(
                               tooltip: 'Canvas',
                               icon: WaveIcons.canvas,
                               active: canvasActive,
                               onTap: onToggleCanvas!,
                             ),
+                          ],
+
+                          // Cluster separator
+                          const SizedBox(width: 8),
+
+                          // Cluster 2: Volume
                           if (showVolumeSlider)
                             const _VolumeSection()
                           else
                             const _VolumeFlyoutSection(),
-                          if (showExpand)
-                            _Glyph(
-                              tooltip: 'Now Playing',
-                              icon: WaveIcons.expand,
-                              onTap: onExpand,
-                            ),
-                          if (showMini)
+
+                          // Cluster separator
+                          const SizedBox(width: 8),
+
+                          // Cluster 3: View modes & Overflow
+                          if (showMini) ...[
                             _Glyph(
                               tooltip: 'Mini player',
                               icon: WaveIcons.miniPlayer,
                               onTap: onToggleMini,
                             ),
+                            const SizedBox(width: 2),
+                          ],
+                          if (showExpand) ...[
+                            _Glyph(
+                              tooltip: 'Now Playing',
+                              icon: WaveIcons.expand,
+                              onTap: onExpand,
+                            ),
+                            const SizedBox(width: 2),
+                          ],
                           _DockOverflow(
                             showQualityItem: !showQuality &&
                                 player.stream != null,
@@ -474,12 +495,14 @@ class WavePlayerDock extends ConsumerWidget {
               large: true,
               onTap: current == null || jamLocked ? null : notifier.previous,
             ),
+            const SizedBox(width: 6),
             _PlayGlyph(
               playing: isPlaying,
               buffering: isBuffering,
               enabled: current != null && !(jamLocked && isPlaying),
               onTap: notifier.toggle,
             ),
+            const SizedBox(width: 6),
             _Glyph(
               tooltip: jamLocked ? 'Locked in Jam until $jamUnlockAt' : 'Next',
               icon: WaveIcons.next,
@@ -763,12 +786,13 @@ List<WaveMenuEntry> _outputEntries(
   ];
 }
 
-/// Plain glyph button — no coloured square wrapping.
+/// Plain glyph button — subtle rounded hover/pressed wash & active accent tint.
 class _Glyph extends StatefulWidget {
   final String tooltip;
   final IconData icon;
   final bool active;
   final bool large;
+  final bool tintActiveBackground;
   final VoidCallback? onTap;
   final List<WaveMenuEntry>? menuItems;
   const _Glyph({
@@ -776,6 +800,7 @@ class _Glyph extends StatefulWidget {
     required this.icon,
     this.active = false,
     this.large = false,
+    this.tintActiveBackground = true,
     this.onTap,
     this.menuItems,
   });
@@ -786,6 +811,30 @@ class _Glyph extends StatefulWidget {
 class _GlyphState extends State<_Glyph> {
   bool _hover = false;
   bool _pressed = false;
+
+  Widget _buildContent(BuildContext context, Color color, Color bg) {
+    return AnimatedScale(
+      scale: _pressed ? 0.92 : 1.0,
+      duration: waveMotion(context, WaveMotion.fast),
+      curve: Curves.easeOutCubic,
+      child: AnimatedContainer(
+        duration: waveMotion(context, WaveMotion.fast),
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(WaveRadius.controls),
+        ),
+        alignment: Alignment.center,
+        // Transport icons 18px, utility glyphs 15px (canonical).
+        child: Icon(
+          widget.icon,
+          size: widget.large ? 18 : 15,
+          color: color,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -804,33 +853,23 @@ class _GlyphState extends State<_Glyph> {
                 : (dark
                     ? WaveColors.textSecondary
                     : WaveColors.lightTextSecondary);
-    Widget glyph = MouseRegion(
-      cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() {
-        _hover = false;
-        _pressed = false;
-      }),
-      child: GestureDetector(
-        onTapDown: disabled ? null : (_) => setState(() => _pressed = true),
-        onTapUp: disabled ? null : (_) => setState(() => _pressed = false),
-        onTapCancel: disabled ? null : () => setState(() => _pressed = false),
-        onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
-          duration: waveMotion(context, WaveMotion.fast),
-          curve: Curves.easeOutCubic,
-          child: Container(
-            width: 34,
-            height: 34,
-            color: Colors.transparent,
-            // Transport icons 18px, utility glyphs 15px (canonical).
-            child: Icon(widget.icon,
-                size: widget.large ? 18 : 15, color: color),
-          ),
-        ),
-      ),
-    );
+
+    Color bg;
+    if (disabled) {
+      bg = Colors.transparent;
+    } else if (_pressed) {
+      bg = wavePressedWash(context);
+    } else if (widget.active && widget.tintActiveBackground) {
+      bg = _hover
+          ? accent.withValues(alpha: dark ? 0.24 : 0.18)
+          : accent.withValues(alpha: dark ? 0.14 : 0.10);
+    } else if (_hover) {
+      bg = waveHoverWash(context);
+    } else {
+      bg = Colors.transparent;
+    }
+
+    Widget glyph;
     if (widget.menuItems != null) {
       glyph = WaveMenuButton(
         entries: widget.menuItems!,
@@ -850,22 +889,27 @@ class _GlyphState extends State<_Glyph> {
               onTapUp: (_) => setState(() => _pressed = false),
               onTapCancel: () => setState(() => _pressed = false),
               onTap: onOpen,
-              child: AnimatedScale(
-                scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
-                duration: waveMotion(context, WaveMotion.fast),
-                curve: Curves.easeOutCubic,
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  color: Colors.transparent,
-                  child: Icon(widget.icon, size: 15, color: color),
-                ),
-              ),
+              child: _buildContent(context, color, bg),
             ),
           ),
         ),
       );
     } else {
+      glyph = MouseRegion(
+        cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() {
+          _hover = false;
+          _pressed = false;
+        }),
+        child: GestureDetector(
+          onTapDown: disabled ? null : (_) => setState(() => _pressed = true),
+          onTapUp: disabled ? null : (_) => setState(() => _pressed = false),
+          onTapCancel: disabled ? null : () => setState(() => _pressed = false),
+          onTap: widget.onTap,
+          child: _buildContent(context, color, bg),
+        ),
+      );
       glyph = WaveA11yButton(
         label: widget.tooltip,
         selected: widget.active,
@@ -1527,6 +1571,7 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
         tooltip: liked ? 'Unlike' : 'Like',
         icon: liked ? WaveIcons.likedFill : WaveIcons.liked,
         active: liked,
+        tintActiveBackground: false,
         onTap: _onToggle,
       ),
     );
@@ -1591,6 +1636,7 @@ class _VolumeGlyph extends StatelessWidget {
               : WaveIcons.volume,
           onTap: onMute,
         ),
+        const SizedBox(width: 6),
         LWTooltip(
           message: '${(volume * 100).round()}%',
           child: LWVolumeSlider(
@@ -1720,10 +1766,10 @@ class _DockOverflow extends ConsumerWidget {
     final hasCollapsed =
         showQualityItem ||
         showOutputItem ||
-        showExpandItem ||
-        showMiniItem;
+        showMiniItem ||
+        showExpandItem;
     return _Glyph(
-      tooltip: 'More',
+      tooltip: 'More player options',
       icon: WaveIcons.more,
       menuItems: [
         // Collapsed priority controls reappear here — nothing is lost
@@ -1742,18 +1788,18 @@ class _DockOverflow extends ConsumerWidget {
                 : 'Output · $outputName',
             items: () => outputEntries,
           ),
-        if (showExpandItem)
-          WaveMenuAction(
-            leading: const Icon(WaveIcons.expand, size: 15),
-            label: 'Open Now Playing',
-            onPressed: onExpand,
-          ),
         if (showMiniItem)
           WaveMenuAction(
             leading:
                 const Icon(WaveIcons.miniPlayer, size: 15),
             label: 'Mini player',
             onPressed: onToggleMini,
+          ),
+        if (showExpandItem)
+          WaveMenuAction(
+            leading: const Icon(WaveIcons.expand, size: 15),
+            label: 'Open Now Playing',
+            onPressed: onExpand,
           ),
         if (hasCollapsed) const WaveMenuSeparator(),
         WaveMenuAction(
