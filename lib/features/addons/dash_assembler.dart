@@ -36,10 +36,10 @@ class DashAssembler {
   /// Refuse absurd manifests instead of downloading the internet.
   static const int maxSegments = 512;
 
-  /// Segment fetch parallelism. 6 left the pipe idle on high-latency
-  /// CDNs (a 59MB hi-res track took ~17s at ~3.4MB/s); 10 keeps the
-  /// link busy while staying under ~12MB of in-flight segment memory.
-  static const int parallelDownloads = 10;
+  /// Segment fetch parallelism. A sliding window of 6 workers keeps the
+  /// link continuously busy without batch-tail idle gaps or CDN rate-limit
+  /// spikes when prefetch runs concurrently.
+  static const int parallelDownloads = 6;
 
   /// Assembled-file cache caps (hi-res tracks are ~50–100MB each).
   static const int maxCachedFiles = 16;
@@ -133,23 +133,29 @@ class DashAssembler {
     );
   }
 
-  /// Single fetch (init segment, remote manifest). Null on miss.
+  /// Single fetch (init segment, remote manifest, media segment) with
+  /// automatic retries on transient CDN errors/timeouts. Null on persistent miss.
   static Future<List<int>?> fetchBytes(
     Dio dio,
     String url, {
     int timeoutSeconds = 20,
+    int retries = 2,
   }) async {
-    try {
-      final res = await dio
-          .get<List<int>>(url,
-              options: Options(responseType: ResponseType.bytes))
-          .timeout(Duration(seconds: timeoutSeconds));
-      final bytes = res.data;
-      if (bytes == null || bytes.isEmpty) return null;
-      return bytes;
-    } catch (_) {
-      return null;
+    for (var attempt = 0; attempt <= retries; attempt++) {
+      try {
+        final res = await dio
+            .get<List<int>>(url,
+                options: Options(responseType: ResponseType.bytes))
+            .timeout(Duration(seconds: timeoutSeconds));
+        final bytes = res.data;
+        if (bytes != null && bytes.isNotEmpty) return bytes;
+      } catch (_) {}
+      if (attempt < retries) {
+        await Future<void>.delayed(
+            Duration(milliseconds: 150 * (attempt + 1)));
+      }
     }
+    return null;
   }
 
   /// Single HTTP byte-range fetch with automatic retries. Null on persistent miss.
@@ -208,15 +214,16 @@ class DashAssembler {
   static Future<List<int>?> fetchInit(Dio dio, String url) async {
     for (final secs in [3, 3, 20]) {
       final bytes =
-          await fetchBytes(dio, url, timeoutSeconds: secs);
+          await fetchBytes(dio, url, timeoutSeconds: secs, retries: 0);
       if (bytes != null) return bytes;
     }
     return null;
   }
 
-  /// Parallel-batched segment fetch. [onSegment] fires per arrival
-  /// (arrival order varies); [onBatch] fires after each fully-arrived
-  /// batch so callers can flush contiguous prefixes. False on any miss.
+  /// Sliding-window parallel segment fetch with progressive contiguous
+  /// flushing. [onSegment] fires per arrival; [onBatch] fires as soon as
+  /// the next contiguous prefix is ready so playback never stalls behind a
+  /// single slow segment in a fixed batch. False on any persistent miss.
   ///
   /// [from] skips already-fetched leading segments (the assembler pulls
   /// segment 0 on its own: its `tfdt` seeds the file index).
@@ -234,37 +241,20 @@ class DashAssembler {
     Duration? totalTimeout,
     int from = 0,
   }) async {
-    Future<bool> run() async {
-      for (var base = from; base < count; base += parallelDownloads) {
-        final end = (base + parallelDownloads).clamp(0, count);
-        final batch = <Future<bool>>[];
-        for (var i = base; i < end; i++) {
-          final index = i;
-          batch.add(fetchBytes(
-            dio,
-            segmentUrlFor(mediaTemplate, startNumber + index),
-          ).then((bytes) {
-            if (bytes == null) return false;
-            onSegment(index, bytes);
-            return true;
-          }));
-        }
-        final results = await Future.wait(batch);
-        if (results.any((ok) => !ok)) return false;
-        if (onBatch != null) await onBatch(base, end);
-      }
-      return true;
-    }
-
-    if (totalTimeout == null) return run();
-    try {
-      return await run().timeout(totalTimeout);
-    } on TimeoutException {
-      return false;
-    }
+    return _fetchWindowed(
+      count: count,
+      from: from,
+      totalTimeout: totalTimeout,
+      fetchOne: (index) => fetchBytes(
+        dio,
+        segmentUrlFor(mediaTemplate, startNumber + index),
+      ),
+      onSegment: onSegment,
+      onBatch: onBatch,
+    );
   }
 
-  /// Parallel-batched segment fetch for hybrid byte ranges.
+  /// Sliding-window parallel segment fetch for hybrid byte ranges.
   static Future<bool> fetchHybridSegments(
     Dio dio, {
     required String cdnUrl,
@@ -274,36 +264,92 @@ class DashAssembler {
     Duration? totalTimeout,
     int from = 0,
   }) async {
-    final count = ranges.length;
+    return _fetchWindowed(
+      count: ranges.length,
+      from: from,
+      totalTimeout: totalTimeout,
+      fetchOne: (index) => fetchRangeBytes(
+        dio,
+        cdnUrl,
+        start: ranges[index].start,
+        end: ranges[index].end,
+      ),
+      onSegment: onSegment,
+      onBatch: onBatch,
+    );
+  }
+
+  static Future<bool> _fetchWindowed({
+    required int count,
+    required int from,
+    required Duration? totalTimeout,
+    required Future<List<int>?> Function(int index) fetchOne,
+    required void Function(int index, List<int> bytes) onSegment,
+    Future<void> Function(int base, int end)? onBatch,
+  }) async {
+    if (from >= count) return true;
+    var aborted = false;
+
     Future<bool> run() async {
-      for (var base = from; base < count; base += parallelDownloads) {
-        final end = (base + parallelDownloads).clamp(0, count);
-        final batch = <Future<bool>>[];
-        for (var i = base; i < end; i++) {
-          final index = i;
-          final range = ranges[i];
-          batch.add(fetchRangeBytes(
-            dio,
-            cdnUrl,
-            start: range.start,
-            end: range.end,
-          ).then((bytes) {
-            if (bytes == null) return false;
-            onSegment(index, bytes);
-            return true;
-          }));
+      const maxWindow = parallelDownloads * 2;
+      var nextToFetch = from;
+      var nextToFlush = from;
+      final ready = List<bool>.filled(count, false);
+      Future<void> flushChain = Future<void>.value();
+
+      void scheduleFlush() {
+        if (onBatch == null || aborted) return;
+        final start = nextToFlush;
+        while (nextToFlush < count && ready[nextToFlush]) {
+          nextToFlush++;
         }
-        final results = await Future.wait(batch);
-        if (results.any((ok) => !ok)) return false;
-        if (onBatch != null) await onBatch(base, end);
+        final end = nextToFlush;
+        if (end > start) {
+          flushChain = flushChain.then((_) async {
+            if (aborted) return;
+            try {
+              await onBatch(start, end);
+            } catch (_) {
+              aborted = true;
+              rethrow;
+            }
+          });
+        }
       }
-      return true;
+
+      Future<void> worker() async {
+        while (!aborted) {
+          if (onBatch != null && nextToFetch - nextToFlush >= maxWindow) {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+            continue;
+          }
+          final index = nextToFetch;
+          if (index >= count) break;
+          nextToFetch++;
+          final bytes = await fetchOne(index);
+          if (aborted) return;
+          if (bytes == null) {
+            aborted = true;
+            return;
+          }
+          onSegment(index, bytes);
+          ready[index] = true;
+          scheduleFlush();
+        }
+      }
+
+      final workerCount =
+          (count - from) < parallelDownloads ? (count - from) : parallelDownloads;
+      await Future.wait(List.generate(workerCount, (_) => worker()));
+      await flushChain;
+      return !aborted;
     }
 
     if (totalTimeout == null) return run();
     try {
       return await run().timeout(totalTimeout);
     } on TimeoutException {
+      aborted = true;
       return false;
     }
   }

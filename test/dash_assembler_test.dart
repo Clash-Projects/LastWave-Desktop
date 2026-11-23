@@ -144,10 +144,39 @@ media="https://cdn.test/hi/\$Number\$.mp4">
       for (var i = 0; i < 4; i++) {
         expect(slots[i], List.filled(300, i + 1));
       }
-      // 4 segments < one parallel batch.
-      expect(batches, [
-        [0, 4]
-      ]);
+      // Progressive contiguous flushes cover [0, 4) in strict order.
+      expect(batches, isNotEmpty);
+      expect(batches.first[0], 0);
+      expect(batches.last[1], 4);
+      for (var i = 1; i < batches.length; i++) {
+        expect(batches[i][0], batches[i - 1][1]);
+      }
+    });
+
+    test('retries transient segment errors instead of aborting assembly',
+        () async {
+      final attempts = <String, int>{};
+      final dio = Dio();
+      dio.httpClientAdapter = _CountingAdapter((url) {
+        final n = (attempts[url] ?? 0) + 1;
+        attempts[url] = n;
+        // Segment 2 fails transiently once, then succeeds on retry.
+        if (url.endsWith('/2.mp4?sig=abc') && n == 1) {
+          return null;
+        }
+        return List.filled(128, n);
+      });
+      final got = <int>[];
+      final ok = await DashAssembler.fetchSegments(
+        dio,
+        mediaTemplate: 'https://cdn.test/t/\$Number\$.mp4?sig=abc',
+        startNumber: 1,
+        count: 4,
+        onSegment: (i, bytes) => got.add(i),
+      );
+      expect(ok, isTrue);
+      expect(got.length, 4);
+      expect(attempts['https://cdn.test/t/2.mp4?sig=abc'], 2);
     });
 
     test('false on any miss (fall through, never crash)', () async {
