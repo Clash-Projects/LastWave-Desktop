@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/storage/prefs.dart';
 import '../player/playback_service.dart';
 import '../player/player_state.dart';
 
@@ -87,11 +88,26 @@ Map<String, Object>? smtcUpdateFor(PlayerSnapshot? prev, PlayerSnapshot next) {
 /// `macos/Runner/NowPlayingChannel.swift`. Every failure degrades to
 /// silence.
 class SmtcService {
+  static const _stoppedUpdate = <String, Object>{
+    'title': '',
+    'artist': '',
+    'album': '',
+    'artUrl': '',
+    'status': smtcStatusStopped,
+    'positionMs': 0,
+    'durationMs': 0,
+    'rate': 0.0,
+    'hasTrack': false,
+    'canNext': false,
+    'canPrev': false,
+  };
+
   final Ref _ref;
   final MethodChannel _channel = const MethodChannel('lastwave/smtc');
   PlayerSnapshot? _last;
   bool _handlerSet = false;
   bool _disposed = false;
+  bool _cleared = false;
 
   SmtcService(this._ref);
 
@@ -106,12 +122,30 @@ class SmtcService {
       _handlerSet = true;
       _channel.setMethodCallHandler(_onNativeCall);
     }
+    refresh();
+  }
+
+  /// Re-applies the current preference and snapshot after a settings change.
+  void refresh() {
+    if (!isSupported || _disposed) return;
     _last = null;
+    _cleared = false;
     onSnapshot(_ref.read(playbackServiceProvider));
   }
 
   void onSnapshot(PlayerSnapshot snap) {
     if (!isSupported || _disposed) return;
+    if (Platform.isMacOS && !_ref.read(prefsProvider).macOSNowPlaying) {
+      _last = snap;
+      if (!_cleared) {
+        _cleared = true;
+        unawaited(
+          _channel.invokeMethod('update', _stoppedUpdate).catchError((_) {}),
+        );
+      }
+      return;
+    }
+    _cleared = false;
     final update = smtcUpdateFor(_last, snap);
     _last = snap;
     if (update == null) return;
@@ -154,6 +188,11 @@ class SmtcService {
   void dispose() {
     _disposed = true;
     _last = null;
+    if (Platform.isMacOS) {
+      unawaited(
+        _channel.invokeMethod('update', _stoppedUpdate).catchError((_) {}),
+      );
+    }
   }
 }
 
