@@ -526,8 +526,8 @@ jobs:
       #   lastwave_<ver>_x86_64.AppImage (portable Linux)
       #   lastwave_<ver>_windows-x86_64-setup.exe (installer)
       #   lastwave_<ver>_windows-x86_64-portable.zip (portable)
-      #   lastwave_<ver>_macos-arm64.zip (macOS stays a zip — a bare
-      #     .app bundle isn't shippable).
+      #   lastwave_<ver>_macos-universal.zip (universal x86_64 + arm64;
+      #     macOS stays a zip — a bare .app bundle isn't shippable).
       - name: Download Windows installer
         uses: actions/download-artifact@v4
         with:
@@ -609,7 +609,7 @@ jobs:
       - name: Compress macOS Bundle
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ditto -c -k --keepParent "build/macos/Build/Products/Release/LastWave.app" "lastwave_${VERSION}_macos-arm64.zip"
+          ditto -c -k --keepParent "build/macos/Build/Products/Release/LastWave.app" "lastwave_${VERSION}_macos-universal.zip"
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4

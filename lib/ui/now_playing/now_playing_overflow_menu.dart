@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:fluent_ui/fluent_ui.dart' hide Colors;
 import 'package:flutter/material.dart' show Colors;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,10 +21,11 @@ import '../theme/wave_icons.dart';
 import 'immersive.dart';
 import 'now_playing_style.dart';
 
-/// Unified top-right action bar shared across all Now Playing styles
-/// (Standard, Full Bleed, and Minimal): Visualizer, Fullscreen, and Overflow (`...`).
+/// Unified top-right action bar shared across all Now Playing styles:
+/// Ambient (Standard & Minimal), Fullscreen, and Overflow (`...`).
 class NowPlayingTopActions extends ConsumerWidget {
   final PlayableTrack track;
+  final bool showAmbientToggle;
   final VoidCallback? onToggleQueue;
   final bool isQueueOpen;
   final VoidCallback? onToggleLyrics;
@@ -33,6 +37,7 @@ class NowPlayingTopActions extends ConsumerWidget {
   const NowPlayingTopActions({
     super.key,
     required this.track,
+    this.showAmbientToggle = true,
     this.onToggleQueue,
     this.isQueueOpen = false,
     this.onToggleLyrics,
@@ -44,24 +49,24 @@ class NowPlayingTopActions extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final visualizerEnabled = ref.watch(visualizerEnabledProvider);
+    final ambientEnabled = ref.watch(visualizerEnabledProvider);
     final isImmersive = ref.watch(nowPlayingImmersiveProvider);
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _QuickActionButton(
-          icon: WaveIcons.visualizer,
-          tooltip: visualizerEnabled
-              ? 'Disable visualizer'
-              : 'Enable visualizer',
-          active: visualizerEnabled,
-          onTap: () {
-            onInteraction?.call();
-            ref.read(visualizerEnabledProvider.notifier).toggle();
-          },
-        ),
-        const SizedBox(width: 6),
+        if (showAmbientToggle) ...[
+          _QuickActionButton(
+            icon: WaveIcons.visualizer,
+            tooltip: ambientEnabled ? 'Disable ambient' : 'Enable ambient',
+            active: ambientEnabled,
+            onTap: () {
+              onInteraction?.call();
+              ref.read(visualizerEnabledProvider.notifier).toggle();
+            },
+          ),
+          const SizedBox(width: 6),
+        ],
         _QuickActionButton(
           icon: isImmersive ? FluentIcons.mini_contract : WaveIcons.expand,
           tooltip: isImmersive ? 'Exit fullscreen (F11)' : 'Fullscreen (F11)',
@@ -74,6 +79,7 @@ class NowPlayingTopActions extends ConsumerWidget {
         const SizedBox(width: 8),
         NowPlayingOverflowMenuButton(
           track: track,
+          showAmbientToggle: showAmbientToggle,
           onToggleQueue: onToggleQueue,
           isQueueOpen: isQueueOpen,
           onToggleLyrics: onToggleLyrics,
@@ -90,6 +96,7 @@ class NowPlayingTopActions extends ConsumerWidget {
 /// Shared overflow menu button and frosted popover used by all Now Playing styles.
 class NowPlayingOverflowMenuButton extends ConsumerStatefulWidget {
   final PlayableTrack track;
+  final bool showAmbientToggle;
   final VoidCallback? onToggleQueue;
   final bool isQueueOpen;
   final VoidCallback? onToggleLyrics;
@@ -102,6 +109,7 @@ class NowPlayingOverflowMenuButton extends ConsumerStatefulWidget {
   const NowPlayingOverflowMenuButton({
     super.key,
     required this.track,
+    this.showAmbientToggle = true,
     this.onToggleQueue,
     this.isQueueOpen = false,
     this.onToggleLyrics,
@@ -138,9 +146,11 @@ class _NowPlayingOverflowMenuButtonState
       transitionDuration: const Duration(milliseconds: 90),
       transitionBuilder: fastFlyoutTransition,
       builder: (context) => WaveFlyoutPanel.child(
-        maxWidth: 328,
+        maxWidth: 300,
+        maxHeight: 540,
         child: _NowPlayingOverflowMenuContent(
           track: widget.track,
+          showAmbientToggle: widget.showAmbientToggle,
           onToggleQueue: widget.onToggleQueue,
           isQueueOpen: widget.isQueueOpen,
           onToggleLyrics: widget.onToggleLyrics,
@@ -178,6 +188,7 @@ class _NowPlayingOverflowMenuButtonState
 
 class _NowPlayingOverflowMenuContent extends ConsumerStatefulWidget {
   final PlayableTrack track;
+  final bool showAmbientToggle;
   final VoidCallback? onToggleQueue;
   final bool isQueueOpen;
   final VoidCallback? onToggleLyrics;
@@ -187,6 +198,7 @@ class _NowPlayingOverflowMenuContent extends ConsumerStatefulWidget {
 
   const _NowPlayingOverflowMenuContent({
     required this.track,
+    this.showAmbientToggle = true,
     this.onToggleQueue,
     this.isQueueOpen = false,
     this.onToggleLyrics,
@@ -202,7 +214,7 @@ class _NowPlayingOverflowMenuContent extends ConsumerStatefulWidget {
 
 class _NowPlayingOverflowMenuContentState
     extends ConsumerState<_NowPlayingOverflowMenuContent> {
-  String? _expandedSection; // 'translation' | 'textSize' | 'animation'
+  _CascadingSubmenuRowState? _openSubmenu;
   late bool _lyricsVisible;
   late bool _focusMode;
   late bool _isQueueOpen;
@@ -215,15 +227,20 @@ class _NowPlayingOverflowMenuContentState
     _isQueueOpen = widget.isQueueOpen;
   }
 
-  void _toggleSection(String section) {
-    setState(() {
-      _expandedSection = _expandedSection == section ? null : section;
-    });
+  void _onSubmenuOpened(_CascadingSubmenuRowState submenu) {
+    if (_openSubmenu != null && _openSubmenu != submenu) {
+      _openSubmenu!.close();
+    }
+    _openSubmenu = submenu;
+  }
+
+  void _closeSubmenu() {
+    _openSubmenu?.close();
+    _openSubmenu = null;
   }
 
   void _bumpLyricsPrefs() {
     ref.read(lyricsPrefsRevisionProvider.notifier).state++;
-    if (mounted) setState(() {});
   }
 
   @override
@@ -268,6 +285,9 @@ class _NowPlayingOverflowMenuContentState
     final lyricsAsync = ref.watch(waveLyricsProvider(track));
     final resolvedSource = lyricsAsync.valueOrNull?.source ?? '';
     final currentResolvedId = lyricsSourceToProviderId(resolvedSource);
+    final providerHint = resolvedSource.isNotEmpty
+        ? resolvedSource
+        : LyricsProviderId.fromId(effectiveProviderId).title;
 
     void selectProvider(String? pickedId) {
       if (pickedId == null) {
@@ -290,673 +310,548 @@ class _NowPlayingOverflowMenuContentState
       ref.invalidate(waveLyricsProvider(track));
     }
 
-    final visualizerEnabled = ref.watch(visualizerEnabledProvider);
+    final ambientEnabled = ref.watch(visualizerEnabledProvider);
     final isImmersive = ref.watch(nowPlayingImmersiveProvider);
     final currentStyle = ref.watch(nowPlayingStyleProvider);
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 560),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 1. Timing Offset Row (stays open while tapping)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
+    Widget menuMark(bool on) => on
+        ? Icon(FluentIcons.check_mark, size: 12, color: accent)
+        : const SizedBox(width: 12);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 1. Timing Offset Row (stays open while tapping)
+        MouseRegion(
+          opaque: false,
+          onEnter: (_) => _closeSubmenu(),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Lyrics offset',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: waveTextPrimary(context),
+                        ),
+                      ),
+                      if (offsetMs != 0)
                         Text(
-                          'Lyrics offset',
+                          offsetDisplay,
                           style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: waveTextPrimary(context),
+                            fontSize: 11,
+                            color: accent,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
-                        if (offsetMs != 0)
-                          Text(
-                            offsetDisplay,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: accent,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                      ],
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: (dark ? Colors.white : Colors.black).withValues(
+                      alpha: 0.08,
+                    ),
+                    borderRadius: BorderRadius.circular(WaveRadius.controls),
+                    border: Border.all(
+                      color: (dark ? Colors.white : Colors.black).withValues(
+                        alpha: 0.12,
+                      ),
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 2,
-                      vertical: 2,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _StepperBtn(
+                        icon: FluentIcons.remove,
+                        tooltip: '-0.5s',
+                        onTap: () => offsetNotifier.adjust(-500),
+                      ),
+                      Container(
+                        constraints: const BoxConstraints(minWidth: 42),
+                        alignment: Alignment.center,
+                        child: Text(
+                          offsetDisplay,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            fontWeight: FontWeight.w600,
+                            color: offsetMs != 0
+                                ? accent
+                                : waveTextPrimary(context),
+                          ),
+                        ),
+                      ),
+                      _StepperBtn(
+                        icon: FluentIcons.add,
+                        tooltip: '+0.5s',
+                        onTap: () => offsetNotifier.adjust(500),
+                      ),
+                      if (offsetMs != 0) ...[
+                        const SizedBox(width: 2),
+                        _StepperBtn(
+                          icon: FluentIcons.clear,
+                          tooltip: 'Reset to 0.0s',
+                          onTap: offsetNotifier.reset,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Container(height: 1, color: waveDivider(context)),
+        ),
+
+        // 2. Cascading Second-Panel Submenus (Lyrics source, Romanisation, Translation, Text size, Animation)
+        _CascadingSubmenuRow(
+          icon: WaveIcons.lyrics,
+          title: 'Lyrics source',
+          hint: providerHint,
+          active: effectiveProviderId != 'auto',
+          onOpened: _onSubmenuOpened,
+          items: () => [
+            for (final provider in LyricsProviderId.values)
+              WaveMenuAction(
+                leading: menuMark(effectiveProviderId == provider.id),
+                label: provider.title,
+                onPressed: () => selectProvider(provider.id),
+              ),
+            const WaveMenuSeparator(),
+            WaveMenuAction(
+              leading: const Icon(FluentIcons.refresh, size: 13),
+              label: 'Try another source',
+              onPressed: () => selectProvider(null),
+            ),
+          ],
+        ),
+        _CascadingSubmenuRow(
+          icon: FluentIcons.reading_mode,
+          title: 'Romanisation',
+          hint: showTransliteration ? 'On' : 'Off',
+          active: showTransliteration,
+          onOpened: _onSubmenuOpened,
+          items: () => [
+            WaveMenuAction(
+              leading: menuMark(!showTransliteration),
+              label: 'Off',
+              onPressed: () => transliterationNotifier.setEnabled(false),
+            ),
+            WaveMenuAction(
+              leading: menuMark(showTransliteration),
+              label: 'On',
+              onPressed: () => transliterationNotifier.setEnabled(true),
+            ),
+          ],
+        ),
+        _CascadingSubmenuRow(
+          icon: FluentIcons.locale_language,
+          title: 'Translation',
+          hint: translationLabel,
+          active: translationActive,
+          onOpened: _onSubmenuOpened,
+          items: () => [
+            for (final entry in Prefs.lyricsTranslationOptions.entries)
+              WaveMenuAction(
+                leading: menuMark(translationLang == entry.key),
+                label: entry.value,
+                onPressed: () async {
+                  await ref
+                      .read(prefsProvider)
+                      .setLyricsTranslationLang(entry.key);
+                  _bumpLyricsPrefs();
+                },
+              ),
+          ],
+        ),
+        _CascadingSubmenuRow(
+          icon: FluentIcons.font_size,
+          title: 'Text size',
+          hint: textScaleLabel,
+          active: textScale != 1.0,
+          onOpened: _onSubmenuOpened,
+          items: () => [
+            for (final entry in Prefs.lyricsTextScales)
+              WaveMenuAction(
+                leading: menuMark(textScale == entry.$1),
+                label: entry.$2,
+                onPressed: () async {
+                  await ref.read(prefsProvider).setLyricsTextScale(entry.$1);
+                  _bumpLyricsPrefs();
+                },
+              ),
+          ],
+        ),
+        _CascadingSubmenuRow(
+          icon: FluentIcons.brush,
+          title: 'Animation style',
+          hint: animationLabel,
+          onOpened: _onSubmenuOpened,
+          items: () => [
+            for (final entry in Prefs.lyricsAnimationOptions.entries)
+              WaveMenuAction(
+                leading: menuMark(animationKey == entry.key),
+                label: entry.value,
+                onPressed: () async {
+                  await ref.read(prefsProvider).setLyricsAnimation(entry.key);
+                  _bumpLyricsPrefs();
+                },
+              ),
+          ],
+        ),
+
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Container(height: 1, color: waveDivider(context)),
+        ),
+
+        // 3. View & Mode Toggles
+        if (widget.onToggleLyrics != null)
+          _MenuActionTile(
+            icon: WaveIcons.lyrics,
+            title: 'Lyrics',
+            hint: _lyricsVisible ? 'Visible' : 'Hidden',
+            active: _lyricsVisible,
+            onHoverEnter: _closeSubmenu,
+            onTap: () {
+              setState(() {
+                _lyricsVisible = !_lyricsVisible;
+                if (!_lyricsVisible) _focusMode = false;
+              });
+              widget.onToggleLyrics!();
+            },
+          ),
+        if (widget.onToggleFocus != null)
+          _MenuActionTile(
+            icon: _focusMode ? FluentIcons.mini_contract : WaveIcons.expand,
+            title: 'Focus on lyrics',
+            hint: _focusMode ? 'On' : 'Off',
+            active: _focusMode,
+            onHoverEnter: _closeSubmenu,
+            onTap: () {
+              setState(() {
+                _focusMode = !_focusMode;
+                if (_focusMode) _lyricsVisible = true;
+              });
+              widget.onToggleFocus!();
+            },
+          ),
+        if (widget.showAmbientToggle)
+          _MenuActionTile(
+            icon: WaveIcons.visualizer,
+            title: 'Ambient',
+            hint: ambientEnabled ? 'On' : 'Off',
+            active: ambientEnabled,
+            onHoverEnter: _closeSubmenu,
+            onTap: () => ref.read(visualizerEnabledProvider.notifier).toggle(),
+          ),
+        _MenuActionTile(
+          icon: isImmersive ? FluentIcons.mini_contract : WaveIcons.expand,
+          title: 'Fullscreen',
+          hint: 'F11',
+          active: isImmersive,
+          onHoverEnter: _closeSubmenu,
+          onTap: () {
+            ref.read(nowPlayingImmersiveProvider.notifier).state = !isImmersive;
+          },
+        ),
+        if (widget.onToggleQueue != null)
+          _MenuActionTile(
+            icon: WaveIcons.queue,
+            title: 'Up Next queue',
+            hint: _isQueueOpen ? 'Visible' : 'Hidden',
+            active: _isQueueOpen,
+            onHoverEnter: _closeSubmenu,
+            onTap: () {
+              setState(() => _isQueueOpen = !_isQueueOpen);
+              widget.onToggleQueue!();
+            },
+          ),
+
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Container(height: 1, color: waveDivider(context)),
+        ),
+
+        // 4. Inline Layout Switcher (bottom section of the menu)
+        MouseRegion(
+          opaque: false,
+          onEnter: (_) => _closeSubmenu(),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'NOW PLAYING STYLE',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                    color: waveTextTertiary(context),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: (dark ? Colors.white : Colors.black).withValues(
+                      alpha: 0.08,
                     ),
-                    decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
                       color: (dark ? Colors.white : Colors.black).withValues(
                         alpha: 0.08,
                       ),
-                      borderRadius: BorderRadius.circular(WaveRadius.controls),
-                      border: Border.all(
-                        color: (dark ? Colors.white : Colors.black).withValues(
-                          alpha: 0.12,
-                        ),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _StepperBtn(
-                          icon: FluentIcons.remove,
-                          tooltip: '-0.5s',
-                          onTap: () => offsetNotifier.adjust(-500),
-                        ),
-                        Container(
-                          constraints: const BoxConstraints(minWidth: 42),
-                          alignment: Alignment.center,
-                          child: Text(
-                            offsetDisplay,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
-                              fontWeight: FontWeight.w600,
-                              color: offsetMs != 0
-                                  ? accent
-                                  : waveTextPrimary(context),
-                            ),
-                          ),
-                        ),
-                        _StepperBtn(
-                          icon: FluentIcons.add,
-                          tooltip: '+0.5s',
-                          onTap: () => offsetNotifier.adjust(500),
-                        ),
-                        if (offsetMs != 0) ...[
-                          const SizedBox(width: 2),
-                          _StepperBtn(
-                            icon: FluentIcons.clear,
-                            tooltip: 'Reset to 0.0s',
-                            onTap: offsetNotifier.reset,
-                          ),
-                        ],
-                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Container(height: 1, color: waveDivider(context)),
-            ),
-
-            // 2. Lyrics Provider Rail
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
+                  child: Row(
                     children: [
-                      Text(
-                        'LYRICS PROVIDER',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.8,
-                          color: waveTextTertiary(context),
-                        ),
-                      ),
-                      if (resolvedSource.isNotEmpty) ...[
-                        const SizedBox(width: 6),
+                      for (final style in NowPlayingStyle.values)
                         Expanded(
-                          child: Text(
-                            '· $resolvedSource',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 10.5,
-                              color: accent,
-                              fontWeight: FontWeight.w600,
+                          child: GestureDetector(
+                            onTap: () {
+                              ref
+                                  .read(nowPlayingStyleProvider.notifier)
+                                  .set(style);
+                            },
+                            behavior: HitTestBehavior.opaque,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              decoration: BoxDecoration(
+                                color: currentStyle == style
+                                    ? (dark
+                                        ? Colors.white.withValues(alpha: 0.16)
+                                        : Colors.black.withValues(alpha: 0.12))
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(6),
+                                border: currentStyle == style
+                                    ? Border.all(
+                                        color: accent.withValues(alpha: 0.5),
+                                        width: 1,
+                                      )
+                                    : null,
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                style.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: currentStyle == style
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: currentStyle == style
+                                      ? waveTextPrimary(context)
+                                      : waveTextSecondary(context),
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ] else
-                        const Spacer(),
-                      _InlineMiniButton(
-                        icon: FluentIcons.refresh,
-                        label: 'Retry',
-                        tooltip: 'Try another lyrics source',
-                        onTap: () => selectProvider(null),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 7),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (final provider in LyricsProviderId.values) ...[
-                          _OptionChip(
-                            label: provider.title,
-                            selected: effectiveProviderId == provider.id,
-                            onTap: () => selectProvider(provider.id),
-                          ),
-                          const SizedBox(width: 5),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Cascading submenu row that opens a second [WaveFlyoutPanel] to the side
+/// (flipping left automatically when near the right window edge), matching
+/// standard Fluent desktop menus without bloating the main popover.
+class _CascadingSubmenuRow extends StatefulWidget {
+  final IconData icon;
+  final String title;
+  final String? hint;
+  final bool active;
+  final List<WaveMenuEntry> Function() items;
+  final ValueChanged<_CascadingSubmenuRowState> onOpened;
+
+  const _CascadingSubmenuRow({
+    required this.icon,
+    required this.title,
+    this.hint,
+    this.active = false,
+    required this.items,
+    required this.onOpened,
+  });
+
+  @override
+  State<_CascadingSubmenuRow> createState() => _CascadingSubmenuRowState();
+}
+
+class _CascadingSubmenuRowState extends State<_CascadingSubmenuRow> {
+  final _portal = OverlayPortalController();
+  final _link = LayerLink();
+  Timer? _hoverTimer;
+  bool _hover = false;
+  bool _flipLeft = true;
+  bool _openUp = false;
+  double? _maxHeight;
+
+  @override
+  void dispose() {
+    _hoverTimer?.cancel();
+    super.dispose();
+  }
+
+  void close() {
+    _hoverTimer?.cancel();
+    if (_portal.isShowing) _portal.hide();
+  }
+
+  void openNow() {
+    _hoverTimer?.cancel();
+    if (_portal.isShowing) return;
+    final box = context.findRenderObject();
+    if (box is RenderBox && box.hasSize) {
+      final topLeft = box.localToGlobal(Offset.zero);
+      final right = topLeft.dx + box.size.width;
+      final screen = MediaQuery.sizeOf(context);
+      _flipLeft = right + 260 > screen.width;
+      const margin = 12.0;
+      final cap = math.min(screen.height * 0.65, 380.0);
+      final below = screen.height - topLeft.dy - margin;
+      final above = topLeft.dy + box.size.height - margin;
+      _openUp = below < math.min(cap, 200.0) && above > below;
+      _maxHeight = math.max(120.0, math.min(cap, _openUp ? above : below));
+    }
+    _portal.show();
+    widget.onOpened(this);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final accent = waveAccent(context);
+
+    return CompositedTransformTarget(
+      link: _link,
+      child: OverlayPortal(
+        controller: _portal,
+        overlayChildBuilder: (context) => Align(
+          alignment: Alignment.topLeft,
+          child: CompositedTransformFollower(
+            link: _link,
+            showWhenUnlinked: false,
+            targetAnchor: _openUp
+                ? (_flipLeft ? Alignment.bottomLeft : Alignment.bottomRight)
+                : (_flipLeft ? Alignment.topLeft : Alignment.topRight),
+            followerAnchor: _openUp
+                ? (_flipLeft ? Alignment.bottomRight : Alignment.bottomLeft)
+                : (_flipLeft ? Alignment.topRight : Alignment.topLeft),
+            offset: Offset(
+              _flipLeft ? -4 : 4,
+              _openUp ? WaveMenuRow.inset : -WaveMenuRow.inset,
+            ),
+            child: WaveFlyoutPanel.items(
+              entries: widget.items(),
+              maxHeight: _maxHeight,
+            ),
+          ),
+        ),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) {
+            setState(() => _hover = true);
+            _hoverTimer?.cancel();
+            _hoverTimer = Timer(const Duration(milliseconds: 180), openNow);
+          },
+          onExit: (_) {
+            setState(() => _hover = false);
+            _hoverTimer?.cancel();
+          },
+          child: GestureDetector(
+            onTap: openNow,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: (_hover || _portal.isShowing)
+                    ? (dark ? Colors.white : Colors.black).withValues(
+                        alpha: 0.08,
+                      )
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(WaveRadius.controls),
               ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Container(height: 1, color: waveDivider(context)),
-            ),
-
-            // 3. Romanisation (explicit Off / On segmented control)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 5, 12, 5),
               child: Row(
                 children: [
                   Icon(
-                    FluentIcons.reading_mode,
+                    widget.icon,
                     size: 15,
-                    color: showTransliteration
-                        ? accent
-                        : waveTextSecondary(context),
+                    color: widget.active ? accent : waveTextSecondary(context),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Romanisation',
+                      widget.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
                         color: waveTextPrimary(context),
-                        fontWeight: showTransliteration
+                        fontWeight: widget.active
                             ? FontWeight.w600
                             : FontWeight.w400,
                       ),
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: (dark ? Colors.white : Colors.black).withValues(
-                        alpha: 0.08,
-                      ),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: (dark ? Colors.white : Colors.black).withValues(
-                          alpha: 0.10,
-                        ),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _MiniSegment(
-                          label: 'Off',
-                          selected: !showTransliteration,
-                          onTap: () =>
-                              transliterationNotifier.setEnabled(false),
-                        ),
-                        _MiniSegment(
-                          label: 'On',
-                          selected: showTransliteration,
-                          onTap: () => transliterationNotifier.setEnabled(true),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // 4. Translation Language Picker (expandable inline chips)
-            _MenuActionTile(
-              icon: FluentIcons.locale_language,
-              title: 'Translation',
-              hint: translationLabel,
-              active: translationActive,
-              trailingIcon: _expandedSection == 'translation'
-                  ? FluentIcons.chevron_up
-                  : FluentIcons.chevron_down,
-              onTap: () => _toggleSection('translation'),
-            ),
-            if (_expandedSection == 'translation')
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 4, 12, 8),
-                child: Wrap(
-                  spacing: 5,
-                  runSpacing: 5,
-                  children: [
-                    for (final entry in Prefs.lyricsTranslationOptions.entries)
-                      _OptionChip(
-                        label: entry.value,
-                        selected: translationLang == entry.key,
-                        onTap: () async {
-                          await ref
-                              .read(prefsProvider)
-                              .setLyricsTranslationLang(entry.key);
-                          _bumpLyricsPrefs();
-                        },
-                      ),
-                  ],
-                ),
-              ),
-
-            // 5. Text Size Picker (expandable inline chips)
-            _MenuActionTile(
-              icon: FluentIcons.font_size,
-              title: 'Text size',
-              hint: textScaleLabel,
-              active: textScale != 1.0,
-              trailingIcon: _expandedSection == 'textSize'
-                  ? FluentIcons.chevron_up
-                  : FluentIcons.chevron_down,
-              onTap: () => _toggleSection('textSize'),
-            ),
-            if (_expandedSection == 'textSize')
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 4, 12, 8),
-                child: Wrap(
-                  spacing: 5,
-                  runSpacing: 5,
-                  children: [
-                    for (final entry in Prefs.lyricsTextScales)
-                      _OptionChip(
-                        label: entry.$2,
-                        selected: textScale == entry.$1,
-                        onTap: () async {
-                          await ref
-                              .read(prefsProvider)
-                              .setLyricsTextScale(entry.$1);
-                          _bumpLyricsPrefs();
-                        },
-                      ),
-                  ],
-                ),
-              ),
-
-            // 6. Animation Style Picker (expandable inline chips)
-            _MenuActionTile(
-              icon: FluentIcons.brush,
-              title: 'Animation style',
-              hint: animationLabel,
-              trailingIcon: _expandedSection == 'animation'
-                  ? FluentIcons.chevron_up
-                  : FluentIcons.chevron_down,
-              onTap: () => _toggleSection('animation'),
-            ),
-            if (_expandedSection == 'animation')
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 4, 12, 8),
-                child: Wrap(
-                  spacing: 5,
-                  runSpacing: 5,
-                  children: [
-                    for (final entry in Prefs.lyricsAnimationOptions.entries)
-                      _OptionChip(
-                        label: entry.value,
-                        selected: animationKey == entry.key,
-                        onTap: () async {
-                          await ref
-                              .read(prefsProvider)
-                              .setLyricsAnimation(entry.key);
-                          _bumpLyricsPrefs();
-                        },
-                      ),
-                  ],
-                ),
-              ),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Container(height: 1, color: waveDivider(context)),
-            ),
-
-            // 7. View & Mode Toggles
-            if (widget.onToggleLyrics != null)
-              _MenuActionTile(
-                icon: WaveIcons.lyrics,
-                title: 'Lyrics',
-                hint: _lyricsVisible ? 'Visible' : 'Hidden',
-                active: _lyricsVisible,
-                onTap: () {
-                  setState(() {
-                    _lyricsVisible = !_lyricsVisible;
-                    if (!_lyricsVisible) _focusMode = false;
-                  });
-                  widget.onToggleLyrics!();
-                },
-              ),
-            if (widget.onToggleFocus != null)
-              _MenuActionTile(
-                icon: _focusMode
-                    ? FluentIcons.mini_contract
-                    : WaveIcons.expand,
-                title: 'Focus on lyrics',
-                hint: _focusMode ? 'On' : 'Off',
-                active: _focusMode,
-                onTap: () {
-                  setState(() {
-                    _focusMode = !_focusMode;
-                    if (_focusMode) _lyricsVisible = true;
-                  });
-                  widget.onToggleFocus!();
-                },
-              ),
-            _MenuActionTile(
-              icon: WaveIcons.visualizer,
-              title: 'Audio visualizer / Wave',
-              hint: visualizerEnabled ? 'On' : 'Off',
-              active: visualizerEnabled,
-              onTap: () => ref.read(visualizerEnabledProvider.notifier).toggle(),
-            ),
-            _MenuActionTile(
-              icon: isImmersive ? FluentIcons.mini_contract : WaveIcons.expand,
-              title: 'Fullscreen',
-              hint: 'F11',
-              active: isImmersive,
-              onTap: () {
-                ref.read(nowPlayingImmersiveProvider.notifier).state =
-                    !isImmersive;
-              },
-            ),
-            if (widget.onToggleQueue != null)
-              _MenuActionTile(
-                icon: WaveIcons.queue,
-                title: 'Up Next queue',
-                hint: _isQueueOpen ? 'Visible' : 'Hidden',
-                active: _isQueueOpen,
-                onTap: () {
-                  setState(() => _isQueueOpen = !_isQueueOpen);
-                  widget.onToggleQueue!();
-                },
-              ),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Container(height: 1, color: waveDivider(context)),
-            ),
-
-            // 8. Inline Layout Switcher (bottom section of the menu)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'NOW PLAYING STYLE',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      color: waveTextTertiary(context),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: BoxDecoration(
-                      color: (dark ? Colors.white : Colors.black).withValues(
-                        alpha: 0.08,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: (dark ? Colors.white : Colors.black).withValues(
-                          alpha: 0.08,
-                        ),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        for (final style in NowPlayingStyle.values)
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () {
-                                ref
-                                    .read(nowPlayingStyleProvider.notifier)
-                                    .set(style);
-                              },
-                              behavior: HitTestBehavior.opaque,
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 150),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: currentStyle == style
-                                      ? (dark
-                                          ? Colors.white.withValues(alpha: 0.16)
-                                          : Colors.black.withValues(
-                                              alpha: 0.12,
-                                            ))
-                                      : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: currentStyle == style
-                                      ? Border.all(
-                                          color: accent.withValues(alpha: 0.5),
-                                          width: 1,
-                                        )
-                                      : null,
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  style.label,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: currentStyle == style
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                    color: currentStyle == style
-                                        ? waveTextPrimary(context)
-                                        : waveTextSecondary(context),
-                                  ),
-                                ),
-                              ),
-                            ),
+                  if (widget.hint != null) ...[
+                    Flexible(
+                      flex: 0,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 92),
+                        child: Text(
+                          widget.hint!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: widget.active
+                                ? accent
+                                : waveTextTertiary(context),
+                            fontWeight: widget.active
+                                ? FontWeight.w600
+                                : FontWeight.w400,
                           ),
-                      ],
+                        ),
+                      ),
                     ),
+                    const SizedBox(width: 6),
+                  ],
+                  Icon(
+                    FluentIcons.chevron_right,
+                    size: 10,
+                    color: waveTextTertiary(context),
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _OptionChip extends StatefulWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _OptionChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  State<_OptionChip> createState() => _OptionChipState();
-}
-
-class _OptionChipState extends State<_OptionChip> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    final accent = waveAccent(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? accent.withValues(alpha: 0.18)
-                : (dark ? Colors.white : Colors.black).withValues(
-                    alpha: _hover ? 0.13 : 0.07,
-                  ),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: widget.selected
-                  ? accent.withValues(alpha: 0.55)
-                  : (dark ? Colors.white : Colors.black).withValues(
-                      alpha: 0.08,
-                    ),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.selected) ...[
-                Icon(FluentIcons.check_mark, size: 10, color: accent),
-                const SizedBox(width: 4),
-              ],
-              Text(
-                widget.label,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: widget.selected
-                      ? FontWeight.w600
-                      : FontWeight.w400,
-                  color: widget.selected ? accent : waveTextPrimary(context),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MiniSegment extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _MiniSegment({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = waveAccent(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-          decoration: BoxDecoration(
-            color: selected
-                ? accent.withValues(alpha: 0.22)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
-            border: selected
-                ? Border.all(color: accent.withValues(alpha: 0.5), width: 1)
-                : null,
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-              color: selected ? accent : waveTextSecondary(context),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _InlineMiniButton extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  const _InlineMiniButton({
-    required this.icon,
-    required this.label,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  @override
-  State<_InlineMiniButton> createState() => _InlineMiniButtonState();
-}
-
-class _InlineMiniButtonState extends State<_InlineMiniButton> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-            decoration: BoxDecoration(
-              color: (dark ? Colors.white : Colors.black).withValues(
-                alpha: _hover ? 0.14 : 0.07,
-              ),
-              borderRadius: BorderRadius.circular(5),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(widget.icon, size: 10.5, color: waveTextSecondary(context)),
-                const SizedBox(width: 4),
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w500,
-                    color: waveTextSecondary(context),
-                  ),
-                ),
-              ],
             ),
           ),
         ),
@@ -970,7 +865,7 @@ class _MenuActionTile extends StatefulWidget {
   final String title;
   final String? hint;
   final bool active;
-  final IconData? trailingIcon;
+  final VoidCallback? onHoverEnter;
   final VoidCallback onTap;
 
   const _MenuActionTile({
@@ -978,7 +873,7 @@ class _MenuActionTile extends StatefulWidget {
     required this.title,
     this.hint,
     this.active = false,
-    this.trailingIcon,
+    this.onHoverEnter,
     required this.onTap,
   });
 
@@ -996,7 +891,10 @@ class _MenuActionTileState extends State<_MenuActionTile> {
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
+      onEnter: (_) {
+        widget.onHoverEnter?.call();
+        setState(() => _hover = true);
+      },
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: widget.onTap,
@@ -1026,8 +924,9 @@ class _MenuActionTileState extends State<_MenuActionTile> {
                   style: TextStyle(
                     fontSize: 13,
                     color: waveTextPrimary(context),
-                    fontWeight:
-                        widget.active ? FontWeight.w600 : FontWeight.w400,
+                    fontWeight: widget.active
+                        ? FontWeight.w600
+                        : FontWeight.w400,
                   ),
                 ),
               ),
@@ -1037,18 +936,11 @@ class _MenuActionTileState extends State<_MenuActionTile> {
                   style: TextStyle(
                     fontSize: 11.5,
                     color: widget.active ? accent : waveTextTertiary(context),
-                    fontWeight:
-                        widget.active ? FontWeight.w600 : FontWeight.w400,
+                    fontWeight: widget.active
+                        ? FontWeight.w600
+                        : FontWeight.w400,
                   ),
                 ),
-              if (widget.trailingIcon != null) ...[
-                const SizedBox(width: 6),
-                Icon(
-                  widget.trailingIcon,
-                  size: 10,
-                  color: waveTextTertiary(context),
-                ),
-              ],
             ],
           ),
         ),

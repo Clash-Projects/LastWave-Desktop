@@ -2,10 +2,11 @@ import 'package:fluent_ui/fluent_ui.dart' hide Colors;
 import 'package:flutter/material.dart' show Colors, Icons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
-import '../../features/spotify/canvas_clip.dart';
+import '../../features/performance/performance_controller.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artwork.dart';
@@ -38,30 +39,40 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
   @override
   Widget build(BuildContext context) {
     final track = widget.track;
+    final isPerfMode = ref.watch(performanceModeProvider);
 
-    // Prefer Spotify Canvas first, then Apple Music / Tidal / Community canvas.
-    final canvasAsync = ref.watch(
-      canvasPanelClipProvider((
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        durationMs: track.duration.inMilliseconds,
-      )),
-    );
-    final clip = canvasAsync.valueOrNull?.clip;
-    final clipUrl = clip?.url ?? '';
-    final clipFallbackUrl = clip?.fallbackUrl ?? '';
-    if (!canvasAsync.isLoading || clipUrl.isNotEmpty) {
+    // Minimal uses non-Spotify motion art (Apple Music / Tidal / Community);
+    // Spotify 9:16 Canvas is reserved exclusively for Full Bleed.
+    final motionAsync = isPerfMode
+        ? const AsyncData<AnimatedArtwork?>(null)
+        : ref.watch(
+            animatedArtworkProvider(
+              AnimatedArtworkQuery(
+                artist: track.artist,
+                album: track.album,
+                title: track.title,
+              ),
+            ),
+          );
+    final motionArt = motionAsync.valueOrNull;
+    final clipUrl = motionArt?.hasUrl == true ? motionArt!.url : '';
+    final clipFallbackUrl = motionArt?.fallbackUrl ?? '';
+    if (!motionAsync.isLoading || clipUrl.isNotEmpty) {
       _lastClipUrl = clipUrl;
       _lastClipFallbackUrl = clipFallbackUrl;
     }
-    final activeUrl = clipUrl.isNotEmpty
-        ? clipUrl
-        : (canvasAsync.isLoading ? _lastClipUrl : '');
-    final activeFallbackUrl = clipUrl.isNotEmpty
-        ? clipFallbackUrl
-        : (canvasAsync.isLoading ? _lastClipFallbackUrl : '');
+    final activeUrl = isPerfMode
+        ? ''
+        : (clipUrl.isNotEmpty
+            ? clipUrl
+            : (motionAsync.isLoading ? _lastClipUrl : ''));
+    final activeFallbackUrl = isPerfMode
+        ? ''
+        : (clipUrl.isNotEmpty
+            ? clipFallbackUrl
+            : (motionAsync.isLoading ? _lastClipFallbackUrl : ''));
     final videoReady =
+        !isPerfMode &&
         clipUrl.isNotEmpty &&
         ref.watch(
           animatedArtworkSessionProvider.select((s) => s.isReadyFor(clipUrl)),
@@ -145,7 +156,7 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
                                                 url: track.artworkUrl,
                                                 videoId: track.videoId,
                                                 size: side,
-                                                decodeExtent: 480,
+                                                decodeExtent: 1024,
                                                 radius: 2.0,
                                                 label: track.title,
                                                 title: track.title,

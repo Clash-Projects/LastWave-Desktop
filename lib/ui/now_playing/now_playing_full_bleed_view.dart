@@ -67,7 +67,7 @@ class _NowPlayingFullBleedViewState
     final videoReady =
         clipUrl.isNotEmpty &&
         ref.watch(
-          animatedArtworkSessionProvider.select((s) => s.isReadyFor(clipUrl)),
+          canvasPanelSessionProvider.select((s) => s.isReadyFor(clipUrl)),
         );
     if (!videoReady) _sleeveGone = false;
     final showSleeve = !videoReady || !_sleeveGone;
@@ -76,7 +76,7 @@ class _NowPlayingFullBleedViewState
       builder: (context, constraints) {
         final w = constraints.maxWidth;
         final h = constraints.maxHeight;
-        final artWidth = w * 0.56;
+        final artWidth = w * 0.64;
         final coverEdge = math.max(artWidth, h);
 
         return Stack(
@@ -94,7 +94,7 @@ class _NowPlayingFullBleedViewState
               ),
             ),
 
-            // 1. Left Full-Bleed Canvas / Hi-Res Official Cover with Soft Alpha Feather
+            // 1. Left Full-Bleed Canvas / Hi-Res Official Cover with Wide Smoothstep Feather
             Positioned(
               top: 0,
               bottom: 0,
@@ -105,11 +105,17 @@ class _NowPlayingFullBleedViewState
                   shaderCallback: (bounds) => LinearGradient(
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
-                    stops: const [0.0, 0.72, 0.90, 1.0],
+                    // Wide cubic-eased alpha curve (27% -> 64% of stage width)
+                    // eliminates vertical Mach-band seams against the ambient mesh.
+                    stops: const [0.0, 0.42, 0.52, 0.62, 0.72, 0.82, 0.91, 1.0],
                     colors: [
                       Colors.white,
                       Colors.white,
-                      Colors.white.withValues(alpha: 0.45),
+                      Colors.white.withValues(alpha: 0.92),
+                      Colors.white.withValues(alpha: 0.74),
+                      Colors.white.withValues(alpha: 0.48),
+                      Colors.white.withValues(alpha: 0.24),
+                      Colors.white.withValues(alpha: 0.07),
                       Colors.transparent,
                     ],
                   ).createShader(bounds),
@@ -123,6 +129,7 @@ class _NowPlayingFullBleedViewState
                           fallbackUrl: activeFallbackUrl,
                           width: artWidth,
                           height: h,
+                          usePortraitSession: true,
                         ),
                       if (showSleeve)
                         AnimatedOpacity(
@@ -142,7 +149,7 @@ class _NowPlayingFullBleedViewState
                                 url: track.artworkUrl,
                                 videoId: track.videoId,
                                 size: coverEdge,
-                                decodeExtent: 720,
+                                decodeExtent: 1024,
                                 radius: 0,
                                 label: track.title,
                                 title: track.title,
@@ -161,10 +168,10 @@ class _NowPlayingFullBleedViewState
             Positioned(
               top: 0,
               bottom: 0,
-              left: w * 0.48,
+              left: w * 0.51,
               right: 0,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 72, 48, 32),
+                padding: const EdgeInsets.fromLTRB(28, 64, 52, 32),
                 child: _activeTab == 'lyrics'
                     ? WaveKaraokeLyricsView(
                         track: track,
@@ -180,75 +187,28 @@ class _NowPlayingFullBleedViewState
               ),
             ),
 
-            // 3. Top-Left Floating Track Pill (+ Back button in immersive fullscreen)
-            Positioned(
-              top: 18,
-              left: 20,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (isImmersive) ...[
-                    _FullBleedIconButton(
-                      icon: FluentIcons.chevron_left,
-                      tooltip: 'Exit fullscreen (F11)',
-                      onTap: () {
-                        ref.read(nowPlayingImmersiveProvider.notifier).state =
-                            false;
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 260),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.44),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.12),
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          track.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          track.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w400,
-                            color: Colors.white.withValues(alpha: 0.76),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            // 3. Top-Left Back button (only in immersive fullscreen)
+            if (isImmersive)
+              Positioned(
+                top: 18,
+                left: 20,
+                child: _FullBleedIconButton(
+                  icon: FluentIcons.chevron_left,
+                  tooltip: 'Exit fullscreen (F11)',
+                  onTap: () {
+                    ref.read(nowPlayingImmersiveProvider.notifier).state =
+                        false;
+                  },
+                ),
               ),
-            ),
 
-            // 4. Unified Top-Right Control Bar (Visualizer, Fullscreen, Overflow)
+            // 4. Unified Top-Right Control Bar (Fullscreen, Overflow — no Ambient toggle in Full Bleed)
             Positioned(
               top: 18,
               right: 20,
               child: NowPlayingTopActions(
                 track: track,
+                showAmbientToggle: false,
                 isQueueOpen: _activeTab == 'upNext',
                 onToggleQueue: () => setState(
                   () => _activeTab =
