@@ -2274,12 +2274,16 @@ class InstrumentalCountdownDots extends StatefulWidget {
   final ValueListenable<int> positionListenable;
   final int breakStartMs;
   final int breakEndMs;
+  final double? fontSize;
+  final bool compact;
 
   const InstrumentalCountdownDots({
     super.key,
     required this.positionListenable,
     required this.breakStartMs,
     required this.breakEndMs,
+    this.fontSize,
+    this.compact = false,
   });
 
   @override
@@ -2341,13 +2345,17 @@ class _InstrumentalCountdownDotsState extends State<InstrumentalCountdownDots>
 
   @override
   Widget build(BuildContext context) {
+    final effectiveFontSize =
+        widget.fontSize ?? (widget.compact ? 28.0 : 36.0);
+    final dotSize = effectiveFontSize * 0.22;
+
     return ValueListenableBuilder<int>(
       valueListenable: widget.positionListenable,
       builder: (context, posMs, _) {
         final isActive =
             posMs >= widget.breakStartMs && posMs < widget.breakEndMs;
         if (!isActive) {
-          return const SizedBox(height: 12.0);
+          return const SizedBox.shrink();
         }
 
         final totalDur = math.max(1, widget.breakEndMs - widget.breakStartMs);
@@ -2356,64 +2364,41 @@ class _InstrumentalCountdownDotsState extends State<InstrumentalCountdownDots>
 
         return RepaintBoundary(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 20.0),
+            padding: EdgeInsets.symmetric(
+              vertical: widget.compact ? 6.0 : 10.0,
+              horizontal: widget.compact ? 8.0 : 12.0,
+            ),
             child: AnimatedBuilder(
               animation: _pulseAnimation,
               builder: (context, child) {
                 final pulse = _pulseAnimation.value;
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 8.0,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08 + 0.06 * pulse),
-                    borderRadius: BorderRadius.circular(24.0),
-                    border: Border.all(
-                      color:
-                          Colors.white.withValues(alpha: 0.16 + 0.22 * pulse),
-                      width: 1.2,
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      '♪',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: effectiveFontSize,
+                        fontWeight: FontWeight.w700,
+                        height: 1.1,
+                        shadows: [
+                          Shadow(
+                            color: Colors.white
+                                .withValues(alpha: 0.55 + 0.35 * pulse),
+                            blurRadius: 8.0 + 8.0 * pulse,
+                            offset: Offset.zero,
+                          ),
+                        ],
+                      ),
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.white.withValues(alpha: 0.25 * pulse),
-                        blurRadius: 14.0 + 8.0 * pulse,
-                        spreadRadius: 1.0 + 2.0 * pulse,
-                      ),
-                      BoxShadow(
-                        color: const Color(0xFF64B5F6)
-                            .withValues(alpha: 0.14 * pulse),
-                        blurRadius: 22.0 * pulse,
-                        spreadRadius: 1.0 * pulse,
-                      ),
+                    SizedBox(width: effectiveFontSize * 0.35),
+                    for (int dot = 0; dot < 3; dot++) ...[
+                      if (dot > 0) SizedBox(width: effectiveFontSize * 0.18),
+                      _buildCountdownDot(dot, progress, pulse, dotSize),
                     ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '♪',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22.0,
-                          fontWeight: FontWeight.w700,
-                          height: 1.0,
-                          shadows: [
-                            Shadow(
-                              color: Colors.white
-                                  .withValues(alpha: 0.6 + 0.4 * pulse),
-                              blurRadius: 8.0 + 8.0 * pulse,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12.0),
-                      for (int dot = 0; dot < 3; dot++) ...[
-                        if (dot > 0) const SizedBox(width: 6.0),
-                        _buildCountdownDot(dot, progress, pulse),
-                      ],
-                    ],
-                  ),
+                  ],
                 );
               },
             ),
@@ -2423,19 +2408,25 @@ class _InstrumentalCountdownDotsState extends State<InstrumentalCountdownDots>
     );
   }
 
-  Widget _buildCountdownDot(int dot, double progress, double pulse) {
+  Widget _buildCountdownDot(
+    int dot,
+    double progress,
+    double pulse,
+    double baseSize,
+  ) {
     final threshold = (dot + 1) / 4.0;
     final isLit = progress >= threshold;
+    final size = isLit ? baseSize * 1.15 : baseSize * 0.85;
     return Container(
-      width: isLit ? 7.0 : 5.5,
-      height: isLit ? 7.0 : 5.5,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: isLit ? Colors.white : Colors.white.withValues(alpha: 0.25),
+        color: isLit ? Colors.white : Colors.white.withValues(alpha: 0.28),
         boxShadow: isLit
             ? [
                 BoxShadow(
-                  color: Colors.white.withValues(alpha: 0.7 + 0.3 * pulse),
+                  color: Colors.white.withValues(alpha: 0.65 + 0.35 * pulse),
                   blurRadius: 6.0 + 4.0 * pulse,
                 ),
               ]
@@ -2505,6 +2496,7 @@ class DesktopStanzaWidget extends StatelessWidget {
                 positionListenable: positionListenable,
                 breakStartMs: breakStartMs,
                 breakEndMs: breakEndMs,
+                fontSize: activeStyle.fontSize,
               ),
             for (final group in stanza.groups)
               _buildLineGroup(context, group),
@@ -3094,6 +3086,8 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                             positionListenable: widget.positionListenable,
                             breakStartMs: prevEndMs,
                             breakEndMs: line.timeMs,
+                            fontSize: lineFontSize,
+                            compact: widget.compact,
                           ),
                         lineWidget,
                       ],
