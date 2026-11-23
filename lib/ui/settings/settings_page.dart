@@ -63,22 +63,28 @@ import 'settings_search.dart';
 import '../theme/wave_icons.dart';
 
 const waveSettingsSections = [
-  ('sound', 'Sound & Playback', WaveIcons.speaker),
-  ('display', 'Performance & Display', WaveIcons.theme),
-  ('lyrics', 'Lyrics & Visuals', WaveIcons.lyrics),
-  ('library', 'Storage & Library', WaveIcons.library),
-  ('services', 'Accounts & Services', FluentIcons.link),
+  ('general', 'General', WaveIcons.settings),
+  ('appearance', 'Appearance', WaveIcons.theme),
+  ('audio', 'Audio', WaveIcons.speaker),
+  ('playback', 'Playback', WaveIcons.equalizer),
+  ('lyrics', 'Lyrics', WaveIcons.lyrics),
+  ('library', 'Library & Storage', WaveIcons.library),
+  ('accounts', 'Accounts', FluentIcons.link),
+  ('about', 'About', WaveIcons.info),
 ];
 
 String normalizeSection(String? raw) {
-  if (raw == null || raw.isEmpty) return 'sound';
+  if (raw == null || raw.isEmpty) return 'general';
   return switch (raw.toLowerCase()) {
-    'sound' || 'audio' || 'playback' => 'sound',
-    'display' || 'general' || 'appearance' || 'experimental' => 'display',
+    'general' || 'display' || 'behaviour' || 'language' => 'general',
+    'appearance' || 'theme' => 'appearance',
+    'audio' || 'sound' => 'audio',
+    'playback' => 'playback',
     'lyrics' => 'lyrics',
-    'library' || 'downloads' => 'library',
-    'services' || 'lastfm' || 'integrations' || 'sources' || 'about' => 'services',
-    _ => 'sound',
+    'library' || 'downloads' || 'storage' => 'library',
+    'accounts' || 'services' || 'lastfm' || 'integrations' || 'scrobbler' || 'spotify' || 'discord' => 'accounts',
+    'about' || 'updates' || 'diagnostics' || 'sources' || 'experimental' => 'about',
+    _ => 'general',
   };
 }
 
@@ -100,11 +106,14 @@ class WaveSettingsPage extends ConsumerStatefulWidget {
 String _sectionTitle(BuildContext context, String key, String fallback) {
   final l10n = context.l10n;
   return switch (key) {
-    'sound' => l10n.settingsSound,
-    'display' => l10n.settingsDisplay,
+    'general' => l10n.settingsGeneral,
+    'appearance' => l10n.settingsAppearance,
+    'audio' => l10n.settingsAudio,
+    'playback' => l10n.settingsPlayback,
     'lyrics' => l10n.settingsLyrics,
     'library' => l10n.settingsLibrary,
-    'services' => l10n.settingsServices,
+    'accounts' => l10n.settingsAccounts,
+    'about' => l10n.settingsAbout,
     _ => fallback,
   };
 }
@@ -290,38 +299,38 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SizedBox(
-              width: 220,
-              child: Scrollbar(
+              width: 240,
+              child: SingleChildScrollView(
                 controller: _railScrollController,
-                interactive: true,
-                child: SingleChildScrollView(
-                  controller: _railScrollController,
-                  physics: const ClampingScrollPhysics(),
-                  padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 12, 20)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'SYSTEM',
-                        style: WaveType.overline.copyWith(
-                          color: waveAccent(context),
-                        ),
+                physics: const ClampingScrollPhysics(),
+                padding: waveDockPadding(context, const EdgeInsets.fromLTRB(20, 20, 12, 20)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'SYSTEM',
+                      style: WaveType.overline.copyWith(
+                        color: waveAccent(context),
                       ),
-                      Text(context.l10n.navSettings, style: WaveType.pageTitle),
-                      const SizedBox(height: 12),
-                      for (final s in waveSettingsSections)
-                        ListTile.selectable(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: WaveRadius.controlsRadius,
-                          ),
-                          selected: _section == s.$1,
-                          selectionMode: ListTileSelectionMode.single,
-                          leading: Icon(s.$3, size: 15),
-                          title: Text(_sectionTitle(context, s.$1, s.$2)),
-                          onPressed: () => setState(() => _section = s.$1),
+                    ),
+                    Text(context.l10n.navSettings, style: WaveType.pageTitle),
+                    const SizedBox(height: 12),
+                    for (final s in waveSettingsSections)
+                      ListTile.selectable(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: WaveRadius.controlsRadius,
                         ),
-                    ],
-                  ),
+                        selected: _section == s.$1,
+                        selectionMode: ListTileSelectionMode.single,
+                        leading: Icon(s.$3, size: 16),
+                        title: Text(
+                          _sectionTitle(context, s.$1, s.$2),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onPressed: () => setState(() => _section = s.$1),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -366,17 +375,23 @@ class _SectionBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     switch (normalizeSection(section)) {
-      case 'sound':
-        return _Sound(onUpdate: onUpdate);
-      case 'display':
-        return _Display(onUpdate: onUpdate);
+      case 'general':
+        return _GeneralSection(onUpdate: onUpdate);
+      case 'appearance':
+        return _AppearanceSection(onUpdate: onUpdate);
+      case 'audio':
+        return _AudioSection(onUpdate: onUpdate);
+      case 'playback':
+        return _PlaybackSection(onUpdate: onUpdate);
       case 'lyrics':
         return _LyricsSection(onUpdate: onUpdate);
       case 'library':
         return _LibrarySection(onUpdate: onUpdate);
-      case 'services':
+      case 'accounts':
+        return _AccountsSection(onUpdate: onUpdate);
+      case 'about':
       default:
-        return _ServicesSection(onUpdate: onUpdate);
+        return _AboutSection(onUpdate: onUpdate);
     }
   }
 }
@@ -552,7 +567,7 @@ class _Account extends ConsumerWidget {
     final signedIn = auth.username.isNotEmpty;
     final guest = auth.status == AuthStatus.guest || prefs.isGuest;
     return _Group(
-      id: 'services.connection',
+      id: 'accounts.connection',
       title: 'Last.fm connection',
       subtitle: 'Scrobbling and discovery need a session',
       child: Column(
@@ -732,9 +747,9 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
   }
 }
 
-class _Sound extends ConsumerWidget {
+class _AudioSection extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _Sound({required this.onUpdate});
+  const _AudioSection({required this.onUpdate});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -742,7 +757,7 @@ class _Sound extends ConsumerWidget {
     return Column(
       children: [
         _Group(
-          id: 'sound.output',
+          id: 'audio.output',
           title: 'Audio output',
           subtitle: Platform.isWindows
               ? 'WASAPI Exclusive bypasses the Windows mixer'
@@ -751,7 +766,7 @@ class _Sound extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
-          id: 'sound.quality',
+          id: 'audio.quality',
           title: 'Streaming and Download quality',
           subtitle: 'Lossless-first with YouTube fallback',
           child: Column(
@@ -778,10 +793,8 @@ class _Sound extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 16),
-        _Playback(onUpdate: onUpdate),
-        const SizedBox(height: 16),
         _Group(
-          id: 'sound.loudness',
+          id: 'audio.loudness',
           title: 'Loudness',
           subtitle: LoudnessMath.settingsSubtitle(prefs.loudnessMode),
           child: Column(
@@ -806,9 +819,24 @@ class _Sound extends ConsumerWidget {
             ],
           ),
         ),
+      ],
+    );
+  }
+}
+
+class _PlaybackSection extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _PlaybackSection({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(prefsProvider);
+    return Column(
+      children: [
+        _Playback(onUpdate: onUpdate),
         const SizedBox(height: 16),
         _Group(
-          id: 'sound.headphones',
+          id: 'playback.headphones',
           title: 'Headphone correction',
           subtitle: 'A built-in curve for a few common headphones',
           child: WaveSelect<String>(
@@ -834,7 +862,7 @@ class _Sound extends ConsumerWidget {
         _TimedMixSettings(onUpdate: onUpdate),
         const SizedBox(height: 16),
         _Group(
-          id: 'sound.equalizer',
+          id: 'playback.equalizer',
           title: 'Equalizer & Sound FX',
           subtitle: '10-band ISO curves with acoustic & stage compensation',
           child: const SizedBox(
@@ -874,7 +902,7 @@ class _Appearance extends ConsumerWidget {
     return Column(
       children: [
         _Group(
-          id: 'display.theme',
+          id: 'appearance.theme',
           title: 'Theme',
           subtitle: 'Midnight, Pearl, artwork, or your own colours',
           child: Column(
@@ -1023,7 +1051,7 @@ class _Appearance extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
-          id: 'display.haze',
+          id: 'appearance.haze',
           title: 'Haze material',
           subtitle: isPerfOn
               ? 'Solid mode active · Managed by Performance Mode'
@@ -1082,7 +1110,7 @@ class _Appearance extends ConsumerWidget {
 
         const SizedBox(height: 16),
         _Group(
-          id: 'display.font',
+          id: 'appearance.font',
           title: 'Font',
           subtitle: 'The typeface used across the app',
           child: _BehaviourSelectRow(
@@ -1105,7 +1133,7 @@ class _Appearance extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
-          id: 'display.surfaces',
+          id: 'appearance.surfaces',
           title: 'Surfaces',
           subtitle: 'Contrast and artwork tinting',
           child: Column(
@@ -1572,7 +1600,7 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
         .clamp(25, 90)
         .toDouble();
     return _Group(
-      id: 'services.scrobbling',
+      id: 'accounts.scrobbling',
       title: 'Scrobbler rules',
       subtitle: 'Thresholds apply across all connected scrobblers',
       child: Column(
@@ -1722,7 +1750,7 @@ class _Ytm extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _Group(
-          id: 'services.ytm',
+          id: 'accounts.ytm',
           title: 'YouTube Music',
           subtitle: 'Personal library, history and uploads',
           child: connection.connected
@@ -1765,14 +1793,14 @@ class _Ytm extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
-          id: 'services.spotify',
+          id: 'accounts.spotify',
           title: 'Spotify',
           subtitle: 'Your playlists, Liked Songs and Canvas',
           child: _SpotifyCard(onUpdate: onUpdate),
         ),
         const SizedBox(height: 16),
         _Group(
-          id: 'services.discord',
+          id: 'accounts.discord',
           title: 'Discord',
           subtitle: 'Show what you are listening to on your Discord profile',
           child: _SwitchRow(
@@ -2982,7 +3010,7 @@ class _Sources extends ConsumerWidget {
         ? src.quotaByBase
         : const <String, AddonQuota>{};
     return _Group(
-      id: 'services.addons',
+      id: 'about.addons',
       title: 'Addon sources',
       subtitle: urls.isEmpty
           ? 'No addon configured — using the built-in lossless backend'
@@ -3277,7 +3305,7 @@ class _AboutState extends ConsumerState<_About> {
   @override
   Widget build(BuildContext context) {
     return _Group(
-      id: 'services.about',
+      id: 'about.about',
       title: 'About LastWave',
       subtitle: 'Build and project links',
       child: Column(
@@ -3367,9 +3395,9 @@ class _AboutState extends ConsumerState<_About> {
   }
 }
 
-class _Display extends ConsumerWidget {
+class _GeneralSection extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _Display({required this.onUpdate});
+  const _GeneralSection({required this.onUpdate});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -3377,13 +3405,21 @@ class _Display extends ConsumerWidget {
       children: [
         const PerformanceModeCard(),
         const SizedBox(height: 16),
-        _Appearance(onUpdate: onUpdate),
-        const SizedBox(height: 16),
         _Behaviour(onUpdate: onUpdate),
         const SizedBox(height: 16),
         _Experimental(onUpdate: onUpdate),
       ],
     );
+  }
+}
+
+class _AppearanceSection extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _AppearanceSection({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _Appearance(onUpdate: onUpdate);
   }
 }
 
@@ -3397,7 +3433,7 @@ class _Behaviour extends ConsumerWidget {
     return Column(
       children: [
         _Group(
-          id: 'display.behaviour',
+          id: 'general.behaviour',
           title: 'Behaviour',
           subtitle: 'Startup and window defaults',
           child: Column(
@@ -3436,7 +3472,7 @@ class _Behaviour extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
-          id: 'display.language',
+          id: 'general.language',
           title: context.l10n.settingsLanguage,
           subtitle: context.l10n.settingsLanguageSub,
           child: const _LanguageSelectRow(),
@@ -3489,7 +3525,7 @@ class _Diagnostics extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     return _Group(
-      id: 'services.diagnostics',
+      id: 'about.diagnostics',
       title: 'Diagnostics',
       subtitle: 'Local logs for troubleshooting — nothing is uploaded',
       child: Column(
@@ -3535,9 +3571,9 @@ class _Diagnostics extends ConsumerWidget {
   }
 }
 
-class _ServicesSection extends ConsumerWidget {
+class _AccountsSection extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _ServicesSection({required this.onUpdate});
+  const _AccountsSection({required this.onUpdate});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -3546,12 +3582,24 @@ class _ServicesSection extends ConsumerWidget {
         _Ytm(onUpdate: onUpdate),
         const SizedBox(height: 16),
         _LastFm(onUpdate: onUpdate),
+      ],
+    );
+  }
+}
+
+class _AboutSection extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _AboutSection({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      children: [
+        const _About(),
         const SizedBox(height: 16),
         _Sources(onUpdate: onUpdate),
         const SizedBox(height: 16),
         _Diagnostics(onUpdate: onUpdate),
-        const SizedBox(height: 16),
-        const _About(),
       ],
     );
   }
@@ -3574,7 +3622,7 @@ class _PlaybackState extends ConsumerState<_Playback> {
     final currentSeconds = _dragSeconds ?? prefs.crossfadeSeconds.toDouble();
 
     return _Group(
-      id: 'sound.playback',
+      id: 'playback.playback',
       title: 'Playback',
       subtitle: 'Gapless, crossfade and output behaviour',
       child: Column(
@@ -3833,7 +3881,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
     final configured = prefs.isLastFmConfigured;
     // Lives inside the Last.fm connection card; the keys belong to it.
     return SettingsTarget(
-      id: 'services.keys',
+      id: 'accounts.keys',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -3948,7 +3996,7 @@ class _ExperimentalState extends ConsumerState<_Experimental> {
     final isPerfOn = ref.watch(performanceModeProvider);
     final l10n = context.l10n;
     return _Group(
-      id: 'display.experimental',
+      id: 'general.experimental',
       title: 'Experimental',
       subtitle: 'Opt-in desktop prototypes',
       child: Column(
@@ -4032,7 +4080,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
   Widget build(BuildContext context) {
     final prefs = ref.watch(prefsProvider);
     return _Group(
-      id: 'sound.automix',
+      id: 'playback.automix',
       title: 'AutoMix',
       subtitle: prefs.autoMixEnabled
           ? 'DJ-style blends on the beat. Turns crossfade off.'
@@ -4450,7 +4498,7 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
     final lb = ref.read(listenBrainzProvider);
     final lf = ref.read(libreFmProvider);
     return _Group(
-      id: 'services.others',
+      id: 'accounts.others',
       title: 'ListenBrainz & Libre.fm',
       subtitle: 'Connect accounts to scrobble simultaneously with LastWave',
       child: Column(

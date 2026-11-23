@@ -64,11 +64,14 @@ void main() {
 
   test('every entry names a real section', () {
     const sections = {
-      'sound',
-      'display',
+      'general',
+      'appearance',
+      'audio',
+      'playback',
       'lyrics',
       'library',
-      'services',
+      'accounts',
+      'about',
     };
     for (final e in settingsSearchEntries) {
       expect(sections, contains(e.section), reason: e.id);

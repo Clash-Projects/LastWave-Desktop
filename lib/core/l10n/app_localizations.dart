@@ -96,6 +96,7 @@ class AppLocalizations {
   // -- Settings Sections ----------------------------------------------------
   String get settingsSound => tr('settingsSound');
   String get settingsDisplay => tr('settingsDisplay');
+  String get settingsAccounts => tr('settingsAccounts');
   String get settingsGeneral => tr('settingsGeneral');
   String get settingsPlayback => tr('settingsPlayback');
   String get settingsAudio => tr('settingsAudio');
