@@ -52,7 +52,10 @@ Future<void> _pumpNowPlaying(
   required Size size,
   Widget Function(Widget page)? builder,
 }) async {
-  SharedPreferences.setMockInitialValues({'lw_visualizer_enabled': false});
+  SharedPreferences.setMockInitialValues({
+    'lw_visualizer_enabled': false,
+    'lw_now_playing_style': 'standard',
+  });
   final prefs = await Prefs.load();
   final db = AppDatabase.inMemory();
   addTearDown(db.close);

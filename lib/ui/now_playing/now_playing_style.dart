@@ -3,9 +3,9 @@ import '../../core/storage/prefs.dart';
 
 /// Now Playing layout style.
 enum NowPlayingStyle {
-  standard('standard', 'Default', 'Artwork, audio info & full toolbar'),
-  fullBleed('fullBleed', 'Full Bleed', 'Edge-to-edge faded cover & clean lyrics'),
-  minimal('minimal', 'Minimal', 'Sharp cover art & distraction-free duet');
+  fullBleed('fullBleed', 'Full Bleed', 'Edge-to-edge canvas & seamless lyrics'),
+  minimal('minimal', 'Minimal', 'Sharp cover art & distraction-free duet'),
+  standard('standard', 'Old', 'Classic dual pane, audio info & up next');
 
   final String id;
   final String label;
@@ -13,9 +13,9 @@ enum NowPlayingStyle {
   const NowPlayingStyle(this.id, this.label, this.subtitle);
 
   static NowPlayingStyle fromId(String? id) => switch (id) {
-    'fullBleed' => fullBleed,
     'minimal' => minimal,
-    _ => standard,
+    'standard' => standard,
+    _ => fullBleed,
   };
 }
 
