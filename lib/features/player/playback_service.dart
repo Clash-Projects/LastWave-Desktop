@@ -581,7 +581,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           await dyn.setProperty('ad-lavc-threads', '1');
         } catch (_) {}
         try {
-          await dyn.setProperty('audio-buffer', '0.2');
+          await dyn.setProperty(
+            'audio-buffer',
+            _timedMixEnabled ? '0.2' : '0.4',
+          );
         } catch (_) {}
         try {
           // Stall tolerance for slow stream starts (loopback assembly
@@ -833,7 +836,10 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           await platform.setProperty('ad-lavc-threads', '1');
         } catch (_) {}
         try {
-          await platform.setProperty('audio-buffer', '0.2');
+          await platform.setProperty(
+            'audio-buffer',
+            _timedMixEnabled ? '0.2' : '0.4',
+          );
         } catch (_) {}
         try {
           await platform.setProperty('stream-lavf-o', 'timeout=15000000');

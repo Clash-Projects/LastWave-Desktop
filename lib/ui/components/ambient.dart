@@ -582,7 +582,7 @@ final _paletteLruCache = <String, ArtworkPalette>{};
 /// navigating back to a page re-reads the cached palette instead of
 /// re-extracting it, short enough that a long session's element count
 /// stays proportional to what's on screen.
-const _paletteKeepAlive = Duration(minutes: 5);
+const _paletteKeepAlive = Duration(minutes: 2);
 
 void _keepPaletteAlive(Ref ref) {
   final link = ref.keepAlive();
@@ -1186,15 +1186,17 @@ class _AuraLayers extends StatefulWidget {
 }
 
 class _AuraLayersState extends State<_AuraLayers> {
-  /// Drives the phase at a fixed 25 Hz. Deliberately NOT a Ticker: a
+  /// Drives the phase at ~15 Hz (66 ms). Deliberately NOT a Ticker: a
   /// Ticker schedules a frame on every vsync, and every frame composites
   /// the whole window (60-165 Hz) even when the throttled tick skipped the
-  /// repaint. A Timer only requests the 25 frames/s it actually paints.
+  /// repaint. A 15 Hz Timer only requests the frames it actually paints,
+  /// saving ~40% GPU raster and UI thread overhead while maintaining
+  /// visually smooth ambient aura drift.
   Timer? _timer;
   final ValueNotifier<double> _phaseNotifier = ValueNotifier<double>(0.0);
   final Stopwatch _clock = Stopwatch();
   Duration _lastTick = Duration.zero;
-  static const Duration _frameInterval = Duration(milliseconds: 40);
+  static const Duration _frameInterval = Duration(milliseconds: 66);
 
   Size? _shaderSize;
   ArtworkPalette? _shaderPalette;
@@ -1292,7 +1294,7 @@ class _AuraLayersState extends State<_AuraLayers> {
   void _onTick(Duration elapsed) {
     if (!mounted) return;
     final dtMs = _lastTick == Duration.zero
-        ? 40
+        ? 66
         : (elapsed - _lastTick).inMilliseconds.clamp(1, 200);
     _lastTick = elapsed;
     // Mutate ValueNotifier directly: repaint only, no rebuild.
