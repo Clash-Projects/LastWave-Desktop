@@ -256,7 +256,8 @@ ui.Image _buildDitherTile() {
 class _DitherPainter extends CustomPainter {
   const _DitherPainter();
 
-  static const double _alpha = 0.02;
+  // ~2/255 levels breaks 8-bit gradient banding without adding visible grain.
+  static const double _alpha = 0.008;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -894,14 +895,14 @@ final auraTexturesProvider =
   // read back two textures behind a black stage.
   _keepPaletteAlive(ref);
   final src = await _decodeArtwork(url);
-  const out = 256;
-  const rect = Rect.fromLTWH(0, 0, 256, 256);
+  const out = 512;
+  const rect = Rect.fromLTWH(0, 0, 512, 512);
 
-  // 1. Bake full-cover saturated Gaussian blur texture.
+  // 1. Bake full-cover saturated liquid-glass Gaussian blur texture.
   final baseRecorder = ui.PictureRecorder();
   final baseCanvas = Canvas(baseRecorder);
   final blurPaint = Paint()
-    ..filterQuality = FilterQuality.low
+    ..filterQuality = FilterQuality.high
     ..colorFilter = const ColorFilter.matrix(<double>[
       1.58, -0.34, -0.06, 0, 0,
       -0.11, 1.36, -0.06, 0, 0,
@@ -909,8 +910,8 @@ final auraTexturesProvider =
       0, 0, 0, 1, 0,
     ])
     ..imageFilter = ui.ImageFilter.blur(
-      sigmaX: 26,
-      sigmaY: 26,
+      sigmaX: 64,
+      sigmaY: 64,
       tileMode: TileMode.mirror,
     );
   baseCanvas.drawImageRect(
@@ -1331,29 +1332,22 @@ class _AuraLayersState extends State<_AuraLayers> {
         if (!size.isFinite || size.isEmpty) {
           return const SizedBox.expand();
         }
-        final half = Size(size.width / 2, size.height / 2);
-        _updateShaders(half, widget.palette, widget.apple);
+        _updateShaders(size, widget.palette, widget.apple);
         return SizedBox.expand(
-          child: FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox.fromSize(
-              size: half,
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  isComplex: false,
-                  willChange: _timer?.isActive ?? false,
-                  painter: _AuraPainter(
-                    textures: widget.textures,
-                    palette: widget.palette,
-                    canvasSize: half,
-                    phaseNotifier: _phaseNotifier,
-                    apple: widget.apple,
-                    appleVignetteShader: _appleVignetteShader,
-                    tonalBloomShader: _tonalBloomShader,
-                    tonalLinearShader: _tonalLinearShader,
-                    tonalVignetteShader: _tonalVignetteShader,
-                  ),
-                ),
+          child: RepaintBoundary(
+            child: CustomPaint(
+              isComplex: false,
+              willChange: _timer?.isActive ?? false,
+              painter: _AuraPainter(
+                textures: widget.textures,
+                palette: widget.palette,
+                canvasSize: size,
+                phaseNotifier: _phaseNotifier,
+                apple: widget.apple,
+                appleVignetteShader: _appleVignetteShader,
+                tonalBloomShader: _tonalBloomShader,
+                tonalLinearShader: _tonalLinearShader,
+                tonalVignetteShader: _tonalVignetteShader,
               ),
             ),
           ),
@@ -1426,7 +1420,7 @@ class _AuraPainter extends CustomPainter {
     );
     final paint = Paint()
       ..isAntiAlias = true
-      ..filterQuality = FilterQuality.low
+      ..filterQuality = FilterQuality.high
       ..colorFilter = filter;
     canvas.save();
     canvas.translate(center.dx, center.dy);

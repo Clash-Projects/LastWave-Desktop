@@ -4,7 +4,21 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../core/artwork/animated_artwork_session.dart';
 
-/// Looping muted motion-art player — Now Playing cover only.
+/// Forces alpha = 255 on every pixel without altering RGB.
+///
+/// On Windows/Linux software rendering (`MPV_RENDER_PARAM_SW_FORMAT = "rgb0"`),
+/// mpv writes `0x00` into the 4th byte. Flutter/Skia composites pixel-buffer
+/// textures as premultiplied RGBA, so `(R, G, B, 0)` blends *additively* over
+/// the ambient backdrop (`dst + src`), causing abnormally bright highlights
+/// and making dark video regions bleed transparently into the background.
+const ColorFilter _opaqueAlphaFilter = ColorFilter.matrix(<double>[
+  1, 0, 0, 0, 0,
+  0, 1, 0, 0, 0,
+  0, 0, 1, 0, 0,
+  0, 0, 0, 0, 255,
+]);
+
+/// Looping muted motion-art player — Now Playing cover / Full Bleed canvas.
 ///
 /// Uses the app-scoped [AnimatedArtworkSession] so the clip survives
 /// leaving Now Playing and skipping tracks on the same album. Kept fully
@@ -85,14 +99,17 @@ class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
       child: SizedBox(
         width: widget.width ?? widget.size ?? double.infinity,
         height: widget.height ?? widget.size ?? double.infinity,
-        child: Video(
-          controller: controller,
-          controls: NoVideoControls,
-          fill: const Color(0x00000000),
-          fit: BoxFit.cover,
-          wakelock: false,
-          pauseUponEnteringBackgroundMode: false,
-          resumeUponEnteringForegroundMode: false,
+        child: ColorFiltered(
+          colorFilter: _opaqueAlphaFilter,
+          child: Video(
+            controller: controller,
+            controls: NoVideoControls,
+            fill: const Color(0xFF000000),
+            fit: BoxFit.cover,
+            wakelock: false,
+            pauseUponEnteringBackgroundMode: false,
+            resumeUponEnteringForegroundMode: false,
+          ),
         ),
       ),
     );

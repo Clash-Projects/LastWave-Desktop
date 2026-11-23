@@ -26,8 +26,6 @@ import 'now_playing_style.dart';
 class NowPlayingTopActions extends ConsumerWidget {
   final PlayableTrack track;
   final bool showAmbientToggle;
-  final VoidCallback? onToggleQueue;
-  final bool isQueueOpen;
   final VoidCallback? onToggleLyrics;
   final bool lyricsVisible;
   final VoidCallback? onToggleFocus;
@@ -38,8 +36,6 @@ class NowPlayingTopActions extends ConsumerWidget {
     super.key,
     required this.track,
     this.showAmbientToggle = true,
-    this.onToggleQueue,
-    this.isQueueOpen = false,
     this.onToggleLyrics,
     this.lyricsVisible = true,
     this.onToggleFocus,
@@ -80,8 +76,6 @@ class NowPlayingTopActions extends ConsumerWidget {
         NowPlayingOverflowMenuButton(
           track: track,
           showAmbientToggle: showAmbientToggle,
-          onToggleQueue: onToggleQueue,
-          isQueueOpen: isQueueOpen,
           onToggleLyrics: onToggleLyrics,
           lyricsVisible: lyricsVisible,
           onToggleFocus: onToggleFocus,
@@ -97,8 +91,6 @@ class NowPlayingTopActions extends ConsumerWidget {
 class NowPlayingOverflowMenuButton extends ConsumerStatefulWidget {
   final PlayableTrack track;
   final bool showAmbientToggle;
-  final VoidCallback? onToggleQueue;
-  final bool isQueueOpen;
   final VoidCallback? onToggleLyrics;
   final bool lyricsVisible;
   final VoidCallback? onToggleFocus;
@@ -110,8 +102,6 @@ class NowPlayingOverflowMenuButton extends ConsumerStatefulWidget {
     super.key,
     required this.track,
     this.showAmbientToggle = true,
-    this.onToggleQueue,
-    this.isQueueOpen = false,
     this.onToggleLyrics,
     this.lyricsVisible = true,
     this.onToggleFocus,
@@ -151,8 +141,6 @@ class _NowPlayingOverflowMenuButtonState
         child: _NowPlayingOverflowMenuContent(
           track: widget.track,
           showAmbientToggle: widget.showAmbientToggle,
-          onToggleQueue: widget.onToggleQueue,
-          isQueueOpen: widget.isQueueOpen,
           onToggleLyrics: widget.onToggleLyrics,
           lyricsVisible: widget.lyricsVisible,
           onToggleFocus: widget.onToggleFocus,
@@ -189,8 +177,6 @@ class _NowPlayingOverflowMenuButtonState
 class _NowPlayingOverflowMenuContent extends ConsumerStatefulWidget {
   final PlayableTrack track;
   final bool showAmbientToggle;
-  final VoidCallback? onToggleQueue;
-  final bool isQueueOpen;
   final VoidCallback? onToggleLyrics;
   final bool lyricsVisible;
   final VoidCallback? onToggleFocus;
@@ -199,8 +185,6 @@ class _NowPlayingOverflowMenuContent extends ConsumerStatefulWidget {
   const _NowPlayingOverflowMenuContent({
     required this.track,
     this.showAmbientToggle = true,
-    this.onToggleQueue,
-    this.isQueueOpen = false,
     this.onToggleLyrics,
     this.lyricsVisible = true,
     this.onToggleFocus,
@@ -217,14 +201,12 @@ class _NowPlayingOverflowMenuContentState
   _CascadingSubmenuRowState? _openSubmenu;
   late bool _lyricsVisible;
   late bool _focusMode;
-  late bool _isQueueOpen;
 
   @override
   void initState() {
     super.initState();
     _lyricsVisible = widget.lyricsVisible;
     _focusMode = widget.focusMode;
-    _isQueueOpen = widget.isQueueOpen;
   }
 
   void _onSubmenuOpened(_CascadingSubmenuRowState submenu) {
@@ -572,18 +554,6 @@ class _NowPlayingOverflowMenuContentState
             ref.read(nowPlayingImmersiveProvider.notifier).state = !isImmersive;
           },
         ),
-        if (widget.onToggleQueue != null)
-          _MenuActionTile(
-            icon: WaveIcons.queue,
-            title: 'Up Next queue',
-            hint: _isQueueOpen ? 'Visible' : 'Hidden',
-            active: _isQueueOpen,
-            onHoverEnter: _closeSubmenu,
-            onTap: () {
-              setState(() => _isQueueOpen = !_isQueueOpen);
-              widget.onToggleQueue!();
-            },
-          ),
 
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),

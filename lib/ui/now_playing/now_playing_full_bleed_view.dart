@@ -11,7 +11,6 @@ import '../../features/spotify/canvas_clip.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artwork.dart';
-import '../queue/queue_panel.dart';
 import 'immersive.dart';
 import 'now_playing_overflow_menu.dart';
 
@@ -32,7 +31,6 @@ class NowPlayingFullBleedView extends ConsumerStatefulWidget {
 
 class _NowPlayingFullBleedViewState
     extends ConsumerState<NowPlayingFullBleedView> {
-  String _activeTab = 'lyrics'; // 'lyrics' | 'upNext'
   String _lastClipUrl = '';
   String _lastClipFallbackUrl = '';
   bool _sleeveGone = false;
@@ -164,7 +162,7 @@ class _NowPlayingFullBleedViewState
               ),
             ),
 
-            // 2. Right Pane: Lyrics or Up Next Queue
+            // 2. Right Pane: Lyrics
             Positioned(
               top: 0,
               bottom: 0,
@@ -172,18 +170,13 @@ class _NowPlayingFullBleedViewState
               right: 0,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(28, 64, 52, 32),
-                child: _activeTab == 'lyrics'
-                    ? WaveKaraokeLyricsView(
-                        track: track,
-                        compact: false,
-                        showHeaderControls: false,
-                        fontSize: 34.0,
-                        isActive: true,
-                      )
-                    : const WaveQueuePanel(
-                        onClose: null,
-                        embedded: true,
-                      ),
+                child: WaveKaraokeLyricsView(
+                  track: track,
+                  compact: false,
+                  showHeaderControls: false,
+                  fontSize: 34.0,
+                  isActive: true,
+                ),
               ),
             ),
 
@@ -209,11 +202,6 @@ class _NowPlayingFullBleedViewState
               child: NowPlayingTopActions(
                 track: track,
                 showAmbientToggle: false,
-                isQueueOpen: _activeTab == 'upNext',
-                onToggleQueue: () => setState(
-                  () => _activeTab =
-                      _activeTab == 'upNext' ? 'lyrics' : 'upNext',
-                ),
               ),
             ),
           ],

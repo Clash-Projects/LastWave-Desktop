@@ -10,7 +10,6 @@ import '../../features/performance/performance_controller.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artwork.dart';
-import '../queue/queue_panel.dart';
 import 'now_playing_overflow_menu.dart';
 
 /// Minimal Now Playing layout: Sharp cover art (with Canvas / motion art and
@@ -31,7 +30,6 @@ class NowPlayingMinimalView extends ConsumerStatefulWidget {
 }
 
 class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
-  bool _showQueue = false;
   String _lastClipUrl = '';
   String _lastClipFallbackUrl = '';
   bool _sleeveGone = false;
@@ -236,46 +234,14 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
           ),
         ),
 
-        // 4. Unified Top-Right Control Bar (Visualizer, Fullscreen, Overflow)
+        // 4. Unified Top-Right Control Bar (Ambient, Fullscreen, Overflow)
         Positioned(
           top: 18,
           right: 20,
           child: NowPlayingTopActions(
             track: track,
-            isQueueOpen: _showQueue,
-            onToggleQueue: () => setState(() => _showQueue = !_showQueue),
           ),
         ),
-
-        // 6. Up Next Queue Drawer (toggled from overflow menu)
-        if (_showQueue)
-          Positioned(
-            top: 0,
-            bottom: 0,
-            right: 0,
-            width: 380,
-            child: Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF14171A).withValues(alpha: 0.96),
-                border: Border(
-                  left: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.50),
-                    blurRadius: 32,
-                    offset: const Offset(-8, 0),
-                  ),
-                ],
-              ),
-              child: WaveQueuePanel(
-                onClose: () => setState(() => _showQueue = false),
-                embedded: false,
-              ),
-            ),
-          ),
       ],
     );
   }
