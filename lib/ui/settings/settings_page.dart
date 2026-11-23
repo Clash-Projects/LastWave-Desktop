@@ -1,5 +1,6 @@
 import '../components/buttons.dart';
 import '../components/inputs.dart';
+import 'about_components.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -3626,154 +3627,142 @@ class _AboutState extends ConsumerState<_About> {
     }
   }
 
-  Widget _buildUpdateButton() {
-    if (_checking) {
-      return const WaveButton(
-        onPressed: null,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 12,
-              height: 12,
-              child: ProgressRing(strokeWidth: 2),
-            ),
-            SizedBox(width: 8),
-            Text('Checking...'),
-          ],
-        ),
-      );
-    }
-
-    if (_updateAvailable != null) {
-      return WaveFilledButton(
-        onPressed: () =>
-            showUpdateDialog(context, _updateAvailable!, isManualCheck: true),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(FluentIcons.update_restore, size: 14),
-            const SizedBox(width: 6),
-            Text('Update available: v${_updateAvailable!.version}'),
-          ],
-        ),
-      );
-    }
-
-    if (_upToDate) {
-      return WaveButton(
-        onPressed: _checkForUpdates,
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(FluentIcons.check_mark, size: 14, color: WaveColors.success),
-            SizedBox(width: 6),
-            Text('Up to date (check again)'),
-          ],
-        ),
-      );
-    }
-
-    return WaveButton(
-      onPressed: _checkForUpdates,
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(FluentIcons.sync, size: 14),
-          SizedBox(width: 6),
-          Text('Check for updates'),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return _Group(
+    return SettingsTarget(
       id: 'about.about',
-      title: 'About LastWave',
-      subtitle: 'Build and project links',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          // 1. Android-identical Hero branding card
+          AboutHeroCard(
+            appVersion: appVersion,
+            onDownloadMobile: () =>
+                _open('https://github.com/Clash-Projects/LastWave-native'),
+          ),
+          const SizedBox(height: 14),
+
+          // 2. Project & Update actions group
+          AboutCardGroup(
             children: [
-              Text(
-                'LastWave Desktop · v$appVersion',
-                style: WaveType.trackTitle,
+              AboutActionTile(
+                icon: _checking
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: ProgressRing(strokeWidth: 2),
+                      )
+                    : Icon(
+                        _updateAvailable != null
+                            ? FluentIcons.update_restore
+                            : (_upToDate
+                                ? FluentIcons.check_mark
+                                : FluentIcons.cloud_download),
+                        size: 16,
+                      ),
+                iconContainer: _updateAvailable != null
+                    ? const Color(0xFF0078D4).withValues(alpha: 0.20)
+                    : (_upToDate
+                        ? WaveColors.success.withValues(alpha: 0.18)
+                        : null),
+                iconTint: _updateAvailable != null
+                    ? const Color(0xFF0078D4)
+                    : (_upToDate ? WaveColors.success : null),
+                title: _updateAvailable != null
+                    ? 'Update Ready (v${_updateAvailable!.version})'
+                    : 'Check for Updates',
+                subtitle: _checking
+                    ? 'Checking GitHub releases...'
+                    : (_updateAvailable != null
+                        ? 'Tap to open download and install dialog'
+                        : (_upToDate
+                            ? 'Current version: v$appVersion (Up to date)'
+                            : 'Current version: v$appVersion')),
+                trailing: _updateAvailable != null
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: waveAccent(context),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Update',
+                          style: WaveType.meta.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                      )
+                    : null,
+                onTap: _checking
+                    ? null
+                    : (_updateAvailable != null
+                        ? () => showUpdateDialog(context, _updateAvailable!,
+                            isManualCheck: true)
+                        : _checkForUpdates),
               ),
-              _buildUpdateButton(),
+              AboutActionTile(
+                icon: const Icon(FluentIcons.code, size: 16),
+                title: 'Source Code',
+                subtitle: 'github.com/Clash-Projects/LastWave-Desktop',
+                onTap: () =>
+                    _open('https://github.com/Clash-Projects/LastWave-Desktop'),
+              ),
+              AboutActionTile(
+                icon: const Icon(FluentIcons.download, size: 16),
+                title: 'Download Mobile App',
+                subtitle: 'github.com/Clash-Projects/LastWave-native',
+                onTap: () =>
+                    _open('https://github.com/Clash-Projects/LastWave-native'),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          const SizedBox(height: 18),
+
+          // 3. About & Support section
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              'About & Support',
+              style: WaveType.sectionTitle,
+            ),
+          ),
+          AboutCardGroup(
             children: [
-              WaveButton(
-                onPressed: () =>
-                    _open('https://github.com/Clash-Projects/LastWave-Desktop'),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(FluentIcons.open_in_new_window, size: 14),
-                    SizedBox(width: 6),
-                    Text('GitHub repository'),
-                  ],
-                ),
+              AboutActionTile(
+                icon: const TelegramIcon(size: 16),
+                title: 'Updates & Support',
+                subtitle: 'Join @clashprojects on Telegram',
+                onTap: () => _open('https://t.me/clashprojects'),
               ),
-              WaveButton(
-                onPressed: () => _open(
-                  'https://github.com/Clash-Projects/LastWave-Desktop/issues',
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(FluentIcons.error, size: 14),
-                    SizedBox(width: 6),
-                    Text('Report an issue'),
-                  ],
-                ),
+              AboutActionTile(
+                icon: const DiscordIcon(size: 16),
+                title: 'Discord Support',
+                subtitle: 'Join our Discord community',
+                onTap: () => _open('https://discord.gg/TMCEPSUNk2'),
               ),
-              WaveButton(
-                onPressed: () =>
-                    _open('https://github.com/Clash-Projects/LastWave-Desktop'),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(FluentIcons.favorite_star, size: 14),
-                    SizedBox(width: 6),
-                    Text('Star / support the project'),
-                  ],
-                ),
+              AboutActionTile(
+                icon: const Icon(FluentIcons.error, size: 16),
+                title: 'Report an issue',
+                subtitle:
+                    'github.com/Clash-Projects/LastWave-Desktop/issues',
+                onTap: () => _open(
+                    'https://github.com/Clash-Projects/LastWave-Desktop/issues'),
               ),
-              WaveButton(
-                onPressed: () => _open('https://t.me/clashprojects'),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TelegramIcon(size: 14),
-                    SizedBox(width: 6),
-                    Text('Telegram community'),
-                  ],
-                ),
-              ),
-              WaveButton(
-                onPressed: () => _open('https://discord.com/invite/TMCEPSUNk2'),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    DiscordIcon(size: 14),
-                    SizedBox(width: 6),
-                    Text('Discord server'),
-                  ],
-                ),
+              AboutActionTile(
+                icon: const Icon(FluentIcons.file_code, size: 16),
+                title: 'Export Diagnostics',
+                subtitle: 'Share logs for troubleshooting',
+                onTap: () => exportDiagnostics(context, ref),
               ),
             ],
           ),
+          const SizedBox(height: 18),
+
+          // 4. Contributors & Team (Collapsible accordion)
+          const ContributorsExpander(),
         ],
       ),
     );
