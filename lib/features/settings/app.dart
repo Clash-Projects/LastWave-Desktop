@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:window_manager/window_manager.dart';
 
 import '../../app/deep_link.dart';
 import '../../app/router.dart';
@@ -34,6 +33,7 @@ import 'accent.dart';
 import 'app_fonts.dart';
 import 'theme_controller.dart';
 import 'ui_scale.dart';
+import '../../ui/app_shell/wave_resize_area.dart';
 
 /// LastWave desktop application root.
 ///
@@ -353,38 +353,44 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                     )
                   : directed,
             );
-            Widget framed = content;
-            if (Platform.isLinux) {
-              final isMaximized = ref.watch(windowMaximizedProvider);
-              framed = DragToResizeArea(
-                enableResizeEdges: isMaximized ? [] : null,
-                resizeEdgeSize: 6,
-                child: content,
+            Widget root = content;
+            if ((uiScale - 1.0).abs() >= 0.001) {
+              root = LayoutBuilder(
+                builder: (context, constraints) {
+                  final scaledW = constraints.maxWidth / uiScale;
+                  final scaledH = constraints.maxHeight / uiScale;
+                  return Transform.scale(
+                    scale: uiScale,
+                    alignment: Alignment.topLeft,
+                    child: OverflowBox(
+                      alignment: Alignment.topLeft,
+                      minWidth: scaledW,
+                      maxWidth: scaledW,
+                      minHeight: scaledH,
+                      maxHeight: scaledH,
+                      child: MediaQuery(
+                        data: MediaQuery.of(context).copyWith(
+                          size: Size(scaledW, scaledH),
+                        ),
+                        child: content,
+                      ),
+                    ),
+                  );
+                },
               );
             }
-            if ((uiScale - 1.0).abs() < 0.001) return framed;
 
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                final scaledW = constraints.maxWidth / uiScale;
-                final scaledH = constraints.maxHeight / uiScale;
-                return Transform.scale(
-                  scale: uiScale,
-                  alignment: Alignment.topLeft,
-                  child: SizedBox(
-                    width: scaledW,
-                    height: scaledH,
-                    child: MediaQuery(
-                      data: MediaQuery.of(context).copyWith(
-                        size: Size(scaledW, scaledH),
-                        textScaler: TextScaler.linear(uiScale),
-                      ),
-                      child: framed,
-                    ),
-                  ),
-                );
-              },
-            );
+            if (Platform.isLinux) {
+              final isMaximized = ref.watch(windowMaximizedProvider);
+              root = WaveWindowResizeArea(
+                enabled: !isMaximized,
+                edgeSize: 8,
+                cornerSize: 16,
+                child: root,
+              );
+            }
+
+            return root;
           },
         ),
       ),
