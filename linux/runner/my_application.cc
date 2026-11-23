@@ -83,21 +83,36 @@ static void my_application_activate(GApplication* application) {
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 
-  gboolean enable_impeller = TRUE;
-  const char* disable_env = getenv("LASTWAVE_DISABLE_IMPELLER");
-  const char* force_sw = getenv("LASTWAVE_FORCE_SOFTWARE");
+  gboolean enable_impeller = FALSE;
+  const char* xdg_config = getenv("XDG_CONFIG_HOME");
+  std::string flag_path = xdg_config ? std::string(xdg_config) + "/lastwave/renderer.flag"
+                                     : std::string(getenv("HOME") ? getenv("HOME") : "") + "/.config/lastwave/renderer.flag";
+  FILE* flag_file = fopen(flag_path.c_str(), "r");
+  if (flag_file != nullptr) {
+    char buf[32];
+    if (fgets(buf, sizeof(buf), flag_file) != nullptr) {
+      if (strncmp(buf, "impeller", 8) == 0) {
+        enable_impeller = TRUE;
+      }
+    }
+    fclose(flag_file);
+  }
+  const char* enable_env = getenv("LASTWAVE_ENABLE_IMPELLER");
   const char* flutter_impeller = getenv("FLUTTER_ENABLE_IMPELLER");
-  if ((disable_env != nullptr && strcmp(disable_env, "1") == 0) ||
-      (force_sw != nullptr && strcmp(force_sw, "1") == 0) ||
-      (flutter_impeller != nullptr && strcmp(flutter_impeller, "0") == 0)) {
-    enable_impeller = FALSE;
+  if (enable_env != nullptr && strcmp(enable_env, "1") == 0) {
+    enable_impeller = TRUE;
+  }
+  if (flutter_impeller != nullptr) {
+    enable_impeller = (strcmp(flutter_impeller, "1") == 0);
   }
   if (self->dart_entrypoint_arguments != nullptr) {
     for (char** arg = self->dart_entrypoint_arguments; *arg != nullptr; ++arg) {
-      if (strcmp(*arg, "--no-enable-impeller") == 0 ||
-          strcmp(*arg, "--disable-impeller") == 0 ||
-          strcmp(*arg, "--enable-software-rendering") == 0 ||
-          strcmp(*arg, "--software") == 0) {
+      if (strcmp(*arg, "--enable-impeller") == 0) {
+        enable_impeller = TRUE;
+      } else if (strcmp(*arg, "--no-enable-impeller") == 0 ||
+                 strcmp(*arg, "--disable-impeller") == 0 ||
+                 strcmp(*arg, "--enable-software-rendering") == 0 ||
+                 strcmp(*arg, "--software") == 0) {
         enable_impeller = FALSE;
         break;
       }

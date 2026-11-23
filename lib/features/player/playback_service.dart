@@ -473,14 +473,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     // nothing before the first play needs media_kit. Idempotent, and the
     // only other Player() site (the motion-art session) calls it too.
     MediaKit.ensureInitialized();
-    // 16MiB demuxer buffer: lossless 24/192 peaks ~9Mbps, so this
-    // still holds ~14s of the heaviest stream while halving the
-    // 32MiB RSS cost (was the single biggest native allocation).
+    // 12MiB demuxer buffer: lossless 24/192 peaks ~5–6 Mbps, plenty for
+    // high-res playback while cutting native heap footprint.
     _player = Player(
       configuration: const PlayerConfiguration(
         vo: 'null',
         title: 'LastWave',
-        bufferSize: 16 * 1024 * 1024,
+        bufferSize: 12 * 1024 * 1024,
+        osc: false,
+        logLevel: MPVLogLevel.error,
       ),
     );
     final created = _player!;
@@ -489,8 +490,60 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       final platform = created.platform;
       if (platform != null) {
         final dyn = platform as dynamic;
+        // 1. Completely strip video, embedded cover-art decoding, OSD, OSC,
+        // subtitles, scripting, ytdl, and input subsystems on audio deck
+        try {
+          await dyn.setProperty('vid', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('vo', 'null');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('audio-display', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('cover-art-auto', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('osc', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('osd-level', '0');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('sub-auto', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('sid', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('load-scripts', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('ytdl', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('config', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('save-position-on-quit', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('terminal', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('input-default-bindings', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('input-vo-keyboard', 'no');
+        } catch (_) {}
+
+        // 2. Demuxer ring-buffer caps, thread pool & audio buffer
         try {
           await dyn.setProperty('gapless-audio', 'yes');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('prefetch-playlist', 'yes');
         } catch (_) {}
         try {
           await dyn.setProperty('cache', 'yes');
@@ -507,15 +560,28 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           await dyn.setProperty('cache-dir', cacheDir);
         } catch (_) {}
         try {
-          await dyn.setProperty(
-              'demuxer-max-back-bytes', '${4 * 1024 * 1024}');
+          await dyn.setProperty('demuxer-max-bytes', '12MiB');
         } catch (_) {}
         try {
-          await dyn.setProperty(
-              'demuxer-max-bytes', '${16 * 1024 * 1024}');
+          await dyn.setProperty('demuxer-max-back-bytes', '4MiB');
         } catch (_) {}
         try {
-          await dyn.setProperty('vid', 'no');
+          await dyn.setProperty('demuxer-donate-buffer', 'no');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('cache-secs', '15');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('demuxer-readahead-secs', '12');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('cache-pause-wait', '1');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('ad-lavc-threads', '1');
+        } catch (_) {}
+        try {
+          await dyn.setProperty('audio-buffer', '0.2');
         } catch (_) {}
         try {
           // Stall tolerance for slow stream starts (loopback assembly
@@ -578,7 +644,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           if (_resolving || state.error != null) return;
           if (state.position == v) return;
           final now = DateTime.now();
-          if (now.difference(_lastPositionEmit).inMilliseconds < 100) {
+          if (now.difference(_lastPositionEmit).inMilliseconds < 200) {
             return;
           }
           _lastPositionEmit = now;
@@ -600,7 +666,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           final complete =
               state.duration > Duration.zero && v >= state.duration;
           if (!complete &&
-              now.difference(_lastBufferedEmit).inMilliseconds < 100) {
+              now.difference(_lastBufferedEmit).inMilliseconds < 200) {
             return;
           }
           _lastBufferedEmit = now;
@@ -694,7 +760,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       configuration: const PlayerConfiguration(
         vo: 'null',
         title: 'LastWave Standby',
-        bufferSize: 16 * 1024 * 1024,
+        bufferSize: 8 * 1024 * 1024,
+        osc: false,
+        logLevel: MPVLogLevel.error,
       ),
     );
     _standbyPlayer = sb;
@@ -702,6 +770,45 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     try {
       final platform = sb.platform as dynamic;
       if (platform != null) {
+        // Strip unused subsystems
+        try {
+          await platform.setProperty('vid', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('vo', 'null');
+        } catch (_) {}
+        try {
+          await platform.setProperty('audio-display', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('cover-art-auto', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('osc', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('osd-level', '0');
+        } catch (_) {}
+        try {
+          await platform.setProperty('sub-auto', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('sid', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('load-scripts', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('ytdl', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('config', 'no');
+        } catch (_) {}
+        try {
+          await platform.setProperty('terminal', 'no');
+        } catch (_) {}
+
+        // Tight demuxer and buffer caps for pre-roll
         try {
           await platform.setProperty('gapless-audio', 'yes');
         } catch (_) {}
@@ -717,11 +824,16 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           await platform.setProperty('cache-dir', cacheDir);
         } catch (_) {}
         try {
-          await platform.setProperty(
-              'demuxer-max-bytes', '${16 * 1024 * 1024}');
+          await platform.setProperty('demuxer-max-bytes', '8MiB');
         } catch (_) {}
         try {
-          await platform.setProperty('vid', 'no');
+          await platform.setProperty('demuxer-max-back-bytes', '0');
+        } catch (_) {}
+        try {
+          await platform.setProperty('ad-lavc-threads', '1');
+        } catch (_) {}
+        try {
+          await platform.setProperty('audio-buffer', '0.2');
         } catch (_) {}
         try {
           await platform.setProperty('stream-lavf-o', 'timeout=15000000');
@@ -759,10 +871,14 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     if (_djEqLive == true) unawaited(_setDeckEq(_player, 0, 0));
     final restoreChain = _crossfading || _standbyArmed || ramping;
     if (_crossfading || _standbyArmed) {
-      try {
-        _standbyPlayer?.stop();
-        _standbyPlayer?.setVolume(0);
-      } catch (_) {}
+      final sb = _standbyPlayer;
+      _standbyPlayer = null;
+      if (sb != null) {
+        try {
+          sb.stop();
+          sb.dispose();
+        } catch (_) {}
+      }
       try {
         _player?.setVolume(_fullDeckVolume);
       } catch (_) {}
@@ -961,6 +1077,18 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         } catch (_) {}
       }
       await _serializedMpv(() async {
+        try {
+          final dyn = sb.platform as dynamic;
+          if (dyn != null) {
+            if (stream.isLossless) {
+              await dyn.setProperty('demuxer-max-bytes', '12MiB');
+              await dyn.setProperty('demuxer-max-back-bytes', '4MiB');
+            } else {
+              await dyn.setProperty('demuxer-max-bytes', '4MiB');
+              await dyn.setProperty('demuxer-max-back-bytes', '1MiB');
+            }
+          }
+        } catch (_) {}
         await _applyLoudnessTo(sb, album: nextTrack.album);
         await sb.open(
           Media(playUrl, httpHeaders: stream.requestHeaders, start: startAt),
@@ -1703,6 +1831,20 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     // it so the next mix does not start from a darkened signal.
     unawaited(_setAf(oldPrimary, _playbackAf()).catchError((_) {}));
 
+    // Free the old deck 2 seconds after handoff so native FFmpeg buffers,
+    // event-loop threads and audio handles drop back to single-deck baseline.
+    if (oldPrimary != null) {
+      Timer(const Duration(seconds: 2), () async {
+        if (identical(_standbyPlayer, oldPrimary)) {
+          _standbyPlayer = null;
+          try {
+            await oldPrimary.stop();
+            await oldPrimary.dispose();
+          } catch (_) {}
+        }
+      });
+    }
+
     _rebindPlayerStreams();
     if (djPlan != null && djPlan.beatmatched) {
       // Tempo glides home over a few bars instead of jumping.
@@ -1773,6 +1915,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _subs.clear();
     _sleepTimer?.cancel();
     _persistThrottle?.cancel();
+    _eqDebounceTimer?.cancel();
+    _eqDebounceTimer = null;
     final standby = _standbyPlayer;
     _standbyPlayer = null;
     if (standby != null) {
@@ -2172,13 +2316,20 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   /// Headphone correction and pitch scaletempo are merged into the same
   /// `af` chain. Loudness stays on mpv's replaygain stage so it does not
   /// replace this string.
+  Timer? _eqDebounceTimer;
+
+  /// Sets or clears the 10-band equalizer graph in libmpv with 50ms debounce
+  /// to avoid continuous libavfilter graph rebuilds during slider drags.
   Future<void> setAudioFilter(String af) async {
     _eqFilter = af;
-    _rebuildProcessingFilter();
-    if (!exclusiveApplied) {
-      await _applyRateAndPitch();
-    }
-    _notifyProcessing();
+    _eqDebounceTimer?.cancel();
+    _eqDebounceTimer = Timer(const Duration(milliseconds: 50), () async {
+      _rebuildProcessingFilter();
+      if (!exclusiveApplied) {
+        await _applyRateAndPitch();
+      }
+      _notifyProcessing();
+    });
   }
 
   void _rebuildProcessingFilter() {
@@ -3235,6 +3386,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
         // Final sanity check before issuing native loadfile
         if (generation != _resolveGeneration || _activeQueueKey != wantedQueueKey) return;
+
+        try {
+          final dyn = _player?.platform as dynamic;
+          if (dyn != null) {
+            if (stream.isLossless) {
+              await dyn.setProperty('demuxer-max-bytes', '12MiB');
+              await dyn.setProperty('demuxer-max-back-bytes', '4MiB');
+            } else {
+              await dyn.setProperty('demuxer-max-bytes', '4MiB');
+              await dyn.setProperty('demuxer-max-back-bytes', '1MiB');
+            }
+          }
+        } catch (_) {}
 
         try {
           await _applyLoudnessTo(_player, album: track.album);

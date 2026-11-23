@@ -9,9 +9,11 @@ import 'accessibility.dart';
 import '../core/artwork/animated_artwork_session.dart';
 import '../core/diagnostics/diagnostics_log.dart';
 import '../core/network/network_monitor.dart';
+import '../core/platform/windows_memory.dart';
 import '../core/storage/prefs.dart';
 import '../features/player/playback_service.dart';
 import '../features/presence/discord_presence_service.dart';
+import '../features/search/shared_providers.dart';
 import '../ui/components/infobar_host.dart';
 
 /// App-scoped window + tray lifecycle owner.
@@ -133,6 +135,17 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
       // unaffected — stream failures are handled by mpv, not this flag.
       ref.read(networkMonitorProvider.notifier).setVisible(visible);
     } catch (_) {}
+    if (!visible) {
+      try {
+        PaintingBinding.instance.imageCache.clearLiveImages();
+      } catch (_) {}
+      try {
+        ref.read(databaseProvider).checkpoint();
+      } catch (_) {}
+      try {
+        trimWindowsWorkingSet();
+      } catch (_) {}
+    }
   }
 
   @override

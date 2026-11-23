@@ -379,10 +379,11 @@ class OfficialArtworkService {
           dbEntry['url'] != null &&
           dbEntry['url']!.isNotEmpty) {
         final url = dbEntry['url']!;
-        // Old rows could store a YouTube video still as "official"
-        // (InnerTube fallback). Those must not win over a real store
-        // cover — ignore and re-resolve.
-        if (isOfficialArtwork(url) && !_isDeezerBlank(url)) {
+        // Valid if official CDN or a Google studio cover, and not a Deezer blank
+        if (!_isDeezerBlank(url) &&
+            (isOfficialArtwork(url) ||
+                url.contains('googleusercontent.com') ||
+                url.contains('ggpht.com'))) {
           final cached = OfficialArtworkResult(artworkUrl: url);
           _cache[cacheKey] = cached;
           return cached;
@@ -459,6 +460,13 @@ class OfficialArtworkService {
       final result = OfficialArtworkResult(
           artworkUrl: url, artist: artist, title: title);
       _rememberFallback(key, result);
+      if (_db != null) {
+        _db!.saveArtworkEntry(
+          cacheKey: key,
+          url: url,
+          provider: 'fallback',
+        );
+      }
       return result;
     } catch (_) {
       return null;
@@ -502,6 +510,13 @@ class OfficialArtworkService {
       if (url.isEmpty) return null;
       final result = OfficialArtworkResult(artworkUrl: url, artist: artist);
       _rememberFallback(key, result);
+      if (_db != null) {
+        _db!.saveArtworkEntry(
+          cacheKey: key,
+          url: url,
+          provider: 'fallback',
+        );
+      }
       return result;
     } catch (_) {
       return null;
@@ -541,6 +556,13 @@ class OfficialArtworkService {
       if (url.isEmpty) return null;
       final result = OfficialArtworkResult(artworkUrl: url, artist: primary);
       _rememberFallback(key, result);
+      if (_db != null) {
+        _db!.saveArtworkEntry(
+          cacheKey: key,
+          url: url,
+          provider: 'fallback',
+        );
+      }
       return result;
     } catch (_) {
       return null;

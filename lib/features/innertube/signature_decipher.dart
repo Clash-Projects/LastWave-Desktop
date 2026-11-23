@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
+
+import 'quickjs_cipher.dart';
 
 /// YouTube player signature decipher (pure Dart).
 ///
@@ -66,10 +69,13 @@ class PlayerScript {
 
 class SignatureDecipher {
   final Dio _dio;
+  late final QuickJsCipherIsolate quickJs;
   final Map<String, PlayerScript> _byJsUrl = {};
   final Map<String, Map<String, String>> _nCache = {};
 
-  SignatureDecipher(this._dio);
+  SignatureDecipher(this._dio, [QuickJsCipherIsolate? quickJs]) {
+    this.quickJs = quickJs ?? QuickJsCipherIsolate(_dio);
+  }
 
   static const _webUa =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) '
@@ -130,6 +136,14 @@ class SignatureDecipher {
   }
 
   Future<int?> getSignatureTimestamp(String videoId) async {
+    if (QuickJsCipher.isAvailable) {
+      try {
+        final player = await quickJs.ensurePlayer().timeout(const Duration(seconds: 8));
+        if (player != null && player.sts > 0) {
+          return player.sts;
+        }
+      } catch (_) {}
+    }
     try {
       final script = await scriptFor(videoId)
           .timeout(const Duration(seconds: 25));
@@ -140,6 +154,9 @@ class SignatureDecipher {
   }
 
   Future<PlayerScript?> scriptFor(String videoId) async {
+    if (QuickJsCipher.isAvailable) {
+      unawaited(quickJs.ensurePlayer());
+    }
     final info = await playerInfo(videoId);
     final jsUrl = info.jsUrl;
     if (jsUrl == null || jsUrl.isEmpty) return null;
@@ -174,8 +191,17 @@ class SignatureDecipher {
   /// playable URL. Returns null when undecipherable.
   String? decipherUrl(
     String signatureCipher,
-    PlayerScript script,
+    PlayerScript? script,
   ) {
+    if (QuickJsCipher.isAvailable) {
+      final player = quickJs.activePlayer;
+      if (player != null && player.bytecode.isNotEmpty) {
+        final fastSolved = _decipherWithQuickJs(signatureCipher, player);
+        if (fastSolved != null) return fastSolved;
+      }
+    }
+
+    if (script == null) return null;
     try {
       final params = Uri.splitQueryString(
         signatureCipher,
@@ -211,6 +237,40 @@ class SignatureDecipher {
     } catch (_) {
       return null;
     }
+  }
+
+  String? _decipherWithQuickJs(String signatureCipher, QuickJsPlayer player) {
+    try {
+      final params = Uri.splitQueryString(
+        signatureCipher,
+        encoding: utf8,
+      );
+      var url = params['url'];
+      if (url == null || url.isEmpty) return null;
+      final encrypted = params['s'];
+      final sp = (params['sp']?.isNotEmpty ?? false)
+          ? params['sp']!
+          : 'signature';
+
+      final uri = Uri.tryParse(url);
+      final n = uri?.queryParameters['n'];
+
+      final solved = QuickJsCipher.solveBytecode(
+        player.bytecode,
+        n: n,
+        sig: encrypted,
+      );
+      if (solved != null) {
+        if (encrypted != null && solved.sig != null) {
+          url = _appendParam(url, sp, solved.sig!);
+        }
+        if (n != null && solved.n != null) {
+          url = _replaceParam(url, 'n', solved.n!);
+        }
+        return url;
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Test hook: parse [js] without network.

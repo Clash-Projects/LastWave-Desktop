@@ -122,6 +122,7 @@ flutter:
   # Glassmorphism backdrop (lib/ui/components/glass_stage.dart).
   shaders:
     - shaders/glass_stage.frag
+    - shaders/karaoke_sweep.frag
 
   # BotGuard page for the desktop poToken engine (same asset as
   # LastWave-native; loaded into a hidden system WebView).

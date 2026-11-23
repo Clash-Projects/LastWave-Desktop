@@ -137,10 +137,11 @@ class ArtworkResolver {
     }
     final id = request.videoId.trim();
     if (RegExp(r'^[\w-]{11}$').hasMatch(id)) {
+      fallback.add('https://i.ytimg.com/vi/$id/hqdefault.jpg');
+      fallback.add('https://i.ytimg.com/vi/$id/mqdefault.jpg');
       if (request.targetPx >= 400) {
         fallback.add('https://i.ytimg.com/vi/$id/maxresdefault.jpg');
       }
-      fallback.add('https://i.ytimg.com/vi/$id/hqdefault.jpg');
     }
     final urls = {...primary, ...fallback}.toList();
     return ResolvedArtwork(urls, isFallback: urls.isEmpty);
@@ -229,8 +230,8 @@ class ArtworkResolver {
     if (url.contains('googleusercontent.com') ||
         url.contains('ggpht.com')) {
       var next = url.replaceAllMapped(
-        RegExp(r'=w\d+(-h\d+)?(-c)?(-p)?'),
-        (_) => '=w$px-h$px-c',
+        RegExp(r'=w\d+(-h\d+)?(-c)?(-p)?(-l\d+)?(-rj)?'),
+        (_) => '=w$px-h$px-l90-rj',
       );
       if (next == url) {
         next = url.replaceAllMapped(
@@ -240,19 +241,13 @@ class ArtworkResolver {
       }
       if (next != url) return next;
     }
-    // YouTube thumbs: hqdefault (120px) → mq/sd/maxres by target.
+    // YouTube thumbs: hqdefault is 480x360 and reliably returns 200 OK.
+    // Small rows (px < 300) can use mqdefault (320x180).
+    // sddefault / maxresdefault often 404 on YouTube Music tracks, causing
+    // artwork drop-off and eviction; keep hqdefault as reliable source.
     if (url.contains('ytimg.com')) {
-      if (px >= 640 && url.contains('hqdefault')) {
-        return url.replaceAll('hqdefault', 'maxresdefault');
-      }
-      if (px >= 400 && url.contains('hqdefault')) {
-        return url.replaceAll('hqdefault', 'sddefault');
-      }
-      // Small rows stay on hqdefault; grids get mqdefault (320px).
-      if (url.contains('default.jpg') || url.contains('hqdefault')) {
-        if (px >= 200 && px < 400 && url.contains('hqdefault')) {
-          return url.replaceAll('hqdefault', 'mqdefault');
-        }
+      if (px < 300 && url.contains('hqdefault')) {
+        return url.replaceAll('hqdefault', 'mqdefault');
       }
     }
     return url;

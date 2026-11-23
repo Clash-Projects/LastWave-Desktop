@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../theme/tokens.dart';
@@ -57,10 +58,36 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
   /// without reaching for an inherited widget outside a build.
   bool _reducedMotion = false;
 
+  /// Inactivity timers for non-home branches.
+  final Map<int, Timer> _inactivityTimers = {};
+
+  /// Set of branches currently evicted due to prolonged inactivity (> 45s).
+  final Set<int> _evicted = <int>{};
+
   @override
   void didUpdateWidget(covariant WaveBranchSwitcher oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.currentIndex == widget.currentIndex) return;
+
+    // Reactivate incoming branch if previously evicted
+    _inactivityTimers[widget.currentIndex]?.cancel();
+    _inactivityTimers.remove(widget.currentIndex);
+    _evicted.remove(widget.currentIndex);
+
+    // Schedule eviction for departed non-home branch after 45s
+    final departed = oldWidget.currentIndex;
+    if (departed > 0) {
+      _inactivityTimers[departed]?.cancel();
+      _inactivityTimers[departed] = Timer(const Duration(seconds: 45), () {
+        if (!mounted) return;
+        if (widget.currentIndex != departed) {
+          setState(() {
+            _evicted.add(departed);
+          });
+        }
+      });
+    }
+
     if (_reducedMotion) {
       setState(() => _leaving = null);
       _fade.value = 1;
@@ -75,6 +102,10 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
 
   @override
   void dispose() {
+    for (final timer in _inactivityTimers.values) {
+      timer.cancel();
+    }
+    _inactivityTimers.clear();
     _fade.dispose();
     super.dispose();
   }
@@ -82,6 +113,7 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
   Widget _branch(int i, double rise) {
     final active = i == widget.currentIndex;
     final visible = active || _leaving == i;
+    final isEvicted = _evicted.contains(i) && !visible;
     return IgnorePointer(
       ignoring: !active,
       child: Offstage(
@@ -90,7 +122,7 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
           enabled: active,
           child: AnimatedBuilder(
             animation: _fade,
-            child: widget.children[i],
+            child: isEvicted ? const SizedBox.shrink() : widget.children[i],
             builder: (context, child) {
               final t = _reducedMotion
                   ? 1.0
