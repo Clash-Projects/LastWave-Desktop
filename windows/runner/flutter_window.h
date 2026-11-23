@@ -40,6 +40,10 @@ class FlutterWindow : public Win32Window {
   // lastwave:// links forwarded by a second launch (WM_COPYDATA).
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       deeplink_channel_;
+  // Hides the off-screen BotGuard WebView2 HWND from the Windows taskbar
+  // and Alt-Tab switcher ("lastwave/yt_webview").
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      webview_guard_channel_;
   // Set at the start of OnDestroy: DestroyWindow() re-enters the WndProc
   // via a user-callback while teardown is in flight (release crash
   // flutter_windows+1e220). Once set, messages go to DefWindowProc

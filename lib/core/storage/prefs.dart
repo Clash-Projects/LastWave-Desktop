@@ -375,6 +375,9 @@ class Prefs {
   bool get dynamicNowPlaying => _sp.getBool('lw_dynamic_now_playing') ?? false;
   Future<void> setDynamicNowPlaying(bool v) =>
       _sp.setBool('lw_dynamic_now_playing', v);
+  bool get macOSNowPlaying => _sp.getBool('lw_macos_now_playing') ?? false;
+  Future<void> setMacOSNowPlaying(bool v) =>
+      _sp.setBool('lw_macos_now_playing', v);
 
   // -- Haze / material (spec §42 — only settings that actually work) ------
   // -- Performance Mode (Smooth / Low-Spec mode) --------------------------
@@ -543,6 +546,35 @@ class Prefs {
   String get ambientStyle => _sp.getString('lw_ambient_style') ?? 'apple';
   Future<void> setAmbientStyle(String v) =>
       _sp.setString('lw_ambient_style', v);
+
+  /// Now Playing presentation style: 'fullBleed' (default edge-to-edge canvas + lyrics),
+  /// 'minimal' (sharp cover + duet lyrics), 'standard' (Old dual pane layout).
+  static const nowPlayingStyles = [
+    'fullBleed',
+    'minimal',
+    'standard',
+  ];
+  String get nowPlayingStyle {
+    final raw = _sp.getString('lw_now_playing_style') ?? 'fullBleed';
+    return nowPlayingStyles.contains(raw) ? raw : 'fullBleed';
+  }
+  Future<void> setNowPlayingStyle(String style) => _sp.setString(
+        'lw_now_playing_style',
+        nowPlayingStyles.contains(style) ? style : 'fullBleed',
+      );
+
+  /// Inactivity timeout (seconds) before Now Playing controls auto-hide.
+  /// `0` disables auto-hide; allowed values are 3, 4, 5, and 0 (Off).
+  static const nowPlayingAutoHideOptions = [3, 4, 5, 0];
+  int get nowPlayingAutoHideSeconds {
+    final raw = _sp.getInt('lw_now_playing_autohide_sec') ?? 3;
+    return nowPlayingAutoHideOptions.contains(raw) ? raw : 3;
+  }
+
+  Future<void> setNowPlayingAutoHideSeconds(int seconds) => _sp.setInt(
+        'lw_now_playing_autohide_sec',
+        nowPlayingAutoHideOptions.contains(seconds) ? seconds : 3,
+      );
 
   bool get cdMode => _sp.getBool('lw_cd_mode') ?? false;
 

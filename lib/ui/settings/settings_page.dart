@@ -32,6 +32,8 @@ import '../../features/innertube/yt_web_login.dart';
 import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
+import '../now_playing/immersive.dart' show nowPlayingAutoHideSecondsProvider;
+import 'now_playing_style_picker.dart';
 import 'yt_profile_chooser.dart';
 import 'spotify_connect.dart';
 import '../../features/spotify/spotify_api.dart';
@@ -50,6 +52,7 @@ import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/equalizer/headphone_profiles.dart';
 import '../../features/player/loudness.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/smtc/smtc_service.dart';
 import '../../features/performance/performance_controller.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/updates/update_service.dart';
@@ -1223,8 +1226,74 @@ class _Appearance extends ConsumerWidget {
             ],
           ),
         ),
-
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
+        const _Group(
+          id: 'appearance.now_playing_style',
+          title: 'Now Playing style',
+          subtitle: 'Layout and presentation for the player screen',
+          child: NowPlayingStylePicker(),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'appearance.now_playing_autohide',
+          title: 'Auto-hide Now Playing controls',
+          subtitle: 'Fade out the top buttons after mouse inactivity',
+          child: Row(
+            children: [
+              for (final seconds in Prefs.nowPlayingAutoHideOptions) ...[
+                if (seconds != Prefs.nowPlayingAutoHideOptions.first)
+                  const SizedBox(width: 8),
+                Expanded(
+                  child: ToggleButton(
+                    checked:
+                        ref.watch(nowPlayingAutoHideSecondsProvider) == seconds,
+                    onChanged: (_) => ref
+                        .read(nowPlayingAutoHideSecondsProvider.notifier)
+                        .set(seconds),
+                    child: Text(seconds == 0 ? 'Off' : '$seconds sec'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'appearance.ambient',
+          title: 'Now Playing ambient',
+          subtitle: 'Background behind the cover and lyrics',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  for (final style in AmbientStyle.values) ...[
+                    if (style != AmbientStyle.values.first)
+                      const SizedBox(width: 8),
+                    Expanded(
+                      child: ToggleButton(
+                        checked: ref.watch(ambientStyleProvider) == style,
+                        onChanged: (_) =>
+                            ref.read(ambientStyleProvider.notifier).set(style),
+                        child: Text(style.label),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                ref.watch(ambientStyleProvider) == AmbientStyle.apple
+                    ? 'Vivid colours from the artwork on a dark stage with '
+                          'white text. Looks the same in every theme.'
+                    : 'A calm tone from the artwork that follows your '
+                          'theme (light in Pearl).',
+                style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
         _Group(
           id: 'appearance.font',
           title: 'Font',
@@ -4098,6 +4167,19 @@ class _PlaybackState extends ConsumerState<_Playback> {
             subtitle:
                 'Keep playing related tracks and artist radio when a queue ends',
           ),
+          if (Platform.isMacOS) ...[
+            const SizedBox(height: 8),
+            _SwitchRow(
+              value: prefs.macOSNowPlaying,
+              onChanged: (v) async {
+                await widget.onUpdate((p) => p.setMacOSNowPlaying(v));
+                ref.read(smtcProvider).refresh();
+              },
+              title: 'macOS Now Playing controls',
+              subtitle:
+                  'Show LastWave on the lock screen and enable system media controls',
+            ),
+          ],
           const SizedBox(height: 8),
           _SwitchRow(
             value: prefs.crossfadeEnabled,

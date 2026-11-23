@@ -477,8 +477,8 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => notifier.seekToQueueItem(widget.queueIndex),
-        onDoubleTap: () => notifier.seekToQueueItem(widget.queueIndex),
         child: Container(
           constraints: const BoxConstraints(minHeight: 48),
           padding:

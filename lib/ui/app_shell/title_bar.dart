@@ -689,6 +689,7 @@ class _BarBtnState extends State<_BarBtn> {
           _pressed = false;
         }),
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
           onTapDown: (_) => setState(() => _pressed = true),
           onTapUp: (_) => setState(() => _pressed = false),

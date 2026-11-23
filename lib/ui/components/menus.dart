@@ -718,8 +718,13 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
             ? BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
                 child: ColoredBox(
-                  color: waveSurfaceRaised(context)
-                      .withValues(alpha: dark ? 0.55 : 0.72),
+                  // Neutral smoked glass film rather than waveSurfaceRaised so
+                  // Artwork/Custom themes never tint glassmorphism menus into
+                  // colorful translucent blocks.
+                  color: (dark
+                          ? const Color(0xFF141418)
+                          : const Color(0xFFF5F5F7))
+                      .withValues(alpha: dark ? 0.56 : 0.74),
                   child: content,
                 ),
               )

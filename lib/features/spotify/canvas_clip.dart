@@ -9,6 +9,7 @@ import 'spotify_auth.dart';
 /// What the Canvas panel plays for a track.
 class CanvasPanelClip {
   final String url;
+  final String fallbackUrl;
 
   /// Provider label shown on the panel ("Spotify", "Apple Music", …).
   final String source;
@@ -19,6 +20,7 @@ class CanvasPanelClip {
 
   const CanvasPanelClip({
     required this.url,
+    this.fallbackUrl = '',
     required this.source,
     required this.vertical,
   });
@@ -106,6 +108,7 @@ final canvasPanelClipProvider = FutureProvider.autoDispose
         return CanvasPanelOutcome(
           clip: CanvasPanelClip(
             url: tall ? art.urlTall : art.url,
+            fallbackUrl: art.fallbackUrl ?? '',
             source: switch (art.source) {
               CanvasSource.apple => 'Apple Music',
               CanvasSource.tidal => 'Tidal',

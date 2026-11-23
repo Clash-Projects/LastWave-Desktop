@@ -52,7 +52,10 @@ Future<void> _pumpNowPlaying(
   required Size size,
   Widget Function(Widget page)? builder,
 }) async {
-  SharedPreferences.setMockInitialValues({'lw_visualizer_enabled': false});
+  SharedPreferences.setMockInitialValues({
+    'lw_visualizer_enabled': false,
+    'lw_now_playing_style': 'standard',
+  });
   final prefs = await Prefs.load();
   final db = AppDatabase.inMemory();
   addTearDown(db.close);
@@ -119,7 +122,12 @@ void main() {
     const size = Size(800, 516);
     await _pumpNowPlaying(tester, size: size);
 
-    await tester.tap(find.byTooltip('Hide lyrics'));
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lyrics'));
+    await tester.pumpAndSettle();
+    // Dismiss flyout overlay before verifying layout below.
+    await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
 
     expect(find.text('Do Numbari (From "Mirzapur The Movie")'), findsOneWidget);

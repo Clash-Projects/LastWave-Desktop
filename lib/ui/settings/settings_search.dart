@@ -170,8 +170,16 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'haze blur acrylic mica glass transparency intensity solid',
   ),
   SettingsSearchEntry(
-    id: 'lyrics.ambient',
-    section: 'lyrics',
+    id: 'appearance.now_playing_style',
+    section: 'appearance',
+    title: 'Now Playing style',
+    subtitle: 'Layout and presentation for the player screen',
+    keywords:
+        'now playing style layout standard full bleed minimal edge to edge duet lyrics cover artwork',
+  ),
+  SettingsSearchEntry(
+    id: 'appearance.ambient',
+    section: 'appearance',
     title: 'Now Playing ambient',
     subtitle: 'Background behind the cover and lyrics',
     keywords:

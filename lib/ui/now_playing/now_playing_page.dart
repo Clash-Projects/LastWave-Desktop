@@ -10,6 +10,10 @@ import 'package:go_router/go_router.dart';
 import '../../app/window_lifecycle.dart';
 import '../../core/artwork/animated_artwork_service.dart';
 import 'immersive.dart';
+import 'now_playing_full_bleed_view.dart';
+import 'now_playing_minimal_view.dart';
+import 'now_playing_overflow_menu.dart';
+import 'now_playing_style.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/artwork/artwork_cache.dart';
 import '../../core/artwork/artwork_resolver.dart';
@@ -55,6 +59,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   Timer? _idleTimer;
   DateTime _lastHoverAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastArmAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Offset? _lastPointerPos;
   String _preloadedKey = '';
   // Separate arming key for the motion-art lookup: it is gated on the
   // visualizer toggle (the only thing that renders a clip), so flipping
@@ -63,11 +68,13 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   // Captured eagerly in initState: lazy `late final` or `ref` inside
   // `dispose()` runs after the element starts tearing down.
   late final StateController<bool> _idleMirror;
+  late final StateController<bool> _menuOpenMirror;
 
   @override
   void initState() {
     super.initState();
     _idleMirror = ref.read(nowPlayingControlsIdleProvider.notifier);
+    _menuOpenMirror = ref.read(nowPlayingMenuOpenProvider.notifier);
     _resetIdleTimer();
   }
 
@@ -77,14 +84,36 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     // Not while the tree is finalizing: a hidden-dock state must not
     // outlive the page.
     final mirror = _idleMirror;
+    final menuMirror = _menuOpenMirror;
     Future.microtask(() {
       if (mirror.mounted) mirror.state = false;
+      if (menuMirror.mounted) menuMirror.state = false;
     });
     super.dispose();
   }
 
+  void _onPointerActivity(PointerEvent event) {
+    final prev = _lastPointerPos;
+    if (prev != null && (event.position - prev).distanceSquared < 4.0) {
+      return;
+    }
+    _lastPointerPos = event.position;
+    _resetIdleTimer();
+  }
+
+  int get _autoHideMs => ref.read(nowPlayingAutoHideSecondsProvider) * 1000;
+
   void _resetIdleTimer() {
     _lastHoverAt = DateTime.now();
+    final timeoutMs = _autoHideMs;
+    if (timeoutMs <= 0) {
+      _idleTimer?.cancel();
+      if (_controlsIdle) {
+        setState(() => _controlsIdle = false);
+        _idleMirror.state = false;
+      }
+      return;
+    }
     if (_controlsIdle) {
       setState(() => _controlsIdle = false);
       _idleMirror.state = false;
@@ -93,8 +122,8 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     }
     // Throttle per-pixel hover re-arms while visible: high-DPI mice poll
     // ~1000Hz and each event cancelled/armed a Timer. The timeout below
-    // self-corrects against _lastHoverAt, so hide still lands exactly
-    // 3.5s after the last movement. Showing from hidden stays instant.
+    // self-corrects against _lastHoverAt, so hide still lands cleanly
+    // after the configured timeout. Showing from hidden stays instant.
     final now = DateTime.now();
     if (now.difference(_lastArmAt).inMilliseconds < 200 &&
         (_idleTimer?.isActive ?? false)) {
@@ -106,17 +135,31 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   void _armIdleTimer() {
     _lastArmAt = DateTime.now();
     _idleTimer?.cancel();
-    _idleTimer = Timer(const Duration(milliseconds: 3500), _onIdleTimeout);
+    final timeoutMs = _autoHideMs;
+    if (timeoutMs <= 0) return;
+    _idleTimer = Timer(Duration(milliseconds: timeoutMs), _onIdleTimeout);
   }
 
   void _onIdleTimeout() {
     if (!mounted) return;
+    final timeoutMs = _autoHideMs;
+    if (timeoutMs <= 0) {
+      if (_controlsIdle) {
+        setState(() => _controlsIdle = false);
+        _idleMirror.state = false;
+      }
+      return;
+    }
+    // Keep controls & cursor visible while the overflow menu is open.
+    if (ref.read(nowPlayingMenuOpenProvider)) {
+      return;
+    }
     // A throttled hover may have landed after the last arm: re-arm for
     // the remainder instead of hiding early.
     final elapsed = DateTime.now().difference(_lastHoverAt).inMilliseconds;
-    if (elapsed < 3500) {
+    if (elapsed < timeoutMs) {
       _idleTimer = Timer(
-        Duration(milliseconds: 3500 - elapsed),
+        Duration(milliseconds: timeoutMs - elapsed),
         _onIdleTimeout,
       );
       return;
@@ -139,6 +182,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     // Must live here: `_buildPage` runs inside a Builder on the Apple stage,
     // where `ref.listen` is not allowed.
     ref.listen<int>(nowPlayingActivityProvider, (_, _) => _resetIdleTimer());
+    ref.listen<int>(nowPlayingAutoHideSecondsProvider, (_, _) => _resetIdleTimer());
     final apple = ref.watch(ambientStyleProvider) == AmbientStyle.apple;
     if (!apple) return _buildPage(context);
     final accent = waveAccent(context);
@@ -157,6 +201,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
 
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
     final isImmersive = ref.watch(nowPlayingImmersiveProvider);
+    final nowPlayingStyle = ref.watch(nowPlayingStyleProvider);
 
     if (current == null) {
       // Same stage as the playing page, for the same reason: this route must
@@ -258,12 +303,16 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
           }
         },
       },
-      child: MouseRegion(
-        cursor: _controlsIdle
-            ? SystemMouseCursors.none
-            : SystemMouseCursors.basic,
-        onHover: (_) => _resetIdleTimer(),
-        child: Stack(
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerHover: _onPointerActivity,
+        onPointerMove: _onPointerActivity,
+        onPointerDown: (_) => _resetIdleTimer(),
+        child: MouseRegion(
+          cursor: _controlsIdle
+              ? SystemMouseCursors.none
+              : SystemMouseCursors.basic,
+          child: Stack(
           children: [
             // The stage belongs to the page. Without a background of its own
             // the black was borrowed from whatever sat behind the route, so
@@ -273,115 +322,135 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
             // included, inside the page's own transition.
             Positioned.fill(child: ColoredBox(color: waveBackground(context))),
 
-            // Background Visualizer
-            Positioned.fill(
-              child: RepaintBoundary(
-                child: _NowAmbient(artworkUrl: current.artworkUrl),
+            if (nowPlayingStyle == NowPlayingStyle.fullBleed)
+              Positioned.fill(
+                child: NowPlayingFullBleedView(track: current),
+              )
+            else if (nowPlayingStyle == NowPlayingStyle.minimal)
+              Positioned.fill(
+                child: NowPlayingMinimalView(
+                  track: current,
+                  onClose: () {
+                    if (ref.read(nowPlayingImmersiveProvider)) {
+                      ref.read(nowPlayingImmersiveProvider.notifier).state =
+                          false;
+                      return;
+                    }
+                    if (context.canPop()) {
+                      context.pop();
+                    } else {
+                      context.go('/home');
+                    }
+                  },
+                ),
+              )
+            else ...[
+              // Background Visualizer
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: _NowAmbient(artworkUrl: current.artworkUrl),
+                ),
               ),
-            ),
 
-            // Main Layout Content
-            AnimatedPositioned(
-              duration: waveMotion(context, WaveMotion.normal),
-              curve: Curves.easeOutCubic,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              right: 0,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth > 860;
+              // Main Layout Content
+              AnimatedPositioned(
+                duration: waveMotion(context, WaveMotion.normal),
+                curve: Curves.easeOutCubic,
+                left: 0,
+                top: 0,
+                bottom: 0,
+                right: 0,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth > 860;
 
-                  // The body spans the whole page and the top action bar floats
-                  // over it, so the lyrics toolbar can sit on the same row as the
-                  // top bar instead of costing the lyrics a row of their own.
-                  return Stack(
-                    children: [
-                      Positioned.fill(
-                        child: isWide
-                            ? _DesktopDualPane(
-                                topInset: _kTopBarHeight,
-                                track: current,
-                                lyricsVisible: _lyricsVisible,
-                                focusMode: _focusMode,
-                              )
-                            : Padding(
-                                padding: const EdgeInsets.only(
-                                  top: _kTopBarHeight,
-                                ),
-                                child: _NarrowCenteredPane(
+                    // The body spans the whole page and the top action bar floats
+                    // over it, so the lyrics toolbar can sit on the same row as the
+                    // top bar instead of costing the lyrics a row of their own.
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: isWide
+                              ? _DesktopDualPane(
+                                  topInset: _kTopBarHeight,
                                   track: current,
                                   lyricsVisible: _lyricsVisible,
+                                  focusMode: _focusMode,
+                                )
+                              : Padding(
+                                  padding: const EdgeInsets.only(
+                                    top: _kTopBarHeight,
+                                  ),
+                                  child: _NarrowCenteredPane(
+                                    track: current,
+                                    lyricsVisible: _lyricsVisible,
+                                  ),
                                 ),
-                              ),
-                      ),
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: // Top Actions Bar (Fadeable on idle)
-                        AnimatedOpacity(
-                          duration: waveMotion(
-                            context,
-                            const Duration(milliseconds: 350),
-                          ),
-                          opacity: _controlsIdle ? 0.0 : 1.0,
-                          child: ExcludeFocus(
-                            excluding: _controlsIdle,
-                            child: IgnorePointer(
-                              ignoring: _controlsIdle,
-                              child: _TopActionsBar(
-                                lyricsVisible: _lyricsVisible,
-                                focusMode: _focusMode,
-                                visualizerEnabled: visualizerEnabled,
-                                showBackButton: isImmersive,
-                                onToggleLyrics: () {
-                                  _resetIdleTimer();
-                                  setState(() {
-                                    _lyricsVisible = !_lyricsVisible;
-                                    if (!_lyricsVisible) _focusMode = false;
-                                  });
-                                },
-                                onToggleFocus: () {
-                                  _resetIdleTimer();
-                                  setState(() {
-                                    _focusMode = !_focusMode;
-                                    if (_focusMode) _lyricsVisible = true;
-                                  });
-                                },
-                                onToggleVisualizer: () {
-                                  _resetIdleTimer();
-                                  ref
-                                      .read(visualizerEnabledProvider.notifier)
-                                      .toggle();
-                                },
-                                onClose: () {
-                                  // Edge-to-edge mode: the cross leaves it.
-                                  if (ref.read(nowPlayingImmersiveProvider)) {
-                                    ref
-                                        .read(
-                                          nowPlayingImmersiveProvider.notifier,
-                                        )
-                                        .state = false;
-                                    return;
-                                  }
-                                  if (context.canPop()) {
-                                    context.pop();
-                                  } else {
-                                    context.go('/home');
-                                  }
-                                },
+                        ),
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: // Top Actions Bar (Fadeable on idle)
+                          AnimatedOpacity(
+                            duration: waveMotion(
+                              context,
+                              const Duration(milliseconds: 350),
+                            ),
+                            opacity: _controlsIdle ? 0.0 : 1.0,
+                            child: ExcludeFocus(
+                              excluding: _controlsIdle,
+                              child: IgnorePointer(
+                                ignoring: _controlsIdle,
+                                child: _TopActionsBar(
+                                  track: current,
+                                  lyricsVisible: _lyricsVisible,
+                                  focusMode: _focusMode,
+                                  showBackButton: isImmersive,
+                                  onInteraction: _resetIdleTimer,
+                                  onToggleLyrics: () {
+                                    _resetIdleTimer();
+                                    setState(() {
+                                      _lyricsVisible = !_lyricsVisible;
+                                      if (!_lyricsVisible) _focusMode = false;
+                                    });
+                                  },
+                                  onToggleFocus: () {
+                                    _resetIdleTimer();
+                                    setState(() {
+                                      _focusMode = !_focusMode;
+                                      if (_focusMode) _lyricsVisible = true;
+                                    });
+                                  },
+                                  onClose: () {
+                                    // Edge-to-edge mode: the cross leaves it.
+                                    if (ref.read(nowPlayingImmersiveProvider)) {
+                                      ref
+                                          .read(
+                                            nowPlayingImmersiveProvider.notifier,
+                                          )
+                                          .state = false;
+                                      return;
+                                    }
+                                    if (context.canPop()) {
+                                      context.pop();
+                                    } else {
+                                      context.go('/home');
+                                    }
+                                  },
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  );
-                },
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
+            ],
           ],
+        ),
         ),
       ),
     );
@@ -397,31 +466,32 @@ const double _kTopBarHeight = 54;
 const double kHeroArtworkExtent = 480;
 
 class _TopActionsBar extends StatelessWidget {
+  final PlayableTrack track;
   final bool lyricsVisible;
   final bool focusMode;
-  final bool visualizerEnabled;
   final bool showBackButton;
   final VoidCallback onToggleLyrics;
   final VoidCallback onToggleFocus;
-  final VoidCallback onToggleVisualizer;
   final VoidCallback onClose;
+  final VoidCallback? onInteraction;
 
   const _TopActionsBar({
+    required this.track,
     required this.lyricsVisible,
     required this.focusMode,
-    required this.visualizerEnabled,
     this.showBackButton = false,
     required this.onToggleLyrics,
     required this.onToggleFocus,
-    required this.onToggleVisualizer,
     required this.onClose,
+    this.onInteraction,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: _kTopBarHeight,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+      alignment: Alignment.topCenter,
       child: Row(
         children: [
           if (showBackButton)
@@ -437,44 +507,13 @@ class _TopActionsBar extends StatelessWidget {
               ),
             ),
           const Spacer(),
-          WaveGlass(
-            blur: false,
-            borderRadius: WaveRadius.menuRadius,
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            child: Row(
-              spacing: 5,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LWTooltip(
-                  message: lyricsVisible ? 'Hide lyrics' : 'Show lyrics',
-                  child: _FsIconButton(
-                    icon: WaveIcons.lyrics,
-                    active: lyricsVisible,
-                    onTap: onToggleLyrics,
-                  ),
-                ),
-                LWTooltip(
-                  message: focusMode ? 'Exit focus mode' : 'Focus on lyrics',
-                  child: _FsIconButton(
-                    icon: focusMode
-                        ? FluentIcons.mini_contract
-                        : WaveIcons.expand,
-                    active: focusMode,
-                    onTap: onToggleFocus,
-                  ),
-                ),
-                LWTooltip(
-                  message: visualizerEnabled
-                      ? 'Disable visualizer'
-                      : 'Enable visualizer',
-                  child: _FsIconButton(
-                    icon: WaveIcons.visualizer,
-                    active: visualizerEnabled,
-                    onTap: onToggleVisualizer,
-                  ),
-                ),
-              ],
-            ),
+          NowPlayingTopActions(
+            track: track,
+            lyricsVisible: lyricsVisible,
+            onToggleLyrics: onToggleLyrics,
+            focusMode: focusMode,
+            onToggleFocus: onToggleFocus,
+            onInteraction: onInteraction,
           ),
         ],
       ),
@@ -484,12 +523,10 @@ class _TopActionsBar extends StatelessWidget {
 
 class _FsIconButton extends StatefulWidget {
   final IconData icon;
-  final bool active;
   final VoidCallback onTap;
 
   const _FsIconButton({
     required this.icon,
-    this.active = false,
     required this.onTap,
   });
 
@@ -503,11 +540,8 @@ class _FsIconButtonState extends State<_FsIconButton> {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
-    final accent = waveAccent(context);
-    final color = widget.active
-        ? accent
-        : (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
-              .withValues(alpha: _hover ? 1.0 : 0.92);
+    final color = (dark ? WaveColors.textPrimary : WaveColors.lightTextPrimary)
+        .withValues(alpha: _hover ? 1.0 : 0.92);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -518,20 +552,13 @@ class _FsIconButtonState extends State<_FsIconButton> {
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: waveMotion(context, WaveMotion.fast),
-          width: 36,
-          height: 36,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
-            color: widget.active
-                ? accent.withValues(alpha: 0.15)
-                : _hover
+            color: _hover
                 ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.10)
                 : Colors.transparent,
             borderRadius: WaveRadius.controlsRadius,
-            border: Border.all(
-              color: widget.active
-                  ? accent.withValues(alpha: 0.35)
-                  : Colors.transparent,
-            ),
           ),
           child: Center(child: Icon(widget.icon, size: 16, color: color)),
         ),
@@ -790,7 +817,7 @@ class _DesktopDualPane extends StatelessWidget {
                                     child: WaveKaraokeLyricsView(
                                       track: track,
                                       compact: false,
-                                      showHeaderControls: true,
+                                      showHeaderControls: false,
                                       fontSize: 36.0,
                                       isActive: lyricsVisible,
                                       toolbarRightInset: toolbarInset,
@@ -873,7 +900,7 @@ class _NarrowCenteredPane extends StatelessWidget {
           child: WaveKaraokeLyricsView(
             track: track,
             compact: true,
-            showHeaderControls: true,
+            showHeaderControls: false,
             isActive: lyricsVisible,
           ),
         ),
@@ -952,7 +979,6 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
     final ref = this.ref;
     final track = widget.track;
     final size = widget.size;
-    final dark = waveIsDark(context);
     // Podcasts keep their native shape: 16:9 art stays 16:9, square art
     // falls through to the normal 1:1 cover below.
     if (track.artworkUrl.isNotEmpty && _podcast(track)) {
@@ -973,24 +999,9 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       final w = size;
       final h = size * 9 / 16;
       return Center(
-        child: Container(
+        child: SizedBox(
           width: w,
           height: h,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: dark ? 0.62 : 0.34),
-                blurRadius: 28,
-                offset: const Offset(0, 14),
-              ),
-              BoxShadow(
-                color: Colors.black.withValues(alpha: dark ? 0.38 : 0.18),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: CachedNetworkImage(
@@ -1061,30 +1072,9 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
       artist: track.artist,
     );
 
-    return Container(
+    return SizedBox(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        // Kept shallow on purpose: large blurs over a full-window ambient
-        // stage retain big GPU surfaces on Windows ANGLE.
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? 0.62 : 0.34),
-            blurRadius: 28,
-            offset: const Offset(0, 14),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? 0.38 : 0.18),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      // Boundary sits INSIDE the shadows: the live video repaints
-      // per frame in its own layer while the blurs rasterize once.
-      // Plain antiAlias (not ...WithSaveLayer): the offscreen target
-      // switch every video frame cost milliseconds on weak raster.
       child: RepaintBoundary(
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),

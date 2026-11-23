@@ -20,6 +20,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   scrobbler-regressions:
     name: Scrobbler regressions
@@ -36,6 +40,7 @@ jobs:
           channel: stable
           flutter-version: 3.47.9
           cache: true
+          pub-cache: true
 
       - name: Generate empty test secrets
         run: dart tool/obfuscate_secrets.dart
@@ -75,11 +80,19 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            clang cmake ninja-build pkg-config patchelf binutils \
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config patchelf binutils ccache \
             libgtk-3-dev liblzma-dev libstdc++-12-dev \
             libayatana-appindicator3-dev libasound2-dev libmpv-dev mpv \
             libkeybinder-3.0-dev libwebkit2gtk-4.1-dev glib-networking
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-linux-${{ matrix.arch }}-${{ hashFiles('pubspec.lock', 'linux/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-linux-${{ matrix.arch }}-
 
       - name: Setup Flutter
         if: matrix.arch == 'x64'
@@ -91,14 +104,33 @@ jobs:
           # 3.47.9 is the last engine with crash-free builds.
           flutter-version: 3.47.9
           cache: true
+          pub-cache: true
 
       # Flutter publishes no Linux arm64 archive, so flutter-action cannot
-      # install it there; the git checkout fetches arm64 engine artifacts
-      # on first run instead.
+      # install it there; cache the git checkout + arm64 engine artifacts
+      # across runs keyed on the pinned Flutter version.
+      - name: Cache Flutter SDK (arm64)
+        if: matrix.arch == 'arm64'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/flutter
+          key: flutter-linux-arm64-3.47.9
+
+      - name: Cache Pub packages (arm64)
+        if: matrix.arch == 'arm64'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-linux-arm64-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-linux-arm64-
+
       - name: Setup Flutter (arm64, from git)
         if: matrix.arch == 'arm64'
         run: |
-          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          if [ ! -x "$RUNNER_TEMP/flutter/bin/flutter" ]; then
+            git clone --depth 1 --branch 3.47.9 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          fi
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/flutter/bin/flutter" --version
 
@@ -123,6 +155,11 @@ jobs:
       #     flutter test
 
       - name: Build Linux app
+        env:
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          CCACHE_MAXSIZE: 500M
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: flutter build linux --release
 
       # Portable AppImage, release-only (v* tags). linuxdeploy vendors the
@@ -385,30 +422,29 @@ jobs:
           fi
 
       - name: Upload Linux Artifact
+        if: "!startsWith(github.ref, 'refs/tags/v')"
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Desktop-Linux-${{ matrix.arch }}
           path: build/linux/${{ matrix.arch }}/release/bundle/
 
       # System packages are release-only (v* tags): PR/push builds
-      # stop at the raw bundle above.
-      - name: Setup Go (nFPM)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/setup-go@v5
-        with:
-          go-version: stable
-
+      # stop at the raw bundle above. Use prebuilt nFPM tarball instead of
+      # installing Go and compiling nFPM from source.
       - name: Build deb/rpm packages
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          NFPM_VER="2.49.0"
+          NFPM_ARCH_TAR="${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_Linux_${NFPM_ARCH_TAR}.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" nfpm
           export VERSION="${GITHUB_REF_NAME#v}"
           echo "Packaging version $VERSION"
           # nFPM expands env vars in `arch` but not in contents[].src, so
           # render the bundle dir (x64/arm64) into a temporary config.
           sed "s|\${BUNDLE_ARCH}|$BUNDLE_ARCH|g" linux/packaging/nfpm.yaml > "$RUNNER_TEMP/nfpm.yaml"
-          NFPM_ARCH="$DEB_ARCH" ~/go/bin/nfpm package --config "$RUNNER_TEMP/nfpm.yaml" --packager deb --target ./lastwave_${VERSION}_${DEB_ARCH}.deb
-          NFPM_ARCH="$RPM_ARCH" ~/go/bin/nfpm package --config "$RUNNER_TEMP/nfpm.yaml" --packager rpm --target ./lastwave_${VERSION}_${RPM_ARCH}.rpm
+          NFPM_ARCH="$DEB_ARCH" "$RUNNER_TEMP/nfpm" package --config "$RUNNER_TEMP/nfpm.yaml" --packager deb --target ./lastwave_${VERSION}_${DEB_ARCH}.deb
+          NFPM_ARCH="$RPM_ARCH" "$RUNNER_TEMP/nfpm" package --config "$RUNNER_TEMP/nfpm.yaml" --packager rpm --target ./lastwave_${VERSION}_${RPM_ARCH}.rpm
           ls -la lastwave_${VERSION}_${DEB_ARCH}.deb lastwave_${VERSION}_${RPM_ARCH}.rpm
 
       - name: Upload Linux Packages
@@ -443,6 +479,7 @@ jobs:
           # 3.47.9 is the last engine with crash-free builds.
           flutter-version: 3.47.9
           cache: true
+          pub-cache: true
 
       - name: Write .env from secrets
         run: echo "ADDON_CLIENT_SECRET=${{ secrets.ADDON_CLIENT_SECRET }}" > .env
@@ -457,6 +494,7 @@ jobs:
         run: flutter build windows --release
 
       - name: Upload Windows Artifact
+        if: "!startsWith(github.ref, 'refs/tags/v')"
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Desktop-Windows
@@ -468,11 +506,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
-          choco install innosetup --no-progress -y
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
           $ver = '${{ github.ref_name }}'.TrimStart('v')
           $verNum = ($ver -replace '[^0-9.].*$', '')
           if (-not $verNum) { $verNum = '1.0.0.0' }
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$ver" "/DMyAppVersionNum=$verNum" windows\installer.iss
+          & $iscc "/DMyAppVersion=$ver" "/DMyAppVersionNum=$verNum" windows\installer.iss
           Get-ChildItem build\windows\installer\
 
       - name: Stamp Valid PE Checksum on Installer
@@ -499,7 +540,11 @@ jobs:
         run: |
           $ver = '${{ github.ref_name }}'.TrimStart('v')
           $zip = "lastwave_${ver}_windows-x86_64-portable.zip"
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath $zip -Force
+          if (Get-Command 7z -ErrorAction SilentlyContinue) {
+            7z a -tzip -mx=5 $zip .\build\windows\x64\runner\Release\*
+          } else {
+            Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath $zip -Force
+          }
           Get-ChildItem $zip
 
       - name: Upload Windows Portable
@@ -526,8 +571,8 @@ jobs:
       #   lastwave_<ver>_x86_64.AppImage (portable Linux)
       #   lastwave_<ver>_windows-x86_64-setup.exe (installer)
       #   lastwave_<ver>_windows-x86_64-portable.zip (portable)
-      #   lastwave_<ver>_macos-arm64.zip (macOS stays a zip — a bare
-      #     .app bundle isn't shippable).
+      #   lastwave_<ver>_macos-universal.zip (universal x86_64 + arm64;
+      #     macOS stays a zip — a bare .app bundle isn't shippable).
       - name: Download Windows installer
         uses: actions/download-artifact@v4
         with:
@@ -593,6 +638,18 @@ jobs:
           # 3.47.9 is the last engine with crash-free builds.
           flutter-version: 3.47.9
           cache: true
+          pub-cache: true
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods/repos
+            macos/Pods
+          key: macos-pods-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            macos-pods-
 
       - name: Write .env from secrets
         run: echo "ADDON_CLIENT_SECRET=${{ secrets.ADDON_CLIENT_SECRET }}" > .env
@@ -609,7 +666,7 @@ jobs:
       - name: Compress macOS Bundle
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ditto -c -k --keepParent "build/macos/Build/Products/Release/LastWave.app" "lastwave_${VERSION}_macos-arm64.zip"
+          ditto -c -k --keepParent "build/macos/Build/Products/Release/LastWave.app" "lastwave_${VERSION}_macos-universal.zip"
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4

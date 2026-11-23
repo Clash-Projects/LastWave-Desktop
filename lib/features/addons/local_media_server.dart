@@ -427,9 +427,9 @@ class _Session {
       // this session from the live set — passing the live set let a
       // session's own prune reap its fresh .part mid-play.
       unawaited(DashAssembler.pruneCache(Set.of(_activePartials)));
-    } catch (_) {
+    } catch (e) {
       failed = true;
-      _slog('assemble FAILED $name');
+      _slog('assemble FAILED $name: $e');
     } finally {
       _manifestXml = null;
       _activePartials.remove(name);

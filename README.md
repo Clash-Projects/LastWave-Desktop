@@ -109,7 +109,7 @@ For audio lovers, LastWave Desktop packs Bit-Perfect audio output, Lossless FLAC
 |:---|:---|:---|
 | **Windows** | [GitHub Releases](https://github.com/Clash-Projects/LastWave-Desktop/releases) | Windows 10 & 11 (.exe / .msix installer) |
 | **Linux** | [GitHub Releases](https://github.com/Clash-Projects/LastWave-Desktop/releases) | AppImage / Flatpak / deb packages |
-| **macOS** | [GitHub Releases](https://github.com/Clash-Projects/LastWave-Desktop/releases) | Apple Silicon & Intel (.dmg) |
+| **macOS** | [GitHub Releases](https://github.com/Clash-Projects/LastWave-Desktop/releases) | Apple Silicon & Intel — Universal (.zip) |
 | **Android App** | [LastWave-Native](https://github.com/Clash-Projects/LastWave-Native) | Official mobile client for Android devices |
 
 ### Quick Setup

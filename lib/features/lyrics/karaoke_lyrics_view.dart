@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import '../../core/audio/artist_parser.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/error/fatal_crumbs.dart';
 import '../../core/storage/prefs.dart';
@@ -62,6 +63,11 @@ class LyricsOffsetNotifier extends StateNotifier<int> {
   }
 }
 
+/// Monotonic tick bumped whenever lyrics display preferences (translation
+/// language, text size, animation style) change outside [WaveKaraokeLyricsView],
+/// since [prefsProvider] is a static [Provider] override.
+final lyricsPrefsRevisionProvider = StateProvider<int>((_) => 0);
+
 /// Provider for transliteration display toggle.
 final lyricsTransliterationProvider =
     StateNotifierProvider<LyricsTransliterationNotifier, bool>((ref) {
@@ -77,6 +83,12 @@ class LyricsTransliterationNotifier extends StateNotifier<bool> {
 
   void toggle() {
     state = !state;
+    _prefs.setLyricsTransliteration(state);
+  }
+
+  void setEnabled(bool enabled) {
+    if (state == enabled) return;
+    state = enabled;
     _prefs.setLyricsTransliteration(state);
   }
 }
@@ -675,6 +687,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     // (_syncPlaybackClock), not watched here. They tick 10Hz and feed
     // only ticker/drift side effects, never widget output — watching them
     // rebuilt the whole toolbar + style + list 10x/sec for nothing.
+    ref.watch(lyricsPrefsRevisionProvider);
     final offsetMs = ref.watch(lyricsOffsetProvider(widget.track.queueKey));
     final showTransliteration = ref.watch(lyricsTransliterationProvider);
     // Select the single pref: toggling theme/quality elsewhere must
@@ -883,6 +896,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                         child: RepaintBoundary(
                           child: _AppleLineLyricsView(
                             result: effectiveResult,
+                            artist: widget.track.artist,
                             activeLineListenable: _activeLineIndex,
                             positionListenable: _interpolatedPositionMs,
                             compact: widget.compact,
@@ -2729,6 +2743,7 @@ class DesktopStanzaWidget extends StatelessWidget {
 /// nested background harmonies and spatial duet staging.
 class _AppleLineLyricsView extends StatefulWidget {
   final LyricsResult result;
+  final String artist;
   final List<String?> translations;
   final ValueNotifier<int> activeLineListenable;
   final ValueNotifier<int> positionListenable;
@@ -2747,6 +2762,7 @@ class _AppleLineLyricsView extends StatefulWidget {
 
   const _AppleLineLyricsView({
     required this.result,
+    this.artist = '',
     this.translations = const [],
     required this.activeLineListenable,
     required this.positionListenable,
@@ -2772,12 +2788,90 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
   int _lastIndex = -1;
   bool _pinnedOpening = false;
+  late List<VocalRole> _lineRoles;
 
   @override
   void initState() {
     super.initState();
+    _computeLineRoles();
     widget.activeLineListenable.addListener(_onActiveLineChanged);
     _lastIndex = widget.activeLineListenable.value;
+  }
+
+  void _computeLineRoles() {
+    final lines = widget.result.lines;
+    _lineRoles = List<VocalRole>.filled(lines.length, VocalRole.leadLeft);
+    if (lines.isEmpty) return;
+
+    final credits = splitArtistCredits(widget.artist)
+        .map((c) => c.toLowerCase().trim())
+        .where((c) => c.isNotEmpty)
+        .toList();
+    final artist1 = credits.isNotEmpty ? credits[0] : '';
+    final artist2 = credits.length >= 2 ? credits[1] : '';
+
+    VocalRole currentRole = VocalRole.leadLeft;
+
+    for (var idx = 0; idx < lines.length; idx++) {
+      final line = lines[idx];
+      final text = line.text.trim();
+      final lowerText = text.toLowerCase();
+
+      bool hasExplicitRole = false;
+      VocalRole explicitRole = currentRole;
+
+      if (line.agent == 'v2' ||
+          line.agent == 'agent2' ||
+          line.agent == 'singer2' ||
+          text.startsWith('Vocalist 2:') ||
+          text.startsWith('Singer 2:') ||
+          text.startsWith('Artist 2:') ||
+          text.contains('[v2]') ||
+          text.contains('(v2)')) {
+        hasExplicitRole = true;
+        explicitRole = VocalRole.duetRight;
+      } else if (line.agent == 'v1' ||
+          line.agent == 'agent1' ||
+          line.agent == 'singer1' ||
+          text.startsWith('Vocalist 1:') ||
+          text.startsWith('Singer 1:') ||
+          text.startsWith('Artist 1:') ||
+          text.contains('[v1]') ||
+          text.contains('(v1)')) {
+        hasExplicitRole = true;
+        explicitRole = VocalRole.leadLeft;
+      } else if ((line.agent != null && line.agent!.contains('both')) ||
+          text.startsWith('Both:') ||
+          text.startsWith('Chorus:') ||
+          text.contains('[all]') ||
+          text.contains('[both]') ||
+          text.contains('(both)')) {
+        hasExplicitRole = true;
+        explicitRole = VocalRole.unisonCenter;
+      } else if (artist2.isNotEmpty &&
+          (lowerText.startsWith('[$artist2') ||
+              lowerText.startsWith('($artist2') ||
+              lowerText.startsWith('$artist2:') ||
+              (lowerText.contains('verse 2') &&
+                  lowerText.contains(artist2)))) {
+        hasExplicitRole = true;
+        explicitRole = VocalRole.duetRight;
+      } else if (artist1.isNotEmpty &&
+          (lowerText.startsWith('[$artist1') ||
+              lowerText.startsWith('($artist1') ||
+              lowerText.startsWith('$artist1:') ||
+              (lowerText.contains('verse 1') &&
+                  lowerText.contains(artist1)))) {
+        hasExplicitRole = true;
+        explicitRole = VocalRole.leadLeft;
+      }
+
+      if (hasExplicitRole) {
+        currentRole = explicitRole;
+      }
+
+      _lineRoles[idx] = currentRole;
+    }
   }
 
   @override
@@ -2833,9 +2927,11 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       oldWidget.activeLineListenable.removeListener(_onActiveLineChanged);
       widget.activeLineListenable.addListener(_onActiveLineChanged);
     }
-    if (oldWidget.result != widget.result) {
+    if (oldWidget.result != widget.result ||
+        oldWidget.artist != widget.artist) {
       _pinnedOpening = false;
       _lastIndex = -1;
+      _computeLineRoles();
     }
     if (widget.following && !oldWidget.following) {
       final untimed =
@@ -3002,14 +3098,10 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
           // Spatial Duet opposing alignment:
           // Singer 1 (Left 72%), Singer 2 (Right 72%), Unison / Chorus (Center)
           final text = line.text.trim();
-          final isDuetRight = line.agent == 'v2' ||
-              text.startsWith('Vocalist 2:') ||
-              text.startsWith('Singer 2:') ||
-              text.contains('[v2]');
-          final isUnison = (line.agent != null && line.agent!.contains('both')) ||
-              text.startsWith('Both:') ||
-              text.startsWith('Chorus:') ||
-              text.contains('[all]');
+          final role =
+              i < _lineRoles.length ? _lineRoles[i] : VocalRole.leadLeft;
+          final isDuetRight = role == VocalRole.duetRight;
+          final isUnison = role == VocalRole.unisonCenter;
           final alignment = isDuetRight
               ? Alignment.centerRight
               : (isUnison ? Alignment.center : Alignment.centerLeft);

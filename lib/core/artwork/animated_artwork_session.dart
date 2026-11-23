@@ -41,9 +41,8 @@ const bool _forceSoftwareDecode =
 String get _artworkHwdec =>
     Platform.isWindows && !_forceSoftwareDecode ? 'd3d11va-copy' : 'no';
 
-/// Output edge for motion art: the texture is pre-allocated at this size
-/// and the `vf` scale lands on it, so frames are scaled exactly once.
-const int _artworkOutputPx = 384;
+/// Output edge for square motion art: crisp at 420–480px covers at HiDPI and Full Bleed.
+const int _artworkOutputPx = 768;
 
 class AnimatedArtworkSession extends ChangeNotifier {
   /// Fixed texture size. Square for cover clips; the canvas panel passes
@@ -626,14 +625,30 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('demuxer-max-back-bytes', '0');
       } catch (_) {}
       try {
-        // Downscale decode to 480px and cap to 24fps via fast_bilinear filter:
-        // Artwork clips are displayed at ~400px. Decoding 1080p/1280p at 60fps
-        // in software on CPU copies ~280 MB/s of raw pixel buffer memory.
-        // Capping to 480px@24fps drops pixel throughput by ~90%, slashing CPU and RAM.
-        // Scale straight to the pre-allocated texture edge (was 480, then
-        // scaled again to the 384px texture: two passes per frame).
-        await dyn.setProperty('vf',
-            'scale=$outputWidth:-2:flags=fast_bilinear,fps=24');
+        // Cap decode presentation rate to 30fps so 24/25/30fps Spotify and
+        // Apple canvases play smoothly without frame drops while still capping
+        // 60fps clips. Avoid `vf=scale=...:flags=fast_bilinear` ahead of mpv's
+        // SW renderer so YUV color-range metadata on d3d11va-copy frames stays
+        // intact.
+        await dyn.setProperty('vf', 'fps=30');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('video-output-levels', 'full');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('target-prim', 'bt.709');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('target-trc', 'srgb');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('tone-mapping', 'hable');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('sws-fast', 'no');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('sws-scaler', 'bicubic');
       } catch (_) {}
       try {
         // Crop to the texture's aspect instead of letterboxing, so a clip
@@ -702,5 +717,6 @@ final animatedArtworkSessionProvider =
 /// player + one texture for the whole run, created lazily on first open.
 final canvasPanelSessionProvider =
     ChangeNotifierProvider<AnimatedArtworkSession>((ref) {
-      return AnimatedArtworkSession(outputWidth: 432, outputHeight: 768);
+      // Max 9:16 resolution within media_kit_video's SW_RENDERING_MAX_HEIGHT (1080).
+      return AnimatedArtworkSession(outputWidth: 608, outputHeight: 1080);
     });

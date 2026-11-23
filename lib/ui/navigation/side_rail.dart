@@ -238,6 +238,7 @@ class _RailItemState extends State<_RailItem> {
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: () {
             _focus.requestFocus();
             widget.onTap();

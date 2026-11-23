@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/widgets.dart';
@@ -45,11 +46,25 @@ class AppFocusMemory {
   bool _started = false;
   FocusNode? _last;
   bool _restoreQueued = false;
+  DateTime? _lastPointerDownTime;
 
   void start() {
     if (_started) return;
     _started = true;
     FocusManager.instance.addListener(_onFocusChanged);
+    GestureBinding.instance.pointerRouter.addGlobalRoute(_onPointerEvent);
+  }
+
+  void _onPointerEvent(PointerEvent event) {
+    if (event is PointerDownEvent) {
+      _lastPointerDownTime = DateTime.now();
+    }
+  }
+
+  bool get _isPointerInteracting {
+    final last = _lastPointerDownTime;
+    if (last == null) return false;
+    return DateTime.now().difference(last).inMilliseconds < 500;
   }
 
   void _onFocusChanged() {
@@ -69,26 +84,28 @@ class AppFocusMemory {
       node.canRequestFocus &&
       !node.skipTraversal;
 
-  /// Puts keyboard focus back on a real control after the window returns.
+  /// Puts keyboard focus back on a real control after the window returns via
+  /// keyboard / system navigation (e.g. Alt+Tab).
   ///
-  /// Focus is cleared and re-applied on the next frame even when the node
-  /// still holds it: the screen reader only speaks on a focus *change*, so
-  /// re-requesting an already-focused node would leave it silent.
+  /// When a pointer click is in progress or a control already holds primary
+  /// focus, restoration is skipped so the user's click gesture is never
+  /// interrupted or cancelled.
   void restore() {
     if (_restoreQueued) return;
     _restoreQueued = true;
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _restoreQueued = false;
+      // If a pointer click/interaction is actively occurring or just occurred,
+      // never steal focus or interrupt the user's gesture.
+      if (_isPointerInteracting) return;
+
+      final current = FocusManager.instance.primaryFocus;
+      // If a control already has primary focus, don't steal or unfocus it.
+      if (_isControl(current)) return;
+
       final target = _isControl(_last) ? _last! : null;
       if (target != null) {
-        if (target.hasPrimaryFocus) {
-          target.unfocus(disposition: UnfocusDisposition.previouslyFocusedChild);
-          SchedulerBinding.instance.addPostFrameCallback((_) {
-            if (_isControl(target)) target.requestFocus();
-          });
-        } else {
-          target.requestFocus();
-        }
+        target.requestFocus();
         return;
       }
       _focusFirstControl();
