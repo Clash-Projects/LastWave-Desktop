@@ -49,12 +49,12 @@ Future<void> main(List<String> args) async {
     writeFatalCrumb(fatalCrumb(error, stack));
     return false;
   };
-  // Desktop image cache budget: 32 MiB / 100 images.
+  // Desktop image cache budget: 24 MiB / 60 images.
   // Caps resident uncompressed RGBA pixel buffers while preserving smooth
   // scrolling and fast thumbnail reuse across lists and docks.
   PaintingBinding.instance.imageCache
-    ..maximumSize = 100
-    ..maximumSizeBytes = 32 << 20; // 32 MiB
+    ..maximumSize = 60
+    ..maximumSizeBytes = 24 << 20; // 24 MiB
   if (runWebViewTitleBarWidget(args)) return;
   // libmpv is deliberately NOT dlopened here. MediaKit.ensureInitialized()
   // just dlopens a multi-MB .so (media_kit's NativeLibrary) — pure

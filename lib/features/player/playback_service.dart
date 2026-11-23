@@ -473,13 +473,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     // nothing before the first play needs media_kit. Idempotent, and the
     // only other Player() site (the motion-art session) calls it too.
     MediaKit.ensureInitialized();
-    // 12MiB demuxer buffer: lossless 24/192 peaks ~5–6 Mbps, plenty for
+    // 4MiB demuxer buffer: lossless 24/192 peaks ~5–6 Mbps, plenty for
     // high-res playback while cutting native heap footprint.
     _player = Player(
       configuration: const PlayerConfiguration(
         vo: 'null',
         title: 'LastWave',
-        bufferSize: 12 * 1024 * 1024,
+        bufferSize: 4 * 1024 * 1024,
         osc: false,
         logLevel: MPVLogLevel.error,
       ),
@@ -560,19 +560,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           await dyn.setProperty('cache-dir', cacheDir);
         } catch (_) {}
         try {
-          await dyn.setProperty('demuxer-max-bytes', '12MiB');
+          await dyn.setProperty('demuxer-max-bytes', '6MiB');
         } catch (_) {}
         try {
-          await dyn.setProperty('demuxer-max-back-bytes', '4MiB');
+          await dyn.setProperty('demuxer-max-back-bytes', '2MiB');
         } catch (_) {}
         try {
           await dyn.setProperty('demuxer-donate-buffer', 'no');
         } catch (_) {}
         try {
-          await dyn.setProperty('cache-secs', '15');
+          await dyn.setProperty('cache-secs', '10');
         } catch (_) {}
         try {
-          await dyn.setProperty('demuxer-readahead-secs', '12');
+          await dyn.setProperty('demuxer-readahead-secs', '8');
         } catch (_) {}
         try {
           await dyn.setProperty('cache-pause-wait', '1');
@@ -760,7 +760,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       configuration: const PlayerConfiguration(
         vo: 'null',
         title: 'LastWave Standby',
-        bufferSize: 8 * 1024 * 1024,
+        bufferSize: 2 * 1024 * 1024,
         osc: false,
         logLevel: MPVLogLevel.error,
       ),
@@ -824,7 +824,7 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           await platform.setProperty('cache-dir', cacheDir);
         } catch (_) {}
         try {
-          await platform.setProperty('demuxer-max-bytes', '8MiB');
+          await platform.setProperty('demuxer-max-bytes', '2MiB');
         } catch (_) {}
         try {
           await platform.setProperty('demuxer-max-back-bytes', '0');
@@ -1081,11 +1081,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           final dyn = sb.platform as dynamic;
           if (dyn != null) {
             if (stream.isLossless) {
-              await dyn.setProperty('demuxer-max-bytes', '12MiB');
-              await dyn.setProperty('demuxer-max-back-bytes', '4MiB');
-            } else {
               await dyn.setProperty('demuxer-max-bytes', '4MiB');
               await dyn.setProperty('demuxer-max-back-bytes', '1MiB');
+            } else {
+              await dyn.setProperty('demuxer-max-bytes', '2MiB');
+              await dyn.setProperty('demuxer-max-back-bytes', '0');
             }
           }
         } catch (_) {}
@@ -3391,11 +3391,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           final dyn = _player?.platform as dynamic;
           if (dyn != null) {
             if (stream.isLossless) {
-              await dyn.setProperty('demuxer-max-bytes', '12MiB');
-              await dyn.setProperty('demuxer-max-back-bytes', '4MiB');
-            } else {
               await dyn.setProperty('demuxer-max-bytes', '4MiB');
               await dyn.setProperty('demuxer-max-back-bytes', '1MiB');
+            } else {
+              await dyn.setProperty('demuxer-max-bytes', '2MiB');
+              await dyn.setProperty('demuxer-max-back-bytes', '0');
             }
           }
         } catch (_) {}

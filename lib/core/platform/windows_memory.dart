@@ -47,3 +47,14 @@ void trimWindowsWorkingSet() {
     _setProcessWorkingSetSize?.call(handle, -1, -1);
   } catch (_) {}
 }
+
+DateTime _lastTrim = DateTime.fromMillisecondsSinceEpoch(0);
+
+/// Throttled trim: safely reclaims physical RAM pages from the Windows
+/// working set at most once every [minInterval] (default 15 seconds).
+void trimWindowsWorkingSetThrottled({Duration minInterval = const Duration(seconds: 15)}) {
+  final now = DateTime.now();
+  if (now.difference(_lastTrim) < minInterval) return;
+  _lastTrim = now;
+  trimWindowsWorkingSet();
+}

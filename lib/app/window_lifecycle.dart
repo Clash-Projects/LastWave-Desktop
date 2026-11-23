@@ -37,6 +37,7 @@ class WindowLifecycle extends ConsumerStatefulWidget {
 class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     with TrayListener, WindowListener {
   bool _quitting = false;
+  Timer? _memoryHygieneTimer;
 
   @override
   void initState() {
@@ -47,6 +48,21 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     try {
       windowManager.addListener(this);
     } catch (_) {}
+    _startMemoryHygiene();
+  }
+
+  void _startMemoryHygiene() {
+    _memoryHygieneTimer?.cancel();
+    // Periodically (every 45s) trim unreferenced live image caches and
+    // reclaim committed native working set memory on Windows.
+    _memoryHygieneTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+      try {
+        PaintingBinding.instance.imageCache.clearLiveImages();
+      } catch (_) {}
+      try {
+        trimWindowsWorkingSet();
+      } catch (_) {}
+    });
   }
 
   /// Ordered shutdown: await libmpv stop/dispose while Dart is alive
@@ -214,6 +230,7 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
 
   @override
   void dispose() {
+    _memoryHygieneTimer?.cancel();
     try {
       trayManager.removeListener(this);
     } catch (_) {}
