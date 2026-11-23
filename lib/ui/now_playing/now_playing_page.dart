@@ -10,6 +10,9 @@ import 'package:go_router/go_router.dart';
 import '../../app/window_lifecycle.dart';
 import '../../core/artwork/animated_artwork_service.dart';
 import 'immersive.dart';
+import 'now_playing_full_bleed_view.dart';
+import 'now_playing_minimal_view.dart';
+import 'now_playing_style.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/artwork/artwork_cache.dart';
 import '../../core/artwork/artwork_resolver.dart';
@@ -157,6 +160,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
 
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
     final isImmersive = ref.watch(nowPlayingImmersiveProvider);
+    final nowPlayingStyle = ref.watch(nowPlayingStyleProvider);
 
     if (current == null) {
       // Same stage as the playing page, for the same reason: this route must
@@ -273,114 +277,138 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
             // included, inside the page's own transition.
             Positioned.fill(child: ColoredBox(color: waveBackground(context))),
 
-            // Background Visualizer
-            Positioned.fill(
-              child: RepaintBoundary(
-                child: _NowAmbient(artworkUrl: current.artworkUrl),
+            if (nowPlayingStyle == NowPlayingStyle.fullBleed)
+              Positioned.fill(
+                child: NowPlayingFullBleedView(track: current),
+              )
+            else if (nowPlayingStyle == NowPlayingStyle.minimal)
+              Positioned.fill(
+                child: NowPlayingMinimalView(
+                  track: current,
+                  onClose: () {
+                    if (ref.read(nowPlayingImmersiveProvider)) {
+                      ref.read(nowPlayingImmersiveProvider.notifier).state =
+                          false;
+                      return;
+                    }
+                    if (context.canPop()) {
+                      context.pop();
+                    } else {
+                      context.go('/home');
+                    }
+                  },
+                ),
+              )
+            else ...[
+              // Background Visualizer
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: _NowAmbient(artworkUrl: current.artworkUrl),
+                ),
               ),
-            ),
 
-            // Main Layout Content
-            AnimatedPositioned(
-              duration: waveMotion(context, WaveMotion.normal),
-              curve: Curves.easeOutCubic,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              right: 0,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth > 860;
+              // Main Layout Content
+              AnimatedPositioned(
+                duration: waveMotion(context, WaveMotion.normal),
+                curve: Curves.easeOutCubic,
+                left: 0,
+                top: 0,
+                bottom: 0,
+                right: 0,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth > 860;
 
-                  // The body spans the whole page and the top action bar floats
-                  // over it, so the lyrics toolbar can sit on the same row as the
-                  // top bar instead of costing the lyrics a row of their own.
-                  return Stack(
-                    children: [
-                      Positioned.fill(
-                        child: isWide
-                            ? _DesktopDualPane(
-                                topInset: _kTopBarHeight,
-                                track: current,
-                                lyricsVisible: _lyricsVisible,
-                                focusMode: _focusMode,
-                              )
-                            : Padding(
-                                padding: const EdgeInsets.only(
-                                  top: _kTopBarHeight,
-                                ),
-                                child: _NarrowCenteredPane(
+                    // The body spans the whole page and the top action bar floats
+                    // over it, so the lyrics toolbar can sit on the same row as the
+                    // top bar instead of costing the lyrics a row of their own.
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: isWide
+                              ? _DesktopDualPane(
+                                  topInset: _kTopBarHeight,
                                   track: current,
                                   lyricsVisible: _lyricsVisible,
+                                  focusMode: _focusMode,
+                                )
+                              : Padding(
+                                  padding: const EdgeInsets.only(
+                                    top: _kTopBarHeight,
+                                  ),
+                                  child: _NarrowCenteredPane(
+                                    track: current,
+                                    lyricsVisible: _lyricsVisible,
+                                  ),
                                 ),
-                              ),
-                      ),
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: // Top Actions Bar (Fadeable on idle)
-                        AnimatedOpacity(
-                          duration: waveMotion(
-                            context,
-                            const Duration(milliseconds: 350),
-                          ),
-                          opacity: _controlsIdle ? 0.0 : 1.0,
-                          child: ExcludeFocus(
-                            excluding: _controlsIdle,
-                            child: IgnorePointer(
-                              ignoring: _controlsIdle,
-                              child: _TopActionsBar(
-                                lyricsVisible: _lyricsVisible,
-                                focusMode: _focusMode,
-                                visualizerEnabled: visualizerEnabled,
-                                showBackButton: isImmersive,
-                                onToggleLyrics: () {
-                                  _resetIdleTimer();
-                                  setState(() {
-                                    _lyricsVisible = !_lyricsVisible;
-                                    if (!_lyricsVisible) _focusMode = false;
-                                  });
-                                },
-                                onToggleFocus: () {
-                                  _resetIdleTimer();
-                                  setState(() {
-                                    _focusMode = !_focusMode;
-                                    if (_focusMode) _lyricsVisible = true;
-                                  });
-                                },
-                                onToggleVisualizer: () {
-                                  _resetIdleTimer();
-                                  ref
-                                      .read(visualizerEnabledProvider.notifier)
-                                      .toggle();
-                                },
-                                onClose: () {
-                                  // Edge-to-edge mode: the cross leaves it.
-                                  if (ref.read(nowPlayingImmersiveProvider)) {
+                        ),
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: // Top Actions Bar (Fadeable on idle)
+                          AnimatedOpacity(
+                            duration: waveMotion(
+                              context,
+                              const Duration(milliseconds: 350),
+                            ),
+                            opacity: _controlsIdle ? 0.0 : 1.0,
+                            child: ExcludeFocus(
+                              excluding: _controlsIdle,
+                              child: IgnorePointer(
+                                ignoring: _controlsIdle,
+                                child: _TopActionsBar(
+                                  lyricsVisible: _lyricsVisible,
+                                  focusMode: _focusMode,
+                                  visualizerEnabled: visualizerEnabled,
+                                  showBackButton: isImmersive,
+                                  onToggleLyrics: () {
+                                    _resetIdleTimer();
+                                    setState(() {
+                                      _lyricsVisible = !_lyricsVisible;
+                                      if (!_lyricsVisible) _focusMode = false;
+                                    });
+                                  },
+                                  onToggleFocus: () {
+                                    _resetIdleTimer();
+                                    setState(() {
+                                      _focusMode = !_focusMode;
+                                      if (_focusMode) _lyricsVisible = true;
+                                    });
+                                  },
+                                  onToggleVisualizer: () {
+                                    _resetIdleTimer();
                                     ref
-                                        .read(
-                                          nowPlayingImmersiveProvider.notifier,
-                                        )
-                                        .state = false;
-                                    return;
-                                  }
-                                  if (context.canPop()) {
-                                    context.pop();
-                                  } else {
-                                    context.go('/home');
-                                  }
-                                },
+                                        .read(visualizerEnabledProvider.notifier)
+                                        .toggle();
+                                  },
+                                  onClose: () {
+                                    // Edge-to-edge mode: the cross leaves it.
+                                    if (ref.read(nowPlayingImmersiveProvider)) {
+                                      ref
+                                          .read(
+                                            nowPlayingImmersiveProvider.notifier,
+                                          )
+                                          .state = false;
+                                      return;
+                                    }
+                                    if (context.canPop()) {
+                                      context.pop();
+                                    } else {
+                                      context.go('/home');
+                                    }
+                                  },
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  );
-                },
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

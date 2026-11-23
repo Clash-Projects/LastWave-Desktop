@@ -540,6 +540,22 @@ class Prefs {
   Future<void> setAmbientStyle(String v) =>
       _sp.setString('lw_ambient_style', v);
 
+  /// Now Playing presentation style: 'standard' (Default dual pane layout),
+  /// 'fullBleed' (edge-to-edge faded left artwork), 'minimal' (clean sharp cover + duet lyrics).
+  static const nowPlayingStyles = [
+    'standard',
+    'fullBleed',
+    'minimal',
+  ];
+  String get nowPlayingStyle {
+    final raw = _sp.getString('lw_now_playing_style') ?? 'standard';
+    return nowPlayingStyles.contains(raw) ? raw : 'standard';
+  }
+  Future<void> setNowPlayingStyle(String style) => _sp.setString(
+        'lw_now_playing_style',
+        nowPlayingStyles.contains(style) ? style : 'standard',
+      );
+
   bool get cdMode => _sp.getBool('lw_cd_mode') ?? false;
 
   Future<void> setCdMode(bool v) => _sp.setBool('lw_cd_mode', v);

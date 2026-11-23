@@ -31,6 +31,7 @@ import '../../features/innertube/yt_web_login.dart';
 import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
+import 'now_playing_style_picker.dart';
 import 'yt_profile_chooser.dart';
 import 'spotify_connect.dart';
 import '../../features/spotify/spotify_api.dart';
@@ -1103,6 +1104,13 @@ class _Appearance extends ConsumerWidget {
               ),
             ],
           ),
+        ),
+        const SizedBox(height: 8),
+        const _Group(
+          id: 'appearance.now_playing_style',
+          title: 'Now Playing style',
+          subtitle: 'Layout and presentation for the player screen',
+          child: NowPlayingStylePicker(),
         ),
         const SizedBox(height: 8),
         _Group(
