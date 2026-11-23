@@ -1186,6 +1186,28 @@ class _Appearance extends ConsumerWidget {
             ],
           ),
         ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'appearance.lyrics',
+          title: 'Lyrics animation',
+          subtitle: 'Visual animation style for synced lyrics in Now Playing',
+          child: _BehaviourSelectRow(
+            title: 'Animation style',
+            subtitle: switch (prefs.lyricsAnimation) {
+              'glow_pulse' =>
+                'Rich centered radial glow bloom with steady alignment',
+              'karaoke_bounce' => 'Energetic rhythmic syllable bounce',
+              'smooth_fade' => 'Minimalist clean highlight without motion',
+              _ => 'Smooth fluid syllable wipe with gentle micro-float',
+            },
+            value: prefs.lyricsAnimation,
+            options: [
+              for (final entry in Prefs.lyricsAnimationOptions.entries)
+                WaveSelectOption(value: entry.key, label: entry.value),
+            ],
+            onChanged: (v) => onUpdate((p) => p.setLyricsAnimation(v)),
+          ),
+        ),
       ],
     );
   }

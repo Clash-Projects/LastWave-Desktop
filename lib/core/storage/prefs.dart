@@ -237,10 +237,22 @@ class Prefs {
   Future<void> setLyricsProviderId(String v) =>
       _sp.setString('lw_lyrics_provider', v);
 
-  String get lyricsAnimation =>
-      _sp.getString('lw_lyrics_animation') ?? 'apple_fluid';
-  Future<void> setLyricsAnimation(String v) =>
-      _sp.setString('lw_lyrics_animation', v);
+  static const lyricsAnimationOptions = <String, String>{
+    'apple_fluid': 'Apple Fluid',
+    'glow_pulse': 'Luminous Glow',
+    'karaoke_bounce': 'Rhythm Bounce',
+    'smooth_fade': 'Classic Fade',
+  };
+
+  String get lyricsAnimation {
+    final v = _sp.getString('lw_lyrics_animation') ?? 'apple_fluid';
+    return lyricsAnimationOptions.containsKey(v) ? v : 'apple_fluid';
+  }
+
+  Future<void> setLyricsAnimation(String v) => _sp.setString(
+        'lw_lyrics_animation',
+        lyricsAnimationOptions.containsKey(v) ? v : 'apple_fluid',
+      );
 
   /// Multiplier on the lyrics type size. Snapped to the steps the
   /// lyrics view and Settings both offer.

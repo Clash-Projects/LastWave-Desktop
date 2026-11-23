@@ -128,6 +128,7 @@ class DesktopKaraokeLinePainter extends CustomPainter {
   final Color highlightColor;
   final bool isRtl;
   final bool springLift;
+  final String animationStyle;
 
   DesktopKaraokeLinePainter({
     required this.positionListenable,
@@ -136,6 +137,7 @@ class DesktopKaraokeLinePainter extends CustomPainter {
     required this.highlightColor,
     this.isRtl = false,
     this.springLift = true,
+    this.animationStyle = 'apple_fluid',
   }) : super(repaint: positionListenable);
 
   @override
@@ -167,8 +169,11 @@ class DesktopKaraokeLinePainter extends CustomPainter {
           final progress = ((posMs - syl.timeMs) / (sylEnd - syl.timeMs)).clamp(0.0, 1.0);
           sweepX = startX + progress * (endX - startX);
           if (springLift) {
-            // Syllable lift: -2.5 * sin(pi * progress)
-            liftY = -2.5 * math.sin(math.pi * progress);
+            if (animationStyle == 'karaoke_bounce') {
+              liftY = -3.0 * math.sin(math.pi * progress);
+            } else if (animationStyle == 'apple_fluid') {
+              liftY = -1.5 * math.sin(math.pi * progress);
+            }
           }
           break;
         }
@@ -178,7 +183,11 @@ class DesktopKaraokeLinePainter extends CustomPainter {
       final progress = ((posMs - line.timeMs) / dur).clamp(0.0, 1.0);
       sweepX = progress * layout.width;
       if (springLift && progress > 0.0 && progress < 1.0) {
-        liftY = -1.5 * math.sin(math.pi * progress);
+        if (animationStyle == 'karaoke_bounce') {
+          liftY = -2.0 * math.sin(math.pi * progress);
+        } else if (animationStyle == 'apple_fluid') {
+          liftY = -1.0 * math.sin(math.pi * progress);
+        }
       }
     }
 
@@ -187,9 +196,9 @@ class DesktopKaraokeLinePainter extends CustomPainter {
     // 3. Draw active text clipped by sweepX
     canvas.save();
     if (isRtl) {
-      canvas.clipRect(Rect.fromLTWH(layout.width - sweepX, -10, sweepX, layout.height + 20));
+      canvas.clipRect(Rect.fromLTWH(layout.width - sweepX, -12, sweepX, layout.height + 24));
     } else {
-      canvas.clipRect(Rect.fromLTWH(0, -10, sweepX, layout.height + 20));
+      canvas.clipRect(Rect.fromLTWH(0, -12, sweepX, layout.height + 24));
     }
 
     if (liftY != 0.0) {
@@ -202,5 +211,7 @@ class DesktopKaraokeLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant DesktopKaraokeLinePainter oldDelegate) =>
-      oldDelegate.line != line || oldDelegate.layout != layout;
+      oldDelegate.line != line ||
+      oldDelegate.layout != layout ||
+      oldDelegate.animationStyle != animationStyle;
 }

@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'desktop_lyrics_painter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -684,6 +683,8 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     final wordByWord = isPerfMode
         ? false
         : ref.watch(prefsProvider.select((p) => p.wordByWord));
+    final animationStyle =
+        ref.watch(prefsProvider.select((p) => p.lyricsAnimation));
     final textScale = ref.watch(prefsProvider.select((p) => p.lyricsTextScale));
     final autoHide = ref.watch(
       prefsProvider.select((p) => p.lyricsAutoHideSeconds),
@@ -886,6 +887,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                             positionListenable: _interpolatedPositionMs,
                             compact: widget.compact,
                             wordByWord: wordByWord,
+                            animationStyle: animationStyle,
                             translations: translations,
                             fontSize: lyricFontSize,
                             showTransliteration: showTransliteration,
@@ -1031,7 +1033,10 @@ class WaveKaraokeLyricLine extends StatefulWidget {
     this.softenIdle = true,
     this.lineOpacity = 1.0,
     this.blurSigma = 0.0,
+    this.animationStyle = 'apple_fluid',
   });
+
+  final String animationStyle;
 
   @override
   State<WaveKaraokeLyricLine> createState() => _WaveKaraokeLyricLineState();
@@ -1102,21 +1107,58 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
           alpha: widget.softenIdle ? (widget.isPast ? 0.38 : 0.44) : 0.92,
         );
 
+    List<Shadow>? activeShadows;
+    if (widget.isActive) {
+      switch (widget.animationStyle) {
+        case 'glow_pulse':
+          // Rich, perfectly centered multi-stop omnidirectional glow bloom:
+          activeShadows = [
+            Shadow(
+              color: activeTextColor.withValues(alpha: dark ? 0.65 : 0.40),
+              blurRadius: 8,
+              offset: Offset.zero,
+            ),
+            Shadow(
+              color: activeTextColor.withValues(alpha: dark ? 0.35 : 0.20),
+              blurRadius: 18,
+              offset: Offset.zero,
+            ),
+          ];
+          break;
+        case 'apple_fluid':
+          // Clean, subtle centered ambient aura:
+          activeShadows = [
+            Shadow(
+              color: activeTextColor.withValues(alpha: dark ? 0.38 : 0.20),
+              blurRadius: 10,
+              offset: Offset.zero,
+            ),
+          ];
+          break;
+        case 'karaoke_bounce':
+          // Focused crisp text shadow:
+          activeShadows = [
+            Shadow(
+              color: activeTextColor.withValues(alpha: dark ? 0.30 : 0.16),
+              blurRadius: 6,
+              offset: Offset.zero,
+            ),
+          ];
+          break;
+        case 'smooth_fade':
+        default:
+          activeShadows = null;
+          break;
+      }
+    }
+
     final activeStyle = TextStyle(
       fontSize: baseFontSize,
       fontWeight: FontWeight.w700,
       color: activeTextColor,
       height: 1.42,
       letterSpacing: tracking,
-      shadows: widget.isActive
-          ? [
-              Shadow(
-                color: activeTextColor.withValues(alpha: dark ? 0.28 : 0.14),
-                blurRadius: 8,
-                offset: const Offset(0, 1),
-              ),
-            ]
-          : null,
+      shadows: activeShadows,
     );
 
     // Style for unsung words on the ACTIVE line: identical font metrics to prevent character jitter!
@@ -1188,6 +1230,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
                     idleStyle: activeUnsungStyle,
                     highlightColor: accent,
                     isRtl: widget.line.isRtl,
+                    animationStyle: widget.animationStyle,
                   ),
                 if (word.hasTrailingSpace) Text(' ', style: activeUnsungStyle),
               ],
@@ -1339,7 +1382,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
 enum _SyllableState { idle, singing, sung }
 
 /// Bands used to feather the karaoke wipe edge (alpha steps of 1/N).
-const _wipeFeatherBands = 2;
+const _wipeFeatherBands = 3;
 
 /// Progressive fill / wipe for an individual syllable with soft anti-aliased edge.
 class _KaraokeSyllableWidget extends StatefulWidget {
@@ -1350,6 +1393,7 @@ class _KaraokeSyllableWidget extends StatefulWidget {
   final TextStyle idleStyle;
   final Color highlightColor;
   final bool isRtl;
+  final String animationStyle;
 
   const _KaraokeSyllableWidget({
     super.key,
@@ -1360,6 +1404,7 @@ class _KaraokeSyllableWidget extends StatefulWidget {
     required this.idleStyle,
     required this.highlightColor,
     this.isRtl = false,
+    this.animationStyle = 'apple_fluid',
   });
 
   @override
@@ -1590,6 +1635,7 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
             activePainter: _activePainter!,
             featherPainters: _featherPainters,
             isRtl: widget.isRtl,
+            animationStyle: widget.animationStyle,
           ),
         ),
       ),
@@ -1609,6 +1655,7 @@ class _KaraokeSyllablePainter extends CustomPainter {
   final TextPainter activePainter;
   final List<TextPainter> featherPainters;
   final bool isRtl;
+  final String animationStyle;
 
   _KaraokeSyllablePainter({
     required this.positionListenable,
@@ -1618,6 +1665,7 @@ class _KaraokeSyllablePainter extends CustomPainter {
     required this.activePainter,
     required this.featherPainters,
     required this.isRtl,
+    this.animationStyle = 'apple_fluid',
   }) : super(repaint: positionListenable);
 
   @override
@@ -1640,12 +1688,23 @@ class _KaraokeSyllablePainter extends CustomPainter {
     Rect dirRect(double s0, double s1) {
       if (s1 - s0 < 0.05) return Rect.zero;
       return isRtl
-          ? Rect.fromLTRB(width - s1, 0, width - s0, size.height)
-          : Rect.fromLTRB(s0, 0, s1, size.height);
+          ? Rect.fromLTRB(width - s1, -12, width - s0, size.height + 12)
+          : Rect.fromLTRB(s0, -12, s1, size.height + 12);
+    }
+
+    double liftY = 0.0;
+    if (progress > 0.0 && progress < 1.0) {
+      final bounce = math.sin(math.pi * progress);
+      if (animationStyle == 'karaoke_bounce') {
+        liftY = -2.8 * bounce;
+      } else if (animationStyle == 'apple_fluid') {
+        liftY = -1.2 * bounce;
+      }
     }
 
     if (inner > 0.05) {
       canvas.save();
+      if (liftY != 0.0) canvas.translate(0, liftY);
       canvas.clipRect(dirRect(0, inner));
       activePainter.paint(canvas, Offset.zero);
       canvas.restore();
@@ -1659,6 +1718,7 @@ class _KaraokeSyllablePainter extends CustomPainter {
         final rect = dirRect(s0, s1);
         if (rect == Rect.zero) continue;
         canvas.save();
+        if (liftY != 0.0) canvas.translate(0, liftY);
         canvas.clipRect(rect);
         featherPainters[j].paint(canvas, Offset.zero);
         canvas.restore();
@@ -1673,7 +1733,8 @@ class _KaraokeSyllablePainter extends CustomPainter {
         oldDelegate.idlePainter != idlePainter ||
         oldDelegate.activePainter != activePainter ||
         oldDelegate.featherPainters != featherPainters ||
-        oldDelegate.isRtl != isRtl;
+        oldDelegate.isRtl != isRtl ||
+        oldDelegate.animationStyle != animationStyle;
   }
 }
 
@@ -1795,6 +1856,9 @@ class _KaraokeToolbar extends ConsumerWidget {
     );
     final autoHide = ref.watch(
       prefsProvider.select((p) => p.lyricsAutoHideSeconds),
+    );
+    final lyricsAnimation = ref.watch(
+      prefsProvider.select((p) => p.lyricsAnimation),
     );
     Widget menuMark(bool on) => on
         ? const Icon(FluentIcons.check_mark, size: 13)
@@ -1981,6 +2045,24 @@ class _KaraokeToolbar extends ConsumerWidget {
                                 await ref
                                     .read(prefsProvider)
                                     .setLyricsAutoHideSeconds(entry.key);
+                                onPrefsChanged!();
+                              },
+                            ),
+                        ],
+                      ),
+                      WaveMenuSubmenu(
+                        leading: const Icon(FluentIcons.brush, size: 13),
+                        label: 'Animation style',
+                        items: () => [
+                          for (final entry
+                              in Prefs.lyricsAnimationOptions.entries)
+                            WaveMenuAction(
+                              leading: menuMark(lyricsAnimation == entry.key),
+                              label: entry.value,
+                              onPressed: () async {
+                                await ref
+                                    .read(prefsProvider)
+                                    .setLyricsAnimation(entry.key);
                                 onPrefsChanged!();
                               },
                             ),
@@ -2660,6 +2742,7 @@ class _AppleLineLyricsView extends StatefulWidget {
   final ValueNotifier<int> positionListenable;
   final bool compact;
   final bool wordByWord;
+  final String animationStyle;
   final double? fontSize;
   final bool showTransliteration;
   final bool following;
@@ -2677,6 +2760,7 @@ class _AppleLineLyricsView extends StatefulWidget {
     required this.positionListenable,
     required this.compact,
     this.wordByWord = true,
+    this.animationStyle = 'apple_fluid',
     required this.fontSize,
     required this.showTransliteration,
     required this.following,
@@ -2985,6 +3069,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                 showTransliteration: widget.showTransliteration,
                 translation: _translationAt(i),
                 karaoke: isWordKaraoke,
+                animationStyle: widget.animationStyle,
                 softenIdle: true,
                 lineOpacity: widget.selectMode ? 1.0 : lineOpacity,
                 blurSigma: 0.0, // HARD ZERO to eliminate GPU ImageFilter.blur lag & RAM spike!
