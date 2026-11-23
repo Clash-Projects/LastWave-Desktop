@@ -46,6 +46,10 @@ class AppDatabase {
 
   void _migrate() {
     _db.execute('PRAGMA journal_mode=WAL;');
+    _db.execute('PRAGMA synchronous=NORMAL;');
+    _db.execute('PRAGMA cache_size=-2000;');
+    _db.execute('PRAGMA mmap_size=0;');
+    _db.execute('PRAGMA temp_store=FILE;');
     final version =
         _db.select('PRAGMA user_version;').first['user_version'] as int;
     if (version < 1) {
@@ -1030,6 +1034,13 @@ class AppDatabase {
         'timestamp_millis = excluded.timestamp_millis;',
         [cacheKey, url, provider, now],
       );
+    } catch (_) {}
+  }
+
+  /// Flush WAL log to disk and truncate it to reduce file handles and memory.
+  void checkpoint() {
+    try {
+      _db.execute('PRAGMA wal_checkpoint(TRUNCATE);');
     } catch (_) {}
   }
 

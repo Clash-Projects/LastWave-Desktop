@@ -18,6 +18,7 @@ import '../../core/audio/stream_models.dart';
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/env/app_env.dart';
 import '../../core/storage/prefs.dart';
+import '../../core/platform/renderer_mode.dart';
 import '../../core/l10n/app_language.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../features/settings/app_fonts.dart';
@@ -3822,11 +3823,30 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
   }
 }
 
-class _Experimental extends ConsumerWidget {
+class _Experimental extends ConsumerStatefulWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Experimental({required this.onUpdate});
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_Experimental> createState() => _ExperimentalState();
+}
+
+class _ExperimentalState extends ConsumerState<_Experimental> {
+  bool _impeller = false;
+  bool _restartNeeded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    RendererMode.isImpellerEnabled().then((val) {
+      if (mounted) {
+        setState(() => _impeller = val);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final prefs = ref.watch(prefsProvider);
     return _Group(
       id: 'experimental.main',
@@ -3836,16 +3856,52 @@ class _Experimental extends ConsumerWidget {
         children: [
           _SwitchRow(
             value: prefs.liquidGlass,
-            onChanged: (v) => onUpdate((p) => p.setLiquidGlass(v)),
+            onChanged: (v) => widget.onUpdate((p) => p.setLiquidGlass(v)),
             title: 'Extra translucency',
             subtitle: 'Stronger Haze on panels (may cost FPS)',
           ),
           _SwitchRow(
             value: prefs.wavySeekbar,
-            onChanged: (v) => onUpdate((p) => p.setWavySeekbar(v)),
+            onChanged: (v) => widget.onUpdate((p) => p.setWavySeekbar(v)),
             title: 'Wavy seekbar',
             subtitle: 'Experimental timeline treatment',
           ),
+          _SwitchRow(
+            value: _impeller,
+            onChanged: (v) async {
+              setState(() {
+                _impeller = v;
+                _restartNeeded = true;
+              });
+              await RendererMode.setImpellerEnabled(v);
+            },
+            title: 'Impeller rendering engine (Experimental)',
+            subtitle: 'Use Impeller backend instead of Skia (requires app restart)',
+          ),
+          if (_restartNeeded)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    FluentIcons.info,
+                    size: 14,
+                    color: FluentTheme.of(context).accentColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Restart LastWave to apply graphics renderer changes.',
+                      style: TextStyle(
+                        color: FluentTheme.of(context).accentColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

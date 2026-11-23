@@ -63,3 +63,10 @@ app.*.map.json
 # Local AppImage assembly (CI builds these on tags; see desktop.yml)
 /AppDir/
 *.AppImage
+
+# Rust build artifacts
+target/
+native/**/target/
+
+# Sub-repositories
+Lastwave Web/

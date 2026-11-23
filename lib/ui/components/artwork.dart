@@ -344,7 +344,9 @@ class _WaveArtworkState extends State<WaveArtwork> {
       if (OfficialArtworkService.isOfficialArtistPhoto(_primaryUrl)) {
         return;
       }
-    } else if (OfficialArtworkService.isOfficialArtwork(widget.url)) {
+    } else if (OfficialArtworkService.isOfficialArtwork(widget.url) ||
+        (widget.url.contains('googleusercontent.com') &&
+            widget.url.contains('='))) {
       return;
     }
     _upgradeAttempted = true;
@@ -669,17 +671,21 @@ class _WaveArtworkState extends State<WaveArtwork> {
         fadeInDuration: noFade ? Duration.zero : WaveMotion.fast,
         fadeOutDuration: noFade ? Duration.zero : WaveMotion.fast,
         placeholderFadeInDuration: Duration.zero,
-        placeholder: (context, _) => seenBefore
-            ? SizedBox(
-                width: widget.size,
-                height: widget.size,
-                child: ColoredBox(color: waveSurfaceOverlay(context)),
-              )
-            : _fallback(context, dark),
+        placeholder: (context, _) => SizedBox(
+          width: widget.size,
+          height: widget.size,
+          child: ColoredBox(color: waveSurfaceOverlay(context)),
+        ),
         errorWidget: (context, _, _) {
           WidgetsBinding.instance.addPostFrameCallback(
               (_) => _onError(gen, index, attempt));
-          return _fallback(context, dark);
+          return _chainIndex + 1 < _chain.length
+              ? SizedBox(
+                  width: widget.size,
+                  height: widget.size,
+                  child: ColoredBox(color: waveSurfaceOverlay(context)),
+                )
+              : _fallback(context, dark);
         },
       ),
     );

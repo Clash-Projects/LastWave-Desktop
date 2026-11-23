@@ -596,13 +596,34 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('aid', 'no');
       } catch (_) {}
       try {
+        await dyn.setProperty('osc', 'no');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('osd-level', '0');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('sub-auto', 'no');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('sid', 'no');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('load-scripts', 'no');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('ytdl', 'no');
+      } catch (_) {}
+      try {
+        await dyn.setProperty('vd-lavc-threads', '2');
+      } catch (_) {}
+      try {
         await dyn.setProperty('cache', 'yes');
       } catch (_) {}
       try {
-        await dyn.setProperty('demuxer-max-bytes', '${2 * 1024 * 1024}');
+        await dyn.setProperty('demuxer-max-bytes', '4MiB');
       } catch (_) {}
       try {
-        await dyn.setProperty('demuxer-max-back-bytes', '${2 * 1024 * 1024}');
+        await dyn.setProperty('demuxer-max-back-bytes', '0');
       } catch (_) {}
       try {
         // Downscale decode to 480px and cap to 24fps via fast_bilinear filter:

@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
+#include <fstream>
+#include <shlobj.h>
 
 #include <shobjidl.h>
 #include <timeapi.h>
@@ -15,6 +17,37 @@
 #include "utils.h"
 
 #include "app_identity.h"
+
+// Check renderer.flag or CLI flags to determine graphics engine.
+// Defaults to Skia (ImpellerSwitch::Disabled) to prevent Windows GPU memory
+// regressions, window resize leaks, and shader compilation stalls.
+bool ShouldEnableImpeller(const std::vector<std::string>& args) {
+  for (const auto& arg : args) {
+    if (arg == "--enable-impeller") return true;
+    if (arg == "--disable-impeller" || arg == "--no-enable-impeller") return false;
+  }
+  PWSTR appdata = nullptr;
+  if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appdata))) {
+    std::wstring basePath(appdata);
+    ::CoTaskMemFree(appdata);
+    std::wstring paths[] = {
+      basePath + L"\\LastWave\\renderer.flag",
+      basePath + L"\\com.lastwave\\lastwave_desktop\\renderer.flag",
+      basePath + L"\\Clash-Projects\\LastWave\\renderer.flag"
+    };
+    for (const auto& path : paths) {
+      std::ifstream file(path);
+      std::string mode;
+      if (file.is_open() && std::getline(file, mode)) {
+        while (!mode.empty() && (mode.back() == '\r' || mode.back() == ' ' || mode.back() == '\n')) {
+          mode.pop_back();
+        }
+        return mode == "impeller";
+      }
+    }
+  }
+  return false;
+}
 
 // Opt the process into dark Win32 popup menus (tray icon menu, ...).
 //
@@ -103,6 +136,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
+
+  const bool enable_impeller = ShouldEnableImpeller(command_line_arguments);
+  project.set_impeller_switch(
+      enable_impeller ? flutter::ImpellerSwitch::Enabled
+                      : flutter::ImpellerSwitch::Disabled);
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
