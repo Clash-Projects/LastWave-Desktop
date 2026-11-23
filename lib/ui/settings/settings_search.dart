@@ -139,6 +139,13 @@ const settingsSearchEntries = <SettingsSearchEntry>[
         'hidden exclusions restore sync now',
   ),
   SettingsSearchEntry(
+    id: 'lyrics.animation',
+    section: 'lyrics',
+    title: 'Lyrics animation',
+    subtitle: 'Visual animation style for synced lyrics',
+    keywords: 'lyrics animation style apple fluid glow bounce pulse smooth fade karaoke',
+  ),
+  SettingsSearchEntry(
     id: 'lyrics.timing',
     section: 'lyrics',
     title: 'Timing',

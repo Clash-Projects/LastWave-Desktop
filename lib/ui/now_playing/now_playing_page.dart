@@ -156,6 +156,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     final current = ref.watch(playbackServiceProvider.select((s) => s.current));
 
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
+    final isImmersive = ref.watch(nowPlayingImmersiveProvider);
 
     if (current == null) {
       // Same stage as the playing page, for the same reason: this route must
@@ -333,6 +334,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                                 lyricsVisible: _lyricsVisible,
                                 focusMode: _focusMode,
                                 visualizerEnabled: visualizerEnabled,
+                                showBackButton: isImmersive,
                                 onToggleLyrics: () {
                                   _resetIdleTimer();
                                   setState(() {
@@ -398,6 +400,7 @@ class _TopActionsBar extends StatelessWidget {
   final bool lyricsVisible;
   final bool focusMode;
   final bool visualizerEnabled;
+  final bool showBackButton;
   final VoidCallback onToggleLyrics;
   final VoidCallback onToggleFocus;
   final VoidCallback onToggleVisualizer;
@@ -407,6 +410,7 @@ class _TopActionsBar extends StatelessWidget {
     required this.lyricsVisible,
     required this.focusMode,
     required this.visualizerEnabled,
+    this.showBackButton = false,
     required this.onToggleLyrics,
     required this.onToggleFocus,
     required this.onToggleVisualizer,
@@ -420,17 +424,18 @@ class _TopActionsBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
         children: [
-          WaveGlass(
-            blur: false,
-            borderRadius: WaveRadius.menuRadius,
-            child: LWTooltip(
-              message: 'Back',
-              child: _FsIconButton(
-                icon: FluentIcons.chevron_left,
-                onTap: onClose,
+          if (showBackButton)
+            WaveGlass(
+              blur: false,
+              borderRadius: WaveRadius.menuRadius,
+              child: LWTooltip(
+                message: 'Back',
+                child: _FsIconButton(
+                  icon: FluentIcons.chevron_left,
+                  onTap: onClose,
+                ),
               ),
             ),
-          ),
           const Spacer(),
           WaveGlass(
             blur: false,
@@ -467,10 +472,6 @@ class _TopActionsBar extends StatelessWidget {
                     active: visualizerEnabled,
                     onTap: onToggleVisualizer,
                   ),
-                ),
-                LWTooltip(
-                  message: 'Close (Esc)',
-                  child: _FsIconButton(icon: WaveIcons.close, onTap: onClose),
                 ),
               ],
             ),

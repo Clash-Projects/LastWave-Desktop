@@ -559,24 +559,6 @@ class InnerTubeMusicApi {
   static const List<PlayerClient> playerClients = [
     // Direct-URL clients first (no cipher/poToken botguard blockage).
     PlayerClient(
-      'ANDROID',
-      '21.26.364',
-      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
-      osName: 'Android',
-      osVersion: '11',
-    ),
-    PlayerClient(
-      'IOS',
-      '21.26.4',
-      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
-      'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2;)',
-      osName: 'iPhone',
-      osVersion: '18.3.2.22D82',
-      deviceMake: 'Apple',
-      deviceModel: 'iPhone16,2',
-    ),
-    PlayerClient(
       'VISIONOS',
       '0.1',
       'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
@@ -596,6 +578,24 @@ class InnerTubeMusicApi {
       deviceMake: 'Oculus',
       deviceModel: 'Quest 3',
       androidSdkVersion: '32',
+    ),
+    PlayerClient(
+      'IOS',
+      '21.26.4',
+      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
+      'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2;)',
+      osName: 'iPhone',
+      osVersion: '18.3.2.22D82',
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+    ),
+    PlayerClient(
+      'ANDROID',
+      '21.26.364',
+      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+      osName: 'Android',
+      osVersion: '11',
     ),
     PlayerClient(
       'ANDROID_TESTSUITE',
@@ -742,7 +742,7 @@ class InnerTubeMusicApi {
   static const int _unknownExpiryTtlMs = 5 * 60 * 1000;
   // Limusic fast path: one preferred direct-URL client first,
   // then at most 2 limited fallbacks. Never fan out to the full table.
-  static const String _fastPreferredClient = 'ANDROID';
+  static const String _fastPreferredClient = 'VISIONOS';
   static const int _maxStreamClients = 3;
   static const Duration _fastClientTimeout = Duration(seconds: 8);
 
