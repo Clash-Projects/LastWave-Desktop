@@ -1601,6 +1601,8 @@ class _Lyrics extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
+    final activeProvider = LyricsProviderId.fromId(prefs.lyricsProviderId);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1625,11 +1627,11 @@ class _Lyrics extends ConsumerWidget {
             onChanged: (v) => onUpdate((p) => p.setLyricsAnimation(v)),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         _Group(
           id: 'lyrics.timing',
           title: 'Timing',
-          subtitle: 'Synced lyrics providers',
+          subtitle: 'Synced lyrics precision and primary metadata provider',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1638,23 +1640,57 @@ class _Lyrics extends ConsumerWidget {
                 onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
                 title: 'Word-by-word lyrics',
                 subtitle:
-                    'Karaoke word highlight. When off, highlights full lines.',
+                    'Real-time karaoke word highlight. When disabled, highlights full lines.',
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               const Text('Primary provider', style: WaveType.trackTitle),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
+              Text(
+                'Source used first when matching lyrics for playing tracks',
+                style:
+                    WaveType.meta.copyWith(color: waveTextSecondary(context)),
+              ),
+              const SizedBox(height: 8),
               WaveSelect<String>(
-                value: LyricsProviderId.fromId(prefs.lyricsProviderId).id,
+                expanded: true,
+                value: activeProvider.id,
                 options: [
                   for (final provider in LyricsProviderId.values)
-                    WaveSelectOption(value: provider.id, label: provider.title),
+                    WaveSelectOption(
+                      value: provider.id,
+                      label: provider.title,
+                      hint: provider.subtitle,
+                    ),
                 ],
                 onChanged: (v) => onUpdate((p) => p.setLyricsProviderId(v)),
               ),
-              const SizedBox(height: 4),
-              Text(
-                LyricsProviderId.fromId(prefs.lyricsProviderId).subtitle,
-                style: WaveType.meta,
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: waveSurface(context),
+                  borderRadius: BorderRadius.circular(WaveRadius.menu),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      FluentIcons.document,
+                      size: 14,
+                      color: waveAccent(context),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        activeProvider.subtitle,
+                        style: WaveType.meta.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1670,10 +1706,11 @@ class _NowPlayingAmbient extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final currentStyle = ref.watch(ambientStyleProvider);
     return _Group(
       id: 'lyrics.ambient',
       title: 'Now Playing ambient',
-      subtitle: 'Background behind the cover and lyrics',
+      subtitle: 'Dynamic backdrop styling behind cover art and lyrics',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1684,7 +1721,7 @@ class _NowPlayingAmbient extends ConsumerWidget {
                   const SizedBox(width: 8),
                 Expanded(
                   child: ToggleButton(
-                    checked: ref.watch(ambientStyleProvider) == style,
+                    checked: currentStyle == style,
                     onChanged: (_) =>
                         ref.read(ambientStyleProvider.notifier).set(style),
                     child: Text(style.label),
@@ -1693,14 +1730,12 @@ class _NowPlayingAmbient extends ConsumerWidget {
               ],
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Text(
-            ref.watch(ambientStyleProvider) == AmbientStyle.apple
-                ? 'Vivid colours from the artwork on a dark stage with '
-                      'white text. Looks the same in every theme.'
-                : 'A calm tone from the artwork that follows your '
-                      'theme (light in Pearl).',
-            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
+            currentStyle == AmbientStyle.apple
+                ? 'Vivid blurred colors sampled from the artwork on a dark stage with clean white text.'
+                : 'A calm, subtle accent tone sampled from the artwork that harmonizes with your active app theme.',
+            style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
           ),
         ],
       ),
@@ -4127,48 +4162,65 @@ class _Downloads extends ConsumerWidget {
     return _Group(
       id: 'library.offline',
       title: 'Offline',
-      subtitle: 'Download behaviour and lyrics sidecars',
+      subtitle: 'Download location, folder organization and lyrics sidecars',
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SwitchRow(
             value: prefs.downloadLyrics,
             onChanged: (v) => onUpdate((p) => p.setDownloadLyrics(v)),
-            title: 'Download lyrics',
-            subtitle: 'Save synced .lrc lyrics files alongside downloads',
+            title: 'Download lyrics sidecars',
+            subtitle:
+                'Automatically saves synced .lrc files alongside downloaded music',
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              const Icon(FluentIcons.open_folder_horizontal, size: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Save location', style: WaveType.trackTitle),
-                    Text(
-                      custom.isEmpty ? 'Default location' : custom,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.meta,
-                    ),
-                  ],
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: waveSurface(context),
+              borderRadius: BorderRadius.circular(WaveRadius.menu),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  FluentIcons.open_folder_horizontal,
+                  size: 20,
+                  color: waveAccent(context),
                 ),
-              ),
-              WaveButton(
-                onPressed: () => _pickDir(ref),
-                child: const Text('Change'),
-              ),
-              if (custom.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                WaveButton(
-                  onPressed: () => onUpdate((p) => p.resetDownloadDir()),
-                  child: const Text('Reset'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Save location', style: WaveType.trackTitle),
+                      const SizedBox(height: 2),
+                      Text(
+                        custom.isEmpty ? 'Default music folder' : custom,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: WaveType.meta.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 12),
+                WaveFilledButton(
+                  onPressed: () => _pickDir(ref),
+                  child: const Text('Change'),
+                ),
+                if (custom.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  WaveButton(
+                    onPressed: () => onUpdate((p) => p.resetDownloadDir()),
+                    child: const Text('Reset'),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           DownloadLayoutSettings(onUpdate: onUpdate),
         ],
       ),
