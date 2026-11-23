@@ -63,6 +63,11 @@ class LyricsOffsetNotifier extends StateNotifier<int> {
   }
 }
 
+/// Monotonic tick bumped whenever lyrics display preferences (translation
+/// language, text size, animation style) change outside [WaveKaraokeLyricsView],
+/// since [prefsProvider] is a static [Provider] override.
+final lyricsPrefsRevisionProvider = StateProvider<int>((_) => 0);
+
 /// Provider for transliteration display toggle.
 final lyricsTransliterationProvider =
     StateNotifierProvider<LyricsTransliterationNotifier, bool>((ref) {
@@ -78,6 +83,12 @@ class LyricsTransliterationNotifier extends StateNotifier<bool> {
 
   void toggle() {
     state = !state;
+    _prefs.setLyricsTransliteration(state);
+  }
+
+  void setEnabled(bool enabled) {
+    if (state == enabled) return;
+    state = enabled;
     _prefs.setLyricsTransliteration(state);
   }
 }
@@ -676,6 +687,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     // (_syncPlaybackClock), not watched here. They tick 10Hz and feed
     // only ticker/drift side effects, never widget output — watching them
     // rebuilt the whole toolbar + style + list 10x/sec for nothing.
+    ref.watch(lyricsPrefsRevisionProvider);
     final offsetMs = ref.watch(lyricsOffsetProvider(widget.track.queueKey));
     final showTransliteration = ref.watch(lyricsTransliterationProvider);
     // Select the single pref: toggling theme/quality elsewhere must

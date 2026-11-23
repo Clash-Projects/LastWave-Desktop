@@ -87,8 +87,8 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
   final bool Function(T item)? isLiked;
   final Future<void> Function(T item)? onToggleLike;
 
-  /// Play the row at [index]. Single tap only focuses — pass
-  /// [playOnSingleTap] to also play on single tap (e.g. search results).
+  /// Play the row at [index]. Defaults to playing on single tap (holding
+  /// Ctrl/Shift performs multi-selection without playing).
   final void Function(int index) onPlay;
   final bool playOnSingleTap;
   final String? removeLabel;
@@ -143,7 +143,7 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
     this.isPlaying,
     this.isLiked,
     this.onToggleLike,
-    this.playOnSingleTap = false,
+    this.playOnSingleTap = true,
     this.removeLabel,
     this.onRemove,
     this.menuBuilder,
@@ -843,6 +843,7 @@ class _TableRow<T extends Object> extends StatelessWidget {
       onEnter: (_) => onHover(true),
       onExit: (_) => onHover(false),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTapDown: (d) {
           final keys = HardwareKeyboard.instance.logicalKeysPressed;
           final ctrl = keys.contains(LogicalKeyboardKey.controlLeft) ||

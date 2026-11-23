@@ -24,7 +24,6 @@ import '../navigation/route_origin.dart';
 import '../navigation/side_rail.dart';
 import '../navigation/wave_nav.dart';
 import '../player_dock/player_dock.dart';
-import '../canvas/canvas_panel.dart';
 import '../now_playing/immersive.dart';
 import '../queue/queue_panel.dart';
 import '../theme/tokens.dart';
@@ -67,12 +66,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   // the slide-out is painted instead of vanishing on the first frame.
   bool _queueSettled = true;
   bool _equalizerSettled = true;
-  // Canvas: docked on the RIGHT edge, pushes the page; queue/EQ overlay it.
-  bool _canvasOpen = false;
   bool _miniOpen = false;
-
-  /// Canvas finished sliding in, so the page may give up its width.
-  bool _canvasDocked = false;
 
   /// F11 pressed away from Now Playing: go fullscreen once the route
   /// arrives. Stamped so a navigation that never lands can't turn a later,
@@ -133,7 +127,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       _miniOpen = true;
       _queueOpen = false;
       _equalizerOpen = false;
-      _canvasOpen = false;
     });
 
     try {
@@ -219,11 +212,9 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _dockLyricsActive = false;
   bool _dockQueueActive = false;
   bool _dockEqualizerActive = false;
-  bool _dockCanvasActive = false;
   bool _dockCompact = false;
 
   void _closeQueue() => setState(() => _queueOpen = false);
-  void _closeCanvas() => setState(() => _canvasOpen = false);
   void _closeEqualizer() => setState(() => _equalizerOpen = false);
 
   /// Cached dock: same instance across navigations (glyphs + cover art
@@ -233,19 +224,16 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     required bool lyricsActive,
     required bool queueActive,
     required bool equalizerActive,
-    required bool canvasActive,
     bool compact = false,
   }) {
     if (_dockCache == null ||
         _dockLyricsActive != lyricsActive ||
         _dockQueueActive != queueActive ||
         _dockEqualizerActive != equalizerActive ||
-        _dockCanvasActive != canvasActive ||
         _dockCompact != compact) {
       _dockLyricsActive = lyricsActive;
       _dockQueueActive = queueActive;
       _dockEqualizerActive = equalizerActive;
-      _dockCanvasActive = canvasActive;
       _dockCompact = compact;
       // The dock is structural: reserves 80px on every view, including
       // Now Playing — its in-page transport was removed so this dock is
@@ -256,8 +244,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         lyricsActive: lyricsActive,
         queueActive: queueActive,
         equalizerActive: equalizerActive,
-        canvasActive: canvasActive,
-        onToggleCanvas: () => setState(() => _canvasOpen = !_canvasOpen),
         onToggleMini: _toggleMiniPlayer,
         // Lyrics live on Now Playing (focus mode is its top-bar toggle).
         onToggleLyrics: _openNowPlaying,
@@ -384,9 +370,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       return true;
     } else if (_queueOpen) {
       setState(() => _queueOpen = false);
-      return true;
-    } else if (_canvasOpen) {
-      setState(() => _canvasOpen = false);
       return true;
     } else if (_miniOpen) {
       _exitMiniPlayer();
@@ -783,7 +766,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         setState(() {
           _queueOpen = false;
           _equalizerOpen = false;
-          _canvasOpen = false;
           _railExpanded = false;
         });
       }
@@ -913,37 +895,14 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               : (collapsed
                                   ? WaveDensity.railCollapsed
                                   : WaveDensity.railExpanded);
-                          // Exact 9:16 from the content height; the page
-                          // keeps its minimum width.
-                          final cw = canvasPanelWidth(
-                            height: constraints.maxHeight,
-                            available: constraints.maxWidth - railW,
-                          );
 
                           return Stack(
                             children: [
-                              // Page reserves the collapsed rail
-                              // strip; the rail floats above it.
-                              // Side panels (queue / equalizer) dock
-                              // beside the page instead of covering it,
-                              // so the page re-lays out to the space
-                              // left and stays fully usable.
-                              // The page is laid out once at its final
-                              // size and slid there: animating its edges
-                              // re-laid-out every page each frame, which
-                              // made the rail toggle and Canvas stutter.
                               Positioned(
-                                // The expanded rail is the collapsed
-                                // rail grown wider: the page makes room
-                                // for it and it stays until toggled off.
                                 left: railW,
                                 top: 0,
                                 bottom: 0,
-                                // Queue / equalizer overlay the page (they
-                                // do not push it); only Canvas docks,
-                                // after its slide-in, so it overlays the
-                                // page while moving.
-                                right: _canvasOpen && _canvasDocked ? cw : 0,
+                                right: 0,
                                 child: _SlideToInset(
                                   left: railW,
                                   child: RepaintBoundary(
@@ -958,44 +917,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                             child: widget.child,
                                           )
                                         : widget.child,
-                                  ),
-                                ),
-                              ),
-                              // Canvas — docks on the right edge and pushes
-                              // the page. Queue / equalizer are painted
-                              // after it, so they overlay it.
-                              AnimatedPositioned(
-                                duration: waveMotion(
-                                  context,
-                                  WaveMotion.normal,
-                                ),
-                                curve: Curves.easeOutCubic,
-                                top: 0,
-                                bottom: floatDock ? floatDockH : 0,
-                                right: _canvasOpen ? 0 : -(cw + 12),
-                                width: cw,
-                                onEnd: () {
-                                  if (_canvasDocked != _canvasOpen) {
-                                    setState(
-                                        () => _canvasDocked = _canvasOpen);
-                                  }
-                                },
-                                child: ExcludeFocus(
-                                  excluding: !_canvasOpen,
-                                  child: IgnorePointer(
-                                    ignoring: !_canvasOpen,
-                                    // Stays painted while sliding shut
-                                    // (it used to vanish on the first
-                                    // frame of the close).
-                                    child: Offstage(
-                                      offstage: !_canvasOpen && !_canvasDocked,
-                                      child: RepaintBoundary(
-                                        child: WaveCanvasPanel(
-                                          open: _canvasOpen,
-                                          onClose: _closeCanvas,
-                                        ),
-                                      ),
-                                    ),
                                   ),
                                 ),
                               ),
@@ -1102,21 +1023,15 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               // Painted last so the queue / equalizer
                               // panels never cover its toggles.
                               if (immersive)
-                                AnimatedPositioned(
-                                  duration: waveMotion(
-                                    context,
-                                    WaveMotion.normal,
-                                  ),
-                                  curve: Curves.easeOutCubic,
+                                Positioned(
                                   left: 0,
-                                  right: _canvasOpen ? cw : 0,
+                                  right: 0,
                                   bottom: 0,
                                   child: WaveImmersiveDockOverlay(
                                     child: _dockFor(
                                       lyricsActive: isNowPlaying,
                                       queueActive: _queueOpen,
                                       equalizerActive: _equalizerOpen,
-                                      canvasActive: _canvasOpen,
                                       compact: true,
                                     ),
                                   ),
@@ -1132,7 +1047,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     lyricsActive: isNowPlaying,
                                     queueActive: _queueOpen,
                                     equalizerActive: _equalizerOpen,
-                                    canvasActive: _canvasOpen,
                                   ),
                                 ),
                             ],
@@ -1146,7 +1060,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                       lyricsActive: isNowPlaying,
                       queueActive: _queueOpen,
                       equalizerActive: _equalizerOpen,
-                      canvasActive: _canvasOpen,
                     ),
                 ],
               ),

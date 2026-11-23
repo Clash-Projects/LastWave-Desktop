@@ -77,29 +77,29 @@ class _WaveIconButtonState extends State<WaveIconButton> {
       ),
     );
 
-    final button = MouseRegion(
-      cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() {
-        _hover = false;
-        _pressed = false;
-      }),
-      child: Listener(
-        onPointerDown: disabled ? null : (_) => setState(() => _pressed = true),
-        onPointerUp: disabled ? null : (_) => setState(() => _pressed = false),
-        onPointerCancel: disabled ? null : (_) => setState(() => _pressed = false),
-        child: AnimatedScale(
-          scale: disabled ? 1.0 : (_pressed ? 0.93 : (_hover ? 1.05 : 1.0)),
-          duration: waveMotion(context, WaveMotion.fast),
-          curve: Curves.easeOutCubic,
-          child: SizedBox(
-            width: WaveDensity.hitArea,
-            height: WaveDensity.hitArea,
-            child: IconButton(
-              icon: widget.icon,
-              onPressed: widget.onPressed,
-              style: style,
+    final button = SizedBox(
+      width: WaveDensity.hitArea,
+      height: WaveDensity.hitArea,
+      child: MouseRegion(
+        cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() {
+          _hover = false;
+          _pressed = false;
+        }),
+        child: Listener(
+          onPointerDown: disabled ? null : (_) => setState(() => _pressed = true),
+          onPointerUp: disabled ? null : (_) => setState(() => _pressed = false),
+          onPointerCancel: disabled ? null : (_) => setState(() => _pressed = false),
+          child: IconButton(
+            icon: AnimatedScale(
+              scale: disabled ? 1.0 : (_pressed ? 0.93 : (_hover ? 1.05 : 1.0)),
+              duration: waveMotion(context, WaveMotion.fast),
+              curve: Curves.easeOutCubic,
+              child: widget.icon,
             ),
+            onPressed: widget.onPressed,
+            style: style,
           ),
         ),
       ),
@@ -446,45 +446,45 @@ class _WavePlayButtonState extends State<WavePlayButton> {
     final glyphSize = widget.large ? 22.0 : 19.0;
     final disabled = widget.onPressed == null;
 
-    final button = MouseRegion(
-      cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() {
-        _hover = false;
-        _pressed = false;
-      }),
-      child: Listener(
-        onPointerDown: disabled ? null : (_) => setState(() => _pressed = true),
-        onPointerUp: disabled ? null : (_) => setState(() => _pressed = false),
-        onPointerCancel: disabled ? null : (_) => setState(() => _pressed = false),
-        child: AnimatedScale(
-          scale: disabled ? 1.0 : (_pressed ? 0.92 : (_hover ? 1.06 : 1.0)),
-          duration: waveMotion(context, WaveMotion.fast),
-          curve: Curves.easeOutCubic,
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: FilledButton(
-              onPressed: widget.onPressed,
-              style: ButtonStyle(
-                padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-                backgroundColor: WidgetStateProperty.resolveWith((states) {
-                  if (states.isDisabled) {
-                    return (dark ? Colors.white : Colors.black)
-                        .withValues(alpha: 0.08);
-                  }
-                  if (states.isPressed) return accent.withValues(alpha: 0.85);
-                  if (states.isHovered) return accent.withValues(alpha: 0.92);
-                  return accent;
-                }),
-                foregroundColor: WidgetStatePropertyAll(onAccent),
-                shape: const WidgetStatePropertyAll(
-                  RoundedRectangleBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(999)),
-                  ),
+    final button = SizedBox(
+      width: size,
+      height: size,
+      child: MouseRegion(
+        cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() {
+          _hover = false;
+          _pressed = false;
+        }),
+        child: Listener(
+          onPointerDown: disabled ? null : (_) => setState(() => _pressed = true),
+          onPointerUp: disabled ? null : (_) => setState(() => _pressed = false),
+          onPointerCancel: disabled ? null : (_) => setState(() => _pressed = false),
+          child: FilledButton(
+            onPressed: widget.onPressed,
+            style: ButtonStyle(
+              padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.isDisabled) {
+                  return (dark ? Colors.white : Colors.black)
+                      .withValues(alpha: 0.08);
+                }
+                if (states.isPressed) return accent.withValues(alpha: 0.85);
+                if (states.isHovered) return accent.withValues(alpha: 0.92);
+                return accent;
+              }),
+              foregroundColor: WidgetStatePropertyAll(onAccent),
+              shape: const WidgetStatePropertyAll(
+                RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(999)),
                 ),
               ),
-              child: Center(
+            ),
+            child: Center(
+              child: AnimatedScale(
+                scale: disabled ? 1.0 : (_pressed ? 0.92 : (_hover ? 1.06 : 1.0)),
+                duration: waveMotion(context, WaveMotion.fast),
+                curve: Curves.easeOutCubic,
                 child: widget.buffering
                     ? SizedBox(
                         width: glyphSize,

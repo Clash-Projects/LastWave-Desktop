@@ -143,11 +143,11 @@ class _WaveTrackRowState extends ConsumerState<WaveTrackRow> {
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: () {
             _focus.requestFocus();
             _activate();
           },
-          onDoubleTap: _activate,
           child: AnimatedContainer(
             duration: waveMotion(context, WaveMotion.fast),
             height: WaveDensity.trackRow,

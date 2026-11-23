@@ -39,14 +39,9 @@ class WavePlayerDock extends ConsumerWidget {
   final VoidCallback onToggleQueue;
   final VoidCallback onToggleLyrics;
   final VoidCallback? onToggleEqualizer;
-
-  /// Canvas panel (9:16 looping video, docked on the right edge). Takes the place the Output glyph used to have;
-  /// Output now lives inside the More menu.
-  final VoidCallback? onToggleCanvas;
   final bool queueActive;
   final bool lyricsActive;
   final bool equalizerActive;
-  final bool canvasActive;
   final VoidCallback onToggleMini;
 
   /// Fullscreen Now Playing overlay: one slim row with only the essentials
@@ -60,11 +55,9 @@ class WavePlayerDock extends ConsumerWidget {
     required this.onToggleQueue,
     required this.onToggleLyrics,
     this.onToggleEqualizer,
-    this.onToggleCanvas,
     this.queueActive = false,
     this.lyricsActive = false,
     this.equalizerActive = false,
-    this.canvasActive = false,
     required this.onToggleMini,
   });
 
@@ -401,13 +394,6 @@ class WavePlayerDock extends ConsumerWidget {
                               icon: WaveIcons.equalizer,
                               active: equalizerActive,
                               onTap: onToggleEqualizer!,
-                            ),
-                          if (onToggleCanvas != null)
-                            _Glyph(
-                              tooltip: 'Canvas',
-                              icon: WaveIcons.canvas,
-                              active: canvasActive,
-                              onTap: onToggleCanvas!,
                             ),
                           if (showVolumeSlider)
                             const _VolumeSection()
@@ -812,21 +798,22 @@ class _GlyphState extends State<_Glyph> {
         _pressed = false;
       }),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTapDown: disabled ? null : (_) => setState(() => _pressed = true),
         onTapUp: disabled ? null : (_) => setState(() => _pressed = false),
         onTapCancel: disabled ? null : () => setState(() => _pressed = false),
         onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
-          duration: waveMotion(context, WaveMotion.fast),
-          curve: Curves.easeOutCubic,
-          child: Container(
-            width: 34,
-            height: 34,
-            color: Colors.transparent,
-            // Transport icons 18px, utility glyphs 15px (canonical).
-            child: Icon(widget.icon,
-                size: widget.large ? 18 : 15, color: color),
+        child: SizedBox(
+          width: 34,
+          height: 34,
+          child: Center(
+            child: AnimatedScale(
+              scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
+              duration: waveMotion(context, WaveMotion.fast),
+              curve: Curves.easeOutCubic,
+              child: Icon(widget.icon,
+                  size: widget.large ? 18 : 15, color: color),
+            ),
           ),
         ),
       ),
@@ -846,19 +833,21 @@ class _GlyphState extends State<_Glyph> {
               _pressed = false;
             }),
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTapDown: (_) => setState(() => _pressed = true),
               onTapUp: (_) => setState(() => _pressed = false),
               onTapCancel: () => setState(() => _pressed = false),
               onTap: onOpen,
-              child: AnimatedScale(
-                scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
-                duration: waveMotion(context, WaveMotion.fast),
-                curve: Curves.easeOutCubic,
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  color: Colors.transparent,
-                  child: Icon(widget.icon, size: 15, color: color),
+              child: SizedBox(
+                width: 34,
+                height: 34,
+                child: Center(
+                  child: AnimatedScale(
+                    scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
+                    duration: waveMotion(context, WaveMotion.fast),
+                    curve: Curves.easeOutCubic,
+                    child: Icon(widget.icon, size: 15, color: color),
+                  ),
                 ),
               ),
             ),
@@ -959,6 +948,7 @@ class _PlayGlyphState extends State<_PlayGlyph> {
             });
           },
           child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTapDown: (_) =>
                 setState(() => _pressed = true),
             onTapUp: (_) =>
@@ -966,64 +956,70 @@ class _PlayGlyphState extends State<_PlayGlyph> {
             onTapCancel: () =>
                 setState(() => _pressed = false),
             onTap: widget.enabled ? widget.onTap : null,
-            child: AnimatedScale(
-              scale: _pressed ? 0.92 : (_hover ? 1.06 : 1.0),
-              duration: waveMotion(context, WaveMotion.fast),
-              curve: Curves.easeOutCubic,
-              child: AnimatedContainer(
-                duration: waveMotion(context, WaveMotion.fast),
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: bg,
-                  border: Border.all(
-                    color: (_focus.hasFocus
-                            ? accent
-                            : (dark
-                                ? Colors.white
-                                : Colors.black))
-                        .withValues(
-                            alpha: _focus.hasFocus ? 0.9 : 0.14),
-                    width: _focus.hasFocus ? 2 : 1,
+            child: SizedBox(
+              width: 36,
+              height: 36,
+              child: Center(
+                child: AnimatedScale(
+                  scale: _pressed ? 0.92 : (_hover ? 1.06 : 1.0),
+                  duration: waveMotion(context, WaveMotion.fast),
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedContainer(
+                    duration: waveMotion(context, WaveMotion.fast),
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: bg,
+                      border: Border.all(
+                        color: (_focus.hasFocus
+                                ? accent
+                                : (dark
+                                    ? Colors.white
+                                    : Colors.black))
+                            .withValues(
+                                alpha: _focus.hasFocus ? 0.9 : 0.14),
+                        width: _focus.hasFocus ? 2 : 1,
+                      ),
+                      boxShadow: WaveElevation.transport(dark),
+                    ),
+                    child: Center(
+                      child: widget.buffering
+                          ? SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: ProgressRing(
+                                strokeWidth: 2.5,
+                                activeColor: fg,
+                                backgroundColor:
+                                    fg.withValues(alpha: 0.25),
+                              ),
+                            )
+                          : AnimatedSwitcher(
+                              duration: waveMotion(
+                                  context, const Duration(milliseconds: 180)),
+                              transitionBuilder: (child, animation) =>
+                                  ScaleTransition(
+                                scale: CurvedAnimation(
+                                  parent: animation,
+                                  curve: Curves.easeOutBack,
+                                ),
+                                child: FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
+                              ),
+                              child: Icon(
+                                widget.playing
+                                    ? WaveIcons.pause
+                                    : WaveIcons.play,
+                                key: ValueKey(widget.playing),
+                                size: 15,
+                                color: fg,
+                              ),
+                            ),
+                    ),
                   ),
-                  boxShadow: WaveElevation.transport(dark),
-                ),
-                child: Center(
-                  child: widget.buffering
-                      ? SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: ProgressRing(
-                            strokeWidth: 2.5,
-                            activeColor: fg,
-                            backgroundColor:
-                                fg.withValues(alpha: 0.25),
-                          ),
-                        )
-                      : AnimatedSwitcher(
-                          duration: waveMotion(
-                              context, const Duration(milliseconds: 180)),
-                          transitionBuilder: (child, animation) =>
-                              ScaleTransition(
-                            scale: CurvedAnimation(
-                              parent: animation,
-                              curve: Curves.easeOutBack,
-                            ),
-                            child: FadeTransition(
-                              opacity: animation,
-                              child: child,
-                            ),
-                          ),
-                          child: Icon(
-                            widget.playing
-                                ? WaveIcons.pause
-                                : WaveIcons.play,
-                            key: ValueKey(widget.playing),
-                            size: 15,
-                            color: fg,
-                          ),
-                        ),
                 ),
               ),
             ),

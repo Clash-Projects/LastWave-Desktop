@@ -280,6 +280,7 @@ class _WaveMiniPlayerState extends ConsumerState<WaveMiniPlayer> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onExpand,
         child: WaveArtwork(
           url: current.artworkUrl,
@@ -741,6 +742,7 @@ class _MiniPlay extends StatelessWidget {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: onTap,
           child: Container(
             width: size,
@@ -899,6 +901,7 @@ class _MiniGlyphState extends State<_MiniGlyph> {
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
           child: AnimatedContainer(
             duration:

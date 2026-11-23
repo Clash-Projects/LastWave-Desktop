@@ -13,13 +13,17 @@ import '../../core/artwork/animated_artwork_session.dart';
 class AnimatedArtworkVideo extends ConsumerStatefulWidget {
   final String url;
   final String fallbackUrl;
-  final double size;
+  final double? size;
+  final double? width;
+  final double? height;
 
   const AnimatedArtworkVideo({
     super.key,
     required this.url,
     this.fallbackUrl = '',
-    required this.size,
+    this.size,
+    this.width,
+    this.height,
   });
 
   @override
@@ -64,8 +68,8 @@ class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
     });
     return IgnorePointer(
       child: SizedBox(
-        width: widget.size,
-        height: widget.size,
+        width: widget.width ?? widget.size ?? double.infinity,
+        height: widget.height ?? widget.size ?? double.infinity,
         child: Video(
           controller: controller,
           controls: NoVideoControls,

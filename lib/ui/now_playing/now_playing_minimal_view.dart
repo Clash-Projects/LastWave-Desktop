@@ -1,20 +1,19 @@
-import 'dart:async';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Colors;
 import 'package:flutter/material.dart' show Colors, Icons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/artwork/artwork_cache.dart';
+import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
+import '../../features/spotify/canvas_clip.dart';
 import '../components/ambient.dart';
+import '../components/animated_artwork_video.dart';
+import '../components/artwork.dart';
 import '../queue/queue_panel.dart';
-import '../theme/tokens.dart';
-import '../theme/wave_icons.dart';
-import 'immersive.dart';
 import 'now_playing_overflow_menu.dart';
 
-/// Minimal Now Playing layout: Sharp cover art, centered metadata, and distraction-free synced lyrics.
+/// Minimal Now Playing layout: Sharp cover art (with Canvas / motion art and
+/// hi-res official artwork), centered metadata, and distraction-free synced lyrics.
 class NowPlayingMinimalView extends ConsumerStatefulWidget {
   final PlayableTrack track;
   final VoidCallback onClose;
@@ -32,36 +31,43 @@ class NowPlayingMinimalView extends ConsumerStatefulWidget {
 
 class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
   bool _showQueue = false;
-  bool _quickActionsVisible = false;
-  Timer? _hideQuickActionsTimer;
-
-  @override
-  void dispose() {
-    _hideQuickActionsTimer?.cancel();
-    super.dispose();
-  }
-
-  void _onTopHoverEnter() {
-    _hideQuickActionsTimer?.cancel();
-    if (!_quickActionsVisible) {
-      setState(() => _quickActionsVisible = true);
-    }
-  }
-
-  void _onTopHoverExit() {
-    _hideQuickActionsTimer?.cancel();
-    _hideQuickActionsTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted && _quickActionsVisible) {
-        setState(() => _quickActionsVisible = false);
-      }
-    });
-  }
+  String _lastClipUrl = '';
+  String _lastClipFallbackUrl = '';
+  bool _sleeveGone = false;
 
   @override
   Widget build(BuildContext context) {
     final track = widget.track;
-    final isImmersive = ref.watch(nowPlayingImmersiveProvider);
-    final visualizerEnabled = ref.watch(visualizerEnabledProvider);
+
+    // Prefer Spotify Canvas first, then Apple Music / Tidal / Community canvas.
+    final canvasAsync = ref.watch(
+      canvasPanelClipProvider((
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        durationMs: track.duration.inMilliseconds,
+      )),
+    );
+    final clip = canvasAsync.valueOrNull?.clip;
+    final clipUrl = clip?.url ?? '';
+    final clipFallbackUrl = clip?.fallbackUrl ?? '';
+    if (!canvasAsync.isLoading || clipUrl.isNotEmpty) {
+      _lastClipUrl = clipUrl;
+      _lastClipFallbackUrl = clipFallbackUrl;
+    }
+    final activeUrl = clipUrl.isNotEmpty
+        ? clipUrl
+        : (canvasAsync.isLoading ? _lastClipUrl : '');
+    final activeFallbackUrl = clipUrl.isNotEmpty
+        ? clipFallbackUrl
+        : (canvasAsync.isLoading ? _lastClipFallbackUrl : '');
+    final videoReady =
+        clipUrl.isNotEmpty &&
+        ref.watch(
+          animatedArtworkSessionProvider.select((s) => s.isReadyFor(clipUrl)),
+        );
+    if (!videoReady) _sleeveGone = false;
+    final showSleeve = !videoReady || !_sleeveGone;
 
     return Stack(
       children: [
@@ -77,20 +83,13 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
           ),
         ),
 
-        // Subtle dark tint over ambient stage to match matte tone
-        Positioned.fill(
-          child: ColoredBox(
-            color: Colors.black.withValues(alpha: 0.28),
-          ),
-        ),
-
         // 2. Main Two-Column Row (Album Cover + Centered Info on Left, Synced Lyrics on Right)
         Positioned.fill(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 40),
             child: Row(
               children: [
-                // Left Column: Sharp square cover + centered title & artist
+                // Left Column: Sharp square cover (Canvas / Hi-Res Art) + centered title & artist
                 Expanded(
                   flex: 42,
                   child: Center(
@@ -103,7 +102,7 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Sharp square album cover
+                          // Sharp square album cover with Canvas & Hi-Res Official Art
                           ConstrainedBox(
                             constraints: const BoxConstraints(
                               maxWidth: 420,
@@ -111,35 +110,53 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
                             ),
                             child: AspectRatio(
                               aspectRatio: 1,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(2.0),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.35,
+                              child: LayoutBuilder(
+                                builder: (context, box) {
+                                  final side = box.maxWidth;
+                                  return RepaintBoundary(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(2.0),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          if (activeUrl.isNotEmpty)
+                                            AnimatedArtworkVideo(
+                                              url: activeUrl,
+                                              fallbackUrl: activeFallbackUrl,
+                                              size: side,
+                                            ),
+                                          if (showSleeve)
+                                            AnimatedOpacity(
+                                              opacity: videoReady ? 0.0 : 1.0,
+                                              duration: const Duration(
+                                                milliseconds: 320,
+                                              ),
+                                              curve: Curves.easeOut,
+                                              onEnd: () {
+                                                if (videoReady &&
+                                                    !_sleeveGone &&
+                                                    mounted) {
+                                                  setState(
+                                                    () => _sleeveGone = true,
+                                                  );
+                                                }
+                                              },
+                                              child: WaveArtwork(
+                                                url: track.artworkUrl,
+                                                videoId: track.videoId,
+                                                size: side,
+                                                decodeExtent: 480,
+                                                radius: 2.0,
+                                                label: track.title,
+                                                title: track.title,
+                                                artist: track.artist,
+                                              ),
+                                            ),
+                                        ],
                                       ),
-                                      blurRadius: 32,
-                                      offset: const Offset(0, 14),
                                     ),
-                                  ],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(2.0),
-                                  child: track.artworkUrl.isNotEmpty
-                                      ? CachedNetworkImage(
-                                          imageUrl: track.artworkUrl,
-                                          cacheManager: ArtworkCache.instance,
-                                          fit: BoxFit.cover,
-                                          errorWidget: (_, _, _) =>
-                                              const ColoredBox(
-                                            color: Color(0xFF1B1E24),
-                                          ),
-                                        )
-                                      : const ColoredBox(
-                                          color: Color(0xFF1B1E24),
-                                        ),
-                                ),
+                                  );
+                                },
                               ),
                             ),
                           ),
@@ -199,20 +216,7 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
           ),
         ),
 
-        // 3. Top Strip Hover Detector for Quick Actions (Zero idle CPU)
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 64,
-          child: MouseRegion(
-            onEnter: (_) => _onTopHoverEnter(),
-            onExit: (_) => _onTopHoverExit(),
-            child: const SizedBox.expand(),
-          ),
-        ),
-
-        // 4. Top-Left Downward Collapse Chevron
+        // 3. Top-Left Downward Collapse Chevron
         Positioned(
           top: 18,
           left: 20,
@@ -221,67 +225,14 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
           ),
         ),
 
-        // 5. Top-Right Quick Actions + Overflow Button
+        // 4. Unified Top-Right Control Bar (Visualizer, Fullscreen, Overflow)
         Positioned(
           top: 18,
           right: 20,
-          child: MouseRegion(
-            onEnter: (_) => _onTopHoverEnter(),
-            onExit: (_) => _onTopHoverExit(),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Quick Actions (Ambient toggle & Fullscreen) faded in on hover
-                AnimatedOpacity(
-                  duration: const Duration(milliseconds: 200),
-                  opacity: _quickActionsVisible ? 1.0 : 0.0,
-                  child: IgnorePointer(
-                    ignoring: !_quickActionsVisible,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _MinimalActionButton(
-                          icon: WaveIcons.visualizer,
-                          tooltip: visualizerEnabled
-                              ? 'Disable visualizer'
-                              : 'Enable visualizer',
-                          active: visualizerEnabled,
-                          onTap: () => ref
-                              .read(visualizerEnabledProvider.notifier)
-                              .toggle(),
-                        ),
-                        const SizedBox(width: 6),
-                        _MinimalActionButton(
-                          icon: isImmersive
-                              ? FluentIcons.mini_contract
-                              : WaveIcons.expand,
-                          tooltip: isImmersive
-                              ? 'Exit fullscreen (F11)'
-                              : 'Fullscreen (F11)',
-                          active: isImmersive,
-                          onTap: () {
-                            ref
-                                .read(nowPlayingImmersiveProvider.notifier)
-                                .state = !isImmersive;
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Subtle circular '...' button
-                NowPlayingOverflowMenuButton(
-                  track: track,
-                  onToggleQueue: () {
-                    setState(() => _showQueue = !_showQueue);
-                  },
-                  isQueueOpen: _showQueue,
-                  icon: const _MinimalCircularMoreButton(),
-                ),
-              ],
-            ),
+          child: NowPlayingTopActions(
+            track: track,
+            isQueueOpen: _showQueue,
+            onToggleQueue: () => setState(() => _showQueue = !_showQueue),
           ),
         ),
 
@@ -356,109 +307,6 @@ class _CollapseChevronButtonState extends State<_CollapseChevronButton> {
               Icons.keyboard_arrow_down,
               size: 22,
               color: Colors.white.withValues(alpha: _hover ? 0.95 : 0.55),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MinimalActionButton extends StatefulWidget {
-  final IconData icon;
-  final String tooltip;
-  final bool active;
-  final VoidCallback onTap;
-
-  const _MinimalActionButton({
-    required this.icon,
-    required this.tooltip,
-    this.active = false,
-    required this.onTap,
-  });
-
-  @override
-  State<_MinimalActionButton> createState() => _MinimalActionButtonState();
-}
-
-class _MinimalActionButtonState extends State<_MinimalActionButton> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = waveAccent(context);
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: widget.active
-                  ? accent.withValues(alpha: 0.20)
-                  : (_hover
-                      ? Colors.white.withValues(alpha: 0.15)
-                      : Colors.white.withValues(alpha: 0.08)),
-              borderRadius: BorderRadius.circular(6),
-              border: widget.active
-                  ? Border.all(color: accent.withValues(alpha: 0.40))
-                  : null,
-            ),
-            child: Center(
-              child: Icon(
-                widget.icon,
-                size: 14,
-                color: widget.active
-                    ? accent
-                    : Colors.white.withValues(alpha: _hover ? 1.0 : 0.80),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MinimalCircularMoreButton extends StatefulWidget {
-  const _MinimalCircularMoreButton();
-
-  @override
-  State<_MinimalCircularMoreButton> createState() =>
-      _MinimalCircularMoreButtonState();
-}
-
-class _MinimalCircularMoreButtonState
-    extends State<_MinimalCircularMoreButton> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'More options',
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: _hover ? 0.20 : 0.10),
-          ),
-          child: Center(
-            child: Icon(
-              FluentIcons.more,
-              size: 15,
-              color: Colors.white.withValues(alpha: _hover ? 1.0 : 0.85),
             ),
           ),
         ),
