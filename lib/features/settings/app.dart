@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../app/deep_link.dart';
 import '../../app/router.dart';
@@ -332,7 +334,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                   lang.isRtl ? TextDirection.rtl : TextDirection.ltr,
               child: page,
             );
-            return DisableAcrylic(
+            final content = DisableAcrylic(
               child: effectiveGlass
                   ? WaveGlassStage(
                       veil: base.background,
@@ -347,6 +349,15 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                     )
                   : directed,
             );
+            if (Platform.isLinux) {
+              final isMaximized = ref.watch(windowMaximizedProvider);
+              return DragToResizeArea(
+                enableResizeEdges: isMaximized ? [] : null,
+                resizeEdgeSize: 6,
+                child: content,
+              );
+            }
+            return content;
           },
         ),
       ),
