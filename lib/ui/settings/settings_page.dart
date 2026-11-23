@@ -548,6 +548,31 @@ class _Group extends StatelessWidget {
   }
 }
 
+class _StatusPill extends StatelessWidget {
+  final String label;
+  const _StatusPill(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(6, 1.5, 6, 2.5),
+      decoration: BoxDecoration(
+        color: WaveColors.success.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          height: 1.1,
+          color: WaveColors.success,
+        ),
+      ),
+    );
+  }
+}
+
 class _Account extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Account({required this.onUpdate});
@@ -558,50 +583,78 @@ class _Account extends ConsumerWidget {
     final prefs = ref.watch(prefsProvider);
     final signedIn = auth.username.isNotEmpty;
     final guest = auth.status == AuthStatus.guest || prefs.isGuest;
-    return _Group(
+    return SettingsTarget(
       id: 'accounts.connection',
-      title: 'Last.fm connection',
-      subtitle: 'Scrobbling and discovery need a session',
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              const Icon(FluentIcons.contact, size: 18),
-              const SizedBox(width: 10),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD51007).withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: Icon(
+                    WaveIcons.music,
+                    size: 16,
+                    color: Color(0xFFE0506A),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      signedIn
-                          ? auth.username
-                          : (guest ? 'Guest mode' : 'Not connected'),
-                      style: WaveType.trackTitle,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            signedIn
+                                ? auth.username
+                                : (guest ? 'Guest mode' : 'Last.fm'),
+                            style: WaveType.trackTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (signedIn) ...[
+                          const SizedBox(width: 8),
+                          const _StatusPill('Connected'),
+                        ],
+                      ],
                     ),
                     Text(
                       signedIn
-                          ? 'Last.fm connected'
+                          ? 'Connected · Scrobbling & real-time discovery active'
                           : (guest
-                                ? 'Last.fm disabled — save keys below, then connect'
-                                : 'Connect to scrobble and personalize'),
-                      style: WaveType.meta,
+                              ? 'Last.fm disabled — save API keys below, then connect'
+                              : 'Connect your Last.fm account to scrobble and personalize'),
+                      style: WaveType.meta.copyWith(
+                        color: waveTextSecondary(context),
+                      ),
                     ),
                   ],
                 ),
               ),
-              signedIn
-                  ? WaveButton(
-                      onPressed: () => signOutEverywhere(ref),
-                      child: const Text('Sign out'),
-                    )
-                  : const SizedBox.shrink(),
+              if (signedIn)
+                WaveButton(
+                  onPressed: () => signOutEverywhere(ref),
+                  child: const Text('Sign out'),
+                )
+              else
+                const SizedBox.shrink(),
             ],
           ),
           if (!signedIn) ...[
             const SizedBox(height: 10),
             const _InShellConnect(),
           ],
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
           const _ApiKeys(),
         ],
       ),
@@ -1591,12 +1644,44 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
     final percent = (_dragPercent ?? prefs.scrobblePercent.toDouble())
         .clamp(25, 90)
         .toDouble();
-    return _Group(
+    return SettingsTarget(
       id: 'accounts.scrobbling',
-      title: 'Scrobbler rules',
-      subtitle: 'Thresholds apply across all connected scrobblers',
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: WaveColors.warn.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: Icon(
+                    WaveIcons.gauge,
+                    size: 15,
+                    color: WaveColors.warn,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Scrobbling Rules', style: WaveType.trackTitle),
+                    Text(
+                      'Thresholds and live updates apply across all scrobbler services',
+                      style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           _SwitchRow(
             value: prefs.scrobblerEnabled,
             onChanged: (v) =>
@@ -1606,18 +1691,35 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
           ),
           _SwitchRow(
             value: prefs.scrobbleNowPlaying,
+            enabled: prefs.scrobblerEnabled,
             onChanged: (v) =>
                 widget.onUpdate((p) => p.setScrobbler(nowPlaying: v)),
             title: 'Now playing updates',
+            subtitle: 'Broadcast current playing track in real-time',
           ),
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    'Scrobble at ${percent.round()}% of track',
-                    style: WaveType.trackTitle,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Scrobble at ${percent.round()}% of track',
+                        style: WaveType.trackTitle.copyWith(
+                          color: prefs.scrobblerEnabled
+                              ? null
+                              : waveTextTertiary(context),
+                        ),
+                      ),
+                      Text(
+                        'Trigger scrobble after listening to ${percent.round()}% of the song',
+                        style: WaveType.meta.copyWith(
+                          color: waveTextTertiary(context),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 SizedBox(
@@ -1626,7 +1728,9 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
                     value: percent,
                     min: 25,
                     max: 90,
-                    onChanged: (v) => setState(() => _dragPercent = v),
+                    onChanged: prefs.scrobblerEnabled
+                        ? (v) => setState(() => _dragPercent = v)
+                        : null,
                     onChangeEnd: (v) {
                       setState(() => _dragPercent = null);
                       widget.onUpdate(
@@ -1662,12 +1766,45 @@ class _SpotifyCard extends ConsumerWidget {
       children: [
         Row(
           children: [
-            const Icon(FluentIcons.music_note, size: 18),
-            const SizedBox(width: 10),
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: WaveColors.success.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: Icon(
+                  WaveIcons.streamPath,
+                  size: 16,
+                  color: WaveColors.success,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                auth.connected ? 'Connected' : 'Not connected',
-                style: WaveType.trackTitle,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        auth.connected ? 'Spotify' : 'Not connected',
+                        style: WaveType.trackTitle,
+                      ),
+                      if (auth.connected) ...[
+                        const SizedBox(width: 8),
+                        const _StatusPill('Active'),
+                      ],
+                    ],
+                  ),
+                  Text(
+                    auth.connected
+                        ? 'Connected · Liked tracks, playlists & Canvas video loops enabled'
+                        : 'Connect using session cookies to unlock Spotify Canvas & song radio',
+                    style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+                  ),
+                ],
               ),
             ),
             if (auth.connected)
@@ -1766,10 +1903,38 @@ class _Ytm extends ConsumerWidget {
                 )
               : Row(
                   children: [
-                    const Icon(FluentIcons.video, size: 18),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text('Not connected', style: WaveType.trackTitle),
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: WaveColors.danger.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          WaveIcons.play,
+                          size: 16,
+                          color: WaveColors.danger,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Not connected',
+                            style: WaveType.trackTitle,
+                          ),
+                          Text(
+                            'Sign in with Google to access playlists, liked songs & history',
+                            style: WaveType.meta.copyWith(
+                              color: waveTextSecondary(context),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     WaveButton(
                       onPressed: () => _ytConnectWithCookies(context, ref),
@@ -1789,23 +1954,6 @@ class _Ytm extends ConsumerWidget {
           title: 'Spotify',
           subtitle: 'Your playlists, Liked Songs and Canvas',
           child: _SpotifyCard(onUpdate: onUpdate),
-        ),
-        const SizedBox(height: 16),
-        _Group(
-          id: 'accounts.discord',
-          title: 'Discord',
-          subtitle: 'Show what you are listening to on your Discord profile',
-          child: _SwitchRow(
-            value: prefs.discordRichPresence,
-            onChanged: (v) async {
-              await onUpdate((p) => p.setDiscordRichPresence(v));
-              try {
-                ref.read(discordPresenceProvider).refresh();
-              } catch (_) {}
-            },
-            title: 'Discord Rich Presence',
-            subtitle: 'Uses the local Discord client · no bot or login',
-          ),
         ),
       ],
     );
@@ -1890,18 +2038,40 @@ class _Ytm extends ConsumerWidget {
             upgrade: false,
           )
         else
-          const Icon(FluentIcons.video, size: 18),
-        const SizedBox(width: 10),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: WaveColors.danger.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Center(
+              child: Icon(
+                WaveIcons.play,
+                size: 18,
+                color: WaveColors.danger,
+              ),
+            ),
+          ),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                name.isNotEmpty ? name : 'Connected',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: WaveType.trackTitle,
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      name.isNotEmpty ? name : 'Connected',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.trackTitle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const _StatusPill('Connected'),
+                ],
               ),
               Text(
                 name.isNotEmpty ? sub : 'Connected$sinceText',
@@ -1914,6 +2084,7 @@ class _Ytm extends ConsumerWidget {
             ],
           ),
         ),
+        const SizedBox(width: 12),
         const _CardActions(),
       ],
     );
@@ -3577,7 +3748,129 @@ class _AccountsSection extends ConsumerWidget {
         _Ytm(onUpdate: onUpdate),
         const SizedBox(height: 16),
         _LastFm(onUpdate: onUpdate),
+        const SizedBox(height: 16),
+        _DiscordCard(onUpdate: onUpdate),
       ],
+    );
+  }
+}
+
+class _DiscordCard extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _DiscordCard({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(prefsProvider);
+    final isEnabled = prefs.discordRichPresence;
+    final theme = FluentTheme.of(context);
+    return _Group(
+      id: 'accounts.discord',
+      title: 'Discord',
+      subtitle: 'Share your live playback status with friends on Discord',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF5865F2).withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: DiscordIcon(
+                    size: 18,
+                    color: Color(0xFF5865F2),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'Discord Rich Presence',
+                          style: WaveType.trackTitle,
+                        ),
+                        if (isEnabled) ...[
+                          const SizedBox(width: 8),
+                          const _StatusPill('Active'),
+                        ],
+                      ],
+                    ),
+                    Text(
+                      isEnabled
+                          ? 'Broadcasting playback to local Discord client'
+                          : 'Uses the local Discord desktop client · No bot or login required',
+                      style: WaveType.meta.copyWith(
+                        color: waveTextSecondary(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ToggleSwitch(
+                checked: isEnabled,
+                onChanged: (v) async {
+                  await onUpdate((p) => p.setDiscordRichPresence(v));
+                  try {
+                    ref.read(discordPresenceProvider).refresh();
+                  } catch (_) {}
+                },
+              ),
+            ],
+          ),
+          if (isEnabled) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: theme.resources.cardBackgroundFillColorSecondary,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: waveDivider(context).withValues(alpha: 0.5),
+                  width: 0.8,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF5865F2),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Preview: ',
+                    style: WaveType.label.copyWith(
+                      color: waveTextSecondary(context),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Listening to LastWave · Track name, artist & elapsed time',
+                      style: WaveType.meta.copyWith(
+                        color: waveTextTertiary(context),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -3789,14 +4082,23 @@ class _LastFm extends ConsumerWidget {
   const _LastFm({required this.onUpdate});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Column(
-      children: [
-        _Scrobbler(onUpdate: onUpdate),
-        const SizedBox(height: 8),
-        _Account(onUpdate: onUpdate),
-        const SizedBox(height: 8),
-        const _OtherScrobblers(),
-      ],
+    return _Group(
+      title: 'Scrobblers & History',
+      subtitle: 'Send played tracks to Last.fm, ListenBrainz and Libre.fm',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Scrobbler(onUpdate: onUpdate),
+          const SizedBox(height: 18),
+          Container(height: 1, color: waveDivider(context)),
+          const SizedBox(height: 18),
+          _Account(onUpdate: onUpdate),
+          const SizedBox(height: 18),
+          Container(height: 1, color: waveDivider(context)),
+          const SizedBox(height: 18),
+          const _OtherScrobblers(),
+        ],
+      ),
     );
   }
 }
@@ -3877,87 +4179,109 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
     // Lives inside the Last.fm connection card; the keys belong to it.
     return SettingsTarget(
       id: 'accounts.keys',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text('API keys', style: WaveType.label),
-          Text(
-            'Your own keys from last.fm/api/account/create',
-            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
-          ),
-          const SizedBox(height: 10),
-          const LastFmKeyGuide(),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Icon(
-                configured ? FluentIcons.check_mark : FluentIcons.warning,
-                size: 14,
-                color: configured ? Colors.green : Colors.orange,
-              ),
+      child: Expander(
+        initiallyExpanded: !configured,
+        header: Row(
+          children: [
+            Icon(
+              configured ? FluentIcons.permissions : FluentIcons.warning,
+              size: 14,
+              color: configured ? waveAccent(context) : Colors.orange,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              configured
+                  ? 'Advanced: Custom API Key & Secret'
+                  : 'Setup Last.fm API Keys (Required)',
+              style: WaveType.label,
+            ),
+            if (configured) ...[
               const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  configured
-                      ? 'Keys saved — values never shown here'
-                      : 'Not configured — Last.fm is disabled',
-                  style: WaveType.meta,
-                ),
-              ),
-              if (configured)
-                WaveButton(
-                  onPressed: _busy ? null : _clear,
-                  child: const Text('Clear'),
-                ),
+              const _StatusPill('Configured'),
             ],
-          ),
-          const SizedBox(height: 10),
-          const Text('API key', style: WaveType.label),
-          const SizedBox(height: 4),
-          TextBox(
-            decoration: waveInputDecoration(),
-            controller: _key,
-            placeholder: '32-character hex key',
-          ),
-          const SizedBox(height: 8),
-          const Text('Shared secret', style: WaveType.label),
-          const SizedBox(height: 4),
-          TextBox(
-            decoration: waveInputDecoration(),
-            controller: _secret,
-            placeholder: 'Shared secret',
-            obscureText: true,
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(_error!, style: WaveType.meta.copyWith(color: Colors.red)),
           ],
-          const SizedBox(height: 10),
-          WaveFilledButton(
-            onPressed: _busy ? null : _save,
-            child: _busy
-                ? const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: ProgressRing(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Validating…'),
-                    ],
-                  )
-                : const Text('Save & validate'),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Saving different keys signs you out — sessions belong '
-            'to their API key. Reconnect afterwards.',
-            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
-          ),
-        ],
+        ),
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Your own API credentials from last.fm/api/account/create',
+              style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
+            ),
+            const SizedBox(height: 10),
+            const LastFmKeyGuide(),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  configured ? FluentIcons.check_mark : FluentIcons.warning,
+                  size: 14,
+                  color: configured ? Colors.green : Colors.orange,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    configured
+                        ? 'Keys saved — values never shown in plain text'
+                        : 'Not configured — Last.fm is disabled',
+                    style: WaveType.meta,
+                  ),
+                ),
+                if (configured)
+                  WaveButton(
+                    onPressed: _busy ? null : _clear,
+                    child: const Text('Clear'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            const Text('API key', style: WaveType.label),
+            const SizedBox(height: 4),
+            TextBox(
+              decoration: waveInputDecoration(),
+              controller: _key,
+              placeholder: '32-character hex key',
+            ),
+            const SizedBox(height: 8),
+            const Text('Shared secret', style: WaveType.label),
+            const SizedBox(height: 4),
+            TextBox(
+              decoration: waveInputDecoration(),
+              controller: _secret,
+              placeholder: 'Shared secret',
+              obscureText: true,
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: WaveType.meta.copyWith(color: Colors.red)),
+            ],
+            const SizedBox(height: 10),
+            WaveFilledButton(
+              onPressed: _busy ? null : _save,
+              child: _busy
+                  ? const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: ProgressRing(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 8),
+                        Text('Validating…'),
+                      ],
+                    )
+                  : const Text('Save & validate'),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Saving different keys signs you out — sessions belong '
+              'to their API key. Reconnect afterwards.',
+              style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4460,14 +4784,17 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
   ) {
     return Row(
       children: [
-        Icon(FluentIcons.completed, size: 14, color: waveAccent(context)),
-        const SizedBox(width: 8),
-        Expanded(
+        Flexible(
           child: Text(
-            '$name connected as @$user${server.isEmpty ? '' : ' · $server'}',
+            '@$user${server.isEmpty ? '' : ' · $server'}',
             style: WaveType.trackTitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
+        const SizedBox(width: 8),
+        const _StatusPill('Connected'),
+        const Spacer(),
         WaveButton(
           onPressed: _busy ? null : onOff,
           child: const Text('Disconnect'),
@@ -4492,15 +4819,44 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
     final prefs = ref.watch(prefsProvider);
     final lb = ref.read(listenBrainzProvider);
     final lf = ref.read(libreFmProvider);
-    return _Group(
+    return SettingsTarget(
       id: 'accounts.others',
-      title: 'ListenBrainz & Libre.fm',
-      subtitle: 'Connect accounts to scrobble simultaneously with LastWave',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('ListenBrainz', style: WaveType.trackTitle),
-          const SizedBox(height: 6),
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEB743B).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: Icon(
+                    WaveIcons.radio,
+                    size: 15,
+                    color: Color(0xFFEB743B),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('ListenBrainz', style: WaveType.trackTitle),
+                    Text(
+                      'Open music database scrobbler by MetaBrainz',
+                      style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           if (lb.connected)
             _connected(
               'ListenBrainz',
@@ -4514,7 +4870,7 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
               'server empty unless you self-host (Maloja, Koito, …).',
               style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
@@ -4551,8 +4907,39 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
             _error(_lbError),
           ],
           const SizedBox(height: 16),
-          const Text('Libre.fm', style: WaveType.trackTitle),
-          const SizedBox(height: 6),
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0072B5).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: Icon(
+                    WaveIcons.streamPath,
+                    size: 15,
+                    color: Color(0xFF0072B5),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Libre.fm', style: WaveType.trackTitle),
+                    Text(
+                      'Free and open source GNU FM scrobbler',
+                      style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           if (lf.connected)
             _connected(
               'Libre.fm',
@@ -4566,7 +4953,7 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
               'other GNU FM instances.',
               style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
