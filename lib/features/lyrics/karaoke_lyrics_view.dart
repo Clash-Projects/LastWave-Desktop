@@ -159,6 +159,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   /// One-shot timer that flips the active line exactly at the next line's
   /// timestamp for LINE-synced lyrics (which no longer run the Ticker).
   Timer? _lineTimer;
+  int? _lineTimerTarget;
 
   /// One-shot timer that resumes the Ticker right before an upcoming word/line.
   Timer? _wakeTimer;
@@ -242,7 +243,11 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     // Line-synced lyrics only change state at line boundaries: no Ticker
     // (a Ticker makes the engine composite the whole window every vsync).
     // [_armLineTimer] lands each boundary exactly instead.
-    if (!res.isWordSynced) {
+    final isPerfMode = ref.read(performanceModeProvider);
+    final wordByWord = isPerfMode
+        ? false
+        : ref.read(prefsProvider).wordByWord;
+    if (!wordByWord || !res.isWordSynced) {
       return false;
     }
     final pos = _getCurrentPositionMs();
@@ -259,7 +264,15 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     final activeIdx = _activeLineIndex.value;
     if (activeIdx >= 0 && activeIdx < res.lines.length) {
       final curLine = res.lines[activeIdx];
-      final curEnd = curLine.timeMs + math.max(curLine.durationMs, 800);
+      // Singing ends when the last syllable finishes (or minimum duration for short lines)
+      final int singEndMs;
+      if (curLine.syllables.isNotEmpty) {
+        final last = curLine.syllables.last;
+        singEndMs = last.timeMs + math.max(last.durationMs, 200);
+      } else {
+        singEndMs = curLine.timeMs + math.max(curLine.durationMs, 800);
+      }
+      final curEnd = math.max(singEndMs, curLine.timeMs + 600);
       if (activeIdx < res.lines.length - 1) {
         final nextStart = res.lines[activeIdx + 1].timeMs;
         if (nextStart - curEnd > 400) {
@@ -291,7 +304,12 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     _wakeTimer = null;
     if (!_isEffectivelyActive || !_isPlaying) return;
     final res = _currentResult;
-    if (res == null || !res.isSynced || res.lines.isEmpty || !res.isWordSynced) return;
+    if (res == null || !res.isSynced || res.lines.isEmpty) return;
+    final isPerfMode = ref.read(performanceModeProvider);
+    final wordByWord = isPerfMode
+        ? false
+        : ref.read(prefsProvider).wordByWord;
+    if (!wordByWord || !res.isWordSynced) return;
 
     final pos = _getCurrentPositionMs();
     final firstStart = res.lines.first.timeMs;
@@ -436,7 +454,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   void dispose() {
     _hideTimer?.cancel();
     _lineTimer?.cancel();
+    _lineTimer = null;
+    _lineTimerTarget = null;
     _wakeTimer?.cancel();
+    _wakeTimer = null;
     _controlsShown.dispose();
     _posSub?.close();
     _playingSub?.close();
@@ -502,13 +523,13 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
         final lineIndex = activeLyricLineIndex(lines, effectiveMs);
         final current = _activeLineIndex.value;
         // Hysteresis: [_armLineTimer] may have advanced the line a few ms
-        // before the (100ms-throttled) position sample catches up. Don't
-        // step back one line for that — only for a real seek.
+        // before the (200ms-throttled) position sample catches up. Don't
+        // step back for sampling lag — only for a genuine backward seek (>400ms).
         final justAdvanced = _isPlaying &&
             lineIndex == current - 1 &&
             current >= 0 &&
             current < lines.length &&
-            lines[current].timeMs - effectiveMs <= 150;
+            lines[current].timeMs - effectiveMs <= 400;
         if (current != lineIndex && !justAdvanced) {
           _activeLineIndex.value = lineIndex;
         }
@@ -539,31 +560,55 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   }
 
   /// Line-synced lyrics: schedule the next line flip for its exact
-  /// timestamp. Re-armed on every clock sync (10Hz), but only once the
-  /// boundary is close, so it allocates at most a couple of timers per line.
+  /// timestamp. Arms once per target line boundary without waking on position syncs.
   void _armLineTimer() {
-    _lineTimer?.cancel();
-    _lineTimer = null;
     final res = _currentResult;
     if (res == null ||
         !res.isSynced ||
-        res.isWordSynced ||
         res.lines.isEmpty ||
         !_isPlaying ||
         _ticker.isActive ||
         !_isEffectivelyActive) {
+      _lineTimer?.cancel();
+      _lineTimer = null;
+      _lineTimerTarget = null;
+      return;
+    }
+    final isPerfMode = ref.read(performanceModeProvider);
+    final wordByWord = isPerfMode
+        ? false
+        : ref.read(prefsProvider).wordByWord;
+    if (wordByWord && res.isWordSynced) {
+      _lineTimer?.cancel();
+      _lineTimer = null;
+      _lineTimerTarget = null;
       return;
     }
     final lines = res.lines;
-    final posMs = _interpolatedPositionMs.value;
-    // Active -1 (before the first line) makes the first boundary lines[0].
+    final posMs = _getCurrentPositionMs();
     final target = _activeLineIndex.value + 1;
-    if (target < 0 || target >= lines.length) return;
+    if (target < 0 || target >= lines.length) {
+      _lineTimer?.cancel();
+      _lineTimer = null;
+      _lineTimerTarget = null;
+      return;
+    }
     final boundary = lines[target].timeMs;
     final delayMs = ((boundary - posMs) / (_speed <= 0 ? 1.0 : _speed)).round();
-    if (delayMs < 0 || delayMs > 160) return; // next 10Hz sync re-arms
+    if (delayMs <= 0) {
+      _lineTimer?.cancel();
+      _lineTimer = null;
+      _lineTimerTarget = null;
+      return;
+    }
+    if (_lineTimer != null && _lineTimerTarget == target) {
+      return;
+    }
+    _lineTimer?.cancel();
+    _lineTimerTarget = target;
     _lineTimer = Timer(Duration(milliseconds: delayMs), () {
       _lineTimer = null;
+      _lineTimerTarget = null;
       if (!mounted || !_isPlaying || !identical(_currentResult, res)) return;
       _interpolatedPositionMs.value = boundary;
       final idx = activeLyricLineIndex(lines, boundary);
@@ -755,6 +800,8 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
           } else {
             _activeLineIndex.value = -1;
           }
+          _updateTickerState();
+          _armLineTimer();
         }
 
         final translateLang = ref.watch(
@@ -838,6 +885,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
                             activeLineListenable: _activeLineIndex,
                             positionListenable: _interpolatedPositionMs,
                             compact: widget.compact,
+                            wordByWord: wordByWord,
                             translations: translations,
                             fontSize: lyricFontSize,
                             showTransliteration: showTransliteration,
@@ -2506,6 +2554,7 @@ class _AppleLineLyricsView extends StatefulWidget {
   final ValueNotifier<int> activeLineListenable;
   final ValueNotifier<int> positionListenable;
   final bool compact;
+  final bool wordByWord;
   final double? fontSize;
   final bool showTransliteration;
   final bool following;
@@ -2522,6 +2571,7 @@ class _AppleLineLyricsView extends StatefulWidget {
     required this.activeLineListenable,
     required this.positionListenable,
     required this.compact,
+    this.wordByWord = true,
     required this.fontSize,
     required this.showTransliteration,
     required this.following,
@@ -2792,17 +2842,18 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
                 }
               }
 
+              final isWordKaraoke = widget.wordByWord && widget.result.isWordSynced;
               final lineWidget = WaveKaraokeLyricLine(
                 line: line,
                 positionMs: 0,
-                positionListenable: isActive ? widget.positionListenable : null,
+                positionListenable: (isActive && isWordKaraoke) ? widget.positionListenable : null,
                 isActive: isActive,
                 isPast: isPast,
                 compact: widget.compact,
                 fontSize: lineFontSize,
                 showTransliteration: widget.showTransliteration,
                 translation: _translationAt(i),
-                karaoke: widget.result.isWordSynced,
+                karaoke: isWordKaraoke,
                 softenIdle: true,
                 lineOpacity: widget.selectMode ? 1.0 : lineOpacity,
                 blurSigma: 0.0, // HARD ZERO to eliminate GPU ImageFilter.blur lag & RAM spike!
