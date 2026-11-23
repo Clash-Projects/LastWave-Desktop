@@ -154,7 +154,7 @@ class WaveTitleBar extends ConsumerWidget {
                     context.go(
                       auth.status == AuthStatus.signedIn
                           ? '/profile'
-                          : '/welcome',
+                          : '/settings',
                     );
                   },
                   child: MouseRegion(
@@ -164,7 +164,7 @@ class WaveTitleBar extends ConsumerWidget {
                     context.go(
                       auth.status == AuthStatus.signedIn
                           ? '/profile'
-                          : '/welcome',
+                          : '/settings',
                     );
                   },
                   child: LWTooltip(

@@ -5,106 +5,40 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../../core/storage/prefs.dart';
-import '../../features/home/home_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
-import '../../app/accessibility.dart';
 import '../components/buttons.dart';
-import '../components/inputs.dart';
-import 'lastfm_key_guide.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
-const _githubUrl =
-    'https://github.com/Clash-Projects/LastWave-Desktop';
+const _githubUrl = 'https://github.com/Clash-Projects/LastWave-Desktop';
 
-/// Mandatory Last.fm entry screen.
+/// Clean, modern first-launch onboarding screen.
 ///
-/// Rendered OUTSIDE the main shell: when there is no valid stored
-/// session, this is the entire application — no Home, no player, no
-/// navigation behind it. Authentication is the only way in; the
-/// GitHub star action is strictly optional and secondary.
+/// Rendered outside the main shell when the app is first launched.
+/// Offers direct continuation into the player with no forced login or account,
+/// alongside a GitHub repository link for community support.
 class WaveWelcomePage extends ConsumerStatefulWidget {
   const WaveWelcomePage({super.key});
 
   @override
-  ConsumerState<WaveWelcomePage> createState() =>
-      _WaveWelcomePageState();
+  ConsumerState<WaveWelcomePage> createState() => _WaveWelcomePageState();
 }
 
-class _WaveWelcomePageState
-    extends ConsumerState<WaveWelcomePage> {
-  WebAuthHandshake? _handshake;
+class _WaveWelcomePageState extends ConsumerState<WaveWelcomePage> {
   bool _busy = false;
   String? _error;
 
-  Future<void> _beginWebAuth() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final handshake = await ref
-          .read(authRepositoryProvider.notifier)
-          .beginWebAuth();
-      if (!mounted) return;
-      setState(() => _handshake = handshake);
-      AppAccessibility.announce(
-        context,
-        'Opening Last.fm in your browser. Approve LastWave there, then '
-        'come back and press "I\'ve approved - finish sign-in".',
-      );
-      final uri = Uri.parse(handshake.url);
-      try {
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri,
-              mode: LaunchMode.externalApplication);
-        }
-      } catch (_) {}
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error =
-          'Could not reach Last.fm. Check your connection and retry.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _completeWebAuth() async {
-    final handshake = _handshake;
-    if (handshake == null) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await ref
-          .read(authRepositoryProvider.notifier)
-          .completeWebAuth(handshake.token);
-      // Personalization loads lazily, but refresh anything already
-      // resolved so Home opens with this account's taste.
-      ref.invalidate(feedProvider);
-      // No manual navigation: the auth gate redirect enters /home.
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error =
-          'Not approved yet — approve LastWave in the browser, then retry.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _enterGuest() async {
+  Future<void> _continue() async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       await ref.read(authRepositoryProvider.notifier).enterGuestMode();
-      // No manual navigation: the auth gate redirect enters /home.
+      // AuthGate automatically redirects to /home upon entering the app.
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Could not continue as guest. Retry.');
+      setState(() => _error = 'Could not start LastWave. Please try again.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -114,8 +48,7 @@ class _WaveWelcomePageState
     final uri = Uri.parse(_githubUrl);
     try {
       if (await canLaunchUrl(uri)) {
-        await launchUrl(uri,
-            mode: LaunchMode.externalApplication);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
     } catch (_) {}
   }
@@ -124,6 +57,7 @@ class _WaveWelcomePageState
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
+
     return Mica(
       backgroundColor: waveBackground(context),
       child: Column(
@@ -134,9 +68,9 @@ class _WaveWelcomePageState
               decoration: BoxDecoration(
                 gradient: RadialGradient(
                   center: const Alignment(0, -0.35),
-                  radius: 0.9,
+                  radius: 0.95,
                   colors: [
-                    accent.withValues(alpha: dark ? 0.12 : 0.08),
+                    accent.withValues(alpha: dark ? 0.14 : 0.09),
                     Colors.transparent,
                   ],
                 ),
@@ -144,16 +78,199 @@ class _WaveWelcomePageState
               child: _CenterScroll(
                 child: Center(
                   child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: 460),
-                    child: _AuthPanel(
-                      handshake: _handshake,
-                      busy: _busy,
-                      error: _error,
-                      onConnect: _beginWebAuth,
-                      onFinish: _completeWebAuth,
-                      onSkip: _enterGuest,
-                      onGitHub: _openGitHub,
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 24,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const _WelcomeLogo(),
+                          const SizedBox(height: 20),
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: accent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: accent.withValues(alpha: 0.28),
+                                ),
+                              ),
+                              child: Text(
+                                'High-Resolution Audio Player',
+                                style: WaveType.meta.copyWith(
+                                  color: accent,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11.5,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'LastWave',
+                            textAlign: TextAlign.center,
+                            style: WaveType.pageTitle.copyWith(
+                              fontSize: 38,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.8,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Stream YouTube Music and lossless FLAC with synced lyrics, offline downloads, and zero clutter.',
+                            textAlign: TextAlign.center,
+                            style: WaveType.body.copyWith(
+                              color: dark
+                                  ? WaveColors.textSecondary
+                                  : WaveColors.lightTextSecondary,
+                              height: 1.4,
+                              fontSize: 13.5,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          // Feature highlights
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 16,
+                            ),
+                            decoration: BoxDecoration(
+                              color: dark
+                                  ? Colors.white.withValues(alpha: 0.035)
+                                  : Colors.black.withValues(alpha: 0.025),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: dark
+                                    ? Colors.white.withValues(alpha: 0.07)
+                                    : Colors.black.withValues(alpha: 0.06),
+                              ),
+                            ),
+                            child: const Column(
+                              children: [
+                                _FeatureHighlight(
+                                  icon: FluentIcons.equalizer,
+                                  title: 'Lossless & Hi-Res Streaming',
+                                  description:
+                                      'Studio-grade audio up to 24-bit / 192 kHz with pure hardware decoding.',
+                                ),
+                                SizedBox(height: 14),
+                                _FeatureHighlight(
+                                  icon: FluentIcons.microphone,
+                                  title: 'Dynamic Synced Lyrics',
+                                  description:
+                                      'Syllable and line-accurate karaoke animations with fluid text glow.',
+                                ),
+                                SizedBox(height: 14),
+                                _FeatureHighlight(
+                                  icon: FluentIcons.download,
+                                  title: 'Fast & Offline Ready',
+                                  description:
+                                      'Save full tracks for offline listening with an integrated download manager.',
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          if (_error != null) ...[
+                            InfoBar(
+                              title: const Text('Error'),
+                              content: Text(_error!),
+                              severity: InfoBarSeverity.error,
+                            ),
+                            const SizedBox(height: 14),
+                          ],
+                          // Primary Continue Action
+                          WaveFilledButton(
+                            autofocus: true,
+                            onPressed: _busy ? null : _continue,
+                            style: const ButtonStyle(
+                              padding: WidgetStatePropertyAll(
+                                EdgeInsets.symmetric(vertical: 13),
+                              ),
+                            ),
+                            child: _busy
+                                ? const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        width: 15,
+                                        height: 15,
+                                        child: ProgressRing(strokeWidth: 2),
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text('Getting ready...'),
+                                    ],
+                                  )
+                                : const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Continue',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      Icon(FluentIcons.chevron_right, size: 12),
+                                    ],
+                                  ),
+                          ),
+                          const SizedBox(height: 10),
+                          // GitHub Star Action
+                          WaveButton(
+                            onPressed: _openGitHub,
+                            style: const ButtonStyle(
+                              padding: WidgetStatePropertyAll(
+                                EdgeInsets.symmetric(vertical: 11),
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  FluentIcons.favorite_star,
+                                  size: 14,
+                                  color: Color(0xFFF59E0B),
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Star us on GitHub',
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 22),
+                          const ExcludeSemantics(child: _EqualizerRow()),
+                          const SizedBox(height: 14),
+                          Text(
+                            'Free & Open Source • No account required',
+                            textAlign: TextAlign.center,
+                            style: WaveType.meta.copyWith(
+                              color: dark
+                                  ? WaveColors.textTertiary
+                                  : WaveColors.lightTextTertiary,
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -166,12 +283,68 @@ class _WaveWelcomePageState
   }
 }
 
-/// Scroll container that keeps centered content centered: on tall
-/// windows the child fills the viewport (so `MainAxisAlignment.center`
-/// works); on short windows it scrolls instead of overflowing. Used by
-/// both halves of the wide welcome layout — the auth panel grows with
-/// the API-keys form, error bar, and handshake rows, and the brand
-/// column is itself ~590px tall.
+class _FeatureHighlight extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+
+  const _FeatureHighlight({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final accent = waveAccent(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: dark ? 0.16 : 0.10),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: accent.withValues(alpha: dark ? 0.28 : 0.18),
+            ),
+          ),
+          child: Icon(icon, size: 17, color: accent),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: WaveType.body.copyWith(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13.5,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                description,
+                style: WaveType.meta.copyWith(
+                  color: dark
+                      ? WaveColors.textSecondary
+                      : WaveColors.lightTextSecondary,
+                  height: 1.35,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Scroll container that keeps centered content centered without overflow.
 class _CenterScroll extends StatelessWidget {
   final Widget child;
   const _CenterScroll({required this.child});
@@ -181,8 +354,7 @@ class _CenterScroll extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         child: ConstrainedBox(
-          constraints:
-              BoxConstraints(minHeight: constraints.maxHeight),
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
           child: child,
         ),
       ),
@@ -191,12 +363,7 @@ class _CenterScroll extends StatelessWidget {
 }
 
 /// Native window chrome for the chromeless window: drag region +
-/// minimize / maximize / close. The main title bar lives in the shell,
-/// which is never rendered here.
-///
-/// macOS is the exception: `TitleBarStyle.hidden` hides the title bar
-/// but keeps the native traffic lights, so the custom buttons are
-/// omitted there and the brand label is inset past them.
+/// minimize / maximize / close controls.
 class _WelcomeChrome extends StatelessWidget {
   const _WelcomeChrome();
 
@@ -207,10 +374,6 @@ class _WelcomeChrome extends StatelessWidget {
         height: WaveDensity.titleBar,
         child: Row(
           children: [
-            // macOS keeps the native traffic lights above the chromeless
-            // window (`TitleBarStyle.hidden` hides the bar, not the
-            // buttons), so reserve their corner instead of drawing a
-            // second, non-native set of controls.
             SizedBox(width: Platform.isMacOS ? 84 : 16),
             Text(
               'LASTWAVE',
@@ -289,42 +452,42 @@ class _ChromeBtnState extends State<_ChromeBtn> {
       label: widget.tooltip,
       onTap: widget.onTap,
       child: LWTooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: waveMotion(context, WaveMotion.fast),
-            width: 46,
-            height: WaveDensity.titleBar,
-            color: _hover
-                ? (widget.danger
-                    ? WaveColors.danger
+        message: widget.tooltip,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hover = true),
+          onExit: (_) => setState(() => _hover = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: AnimatedContainer(
+              duration: waveMotion(context, WaveMotion.fast),
+              width: 46,
+              height: WaveDensity.titleBar,
+              color: _hover
+                  ? (widget.danger
+                      ? WaveColors.danger
+                      : (dark
+                          ? Colors.white.withValues(alpha: 0.07)
+                          : Colors.black.withValues(alpha: 0.06)))
+                  : Colors.transparent,
+              child: Icon(
+                widget.icon,
+                size: widget.iconSize,
+                color: _hover && widget.danger
+                    ? Colors.white
                     : (dark
-                        ? Colors.white.withValues(alpha: 0.07)
-                        : Colors.black.withValues(alpha: 0.06)))
-                : Colors.transparent,
-            child: Icon(
-              widget.icon,
-              size: widget.iconSize,
-              color: _hover && widget.danger
-                  ? Colors.white
-                  : (dark
-                      ? WaveColors.textSecondary
-                      : WaveColors.lightTextSecondary),
+                        ? WaveColors.textSecondary
+                        : WaveColors.lightTextSecondary),
+              ),
             ),
           ),
         ),
       ),
-    ),
     );
   }
 }
 
-/// Static equalizer motif — identity, not a live visualizer.
+/// Equalizer motif bars — identity graphic.
 class _EqualizerRow extends StatelessWidget {
   const _EqualizerRow();
 
@@ -336,24 +499,21 @@ class _EqualizerRow extends StatelessWidget {
       60.0, 32.0, 46.0, 20.0, 38.0, 54.0,
     ];
     final accent = waveAccent(context);
-    // Bars share the full width evenly (flex gaps) so the motif lines
-    // up with the buttons above and below it.
     return SizedBox(
-      height: 72,
+      height: 48,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           for (var i = 0; i < heights.length; i++)
             Container(
-              width: 5,
-              height: heights[i],
+              width: 4.5,
+              height: heights[i] * 0.62,
               decoration: BoxDecoration(
                 borderRadius: WaveRadius.tinyRadius,
                 color: i % 5 == 2
                     ? accent
-                    : accent.withValues(
-                        alpha: 0.25 + (i % 5) * 0.1),
+                    : accent.withValues(alpha: 0.20 + (i % 5) * 0.12),
               ),
             ),
         ],
@@ -362,413 +522,37 @@ class _EqualizerRow extends StatelessWidget {
   }
 }
 
-/// Centered auth column: mosaic, product name, tagline, a primary guest
-/// entry, Last.fm as the optional secondary connect, and the optional
-/// GitHub star action.
-class _AuthPanel extends ConsumerStatefulWidget {
-  final WebAuthHandshake? handshake;
-  final bool busy;
-  final String? error;
-  final VoidCallback onConnect;
-  final VoidCallback onFinish;
-  final VoidCallback onSkip;
-  final VoidCallback onGitHub;
-  const _AuthPanel({
-    required this.handshake,
-    required this.busy,
-    required this.error,
-    required this.onConnect,
-    required this.onFinish,
-    required this.onSkip,
-    required this.onGitHub,
-  });
-
-  @override
-  ConsumerState<_AuthPanel> createState() => _AuthPanelState();
-}
-
-class _AuthPanelState extends ConsumerState<_AuthPanel> {
-  /// Last.fm keys are only asked for once the user opts into connecting.
-  bool _wantsLastFm = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    final accent = waveAccent(context);
-    final handshake = widget.handshake;
-    final busy = widget.busy;
-    final error = widget.error;
-    final tertiary =
-        dark ? WaveColors.textTertiary : WaveColors.lightTextTertiary;
-    // Subscribe to auth transitions (signingIn -> signedOut on a
-    // successful key save) so `configured` re-evaluates: Prefs itself
-    // never notifies, and without this the panel stays stale forever.
-    ref.watch(authRepositoryProvider.select((s) => s.status));
-    final configured = ref.watch(prefsProvider).isLastFmConfigured;
-    final showKeys = !configured && _wantsLastFm;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(36, 32, 36, 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const _WelcomeLogo(),
-          const SizedBox(height: 28),
-          Text(
-            'LastWave',
-            textAlign: TextAlign.center,
-            style: WaveType.pageTitle.copyWith(fontSize: 40),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'High-Resolution Lossless Music Player',
-            textAlign: TextAlign.center,
-            style: WaveType.body.copyWith(
-              fontWeight: FontWeight.w600,
-              color: accent,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'Stream YouTube Music and lossless FLAC up to 24-bit / '
-            '192 kHz, with synced lyrics and offline downloads.',
-            textAlign: TextAlign.center,
-            style: WaveType.body.copyWith(
-              color: dark
-                  ? WaveColors.textSecondary
-                  : WaveColors.lightTextSecondary,
-            ),
-          ),
-          const SizedBox(height: 28),
-          if (error != null) ...[
-            Semantics(
-              liveRegion: true,
-              container: true,
-              label: 'Error: $error',
-              child: ExcludeSemantics(
-                child: InfoBar(
-                  title: const Text('Could not connect'),
-                  content: Text(error),
-                  severity: InfoBarSeverity.error,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          WaveFilledButton(
-            // Something must hold focus on first paint, or a screen
-            // reader opens on an empty window with nothing to read.
-            autofocus: handshake == null && !_wantsLastFm,
-            onPressed: busy ? null : widget.onSkip,
-            style: const ButtonStyle(
-              padding: WidgetStatePropertyAll(
-                EdgeInsets.symmetric(vertical: 13),
-              ),
-            ),
-            child: busy && handshake == null && !_wantsLastFm
-                ? const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 15,
-                        height: 15,
-                        child: ProgressRing(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Getting ready...'),
-                    ],
-                  )
-                : const Text('Continue as guest'),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Browse, stream and download right away. You can connect '
-            'Last.fm later in Settings.',
-            textAlign: TextAlign.center,
-            style: WaveType.meta.copyWith(color: tertiary),
-          ),
-          const SizedBox(height: 20),
-          if (showKeys) ...[
-            const _ApiKeyForm(),
-            const SizedBox(height: 12),
-          ],
-          WaveButton(
-            onPressed: busy
-                ? null
-                : (!configured && !_wantsLastFm)
-                    ? () => setState(() => _wantsLastFm = true)
-                    : (!configured ? null : widget.onConnect),
-            style: const ButtonStyle(
-              padding: WidgetStatePropertyAll(
-                EdgeInsets.symmetric(vertical: 11),
-              ),
-            ),
-            child: busy && handshake == null && _wantsLastFm
-                ? const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 15,
-                        height: 15,
-                        child: ProgressRing(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Contacting Last.fm...'),
-                    ],
-                  )
-                : Text(
-                    handshake == null
-                        ? 'Connect with Last.fm'
-                        : 'Restart approval',
-                  ),
-          ),
-          if (handshake != null) ...[
-            const SizedBox(height: 10),
-            WaveButton(
-              // Mounts when the browser approval starts: focus lands here,
-              // so coming back from the browser reads the next step.
-              autofocus: true,
-              onPressed: busy ? null : widget.onFinish,
-              style: const ButtonStyle(
-                padding: WidgetStatePropertyAll(
-                  EdgeInsets.symmetric(vertical: 11),
-                ),
-              ),
-              child: busy
-                  ? const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 15,
-                          height: 15,
-                          child: ProgressRing(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 8),
-                        Text('Confirming...'),
-                      ],
-                    )
-                  : const Text("I've approved - finish sign-in"),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Approve LastWave in the browser tab that just opened, '
-              'then finish sign-in here.',
-              semanticsLabel: 'Approve LastWave in the browser tab that '
-                  'just opened, then finish sign-in here.',
-              style: WaveType.meta.copyWith(color: tertiary),
-              textAlign: TextAlign.center,
-            ),
-          ],
-          const SizedBox(height: 8),
-          Text(
-            'Scrobbling, stats and taste sync. Authentication opens '
-            'through Last.fm, LastWave never asks for your password.',
-            style: WaveType.meta.copyWith(color: tertiary),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 28),
-          const ExcludeSemantics(child: _EqualizerRow()),
-          const SizedBox(height: 24),
-          Container(height: 1, color: waveDivider(context)),
-          const SizedBox(height: 14),
-          WaveLink(
-            onPressed: widget.onGitHub,
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(FluentIcons.favorite_star, size: 14),
-                SizedBox(width: 6),
-                Text('Star LastWave on GitHub'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-
-/// BYOK form: the user's own Last.fm API key + shared secret.
-///
-/// Shown on the welcome screen until keys are saved (Settings holds
-/// the same editor for later changes). Validated with a signed
-/// `auth.getToken` call before persisting; the parent rebuilds into
-/// the connect flow on success.
-class _ApiKeyForm extends ConsumerStatefulWidget {
-  const _ApiKeyForm();
-  @override
-  ConsumerState<_ApiKeyForm> createState() => _ApiKeyFormState();
-}
-
-class _ApiKeyFormState extends ConsumerState<_ApiKeyForm> {
-  TextEditingController? _key;
-  TextEditingController? _secret;
-  bool _busy = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _key?.dispose();
-    _secret?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await ref.read(authRepositoryProvider.notifier).saveCustomKeys(
-            _key?.text ?? '',
-            _secret?.text ?? '',
-          );
-    } catch (e) {
-      if (mounted) {
-        setState(() => _error =
-            e.toString().replaceFirst('LastFmException(null): ', ''));
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = waveIsDark(context);
-    // Same subscription as the parent panel: a successful save flips
-    // auth state, which rebuilds us so the success state below shows.
-    ref.watch(authRepositoryProvider.select((s) => s.status));
-    final saved = ref.watch(prefsProvider).isLastFmConfigured;
-    _key ??= TextEditingController(
-        text: ref.read(prefsProvider).lastFmApiKey);
-    _secret ??= TextEditingController(
-        text: ref.read(prefsProvider).lastFmApiSecret);
-    if (saved && !_busy) {
-      return Container(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        decoration: BoxDecoration(
-          borderRadius: WaveRadius.floatingRadius,
-          border: Border.all(color: waveDivider(context)),
-        ),
-        child: Row(
-          children: [
-            const Icon(FluentIcons.check_mark, size: 14),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Semantics(
-                liveRegion: true,
-                child: Text(
-                'Keys validated — connect with Last.fm below.',
-                style: WaveType.meta.copyWith(color: Colors.green),
-              ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        borderRadius: WaveRadius.floatingRadius,
-        border: Border.all(color: waveDivider(context)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text('Last.fm API keys', style: WaveType.label),
-          const SizedBox(height: 2),
-          const SizedBox(height: 4),
-          const LastFmKeyGuide(),
-          const SizedBox(height: 8),
-          Semantics(
-            label: 'Last.fm API key',
-            textField: true,
-            child: TextBox(
-              decoration: waveInputDecoration(),
-              controller: _key,
-              placeholder: 'API key',
-              autofocus: true,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Semantics(
-            label: 'Last.fm shared secret',
-            textField: true,
-            obscured: true,
-            child: TextBox(
-              decoration: waveInputDecoration(),
-              controller: _secret,
-              placeholder: 'Shared secret',
-              obscureText: true,
-            ),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Semantics(
-              liveRegion: true,
-              child: Text(
-                _error!,
-                style: WaveType.meta.copyWith(color: Colors.red),
-              ),
-            ),
-          ],
-          const SizedBox(height: 10),
-          WaveButton(
-            onPressed: _busy ? null : _save,
-            child: _busy
-                ? const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: ProgressRing(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Validating…'),
-                    ],
-                  )
-                : const Text('Save keys'),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'LastWave ships with no keys of its own — these stay on '
-            'this device.',
-            style: WaveType.meta.copyWith(
-              color: dark
-                  ? WaveColors.textTertiary
-                  : WaveColors.lightTextTertiary,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// App logo above the title. Bundled asset, so it never depends on
-/// the network.
+/// App logo above the title with soft ambient lighting.
 class _WelcomeLogo extends StatelessWidget {
   const _WelcomeLogo();
 
   @override
   Widget build(BuildContext context) {
+    final accent = waveAccent(context);
+    final dark = waveIsDark(context);
     return Center(
-      child: Image.asset(
-        'assets/brand/lastwave-logo.png',
-        width: 96,
-        height: 96,
-        filterQuality: FilterQuality.medium,
-        semanticLabel: 'LastWave logo',
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: accent.withValues(alpha: dark ? 0.30 : 0.20),
+              blurRadius: 36,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: Image.asset(
+            'assets/brand/lastwave-logo.png',
+            width: 84,
+            height: 84,
+            filterQuality: FilterQuality.medium,
+            semanticLabel: 'LastWave logo',
+          ),
+        ),
       ),
     );
   }
