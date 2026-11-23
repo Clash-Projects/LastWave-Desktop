@@ -59,6 +59,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   Timer? _idleTimer;
   DateTime _lastHoverAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastArmAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Offset? _lastPointerPos;
   String _preloadedKey = '';
   // Separate arming key for the motion-art lookup: it is gated on the
   // visualizer toggle (the only thing that renders a clip), so flipping
@@ -67,11 +68,13 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   // Captured eagerly in initState: lazy `late final` or `ref` inside
   // `dispose()` runs after the element starts tearing down.
   late final StateController<bool> _idleMirror;
+  late final StateController<bool> _menuOpenMirror;
 
   @override
   void initState() {
     super.initState();
     _idleMirror = ref.read(nowPlayingControlsIdleProvider.notifier);
+    _menuOpenMirror = ref.read(nowPlayingMenuOpenProvider.notifier);
     _resetIdleTimer();
   }
 
@@ -81,10 +84,21 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     // Not while the tree is finalizing: a hidden-dock state must not
     // outlive the page.
     final mirror = _idleMirror;
+    final menuMirror = _menuOpenMirror;
     Future.microtask(() {
       if (mirror.mounted) mirror.state = false;
+      if (menuMirror.mounted) menuMirror.state = false;
     });
     super.dispose();
+  }
+
+  void _onPointerActivity(PointerEvent event) {
+    final prev = _lastPointerPos;
+    if (prev != null && (event.position - prev).distanceSquared < 4.0) {
+      return;
+    }
+    _lastPointerPos = event.position;
+    _resetIdleTimer();
   }
 
   int get _autoHideMs => ref.read(nowPlayingAutoHideSecondsProvider) * 1000;
@@ -289,12 +303,16 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
           }
         },
       },
-      child: MouseRegion(
-        cursor: _controlsIdle
-            ? SystemMouseCursors.none
-            : SystemMouseCursors.basic,
-        onHover: (_) => _resetIdleTimer(),
-        child: Stack(
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerHover: _onPointerActivity,
+        onPointerMove: _onPointerActivity,
+        onPointerDown: (_) => _resetIdleTimer(),
+        child: MouseRegion(
+          cursor: _controlsIdle
+              ? SystemMouseCursors.none
+              : SystemMouseCursors.basic,
+          child: Stack(
           children: [
             // The stage belongs to the page. Without a background of its own
             // the black was borrowed from whatever sat behind the route, so
@@ -432,6 +450,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
               ),
             ],
           ],
+        ),
         ),
       ),
     );

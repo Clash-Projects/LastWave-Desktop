@@ -648,7 +648,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('sws-fast', 'no');
       } catch (_) {}
       try {
-        await dyn.setProperty('sws-scaler', 'lanczos');
+        await dyn.setProperty('sws-scaler', 'bicubic');
       } catch (_) {}
       try {
         // Crop to the texture's aspect instead of letterboxing, so a clip
@@ -717,5 +717,6 @@ final animatedArtworkSessionProvider =
 /// player + one texture for the whole run, created lazily on first open.
 final canvasPanelSessionProvider =
     ChangeNotifierProvider<AnimatedArtworkSession>((ref) {
-      return AnimatedArtworkSession(outputWidth: 720, outputHeight: 1280);
+      // Max 9:16 resolution within media_kit_video's SW_RENDERING_MAX_HEIGHT (1080).
+      return AnimatedArtworkSession(outputWidth: 608, outputHeight: 1080);
     });

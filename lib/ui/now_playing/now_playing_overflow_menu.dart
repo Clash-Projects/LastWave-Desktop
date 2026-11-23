@@ -118,9 +118,21 @@ class NowPlayingOverflowMenuButton extends ConsumerStatefulWidget {
 class _NowPlayingOverflowMenuButtonState
     extends ConsumerState<NowPlayingOverflowMenuButton> {
   final _controller = FlyoutController();
+  bool _menuOpen = false;
+  StateController<bool>? _menuOpenCtrl;
+  StateController<int>? _activityCtrl;
 
   @override
   void dispose() {
+    if (_menuOpen) {
+      _menuOpen = false;
+      final menuOpen = _menuOpenCtrl;
+      final activity = _activityCtrl;
+      Future.microtask(() {
+        if (menuOpen != null && menuOpen.mounted) menuOpen.state = false;
+        if (activity != null && activity.mounted) activity.state++;
+      });
+    }
     _controller.dispose();
     super.dispose();
   }
@@ -129,6 +141,9 @@ class _NowPlayingOverflowMenuButtonState
     widget.onInteraction?.call();
     final menuOpen = ref.read(nowPlayingMenuOpenProvider.notifier);
     final activity = ref.read(nowPlayingActivityProvider.notifier);
+    _menuOpenCtrl = menuOpen;
+    _activityCtrl = activity;
+    _menuOpen = true;
     menuOpen.state = true;
     unawaited(
       _controller
@@ -154,6 +169,7 @@ class _NowPlayingOverflowMenuButtonState
             ),
           )
           .whenComplete(() {
+            _menuOpen = false;
             if (menuOpen.mounted) menuOpen.state = false;
             if (activity.mounted) activity.state++;
           }),

@@ -56,8 +56,14 @@ class WaveImmersiveDockOverlay extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final idle = ref.watch(nowPlayingControlsIdleProvider);
-    return MouseRegion(
-      onHover: (_) =>
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerHover: (e) {
+        if (e.delta.distanceSquared >= 1.0) {
+          ref.read(nowPlayingActivityProvider.notifier).state++;
+        }
+      },
+      onPointerDown: (_) =>
           ref.read(nowPlayingActivityProvider.notifier).state++,
       child: AnimatedOpacity(
         duration: waveMotion(context, const Duration(milliseconds: 350)),
