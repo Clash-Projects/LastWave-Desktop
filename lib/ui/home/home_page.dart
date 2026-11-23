@@ -14,6 +14,7 @@ import '../../core/network/network_monitor.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/feed/home_blend.dart';
 import '../../features/feed/home_shelf_layout.dart';
+import '../../features/performance/performance_controller.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
@@ -78,6 +79,10 @@ class WaveHomePage extends ConsumerWidget {
             pad;
     final quickCols = viewport < 900 ? 1 : viewport < 1300 ? 2 : 3;
 
+    final showPerfBanner = ref.watch(isModestHardwareProvider) &&
+        !ref.watch(performanceModeProvider) &&
+        !ref.watch(prefsProvider).performancePromptDismissed;
+
     final username = auth.status == AuthStatus.signedIn &&
             auth.username.isNotEmpty
         ? auth.username
@@ -105,6 +110,30 @@ class WaveHomePage extends ConsumerWidget {
             ),
           ),
         ),
+        if (showPerfBanner)
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(side, 12, side, 0),
+            sliver: SliverToBoxAdapter(
+              child: InfoBar(
+                title: const Text('Smoother playback available'),
+                content: const Text(
+                  'Modest hardware detected. Enable Performance Mode to reduce GPU blur and video decoding load.',
+                ),
+                severity: InfoBarSeverity.info,
+                action: Button(
+                  child: const Text('Enable'),
+                  onPressed: () {
+                    ref
+                        .read(performanceModeProvider.notifier)
+                        .setPerformanceMode(true);
+                  },
+                ),
+                onClose: () {
+                  ref.read(prefsProvider).setPerformancePromptDismissed(true);
+                },
+              ),
+            ),
+          ),
         if (spotifyHome)
           SpotifyHomeSlivers(side: side, loading: const _HomeSkeleton())
         else

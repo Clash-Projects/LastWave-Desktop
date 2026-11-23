@@ -12,6 +12,7 @@ import 'package:palette_generator/palette_generator.dart';
 
 import '../../core/artwork/artwork_cache.dart';
 import '../../core/storage/prefs.dart';
+import '../../features/performance/performance_controller.dart';
 import '../../features/player/playback_service.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -20,20 +21,28 @@ import '../theme/tokens.dart';
 final visualizerEnabledProvider =
     StateNotifierProvider<VisualizerEnabledNotifier, bool>((ref) {
   final prefs = ref.watch(prefsProvider);
-  return VisualizerEnabledNotifier(prefs);
+  final isPerfOn = ref.watch(performanceModeProvider);
+  return VisualizerEnabledNotifier(prefs, forceDisabled: isPerfOn);
 });
 
 class VisualizerEnabledNotifier extends StateNotifier<bool> {
   final Prefs _prefs;
+  final bool forceDisabled;
 
-  VisualizerEnabledNotifier(this._prefs) : super(_prefs.visualizerEnabled);
+  VisualizerEnabledNotifier(this._prefs, {this.forceDisabled = false})
+      : super(forceDisabled ? false : _prefs.visualizerEnabled);
 
   void toggle() {
+    if (forceDisabled) return;
     state = !state;
     _prefs.setVisualizerEnabled(state);
   }
 
   void setEnabled(bool enabled) {
+    if (forceDisabled) {
+      _prefs.setVisualizerEnabled(enabled);
+      return;
+    }
     state = enabled;
     _prefs.setVisualizerEnabled(enabled);
   }

@@ -9,6 +9,7 @@ import '../../core/artwork/animated_artwork_service.dart'
     show normalizeCanvasMatch;
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/storage/prefs.dart';
+import '../performance/performance_controller.dart';
 import 'spotify_auth.dart';
 import 'spotify_web_player.dart';
 
@@ -1105,5 +1106,8 @@ final spotifyPlaylistContentProvider =
 
 /// Whether Spotify canvases are used (Settings → Integrations).
 final spotifyCanvasEnabledProvider = Provider<bool>(
-  (ref) => ref.watch(prefsProvider).spotifyCanvasEnabled,
+  (ref) {
+    if (ref.watch(performanceModeProvider)) return false;
+    return ref.watch(prefsProvider).spotifyCanvasEnabled;
+  },
 );

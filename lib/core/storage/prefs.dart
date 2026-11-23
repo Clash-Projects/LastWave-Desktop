@@ -365,6 +365,21 @@ class Prefs {
       _sp.setBool('lw_dynamic_now_playing', v);
 
   // -- Haze / material (spec §42 — only settings that actually work) ------
+  // -- Performance Mode (Smooth / Low-Spec mode) --------------------------
+  /// Disables heavy GPU blurs, background video decoding (canvas),
+  /// high-refresh lyrics tickers, and ambient mesh animations to ensure
+  /// smooth, low-latency playback on modest hardware (Intel HD Graphics,
+  /// dual-core CPUs, laptops on battery).
+  bool get performanceMode => _sp.getBool('lw_performance_mode') ?? false;
+  Future<void> setPerformanceMode(bool v) =>
+      _sp.setBool('lw_performance_mode', v);
+
+  /// Has the low-spec hardware prompt been dismissed?
+  bool get performancePromptDismissed =>
+      _sp.getBool('lw_performance_prompt_dismissed') ?? false;
+  Future<void> setPerformancePromptDismissed(bool v) =>
+      _sp.setBool('lw_performance_prompt_dismissed', v);
+
   /// 'automatic' | 'haze' | 'solid'. Solid disables BackdropFilter
   /// everywhere (static tonal fallback); automatic uses Haze L1–L3 as
   /// designed, honouring reduce-transparency.

@@ -14,6 +14,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../core/audio/stream_models.dart';
 import '../../core/error/fatal_crumbs.dart';
 import '../../core/storage/prefs.dart';
+import '../performance/performance_controller.dart';
 import '../../ui/components/buttons.dart' show LWTooltip;
 import '../../ui/components/menus.dart'
     show WaveMenuAction, WaveMenuButton, WaveMenuSeparator, WaveMenuSubmenu;
@@ -590,7 +591,10 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     final showTransliteration = ref.watch(lyricsTransliterationProvider);
     // Select the single pref: toggling theme/quality elsewhere must
     // not rebuild the karaoke view (it recreates the lyric adapter).
-    final wordByWord = ref.watch(prefsProvider.select((p) => p.wordByWord));
+    final isPerfMode = ref.watch(performanceModeProvider);
+    final wordByWord = isPerfMode
+        ? false
+        : ref.watch(prefsProvider.select((p) => p.wordByWord));
     final textScale = ref.watch(prefsProvider.select((p) => p.lyricsTextScale));
     final autoHide = ref.watch(
       prefsProvider.select((p) => p.lyricsAutoHideSeconds),
