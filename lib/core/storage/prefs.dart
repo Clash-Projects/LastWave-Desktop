@@ -375,6 +375,9 @@ class Prefs {
   bool get dynamicNowPlaying => _sp.getBool('lw_dynamic_now_playing') ?? false;
   Future<void> setDynamicNowPlaying(bool v) =>
       _sp.setBool('lw_dynamic_now_playing', v);
+  bool get macOSNowPlaying => _sp.getBool('lw_macos_now_playing') ?? false;
+  Future<void> setMacOSNowPlaying(bool v) =>
+      _sp.setBool('lw_macos_now_playing', v);
 
   // -- Haze / material (spec §42 — only settings that actually work) ------
   // -- Performance Mode (Smooth / Low-Spec mode) --------------------------

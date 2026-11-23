@@ -51,6 +51,7 @@ import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/equalizer/headphone_profiles.dart';
 import '../../features/player/loudness.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/smtc/smtc_service.dart';
 import '../../features/performance/performance_controller.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/updates/update_service.dart';
@@ -3539,6 +3540,19 @@ class _PlaybackState extends ConsumerState<_Playback> {
             title: 'Autoplay similar',
             subtitle: 'Keep playing related tracks after a queue ends',
           ),
+          if (Platform.isMacOS) ...[
+            const SizedBox(height: 8),
+            _SwitchRow(
+              value: prefs.macOSNowPlaying,
+              onChanged: (v) async {
+                await widget.onUpdate((p) => p.setMacOSNowPlaying(v));
+                ref.read(smtcProvider).refresh();
+              },
+              title: 'macOS Now Playing controls',
+              subtitle:
+                  'Show LastWave on the lock screen and enable system media controls',
+            ),
+          ],
           const SizedBox(height: 8),
           _SwitchRow(
             value: prefs.crossfadeEnabled,
