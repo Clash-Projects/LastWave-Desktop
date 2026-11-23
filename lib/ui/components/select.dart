@@ -92,8 +92,18 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
   }
 
   String? get _selectedLabel {
+    final v = widget.value;
     for (final option in widget.options) {
-      if (option.value == widget.value) return option.label;
+      if (option.value == v) return option.label;
+      if (v is double && option.value is double) {
+        if (((option.value as double) - v).abs() < 0.001) {
+          return option.label;
+        }
+      }
+    }
+    if (v is double) {
+      final pct = (v * 100).round();
+      return '$pct%';
     }
     return null;
   }
@@ -176,7 +186,12 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
         entries: [
           for (final option in widget.options)
             WaveMenuAction(
-              leading: option.value == widget.value
+              leading: (option.value == widget.value ||
+                      (widget.value is double &&
+                          option.value is double &&
+                          ((option.value as double) - (widget.value as double))
+                                  .abs() <
+                              0.001))
                   ? const Icon(FluentIcons.check_mark, size: 13)
                   : const SizedBox(width: 13),
               label: option.label,

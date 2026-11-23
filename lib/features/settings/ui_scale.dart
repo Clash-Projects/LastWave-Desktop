@@ -45,13 +45,23 @@ class UiScaleNotifier extends StateNotifier<double> {
   }
 
   Future<void> zoomIn() async {
-    final next = (state + UiScalePresets.step).clamp(UiScalePresets.min, UiScalePresets.max);
-    await setScale(next);
+    for (final v in UiScalePresets.values) {
+      if (v - state > 0.001) {
+        await setScale(v);
+        return;
+      }
+    }
+    await setScale(UiScalePresets.values.last);
   }
 
   Future<void> zoomOut() async {
-    final next = (state - UiScalePresets.step).clamp(UiScalePresets.min, UiScalePresets.max);
-    await setScale(next);
+    for (final v in UiScalePresets.values.reversed) {
+      if (state - v > 0.001) {
+        await setScale(v);
+        return;
+      }
+    }
+    await setScale(UiScalePresets.values.first);
   }
 
   Future<void> reset() async {

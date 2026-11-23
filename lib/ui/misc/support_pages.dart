@@ -12,6 +12,7 @@ import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/lastfm/lastfm_snapshot.dart';
+import '../../features/lastfm/profile_providers.dart';
 import '../../features/home/home_snapshot.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
@@ -28,20 +29,7 @@ import '../theme/tokens.dart';
 /// Top tracks query: friend view (or self) + Last.fm period.
 typedef _TopQuery = ({String? viewing, String period});
 
-final _profileStatsProvider =
-    FutureProvider.autoDispose.family<HomeStats, String?>((ref, viewing) {
-  final home = ref.watch(homeRepositoryProvider);
-  return swrLoad<HomeStats>(
-    ref,
-    key: lastFmCacheKey('stats', ref.read(prefsProvider).username,
-        viewing: viewing),
-    codec: homeStatsSnapshotCodec,
-    group: cacheGroupLastFm,
-    maxAge: lastFmCacheMaxAge,
-    everyBuild: true,
-    fetch: () => home.fetchStats(viewingAs: viewing),
-  );
-});
+final _profileStatsProvider = userProfileStatsProvider;
 
 final _waveTopTracksProvider =
     FutureProvider.family<List<HomeTrack>, _TopQuery>(

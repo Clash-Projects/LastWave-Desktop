@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../app/track_actions.dart' show playGenerated;
 import '../../features/feed/feed_repository.dart' show GeneratedTrack;
 import '../../features/lastfm/auth_repository.dart';
+import '../../features/lastfm/profile_providers.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../../app/accessibility.dart';
@@ -61,7 +62,6 @@ class WaveTitleBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
-    final auth = ref.watch(authRepositoryProvider);
     return WaveHaze(
       level: LwHazeLevel.l1,
       enableBlur: false,
@@ -145,56 +145,7 @@ class WaveTitleBar extends ConsumerWidget {
                 // Community shortcuts — tiny, before the profile.
                 const _CommunityBtns(),
                 const SizedBox(width: 6),
-                // Profile / account — tiny, no giant buttons.
-                WaveA11yButton(
-                  label: auth.status == AuthStatus.signedIn
-                      ? 'Profile, ${auth.username}'
-                      : 'Connect Last.fm',
-                  onTap: () {
-                    context.go(
-                      auth.status == AuthStatus.signedIn
-                          ? '/profile'
-                          : '/settings',
-                    );
-                  },
-                  child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                  onTap: () {
-                    context.go(
-                      auth.status == AuthStatus.signedIn
-                          ? '/profile'
-                          : '/settings',
-                    );
-                  },
-                  child: LWTooltip(
-                    message: auth.status == AuthStatus.signedIn
-                        ? auth.username
-                        : 'Connect Last.fm',
-                    child: Container(
-                      width: 26,
-                      height: 26,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: dark
-                            ? waveSurfaceRaised(context)
-                            : waveSurfaceOverlay(context),
-                        border:
-                            Border.all(color: waveDivider(context)),
-                      ),
-                      child: Center(
-                        child: Text(
-                          auth.status == AuthStatus.signedIn &&
-                                  auth.username.isNotEmpty
-                              ? auth.username[0].toUpperCase()
-                              : '?',
-                          style: WaveType.label
-                              .copyWith(fontSize: 11),
-                        ),
-                      ),
-                    ),
-                  ),
-                ))),
+                const _ProfileBtn(),
                 const SizedBox(width: 6),
                 _AppMenu(),
                 const SizedBox(width: 6),
@@ -768,6 +719,112 @@ class _AppMenu extends StatelessWidget {
         tooltip: 'Menu',
         icon: WaveIcons.more,
         onTap: onOpen,
+      ),
+    );
+  }
+}
+
+class _ProfileBtn extends ConsumerStatefulWidget {
+  const _ProfileBtn();
+
+  @override
+  ConsumerState<_ProfileBtn> createState() => _ProfileBtnState();
+}
+
+class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final auth = ref.watch(authRepositoryProvider);
+    final avatarUrl = ref.watch(userAvatarUrlProvider);
+    final isSignedIn = auth.status == AuthStatus.signedIn;
+    final username = auth.username;
+
+    final tooltip = isSignedIn ? username : 'Connect Last.fm';
+    final a11yLabel = isSignedIn ? 'Profile, $username' : 'Connect Last.fm';
+
+    Widget avatar;
+    if (avatarUrl.isNotEmpty) {
+      avatar = Container(
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: waveDivider(context)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: WaveArtwork.circle(
+          url: avatarUrl,
+          size: 26,
+          label: username,
+          title: username,
+          artist: username,
+          upgrade: false,
+        ),
+      );
+    } else {
+      avatar = Container(
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: dark
+              ? waveSurfaceRaised(context)
+              : waveSurfaceOverlay(context),
+          border: Border.all(color: waveDivider(context)),
+        ),
+        child: Center(
+          child: Text(
+            isSignedIn && username.isNotEmpty
+                ? username[0].toUpperCase()
+                : '?',
+            style: WaveType.label.copyWith(fontSize: 11),
+          ),
+        ),
+      );
+    }
+
+    return WaveA11yButton(
+      label: a11yLabel,
+      onTap: () => context.go(isSignedIn ? '/profile' : '/settings'),
+      child: LWTooltip(
+        message: tooltip,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hover = true),
+          onExit: (_) => setState(() {
+            _hover = false;
+            _pressed = false;
+          }),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => context.go(isSignedIn ? '/profile' : '/settings'),
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapUp: (_) => setState(() => _pressed = false),
+            onTapCancel: () => setState(() => _pressed = false),
+            child: AnimatedScale(
+              scale: _pressed ? 0.92 : (_hover ? 1.05 : 1.0),
+              duration: waveMotion(context, WaveMotion.fast),
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                duration: waveMotion(context, WaveMotion.fast),
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _pressed
+                      ? wavePressedWash(context)
+                      : _hover
+                          ? waveHoverWash(context)
+                          : Colors.transparent,
+                ),
+                child: avatar,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
