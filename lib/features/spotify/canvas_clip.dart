@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/storage/prefs.dart';
+import '../performance/performance_controller.dart';
 import 'spotify_api.dart';
 import 'spotify_auth.dart';
 
@@ -44,11 +45,19 @@ class CanvasPanelOutcome {
 /// kept; misses are re-asked next time so a transient failure never sticks.
 final canvasPanelClipProvider = FutureProvider.autoDispose
     .family<CanvasPanelOutcome, CanvasPanelQuery>((ref, q) async {
-      final prefs = ref.watch(prefsProvider);
+      final isPerf = ref.watch(performanceModeProvider);
+      if (isPerf) {
+        DiagnosticsLog.info('spotify-canvas skipped reason=performance-mode');
+        return const CanvasPanelOutcome(
+          note: 'Canvas video playback is paused by Performance Mode',
+        );
+      }
+
+      final canvasEnabled = ref.watch(spotifyCanvasEnabledProvider);
       final auth = ref.watch(spotifyAuthProvider);
       var note = '';
 
-      if (!prefs.spotifyCanvasEnabled) {
+      if (!canvasEnabled) {
         note = 'Spotify Canvas is switched off in Settings';
         DiagnosticsLog.info('spotify-canvas skipped reason=toggle-off');
       } else {
