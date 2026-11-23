@@ -31,6 +31,7 @@ import '../../features/innertube/yt_web_login.dart';
 import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
+import '../now_playing/immersive.dart' show nowPlayingAutoHideSecondsProvider;
 import 'now_playing_style_picker.dart';
 import 'yt_profile_chooser.dart';
 import 'spotify_connect.dart';
@@ -1112,6 +1113,30 @@ class _Appearance extends ConsumerWidget {
           title: 'Now Playing style',
           subtitle: 'Layout and presentation for the player screen',
           child: NowPlayingStylePicker(),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'appearance.now_playing_autohide',
+          title: 'Auto-hide Now Playing controls',
+          subtitle: 'Fade out the top buttons after mouse inactivity',
+          child: Row(
+            children: [
+              for (final seconds in Prefs.nowPlayingAutoHideOptions) ...[
+                if (seconds != Prefs.nowPlayingAutoHideOptions.first)
+                  const SizedBox(width: 8),
+                Expanded(
+                  child: ToggleButton(
+                    checked:
+                        ref.watch(nowPlayingAutoHideSecondsProvider) == seconds,
+                    onChanged: (_) => ref
+                        .read(nowPlayingAutoHideSecondsProvider.notifier)
+                        .set(seconds),
+                    child: Text(seconds == 0 ? 'Off' : '$seconds sec'),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
         const SizedBox(height: 8),
         _Group(

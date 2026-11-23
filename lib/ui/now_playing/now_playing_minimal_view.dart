@@ -10,6 +10,8 @@ import '../../features/performance/performance_controller.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artwork.dart';
+import '../theme/tokens.dart';
+import 'immersive.dart';
 import 'now_playing_overflow_menu.dart';
 
 /// Minimal Now Playing layout: Sharp cover art (with Canvas / motion art and
@@ -38,6 +40,7 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
   Widget build(BuildContext context) {
     final track = widget.track;
     final isPerfMode = ref.watch(performanceModeProvider);
+    final controlsIdle = ref.watch(nowPlayingControlsIdleProvider);
 
     // Minimal uses non-Spotify motion art (Apple Music / Tidal / Community);
     // Spotify 9:16 Canvas is reserved exclusively for Full Bleed.
@@ -225,21 +228,52 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
           ),
         ),
 
-        // 3. Top-Left Downward Collapse Chevron
+        // 3. Top-Left Downward Collapse Chevron (fades on idle)
         Positioned(
           top: 18,
           left: 20,
-          child: _CollapseChevronButton(
-            onTap: widget.onClose,
+          child: AnimatedOpacity(
+            duration: waveMotion(
+              context,
+              const Duration(milliseconds: 350),
+            ),
+            opacity: controlsIdle ? 0.0 : 1.0,
+            child: ExcludeFocus(
+              excluding: controlsIdle,
+              child: IgnorePointer(
+                ignoring: controlsIdle,
+                child: _CollapseChevronButton(
+                  onTap: () {
+                    ref.read(nowPlayingActivityProvider.notifier).state++;
+                    widget.onClose();
+                  },
+                ),
+              ),
+            ),
           ),
         ),
 
-        // 4. Unified Top-Right Control Bar (Ambient, Fullscreen, Overflow)
+        // 4. Unified Top-Right Control Bar (Ambient, Fullscreen, Overflow — fades on idle)
         Positioned(
           top: 18,
           right: 20,
-          child: NowPlayingTopActions(
-            track: track,
+          child: AnimatedOpacity(
+            duration: waveMotion(
+              context,
+              const Duration(milliseconds: 350),
+            ),
+            opacity: controlsIdle ? 0.0 : 1.0,
+            child: ExcludeFocus(
+              excluding: controlsIdle,
+              child: IgnorePointer(
+                ignoring: controlsIdle,
+                child: NowPlayingTopActions(
+                  track: track,
+                  onInteraction: () =>
+                      ref.read(nowPlayingActivityProvider.notifier).state++,
+                ),
+              ),
+            ),
           ),
         ),
       ],

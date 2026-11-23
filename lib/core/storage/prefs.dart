@@ -559,6 +559,19 @@ class Prefs {
         nowPlayingStyles.contains(style) ? style : 'fullBleed',
       );
 
+  /// Inactivity timeout (seconds) before Now Playing controls auto-hide.
+  /// `0` disables auto-hide; allowed values are 3, 4, 5, and 0 (Off).
+  static const nowPlayingAutoHideOptions = [3, 4, 5, 0];
+  int get nowPlayingAutoHideSeconds {
+    final raw = _sp.getInt('lw_now_playing_autohide_sec') ?? 3;
+    return nowPlayingAutoHideOptions.contains(raw) ? raw : 3;
+  }
+
+  Future<void> setNowPlayingAutoHideSeconds(int seconds) => _sp.setInt(
+        'lw_now_playing_autohide_sec',
+        nowPlayingAutoHideOptions.contains(seconds) ? seconds : 3,
+      );
+
   bool get cdMode => _sp.getBool('lw_cd_mode') ?? false;
 
   Future<void> setCdMode(bool v) => _sp.setBool('lw_cd_mode', v);

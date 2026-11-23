@@ -99,16 +99,19 @@ class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
       child: SizedBox(
         width: widget.width ?? widget.size ?? double.infinity,
         height: widget.height ?? widget.size ?? double.infinity,
-        child: ColorFiltered(
-          colorFilter: _opaqueAlphaFilter,
-          child: Video(
-            controller: controller,
-            controls: NoVideoControls,
-            fill: const Color(0xFF000000),
-            fit: BoxFit.cover,
-            wakelock: false,
-            pauseUponEnteringBackgroundMode: false,
-            resumeUponEnteringForegroundMode: false,
+        child: ClipRect(
+          child: ColorFiltered(
+            colorFilter: _opaqueAlphaFilter,
+            child: Video(
+              controller: controller,
+              controls: NoVideoControls,
+              fill: const Color(0xFF000000),
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+              wakelock: false,
+              pauseUponEnteringBackgroundMode: false,
+              resumeUponEnteringForegroundMode: false,
+            ),
           ),
         ),
       ),

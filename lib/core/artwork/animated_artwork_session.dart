@@ -41,8 +41,8 @@ const bool _forceSoftwareDecode =
 String get _artworkHwdec =>
     Platform.isWindows && !_forceSoftwareDecode ? 'd3d11va-copy' : 'no';
 
-/// Output edge for square motion art: crisp at 420–480px Now Playing covers.
-const int _artworkOutputPx = 512;
+/// Output edge for square motion art: crisp at 420–480px covers at HiDPI and Full Bleed.
+const int _artworkOutputPx = 768;
 
 class AnimatedArtworkSession extends ChangeNotifier {
   /// Fixed texture size. Square for cover clips; the canvas panel passes
@@ -625,12 +625,12 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('demuxer-max-back-bytes', '0');
       } catch (_) {}
       try {
-        // Cap decode presentation rate to 24fps. Avoid `vf=scale=...:flags=fast_bilinear`
-        // ahead of mpv's SW renderer: libavfilter's fast_bilinear scale drops/mismatches
-        // YUV color-range metadata on d3d11va-copy frames and causes washed-out /
-        // over-bright canvas output. Let mpv's SW renderer scale once to outputWidth x
-        // outputHeight with proper BT.709 / sRGB levels preserved.
-        await dyn.setProperty('vf', 'fps=24');
+        // Cap decode presentation rate to 30fps so 24/25/30fps Spotify and
+        // Apple canvases play smoothly without frame drops while still capping
+        // 60fps clips. Avoid `vf=scale=...:flags=fast_bilinear` ahead of mpv's
+        // SW renderer so YUV color-range metadata on d3d11va-copy frames stays
+        // intact.
+        await dyn.setProperty('vf', 'fps=30');
       } catch (_) {}
       try {
         await dyn.setProperty('video-output-levels', 'full');
@@ -648,7 +648,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('sws-fast', 'no');
       } catch (_) {}
       try {
-        await dyn.setProperty('sws-scaler', 'bilinear');
+        await dyn.setProperty('sws-scaler', 'lanczos');
       } catch (_) {}
       try {
         // Crop to the texture's aspect instead of letterboxing, so a clip
@@ -717,5 +717,5 @@ final animatedArtworkSessionProvider =
 /// player + one texture for the whole run, created lazily on first open.
 final canvasPanelSessionProvider =
     ChangeNotifierProvider<AnimatedArtworkSession>((ref) {
-      return AnimatedArtworkSession(outputWidth: 432, outputHeight: 768);
+      return AnimatedArtworkSession(outputWidth: 720, outputHeight: 1280);
     });

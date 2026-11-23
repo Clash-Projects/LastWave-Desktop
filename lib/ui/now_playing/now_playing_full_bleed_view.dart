@@ -11,6 +11,7 @@ import '../../features/spotify/canvas_clip.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artwork.dart';
+import '../theme/tokens.dart';
 import 'immersive.dart';
 import 'now_playing_overflow_menu.dart';
 
@@ -33,12 +34,14 @@ class _NowPlayingFullBleedViewState
     extends ConsumerState<NowPlayingFullBleedView> {
   String _lastClipUrl = '';
   String _lastClipFallbackUrl = '';
+  bool _lastClipVertical = true;
   bool _sleeveGone = false;
 
   @override
   Widget build(BuildContext context) {
     final track = widget.track;
     final isImmersive = ref.watch(nowPlayingImmersiveProvider);
+    final controlsIdle = ref.watch(nowPlayingControlsIdleProvider);
     final ambientStyle = ref.watch(ambientStyleProvider);
 
     // Prefer Spotify Canvas first, then Apple Music / Tidal / Community canvas.
@@ -53,19 +56,26 @@ class _NowPlayingFullBleedViewState
     final clip = canvasAsync.valueOrNull?.clip;
     final clipUrl = clip?.url ?? '';
     final clipFallbackUrl = clip?.fallbackUrl ?? '';
+    final clipVertical = clip?.vertical ?? true;
     if (!canvasAsync.isLoading || clipUrl.isNotEmpty) {
       _lastClipUrl = clipUrl;
       _lastClipFallbackUrl = clipFallbackUrl;
+      _lastClipVertical = clipVertical;
     }
     final activeUrl =
         clipUrl.isNotEmpty ? clipUrl : (canvasAsync.isLoading ? _lastClipUrl : '');
     final activeFallbackUrl = clipUrl.isNotEmpty
         ? clipFallbackUrl
         : (canvasAsync.isLoading ? _lastClipFallbackUrl : '');
+    final usePortrait =
+        clipUrl.isNotEmpty ? clipVertical : _lastClipVertical;
+    final sessionProvider = usePortrait
+        ? canvasPanelSessionProvider
+        : animatedArtworkSessionProvider;
     final videoReady =
         clipUrl.isNotEmpty &&
         ref.watch(
-          canvasPanelSessionProvider.select((s) => s.isReadyFor(clipUrl)),
+          sessionProvider.select((s) => s.isReadyFor(clipUrl)),
         );
     if (!videoReady) _sleeveGone = false;
     final showSleeve = !videoReady || !_sleeveGone;
@@ -103,9 +113,21 @@ class _NowPlayingFullBleedViewState
                   shaderCallback: (bounds) => LinearGradient(
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
-                    // Wide cubic-eased alpha curve (27% -> 64% of stage width)
-                    // eliminates vertical Mach-band seams against the ambient mesh.
-                    stops: const [0.0, 0.42, 0.52, 0.62, 0.72, 0.82, 0.91, 1.0],
+                    // Wide cubic-eased alpha curve reaching full transparency by
+                    // 0.95 (well inside the 4px inset below) so Skia's antialiased
+                    // dstIn right boundary never leaves a 1px opaque-black seam at
+                    // fractional DPI widths.
+                    stops: const [
+                      0.0,
+                      0.40,
+                      0.50,
+                      0.60,
+                      0.70,
+                      0.80,
+                      0.89,
+                      0.95,
+                      1.0,
+                    ],
                     colors: [
                       Colors.white,
                       Colors.white,
@@ -115,48 +137,54 @@ class _NowPlayingFullBleedViewState
                       Colors.white.withValues(alpha: 0.24),
                       Colors.white.withValues(alpha: 0.07),
                       Colors.transparent,
+                      Colors.transparent,
                     ],
                   ).createShader(bounds),
                   blendMode: BlendMode.dstIn,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (activeUrl.isNotEmpty)
-                        AnimatedArtworkVideo(
-                          url: activeUrl,
-                          fallbackUrl: activeFallbackUrl,
-                          width: artWidth,
-                          height: h,
-                          usePortraitSession: true,
-                        ),
-                      if (showSleeve)
-                        AnimatedOpacity(
-                          opacity: videoReady ? 0.0 : 1.0,
-                          duration: const Duration(milliseconds: 320),
-                          curve: Curves.easeOut,
-                          onEnd: () {
-                            if (videoReady && !_sleeveGone && mounted) {
-                              setState(() => _sleeveGone = true);
-                            }
-                          },
-                          child: SizedBox.expand(
-                            child: FittedBox(
-                              fit: BoxFit.cover,
-                              clipBehavior: Clip.hardEdge,
-                              child: WaveArtwork(
-                                url: track.artworkUrl,
-                                videoId: track.videoId,
-                                size: coverEdge,
-                                decodeExtent: 1024,
-                                radius: 0,
-                                label: track.title,
-                                title: track.title,
-                                artist: track.artist,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: ClipRect(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (activeUrl.isNotEmpty)
+                            AnimatedArtworkVideo(
+                              url: activeUrl,
+                              fallbackUrl: activeFallbackUrl,
+                              width: math.max(0.0, artWidth - 4),
+                              height: h,
+                              usePortraitSession: usePortrait,
+                            ),
+                          if (showSleeve)
+                            AnimatedOpacity(
+                              opacity: videoReady ? 0.0 : 1.0,
+                              duration: const Duration(milliseconds: 320),
+                              curve: Curves.easeOut,
+                              onEnd: () {
+                                if (videoReady && !_sleeveGone && mounted) {
+                                  setState(() => _sleeveGone = true);
+                                }
+                              },
+                              child: SizedBox.expand(
+                                child: FittedBox(
+                                  fit: BoxFit.cover,
+                                  clipBehavior: Clip.hardEdge,
+                                  child: WaveArtwork(
+                                    url: track.artworkUrl,
+                                    videoId: track.videoId,
+                                    size: coverEdge,
+                                    decodeExtent: 1024,
+                                    radius: 0,
+                                    label: track.title,
+                                    title: track.title,
+                                    artist: track.artist,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                    ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -180,28 +208,57 @@ class _NowPlayingFullBleedViewState
               ),
             ),
 
-            // 3. Top-Left Back button (only in immersive fullscreen)
+            // 3. Top-Left Back button (only in immersive fullscreen, fades on idle)
             if (isImmersive)
               Positioned(
                 top: 18,
                 left: 20,
-                child: _FullBleedIconButton(
-                  icon: FluentIcons.chevron_left,
-                  tooltip: 'Exit fullscreen (F11)',
-                  onTap: () {
-                    ref.read(nowPlayingImmersiveProvider.notifier).state =
-                        false;
-                  },
+                child: AnimatedOpacity(
+                  duration: waveMotion(
+                    context,
+                    const Duration(milliseconds: 350),
+                  ),
+                  opacity: controlsIdle ? 0.0 : 1.0,
+                  child: ExcludeFocus(
+                    excluding: controlsIdle,
+                    child: IgnorePointer(
+                      ignoring: controlsIdle,
+                      child: _FullBleedIconButton(
+                        icon: FluentIcons.chevron_left,
+                        tooltip: 'Exit fullscreen (F11)',
+                        onTap: () {
+                          ref.read(nowPlayingActivityProvider.notifier).state++;
+                          ref.read(nowPlayingImmersiveProvider.notifier).state =
+                              false;
+                        },
+                      ),
+                    ),
+                  ),
                 ),
               ),
 
-            // 4. Unified Top-Right Control Bar (Fullscreen, Overflow — no Ambient toggle in Full Bleed)
+            // 4. Unified Top-Right Control Bar (fades on idle)
             Positioned(
               top: 18,
               right: 20,
-              child: NowPlayingTopActions(
-                track: track,
-                showAmbientToggle: false,
+              child: AnimatedOpacity(
+                duration: waveMotion(
+                  context,
+                  const Duration(milliseconds: 350),
+                ),
+                opacity: controlsIdle ? 0.0 : 1.0,
+                child: ExcludeFocus(
+                  excluding: controlsIdle,
+                  child: IgnorePointer(
+                    ignoring: controlsIdle,
+                    child: NowPlayingTopActions(
+                      track: track,
+                      showAmbientToggle: false,
+                      onInteraction: () =>
+                          ref.read(nowPlayingActivityProvider.notifier).state++,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],

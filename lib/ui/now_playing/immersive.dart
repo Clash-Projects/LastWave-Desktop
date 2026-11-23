@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/storage/prefs.dart';
 import '../theme/tokens.dart';
 
 /// Edge-to-edge Now Playing: the dock's expand button, pressed while
@@ -9,10 +10,34 @@ import '../theme/tokens.dart';
 /// anywhere. The Now Playing close button (or Esc) leaves it.
 final nowPlayingImmersiveProvider = StateProvider<bool>((_) => false);
 
-/// Mirror of Now Playing's idle auto-hide (3.5s without mouse movement), so
-/// the shell can fade the overlay dock together with the page's own
-/// controls. Owned by the page; false whenever the page is not mounted.
+/// Mirror of Now Playing's idle auto-hide, so the shell and all Now Playing
+/// views can fade controls together. Owned by WaveNowPlayingPage; false
+/// whenever the page is not mounted or auto-hide is Off.
 final nowPlayingControlsIdleProvider = StateProvider<bool>((_) => false);
+
+/// True while the Now Playing overflow menu flyout is open, pausing idle
+/// auto-hide so controls and cursor do not vanish underneath an open menu.
+final nowPlayingMenuOpenProvider = StateProvider<bool>((_) => false);
+
+/// User-configured idle auto-hide timeout in seconds (`3`, `4`, `5`, or `0` for Off).
+final nowPlayingAutoHideSecondsProvider =
+    StateNotifierProvider<NowPlayingAutoHideNotifier, int>((ref) {
+  return NowPlayingAutoHideNotifier(ref.watch(prefsProvider));
+});
+
+class NowPlayingAutoHideNotifier extends StateNotifier<int> {
+  final Prefs _prefs;
+  NowPlayingAutoHideNotifier(this._prefs)
+      : super(_prefs.nowPlayingAutoHideSeconds);
+
+  void set(int seconds) {
+    final normalized =
+        Prefs.nowPlayingAutoHideOptions.contains(seconds) ? seconds : 3;
+    if (state == normalized) return;
+    state = normalized;
+    _prefs.setNowPlayingAutoHideSeconds(normalized);
+  }
+}
 
 /// Bumped by the overlay dock while the pointer is over it. The page's
 /// MouseRegion does not see hovers on the dock (it is a sibling above the

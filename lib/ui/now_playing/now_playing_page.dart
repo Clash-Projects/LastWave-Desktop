@@ -87,8 +87,19 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     super.dispose();
   }
 
+  int get _autoHideMs => ref.read(nowPlayingAutoHideSecondsProvider) * 1000;
+
   void _resetIdleTimer() {
     _lastHoverAt = DateTime.now();
+    final timeoutMs = _autoHideMs;
+    if (timeoutMs <= 0) {
+      _idleTimer?.cancel();
+      if (_controlsIdle) {
+        setState(() => _controlsIdle = false);
+        _idleMirror.state = false;
+      }
+      return;
+    }
     if (_controlsIdle) {
       setState(() => _controlsIdle = false);
       _idleMirror.state = false;
@@ -97,8 +108,8 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     }
     // Throttle per-pixel hover re-arms while visible: high-DPI mice poll
     // ~1000Hz and each event cancelled/armed a Timer. The timeout below
-    // self-corrects against _lastHoverAt, so hide still lands exactly
-    // 3.5s after the last movement. Showing from hidden stays instant.
+    // self-corrects against _lastHoverAt, so hide still lands cleanly
+    // after the configured timeout. Showing from hidden stays instant.
     final now = DateTime.now();
     if (now.difference(_lastArmAt).inMilliseconds < 200 &&
         (_idleTimer?.isActive ?? false)) {
@@ -110,17 +121,31 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
   void _armIdleTimer() {
     _lastArmAt = DateTime.now();
     _idleTimer?.cancel();
-    _idleTimer = Timer(const Duration(milliseconds: 3500), _onIdleTimeout);
+    final timeoutMs = _autoHideMs;
+    if (timeoutMs <= 0) return;
+    _idleTimer = Timer(Duration(milliseconds: timeoutMs), _onIdleTimeout);
   }
 
   void _onIdleTimeout() {
     if (!mounted) return;
+    final timeoutMs = _autoHideMs;
+    if (timeoutMs <= 0) {
+      if (_controlsIdle) {
+        setState(() => _controlsIdle = false);
+        _idleMirror.state = false;
+      }
+      return;
+    }
+    // Keep controls & cursor visible while the overflow menu is open.
+    if (ref.read(nowPlayingMenuOpenProvider)) {
+      return;
+    }
     // A throttled hover may have landed after the last arm: re-arm for
     // the remainder instead of hiding early.
     final elapsed = DateTime.now().difference(_lastHoverAt).inMilliseconds;
-    if (elapsed < 3500) {
+    if (elapsed < timeoutMs) {
       _idleTimer = Timer(
-        Duration(milliseconds: 3500 - elapsed),
+        Duration(milliseconds: timeoutMs - elapsed),
         _onIdleTimeout,
       );
       return;
@@ -143,6 +168,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     // Must live here: `_buildPage` runs inside a Builder on the Apple stage,
     // where `ref.listen` is not allowed.
     ref.listen<int>(nowPlayingActivityProvider, (_, _) => _resetIdleTimer());
+    ref.listen<int>(nowPlayingAutoHideSecondsProvider, (_, _) => _resetIdleTimer());
     final apple = ref.watch(ambientStyleProvider) == AmbientStyle.apple;
     if (!apple) return _buildPage(context);
     final accent = waveAccent(context);

@@ -127,26 +127,36 @@ class _NowPlayingOverflowMenuButtonState
 
   void _open() {
     widget.onInteraction?.call();
-    _controller.showFlyout(
-      barrierColor: Colors.transparent,
-      placementMode: FlyoutPlacementMode.bottomRight,
-      autoModeConfiguration: FlyoutAutoConfiguration(
-        preferredMode: FlyoutPlacementMode.bottomRight,
-      ),
-      transitionDuration: const Duration(milliseconds: 90),
-      transitionBuilder: fastFlyoutTransition,
-      builder: (context) => WaveFlyoutPanel.child(
-        maxWidth: 300,
-        maxHeight: 540,
-        child: _NowPlayingOverflowMenuContent(
-          track: widget.track,
-          showAmbientToggle: widget.showAmbientToggle,
-          onToggleLyrics: widget.onToggleLyrics,
-          lyricsVisible: widget.lyricsVisible,
-          onToggleFocus: widget.onToggleFocus,
-          focusMode: widget.focusMode,
-        ),
-      ),
+    final menuOpen = ref.read(nowPlayingMenuOpenProvider.notifier);
+    final activity = ref.read(nowPlayingActivityProvider.notifier);
+    menuOpen.state = true;
+    unawaited(
+      _controller
+          .showFlyout(
+            barrierColor: Colors.transparent,
+            placementMode: FlyoutPlacementMode.bottomRight,
+            autoModeConfiguration: FlyoutAutoConfiguration(
+              preferredMode: FlyoutPlacementMode.bottomRight,
+            ),
+            transitionDuration: const Duration(milliseconds: 90),
+            transitionBuilder: fastFlyoutTransition,
+            builder: (context) => WaveFlyoutPanel.child(
+              maxWidth: 300,
+              maxHeight: 540,
+              child: _NowPlayingOverflowMenuContent(
+                track: widget.track,
+                showAmbientToggle: widget.showAmbientToggle,
+                onToggleLyrics: widget.onToggleLyrics,
+                lyricsVisible: widget.lyricsVisible,
+                onToggleFocus: widget.onToggleFocus,
+                focusMode: widget.focusMode,
+              ),
+            ),
+          )
+          .whenComplete(() {
+            if (menuOpen.mounted) menuOpen.state = false;
+            if (activity.mounted) activity.state++;
+          }),
     );
   }
 
