@@ -900,6 +900,8 @@ class _PlaybackSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
+    final activeProfile = HeadphoneProfiles.byId(prefs.headphoneProfile);
+
     return Column(
       children: [
         _Playback(onUpdate: onUpdate),
@@ -907,24 +909,68 @@ class _PlaybackSection extends ConsumerWidget {
         _Group(
           id: 'playback.headphones',
           title: 'Headphone correction',
-          subtitle: 'A built-in curve for a few common headphones',
-          child: WaveSelect<String>(
-            expanded: true,
-            value: HeadphoneProfiles.byId(prefs.headphoneProfile).id,
-            options: [
-              for (final profile in HeadphoneProfiles.all)
-                WaveSelectOption(
-                  value: profile.id,
-                  label: profile.name,
-                  hint: profile.isOff ? null : profile.description,
+          subtitle:
+              'Calibrated acoustic response curves for popular headphones',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Acoustic profile', style: WaveType.trackTitle),
+              const SizedBox(height: 4),
+              Text(
+                'Flattens frequency response for neutral, balanced sound reproduction',
+                style:
+                    WaveType.meta.copyWith(color: waveTextSecondary(context)),
+              ),
+              const SizedBox(height: 8),
+              WaveSelect<String>(
+                expanded: true,
+                value: activeProfile.id,
+                options: [
+                  for (final profile in HeadphoneProfiles.all)
+                    WaveSelectOption(
+                      value: profile.id,
+                      label: profile.name,
+                      hint: profile.isOff ? null : profile.description,
+                    ),
+                ],
+                onChanged: (id) async {
+                  await onUpdate((p) => p.setHeadphoneProfile(id));
+                  await ref
+                      .read(playbackServiceProvider.notifier)
+                      .applyAudioPrefs();
+                },
+              ),
+              if (!activeProfile.isOff) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: waveSurface(context),
+                    borderRadius: BorderRadius.circular(WaveRadius.menu),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        FluentIcons.headset,
+                        size: 14,
+                        color: waveAccent(context),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          activeProfile.description,
+                          style: WaveType.meta.copyWith(
+                            color: waveTextSecondary(context),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+              ],
             ],
-            onChanged: (id) async {
-              await onUpdate((p) => p.setHeadphoneProfile(id));
-              await ref
-                  .read(playbackServiceProvider.notifier)
-                  .applyAudioPrefs();
-            },
           ),
         ),
         const SizedBox(height: 16),
@@ -3963,18 +4009,20 @@ class _PlaybackState extends ConsumerState<_Playback> {
     return _Group(
       id: 'playback.playback',
       title: 'Playback',
-      subtitle: 'Gapless, crossfade and output behaviour',
+      subtitle: 'Queue behaviour, transitions and gapless playback',
       child: Column(
         children: [
           _SwitchRow(
             value: prefs.autoplaySimilar,
             onChanged: (v) => widget.onUpdate((p) => p.setAutoplaySimilar(v)),
             title: 'Autoplay similar',
-            subtitle: 'Keep playing related tracks after a queue ends',
+            subtitle:
+                'Keep playing related tracks and artist radio when a queue ends',
           ),
           const SizedBox(height: 8),
           _SwitchRow(
             value: prefs.crossfadeEnabled,
+            badgeText: prefs.autoMixEnabled ? 'AutoMix Active' : null,
             onChanged: (v) async {
               await widget.onUpdate((p) => p.setCrossfade(v));
               await ref
@@ -3984,12 +4032,12 @@ class _PlaybackState extends ConsumerState<_Playback> {
             },
             title: 'Crossfade',
             subtitle: prefs.autoMixEnabled
-                ? 'Off while timed AutoMix is on'
+                ? 'Standard crossfade is paused while beat-matched AutoMix is on'
                 : prefs.crossfadeEnabled
-                ? '${prefs.crossfadeSeconds}s crossfade duration'
-                : 'Gapless direct transition (crossfade disabled)',
+                    ? 'Fades out the ending track while fading in the next over ${prefs.crossfadeSeconds}s'
+                    : 'Gapless direct transition without overlapping audio',
           ),
-          if (prefs.crossfadeEnabled) ...[
+          if (prefs.crossfadeEnabled && !prefs.autoMixEnabled) ...[
             const SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
@@ -4029,19 +4077,19 @@ class _PlaybackState extends ConsumerState<_Playback> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        '3s (Short)',
+                        '3s (Quick fade)',
                         style: WaveType.meta.copyWith(
                           color: waveTextSecondary(context),
                         ),
                       ),
                       Text(
-                        '7s (Standard)',
+                        '7s (Recommended)',
                         style: WaveType.meta.copyWith(
                           color: waveTextSecondary(context),
                         ),
                       ),
                       Text(
-                        '12s (Long)',
+                        '12s (Long blend)',
                         style: WaveType.meta.copyWith(
                           color: waveTextSecondary(context),
                         ),
@@ -4453,13 +4501,14 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
       id: 'playback.automix',
       title: 'AutoMix',
       subtitle: prefs.autoMixEnabled
-          ? 'DJ-style blends on the beat. Turns crossfade off.'
-          : 'Off. Songs change without a blend.',
+          ? 'Intelligent beat-matched DJ transitions active'
+          : 'Seamless DJ-style beatmatched transitions between tracks',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SwitchRow(
             value: prefs.autoMixEnabled,
+            badgeText: prefs.autoMixEnabled ? 'Beat-Matched' : null,
             onChanged: (v) async {
               await widget.onUpdate((p) => p.setAutoMixEnabled(v));
               await ref
@@ -4468,29 +4517,32 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
             },
             title: 'Timed mix',
             subtitle: prefs.autoMixEnabled
-                ? 'Blends each ending into the next song over ${prefs.autoMixBars} bars, on the beat, with a DJ bass handover. Nothing is cut. Album tracks stay gapless.'
-                : 'Gapless until you turn this on',
+                ? 'Blends each ending into the next song over ${prefs.autoMixBars} bars on beat, with a smooth bass handover. Album tracks stay gapless.'
+                : 'Intelligently mixes consecutive tracks on beat without cutting music',
           ),
           if (prefs.autoMixEnabled) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 10),
             const Text('Blend length', style: WaveType.trackTitle),
             const SizedBox(height: 8),
             Row(
               children: [
-                for (final bars in const [8, 16]) ...[
+                for (final (bars, label) in const [
+                  (8, '8 bars (~15s)'),
+                  (16, '16 bars (~30s)'),
+                ]) ...[
                   if (bars != 8) const SizedBox(width: 8),
                   Expanded(
                     child: ToggleButton(
                       checked: prefs.autoMixBars == bars,
                       onChanged: (_) =>
                           widget.onUpdate((p) => p.setAutoMixBars(bars)),
-                      child: Text('$bars bars'),
+                      child: Text(label),
                     ),
                   ),
                 ],
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             _SwitchRow(
               value: prefs.autoMixSpectral,
               onChanged: (v) async {
@@ -4499,8 +4551,9 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
                     .read(playbackServiceProvider.notifier)
                     .applyAudioPrefs();
               },
-              title: 'Bass swap & filters',
-              subtitle: 'Hands the bass over on the beat and crosses the highs, like a DJ mixer.',
+              title: 'Bass swap & EQ filters',
+              subtitle:
+                  'Hands the bassline over on beat and crosses frequencies, emulating a club DJ mixer.',
             ),
           ],
         ],
