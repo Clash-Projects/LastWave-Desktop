@@ -3747,21 +3747,44 @@ class _Behaviour extends ConsumerWidget {
               _BehaviourSelectRow(
                 title: 'Miniplayer style',
                 subtitle: switch (prefs.miniPlayerStyle) {
-                  'compact' => 'Slim strip with just the essentials.',
-                  'card' => 'Square artwork card with controls over the cover.',
-                  'ambient' => 'Wide panel glowing with the blurred artwork and a timed scrubber.',
+                  'compact' =>
+                    'Ultra-slim strip with essential playback controls.',
+                  'card' =>
+                    'Square album artwork card with overlay controls.',
+                  'ambient' =>
+                    'Wide glowing panel with blurred artwork and seekbar.',
                   'lyrics' =>
-                    'Ambient panel that widens to show the current lyric line '
-                        'when the song has synced lyrics.',
-                  _ => 'Bar with artwork, transport and window buttons.',
+                    'Dynamic ambient panel with live synced lyrics.',
+                  _ =>
+                    'Standard floating bar with artwork, title and controls.',
                 },
                 value: prefs.miniPlayerStyle,
                 options: const [
-                  WaveSelectOption(value: 'classic', label: 'Classic bar'),
-                  WaveSelectOption(value: 'compact', label: 'Compact strip'),
-                  WaveSelectOption(value: 'card', label: 'Artwork card'),
-                  WaveSelectOption(value: 'ambient', label: 'Ambient wide'),
-                  WaveSelectOption(value: 'lyrics', label: 'Ambient + lyrics'),
+                  WaveSelectOption(
+                    value: 'classic',
+                    label: 'Classic bar',
+                    hint: 'Standard',
+                  ),
+                  WaveSelectOption(
+                    value: 'compact',
+                    label: 'Compact strip',
+                    hint: 'Minimal',
+                  ),
+                  WaveSelectOption(
+                    value: 'card',
+                    label: 'Artwork card',
+                    hint: 'Cover art',
+                  ),
+                  WaveSelectOption(
+                    value: 'ambient',
+                    label: 'Ambient wide',
+                    hint: 'Artwork glow',
+                  ),
+                  WaveSelectOption(
+                    value: 'lyrics',
+                    label: 'Ambient + lyrics',
+                    hint: 'Synced lyrics',
+                  ),
                 ],
                 onChanged: (v) => onUpdate((p) => p.setMiniPlayerStyle(v)),
               ),
