@@ -1876,8 +1876,9 @@ class _KaraokeToolbar extends ConsumerWidget {
                   placement: FlyoutPlacementMode.bottomRight,
                   entries: [
                     WaveMenuAction(
-                      leading: menuMark(showTransliteration),
+                      leading: const Icon(FluentIcons.reading_mode, size: 13),
                       label: 'Romanisation',
+                      hint: showTransliteration ? 'On' : 'Off',
                       onPressed: transliterationNotifier.toggle,
                     ),
                     if (onPrefsChanged != null) ...[
