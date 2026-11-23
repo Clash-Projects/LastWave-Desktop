@@ -289,9 +289,8 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                   ),
                 ),
               ],
-            ),
-          );
-        }
+            );
+          }
         return Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
