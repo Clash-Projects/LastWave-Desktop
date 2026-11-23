@@ -29,6 +29,13 @@ class SettingsSearchEntry {
 /// to `_Group` in `settings_page.dart`.
 const settingsSearchEntries = <SettingsSearchEntry>[
   SettingsSearchEntry(
+    id: 'general.performance',
+    section: 'general',
+    title: 'Performance Mode',
+    subtitle: 'Optimizes graphics, blurs, and background tasks for smooth playback',
+    keywords: 'performance mode smooth low spec intel hd graphics lag stutter fps gpu cpu battery saver lightweight optimize shaders blurs video canvas',
+  ),
+  SettingsSearchEntry(
     id: 'general.behaviour',
     section: 'general',
     title: 'Behaviour',

@@ -3395,7 +3395,10 @@ class _GeneralSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       children: [
-        const PerformanceModeCard(),
+        const SettingsTarget(
+          id: 'general.performance',
+          child: PerformanceModeCard(),
+        ),
         const SizedBox(height: 16),
         _Behaviour(onUpdate: onUpdate),
         const SizedBox(height: 16),

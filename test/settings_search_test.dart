@@ -18,6 +18,9 @@ void main() {
     expect(titles('amoled'), contains('Surfaces'));
     expect(titles('reorganize'), contains('Offline'));
     expect(titles('export'), contains('Backup'));
+    expect(titles('performance'), contains('Performance Mode'));
+    expect(titles('lag'), contains('Performance Mode'));
+    expect(titles('stutter'), contains('Performance Mode'));
   });
 
   test('every word must match, in any order', () {
