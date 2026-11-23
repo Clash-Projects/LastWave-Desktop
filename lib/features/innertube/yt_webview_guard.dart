@@ -70,12 +70,11 @@ class YtWebviewGuard {
     }
   }
 
-  /// Hide the BotGuard poToken window (`LastWave BotGuard`). False when
-  /// unsupported or not found. Called right after create (the plugin
-  /// hide call is a no-op on Linux) and instead of `close()` — the
-  /// window is reused for app lifetime, never destroyed.
+  /// Hide the BotGuard poToken window (`LastWave BotGuard`). On Linux
+  /// the plugin hide call is a no-op; on Windows this hides the top-level
+  /// Win32 HWND and strips its taskbar/Alt-Tab entry (`WS_EX_TOOLWINDOW`).
   static Future<bool> hideBotGuard() async {
-    if (!isSupported) return false;
+    if (!Platform.isLinux && !Platform.isWindows) return false;
     try {
       return await _channel.invokeMethod<bool>('hideBotGuard') ?? false;
     } catch (_) {

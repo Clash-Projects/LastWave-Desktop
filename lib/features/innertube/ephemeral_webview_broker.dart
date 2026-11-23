@@ -45,6 +45,7 @@ class EphemeralWebViewBroker {
   final YtAuthStore? authStore;
   final Lock _lock = Lock();
   Completer<EphemeralTokenResult?>? _inflightCompleter;
+  Webview? _activeWebview;
   final Set<String> _failedTracks = {};
 
   bool enabled = true;
@@ -90,6 +91,9 @@ class EphemeralWebViewBroker {
         final result = await _runEphemeralBurst(videoId, sessionId)
             .timeout(_watchdogTimeout, onTimeout: () {
           debugPrint('EphemeralWebViewBroker: Watchdog timeout (15s) triggered');
+          final stuck = _activeWebview;
+          _activeWebview = null;
+          _teardown(stuck, immediate: true);
           return null;
         });
 
@@ -124,20 +128,23 @@ class EphemeralWebViewBroker {
     String sessionId,
   ) async {
     Webview? webview;
+    Directory? tempDir;
     try {
       final html = await rootBundle.loadString('assets/po_token.html');
       final patched = html.replaceFirst(
         '</script>',
         '\nwindow.__bgLoaded=true;</script>',
       );
-      final dir = await Directory.systemTemp.createTemp('lastwave_bg_ephemeral');
-      final file = File('${dir.path}${Platform.pathSeparator}po_token.html');
+      tempDir = await Directory.systemTemp.createTemp('lastwave_bg_ephemeral');
+      final file = File(
+        '${tempDir.path}${Platform.pathSeparator}po_token.html',
+      );
       await file.writeAsString(patched);
 
       final profileFolder = await webviewUserDataFolder('botguard');
       webview = await WebviewWindow.create(
         configuration: CreateConfiguration(
-          title: 'LastWave BotGuard Ephemeral',
+          title: 'LastWave BotGuard',
           titleBarHeight: 0,
           windowWidth: 2,
           windowHeight: 2,
@@ -149,8 +156,9 @@ class EphemeralWebViewBroker {
               : profileFolder,
         ),
       );
+      _activeWebview = webview;
 
-      if (Platform.isLinux) {
+      if (Platform.isLinux || Platform.isWindows) {
         await YtWebviewGuard.hideBotGuard();
       }
       try {
@@ -158,6 +166,9 @@ class EphemeralWebViewBroker {
       } catch (_) {}
 
       webview.launch(Uri.file(file.path).toString());
+      if (Platform.isWindows) {
+        await YtWebviewGuard.hideBotGuard();
+      }
 
       // 1. Wait for HTML page load
       final loaded = await _poll(
@@ -229,22 +240,39 @@ class EphemeralWebViewBroker {
         expiresAt: expiresAt,
       );
     } finally {
-      // Hard teardown within 500 ms: destroy WebView2 so all msedgewebview2.exe processes exit!
+      // Hard teardown: destroy WebView2 so no window or msedgewebview2.exe lingers.
+      if (identical(_activeWebview, webview)) {
+        _activeWebview = null;
+      }
       _teardown(webview);
+      if (tempDir != null) {
+        try {
+          tempDir.deleteSync(recursive: true);
+        } catch (_) {}
+      }
     }
   }
 
-  void _teardown(Webview? w) {
+  void _teardown(Webview? w, {bool immediate = false}) {
     if (w == null) return;
-    Future.delayed(const Duration(milliseconds: 300), () {
+    void closeNow() {
       try {
         if (Platform.isLinux) {
           YtWebviewGuard.hideBotGuard();
         } else {
+          if (Platform.isWindows) {
+            YtWebviewGuard.hideBotGuard();
+          }
           w.close();
         }
       } catch (_) {}
-    });
+    }
+
+    if (immediate) {
+      closeNow();
+    } else {
+      Future.delayed(const Duration(milliseconds: 150), closeNow);
+    }
   }
 
   Future<String?> _mint(Webview? w, String identifier) async {

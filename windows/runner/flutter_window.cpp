@@ -84,6 +84,35 @@ bool FlutterWindow::OnCreate() {
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "lastwave/deeplink",
           &flutter::StandardMethodCodec::GetInstance());
+  webview_guard_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "lastwave/yt_webview",
+          &flutter::StandardMethodCodec::GetInstance());
+  webview_guard_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() == "hideBotGuard") {
+          HWND bg = ::FindWindowW(nullptr, L"LastWave BotGuard");
+          if (bg == nullptr) {
+            bg = ::FindWindowW(nullptr, L"LastWave BotGuard Ephemeral");
+          }
+          if (bg != nullptr) {
+            ::ShowWindow(bg, SW_HIDE);
+            LONG_PTR ex = ::GetWindowLongPtrW(bg, GWL_EXSTYLE);
+            ex = (ex & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+            ::SetWindowLongPtrW(bg, GWL_EXSTYLE, ex);
+            ::SetWindowPos(bg, nullptr, 0, 0, 0, 0,
+                           SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                               SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            result->Success(flutter::EncodableValue(true));
+          } else {
+            result->Success(flutter::EncodableValue(false));
+          }
+        } else {
+          result->NotImplemented();
+        }
+      });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   caption_channel_ =
@@ -135,6 +164,7 @@ void FlutterWindow::OnDestroy() {
   destroying_ = true;
   smtc_channel_.reset();
   deeplink_channel_.reset();
+  webview_guard_channel_.reset();
   caption_channel_.reset();
   max_button_ = RECT{0, 0, 0, 0};
   wasapi_channel_.reset();
