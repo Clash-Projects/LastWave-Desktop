@@ -1186,28 +1186,6 @@ class _Appearance extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: 8),
-        _Group(
-          id: 'appearance.lyrics',
-          title: 'Lyrics animation',
-          subtitle: 'Visual animation style for synced lyrics in Now Playing',
-          child: _BehaviourSelectRow(
-            title: 'Animation style',
-            subtitle: switch (prefs.lyricsAnimation) {
-              'glow_pulse' =>
-                'Rich centered radial glow bloom with steady alignment',
-              'karaoke_bounce' => 'Energetic rhythmic syllable bounce',
-              'smooth_fade' => 'Minimalist clean highlight without motion',
-              _ => 'Smooth fluid syllable wipe with gentle micro-float',
-            },
-            value: prefs.lyricsAnimation,
-            options: [
-              for (final entry in Prefs.lyricsAnimationOptions.entries)
-                WaveSelectOption(value: entry.key, label: entry.value),
-            ],
-            onChanged: (v) => onUpdate((p) => p.setLyricsAnimation(v)),
-          ),
-        ),
       ],
     );
   }
@@ -1540,38 +1518,65 @@ class _Lyrics extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
-    return _Group(
-      id: 'lyrics.timing',
-      title: 'Timing',
-      subtitle: 'Synced lyrics providers',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SwitchRow(
-            value: prefs.wordByWord,
-            onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
-            title: 'Word-by-word lyrics',
-            subtitle:
-                'Karaoke word highlight. Off uses Apple Music line lyrics.',
-          ),
-          const SizedBox(height: 10),
-          const Text('Primary provider', style: WaveType.trackTitle),
-          const SizedBox(height: 6),
-          WaveSelect<String>(
-            value: LyricsProviderId.fromId(prefs.lyricsProviderId).id,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Group(
+          id: 'lyrics.animation',
+          title: 'Lyrics animation',
+          subtitle: 'Visual animation style for synced lyrics in Now Playing',
+          child: _BehaviourSelectRow(
+            title: 'Animation style',
+            subtitle: switch (prefs.lyricsAnimation) {
+              'glow_pulse' =>
+                'Rich centered radial glow bloom with steady alignment',
+              'karaoke_bounce' => 'Energetic rhythmic syllable bounce',
+              'smooth_fade' => 'Minimalist clean highlight without motion',
+              _ => 'Smooth fluid syllable wipe with gentle micro-float',
+            },
+            value: prefs.lyricsAnimation,
             options: [
-              for (final provider in LyricsProviderId.values)
-                WaveSelectOption(value: provider.id, label: provider.title),
+              for (final entry in Prefs.lyricsAnimationOptions.entries)
+                WaveSelectOption(value: entry.key, label: entry.value),
             ],
-            onChanged: (v) => onUpdate((p) => p.setLyricsProviderId(v)),
+            onChanged: (v) => onUpdate((p) => p.setLyricsAnimation(v)),
           ),
-          const SizedBox(height: 4),
-          Text(
-            LyricsProviderId.fromId(prefs.lyricsProviderId).subtitle,
-            style: WaveType.meta,
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'lyrics.timing',
+          title: 'Timing',
+          subtitle: 'Synced lyrics providers',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SwitchRow(
+                value: prefs.wordByWord,
+                onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
+                title: 'Word-by-word lyrics',
+                subtitle:
+                    'Karaoke word highlight. Off uses Apple Music line lyrics.',
+              ),
+              const SizedBox(height: 10),
+              const Text('Primary provider', style: WaveType.trackTitle),
+              const SizedBox(height: 6),
+              WaveSelect<String>(
+                value: LyricsProviderId.fromId(prefs.lyricsProviderId).id,
+                options: [
+                  for (final provider in LyricsProviderId.values)
+                    WaveSelectOption(value: provider.id, label: provider.title),
+                ],
+                onChanged: (v) => onUpdate((p) => p.setLyricsProviderId(v)),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                LyricsProviderId.fromId(prefs.lyricsProviderId).subtitle,
+                style: WaveType.meta,
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
