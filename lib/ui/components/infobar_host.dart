@@ -130,7 +130,7 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
         severity: InfoBarSeverity.warning,
         isLong: false,
         action: WaveLink(
-          onPressed: () => context.go('/settings?section=integrations'),
+          onPressed: () => context.go('/settings?section=services'),
           child: const Text('Reconnect'),
         ),
         onClose: () => setState(() => _dismissedYt = true),

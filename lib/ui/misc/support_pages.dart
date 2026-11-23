@@ -129,7 +129,7 @@ class _WaveProfilePageState
         title: 'No profile selected',
         subtitle: 'Connect Last.fm in Settings to see your profile.',
         actionLabel: 'Open Settings',
-        onAction: () => context.go('/settings?section=lastfm'),
+        onAction: () => context.go('/settings?section=services'),
       );
     }
     return ListView(

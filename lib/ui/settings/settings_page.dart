@@ -45,8 +45,6 @@ import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
-import '../../features/equalizer/equalizer_controller.dart';
-import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/equalizer/headphone_profiles.dart';
 import '../../features/player/loudness.dart';
@@ -65,19 +63,24 @@ import 'settings_search.dart';
 import '../theme/wave_icons.dart';
 
 const waveSettingsSections = [
-  ('general', 'General', FluentIcons.settings),
-  ('playback', 'Playback', FluentIcons.play),
-  ('audio', 'Audio', FluentIcons.speakers),
-  ('downloads', 'Downloads', FluentIcons.download),
-  ('library', 'Library', WaveIcons.library),
-  ('lyrics', 'Lyrics', FluentIcons.microphone),
-  ('appearance', 'Appearance', FluentIcons.brush),
-  ('lastfm', 'Scrobbler', WaveIcons.liked),
-  ('integrations', 'Integrations', FluentIcons.link),
-  ('sources', 'Sources', FluentIcons.cloud),
-  ('experimental', 'Experimental', FluentIcons.bug),
-  ('about', 'About', FluentIcons.info),
+  ('sound', 'Sound & Playback', WaveIcons.speaker),
+  ('display', 'Performance & Display', WaveIcons.theme),
+  ('lyrics', 'Lyrics & Visuals', WaveIcons.lyrics),
+  ('library', 'Storage & Library', WaveIcons.library),
+  ('services', 'Accounts & Services', FluentIcons.link),
 ];
+
+String normalizeSection(String? raw) {
+  if (raw == null || raw.isEmpty) return 'sound';
+  return switch (raw.toLowerCase()) {
+    'sound' || 'audio' || 'playback' => 'sound',
+    'display' || 'general' || 'appearance' || 'experimental' => 'display',
+    'lyrics' => 'lyrics',
+    'library' || 'downloads' => 'library',
+    'services' || 'lastfm' || 'integrations' || 'sources' || 'about' => 'services',
+    _ => 'sound',
+  };
+}
 
 /// Fluent settings: left nav list + right form.
 ///
@@ -97,18 +100,11 @@ class WaveSettingsPage extends ConsumerStatefulWidget {
 String _sectionTitle(BuildContext context, String key, String fallback) {
   final l10n = context.l10n;
   return switch (key) {
-    'general' => l10n.settingsGeneral,
-    'playback' => l10n.settingsPlayback,
-    'audio' => l10n.settingsAudio,
-    'downloads' => l10n.settingsDownloads,
-    'library' => l10n.settingsLibrary,
+    'sound' => l10n.settingsSound,
+    'display' => l10n.settingsDisplay,
     'lyrics' => l10n.settingsLyrics,
-    'appearance' => l10n.settingsAppearance,
-    'lastfm' => l10n.settingsScrobbler,
-    'integrations' => l10n.settingsIntegrations,
-    'sources' => l10n.settingsSources,
-    'experimental' => l10n.settingsExperimental,
-    'about' => l10n.settingsAbout,
+    'library' => l10n.settingsLibrary,
+    'services' => l10n.settingsServices,
     _ => fallback,
   };
 }
@@ -179,11 +175,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
     _contentScrollController = ScrollController();
     _narrowScrollController = ScrollController();
     _railScrollController = ScrollController();
-    final initial = widget.initialSection;
-    _section =
-        initial != null && waveSettingsSections.any((s) => s.$1 == initial)
-        ? initial
-        : 'general';
+    _section = normalizeSection(widget.initialSection);
   }
 
   @override
@@ -373,36 +365,18 @@ class _SectionBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    switch (section) {
-      case 'general':
-        return _General(onUpdate: onUpdate);
-      case 'playback':
-        return _Playback(onUpdate: onUpdate);
-      case 'audio':
-        return _Audio(onUpdate: onUpdate);
-      case 'downloads':
-        return _Downloads(onUpdate: onUpdate);
-      case 'library':
-        return _Group(
-          id: 'library.sync',
-          title: 'Library',
-          subtitle: 'Podcasts, YouTube Music sync, and hidden tracks',
-          child: LibrarySettings(onUpdate: onUpdate),
-        );
-      case 'appearance':
-        return _Appearance(onUpdate: onUpdate);
+    switch (normalizeSection(section)) {
+      case 'sound':
+        return _Sound(onUpdate: onUpdate);
+      case 'display':
+        return _Display(onUpdate: onUpdate);
       case 'lyrics':
-        return _Lyrics(onUpdate: onUpdate);
-      case 'lastfm':
-        return _LastFm(onUpdate: onUpdate);
-      case 'integrations':
-        return _Ytm(onUpdate: onUpdate);
-      case 'sources':
-        return _Sources(onUpdate: onUpdate);
-      case 'experimental':
-        return _Experimental(onUpdate: onUpdate);
+        return _LyricsSection(onUpdate: onUpdate);
+      case 'library':
+        return _LibrarySection(onUpdate: onUpdate);
+      case 'services':
       default:
-        return const _About();
+        return _ServicesSection(onUpdate: onUpdate);
     }
   }
 }
@@ -578,7 +552,7 @@ class _Account extends ConsumerWidget {
     final signedIn = auth.username.isNotEmpty;
     final guest = auth.status == AuthStatus.guest || prefs.isGuest;
     return _Group(
-      id: 'lastfm.connection',
+      id: 'services.connection',
       title: 'Last.fm connection',
       subtitle: 'Scrobbling and discovery need a session',
       child: Column(
@@ -758,27 +732,26 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
   }
 }
 
-class _Audio extends ConsumerWidget {
+class _Sound extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _Audio({required this.onUpdate});
+  const _Sound({required this.onUpdate});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     return Column(
       children: [
-        const SizedBox(height: 8),
         _Group(
-          id: 'audio.output',
+          id: 'sound.output',
           title: 'Audio output',
           subtitle: Platform.isWindows
               ? 'WASAPI Exclusive bypasses the Windows mixer'
               : 'System audio output',
           child: _WasapiOutputSettings(onUpdate: onUpdate),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         _Group(
-          id: 'audio.quality',
+          id: 'sound.quality',
           title: 'Streaming and Download quality',
           subtitle: 'Lossless-first with YouTube fallback',
           child: Column(
@@ -799,14 +772,16 @@ class _Audio extends ConsumerWidget {
                 value: prefs.preferLossless,
                 onChanged: (v) => onUpdate((p) => p.setPreferLossless(v)),
                 title: 'Prefer lossless',
-                subtitle: 'Try lossless first, fall back to Opus',
+                subtitle: 'Stream in lossless FLAC when available, otherwise standard high quality',
               ),
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
+        _Playback(onUpdate: onUpdate),
+        const SizedBox(height: 16),
         _Group(
-          id: 'audio.loudness',
+          id: 'sound.loudness',
           title: 'Loudness',
           subtitle: LoudnessMath.settingsSubtitle(prefs.loudnessMode),
           child: Column(
@@ -831,9 +806,9 @@ class _Audio extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         _Group(
-          id: 'audio.headphones',
+          id: 'sound.headphones',
           title: 'Headphone correction',
           subtitle: 'A built-in curve for a few common headphones',
           child: WaveSelect<String>(
@@ -855,11 +830,11 @@ class _Audio extends ConsumerWidget {
             },
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         _TimedMixSettings(onUpdate: onUpdate),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         _Group(
-          id: 'audio.equalizer',
+          id: 'sound.equalizer',
           title: 'Equalizer & Sound FX',
           subtitle: '10-band ISO curves with acoustic & stage compensation',
           child: const SizedBox(
@@ -899,7 +874,7 @@ class _Appearance extends ConsumerWidget {
     return Column(
       children: [
         _Group(
-          id: 'appearance.theme',
+          id: 'display.theme',
           title: 'Theme',
           subtitle: 'Midnight, Pearl, artwork, or your own colours',
           child: Column(
@@ -1046,9 +1021,9 @@ class _Appearance extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         _Group(
-          id: 'appearance.haze',
+          id: 'display.haze',
           title: 'Haze material',
           subtitle: isPerfOn
               ? 'Solid mode active · Managed by Performance Mode'
@@ -1104,45 +1079,10 @@ class _Appearance extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: 8),
+
+        const SizedBox(height: 16),
         _Group(
-          id: 'appearance.ambient',
-          title: 'Now Playing ambient',
-          subtitle: 'Background behind the cover and lyrics',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  for (final style in AmbientStyle.values) ...[
-                    if (style != AmbientStyle.values.first)
-                      const SizedBox(width: 8),
-                    Expanded(
-                      child: ToggleButton(
-                        checked: ref.watch(ambientStyleProvider) == style,
-                        onChanged: (_) =>
-                            ref.read(ambientStyleProvider.notifier).set(style),
-                        child: Text(style.label),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                ref.watch(ambientStyleProvider) == AmbientStyle.apple
-                    ? 'Vivid colours from the artwork on a dark stage with '
-                          'white text. Looks the same in every theme.'
-                    : 'A calm tone from the artwork that follows your '
-                          'theme (light in Pearl).',
-                style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _Group(
-          id: 'appearance.font',
+          id: 'display.font',
           title: 'Font',
           subtitle: 'The typeface used across the app',
           child: _BehaviourSelectRow(
@@ -1163,9 +1103,9 @@ class _Appearance extends ConsumerWidget {
             onChanged: (v) => onUpdate((p) => p.setAppFont(v)),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         _Group(
-          id: 'appearance.surfaces',
+          id: 'display.surfaces',
           title: 'Surfaces',
           subtitle: 'Contrast and artwork tinting',
           child: Column(
@@ -1530,7 +1470,7 @@ class _Lyrics extends ConsumerWidget {
             onChanged: (v) => onUpdate((p) => p.setWordByWord(v)),
             title: 'Word-by-word lyrics',
             subtitle:
-                'Karaoke word highlight. Off uses Apple Music line lyrics.',
+                'Karaoke word highlight. When off, highlights full lines.',
           ),
           const SizedBox(height: 10),
           const Text('Primary provider', style: WaveType.trackTitle),
@@ -1554,6 +1494,66 @@ class _Lyrics extends ConsumerWidget {
   }
 }
 
+class _NowPlayingAmbient extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _NowPlayingAmbient({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _Group(
+      id: 'lyrics.ambient',
+      title: 'Now Playing ambient',
+      subtitle: 'Background behind the cover and lyrics',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              for (final style in AmbientStyle.values) ...[
+                if (style != AmbientStyle.values.first)
+                  const SizedBox(width: 8),
+                Expanded(
+                  child: ToggleButton(
+                    checked: ref.watch(ambientStyleProvider) == style,
+                    onChanged: (_) =>
+                        ref.read(ambientStyleProvider.notifier).set(style),
+                    child: Text(style.label),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            ref.watch(ambientStyleProvider) == AmbientStyle.apple
+                ? 'Vivid colours from the artwork on a dark stage with '
+                      'white text. Looks the same in every theme.'
+                : 'A calm tone from the artwork that follows your '
+                      'theme (light in Pearl).',
+            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LyricsSection extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _LyricsSection({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      children: [
+        _Lyrics(onUpdate: onUpdate),
+        const SizedBox(height: 16),
+        _NowPlayingAmbient(onUpdate: onUpdate),
+      ],
+    );
+  }
+}
+
 class _Scrobbler extends ConsumerStatefulWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _Scrobbler({required this.onUpdate});
@@ -1572,7 +1572,7 @@ class _ScrobblerState extends ConsumerState<_Scrobbler> {
         .clamp(25, 90)
         .toDouble();
     return _Group(
-      id: 'lastfm.scrobbling',
+      id: 'services.scrobbling',
       title: 'Scrobbler rules',
       subtitle: 'Thresholds apply across all connected scrobblers',
       child: Column(
@@ -1722,7 +1722,7 @@ class _Ytm extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _Group(
-          id: 'integrations.ytm',
+          id: 'services.ytm',
           title: 'YouTube Music',
           subtitle: 'Personal library, history and uploads',
           child: connection.connected
@@ -1765,14 +1765,14 @@ class _Ytm extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
-          id: 'integrations.spotify',
+          id: 'services.spotify',
           title: 'Spotify',
           subtitle: 'Your playlists, Liked Songs and Canvas',
           child: _SpotifyCard(onUpdate: onUpdate),
         ),
         const SizedBox(height: 16),
         _Group(
-          id: 'integrations.discord',
+          id: 'services.discord',
           title: 'Discord',
           subtitle: 'Show what you are listening to on your Discord profile',
           child: _SwitchRow(
@@ -2982,7 +2982,7 @@ class _Sources extends ConsumerWidget {
         ? src.quotaByBase
         : const <String, AddonQuota>{};
     return _Group(
-      id: 'sources.addons',
+      id: 'services.addons',
       title: 'Addon sources',
       subtitle: urls.isEmpty
           ? 'No addon configured — using the built-in lossless backend'
@@ -3277,7 +3277,7 @@ class _AboutState extends ConsumerState<_About> {
   @override
   Widget build(BuildContext context) {
     return _Group(
-      id: 'about.main',
+      id: 'services.about',
       title: 'About LastWave',
       subtitle: 'Build and project links',
       child: Column(
@@ -3367,18 +3367,37 @@ class _AboutState extends ConsumerState<_About> {
   }
 }
 
-class _General extends ConsumerWidget {
+class _Display extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _General({required this.onUpdate});
+  const _Display({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      children: [
+        const PerformanceModeCard(),
+        const SizedBox(height: 16),
+        _Appearance(onUpdate: onUpdate),
+        const SizedBox(height: 16),
+        _Behaviour(onUpdate: onUpdate),
+        const SizedBox(height: 16),
+        _Experimental(onUpdate: onUpdate),
+      ],
+    );
+  }
+}
+
+class _Behaviour extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _Behaviour({required this.onUpdate});
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     return Column(
       children: [
-        const PerformanceModeCard(),
-        const SizedBox(height: 16),
         _Group(
-          id: 'general.behaviour',
+          id: 'display.behaviour',
           title: 'Behaviour',
           subtitle: 'Startup and window defaults',
           child: Column(
@@ -3386,7 +3405,7 @@ class _General extends ConsumerWidget {
               _SwitchRow(
                 value: prefs.closeToTray,
                 onChanged: (v) => onUpdate((p) => p.setCloseToTray(v)),
-                title: 'Close button minimize to tray.',
+                title: 'Minimize to system tray on close',
                 subtitle:
                     'Keep the player running in the background when closed.',
               ),
@@ -3417,73 +3436,122 @@ class _General extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _Group(
-          id: 'general.language',
+          id: 'display.language',
           title: context.l10n.settingsLanguage,
           subtitle: context.l10n.settingsLanguageSub,
           child: const _LanguageSelectRow(),
         ),
+      ],
+    );
+  }
+}
+
+class _LibrarySection extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _LibrarySection({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      children: [
+        _Downloads(onUpdate: onUpdate),
         const SizedBox(height: 16),
-        const _Group(
-          id: 'general.backup',
-          title: 'Backup',
-          subtitle: 'Move your playlists and settings to another device',
-          child: BackupSettings(),
+        _Group(
+          id: 'library.sync',
+          title: 'Library',
+          subtitle: 'Podcasts, YouTube Music sync, and hidden tracks',
+          child: LibrarySettings(onUpdate: onUpdate),
         ),
         const SizedBox(height: 16),
         const _Group(
-          id: 'general.cache',
+          id: 'library.cache',
           title: 'Cached data',
           subtitle: 'Pages saved on this device so they open instantly',
           child: CacheSettings(),
         ),
         const SizedBox(height: 16),
-        // Diagnostics live on the General page on purpose: a user with a
-        // problem finds them without knowing what "Advanced" means, and
-        // the export is the only thing we ever ask them to send.
-        _Group(
-          id: 'general.diagnostics',
-          title: 'Diagnostics',
-          subtitle: 'Local logs for troubleshooting — nothing is uploaded',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        const _Group(
+          id: 'library.backup',
+          title: 'Backup',
+          subtitle: 'Move your playlists and settings to another device',
+          child: BackupSettings(),
+        ),
+      ],
+    );
+  }
+}
+
+class _Diagnostics extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _Diagnostics({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(prefsProvider);
+    return _Group(
+      id: 'services.diagnostics',
+      title: 'Diagnostics',
+      subtitle: 'Local logs for troubleshooting — nothing is uploaded',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SwitchRow(
+            value: prefs.verboseLogs,
+            onChanged: (v) async {
+              await onUpdate((p) => p.setVerboseLogs(v));
+              DiagnosticsLog.verbose = v;
+            },
+            title: 'Verbose logging',
+            subtitle:
+                'Adds per-request detail (stream clients, audio '
+                'probes). Reproduce the problem with it on.',
+          ),
+          const SizedBox(height: 10),
+          Row(
             children: [
-              _SwitchRow(
-                value: prefs.verboseLogs,
-                onChanged: (v) async {
-                  await onUpdate((p) => p.setVerboseLogs(v));
-                  DiagnosticsLog.verbose = v;
-                },
-                title: 'Verbose logging',
-                subtitle:
-                    'Adds per-request detail (stream clients, audio '
-                    'probes). Reproduce the problem with it on.',
+              WaveFilledButton(
+                onPressed: () => exportDiagnostics(context, ref),
+                child: const Text('Export diagnostic logs'),
               ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  WaveFilledButton(
-                    onPressed: () => exportDiagnostics(context, ref),
-                    child: const Text('Export diagnostic logs'),
-                  ),
-                  const SizedBox(width: 8),
-                  WaveButton(
-                    onPressed: openLogFolder,
-                    child: const Text('Open log folder'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Packages the last 5 runs and the crash trail into one zip. '
-                'URLs, cookies and tokens are stripped; track titles are kept '
-                'so a wrong-song report stays actionable.',
-                style: WaveType.meta.copyWith(
-                  color: waveTextSecondary(context),
-                ),
+              const SizedBox(width: 8),
+              WaveButton(
+                onPressed: openLogFolder,
+                child: const Text('Open log folder'),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 8),
+          Text(
+            'Packages the last 5 runs and the crash trail into one zip. '
+            'URLs, cookies and tokens are stripped; track titles are kept '
+            'so a wrong-song report stays actionable.',
+            style: WaveType.meta.copyWith(
+              color: waveTextSecondary(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ServicesSection extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _ServicesSection({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      children: [
+        _Ytm(onUpdate: onUpdate),
+        const SizedBox(height: 16),
+        _LastFm(onUpdate: onUpdate),
+        const SizedBox(height: 16),
+        _Sources(onUpdate: onUpdate),
+        const SizedBox(height: 16),
+        _Diagnostics(onUpdate: onUpdate),
+        const SizedBox(height: 16),
+        const _About(),
       ],
     );
   }
@@ -3506,7 +3574,7 @@ class _PlaybackState extends ConsumerState<_Playback> {
     final currentSeconds = _dragSeconds ?? prefs.crossfadeSeconds.toDouble();
 
     return _Group(
-      id: 'playback.main',
+      id: 'sound.playback',
       title: 'Playback',
       subtitle: 'Gapless, crossfade and output behaviour',
       child: Column(
@@ -3622,7 +3690,7 @@ class _Downloads extends ConsumerWidget {
     final prefs = ref.watch(prefsProvider);
     final custom = prefs.downloadDir;
     return _Group(
-      id: 'downloads.offline',
+      id: 'library.offline',
       title: 'Offline',
       subtitle: 'Download behaviour and lyrics sidecars',
       child: Column(
@@ -3631,7 +3699,7 @@ class _Downloads extends ConsumerWidget {
             value: prefs.downloadLyrics,
             onChanged: (v) => onUpdate((p) => p.setDownloadLyrics(v)),
             title: 'Download lyrics',
-            subtitle: 'Save synced .lrc sidecars with downloads',
+            subtitle: 'Save synced .lrc lyrics files alongside downloads',
           ),
           const SizedBox(height: 12),
           Row(
@@ -3765,7 +3833,7 @@ class _ApiKeysState extends ConsumerState<_ApiKeys> {
     final configured = prefs.isLastFmConfigured;
     // Lives inside the Last.fm connection card; the keys belong to it.
     return SettingsTarget(
-      id: 'lastfm.keys',
+      id: 'services.keys',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -3880,7 +3948,7 @@ class _ExperimentalState extends ConsumerState<_Experimental> {
     final isPerfOn = ref.watch(performanceModeProvider);
     final l10n = context.l10n;
     return _Group(
-      id: 'experimental.main',
+      id: 'display.experimental',
       title: 'Experimental',
       subtitle: 'Opt-in desktop prototypes',
       child: Column(
@@ -3964,7 +4032,7 @@ class _TimedMixSettingsState extends ConsumerState<_TimedMixSettings> {
   Widget build(BuildContext context) {
     final prefs = ref.watch(prefsProvider);
     return _Group(
-      id: 'audio.automix',
+      id: 'sound.automix',
       title: 'AutoMix',
       subtitle: prefs.autoMixEnabled
           ? 'DJ-style blends on the beat. Turns crossfade off.'
@@ -4382,7 +4450,7 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
     final lb = ref.read(listenBrainzProvider);
     final lf = ref.read(libreFmProvider);
     return _Group(
-      id: 'lastfm.others',
+      id: 'services.others',
       title: 'ListenBrainz & Libre.fm',
       subtitle: 'Connect accounts to scrobble simultaneously with LastWave',
       child: Column(

@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/artwork/animated_artwork_service.dart';
-import '../../core/storage/prefs.dart';
 import '../performance/performance_controller.dart';
 import 'spotify_api.dart';
 import 'spotify_auth.dart';

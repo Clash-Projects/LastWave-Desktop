@@ -489,7 +489,7 @@ class _LastFmProfileHub extends StatelessWidget {
             WaveGhostButton(
               label: 'Connect Last.fm',
               icon: FluentIcons.settings,
-              onPressed: () => context.go('/settings?section=lastfm'),
+              onPressed: () => context.go('/settings?section=services'),
             ),
           ],
         ),
@@ -549,7 +549,7 @@ class _LastFmProfileHub extends StatelessWidget {
           WaveIconButton(
             tooltip: 'Last.fm Settings',
             icon: const Icon(FluentIcons.settings, size: 14),
-            onPressed: () => context.go('/settings?section=lastfm'),
+            onPressed: () => context.go('/settings?section=services'),
           ),
         ],
       ),
@@ -2040,7 +2040,7 @@ class _OtherScrobblerStrips extends ConsumerWidget {
                   WaveIconButton(
                     tooltip: '${s.name} settings',
                     icon: const Icon(FluentIcons.settings, size: 14),
-                    onPressed: () => context.go('/settings?section=lastfm'),
+                    onPressed: () => context.go('/settings?section=services'),
                   ),
                 ],
               ),

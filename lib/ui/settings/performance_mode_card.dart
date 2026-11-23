@@ -155,8 +155,8 @@ class _PerformanceModeCardState extends ConsumerState<PerformanceModeCard> {
                     _expanded
                         ? 'Hide optimization details'
                         : (isPerfOn
-                            ? 'View 5 active optimizations & lag details'
-                            : 'View details & why PCs lag'),
+                            ? 'View active optimizations'
+                            : 'View details & optimizations'),
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,

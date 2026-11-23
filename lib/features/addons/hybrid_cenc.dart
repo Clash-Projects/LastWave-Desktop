@@ -379,6 +379,7 @@ void processTraf(
 
     var pos = base + (dataOffset ?? 0);
     for (var i = 0; i < count; i++) {
+      // ignore: unused_local_variable
       var sampleDuration = defaultDuration;
       var sampleSize = defaultSize;
       if ((trunFlags & 0x000100) != 0) {

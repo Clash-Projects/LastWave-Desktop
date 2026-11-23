@@ -94,6 +94,8 @@ class AppLocalizations {
   String get navSettings => tr('navSettings');
 
   // -- Settings Sections ----------------------------------------------------
+  String get settingsSound => tr('settingsSound');
+  String get settingsDisplay => tr('settingsDisplay');
   String get settingsGeneral => tr('settingsGeneral');
   String get settingsPlayback => tr('settingsPlayback');
   String get settingsAudio => tr('settingsAudio');
@@ -104,6 +106,7 @@ class AppLocalizations {
   String get settingsScrobbler => tr('settingsScrobbler');
   String get settingsIntegrations => tr('settingsIntegrations');
   String get settingsSources => tr('settingsSources');
+  String get settingsServices => tr('settingsServices');
   String get settingsExperimental => tr('settingsExperimental');
   String get settingsAbout => tr('settingsAbout');
 

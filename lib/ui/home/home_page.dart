@@ -227,7 +227,7 @@ class WaveHomePage extends ConsumerWidget {
                       switch (reason) {
                         case FeedEmptyReason.lastfmError:
                           context.go(
-                              '/settings?section=lastfm');
+                              '/settings?section=services');
                         case FeedEmptyReason.noTaste:
                           context.go('/search');
                         default:
@@ -893,7 +893,7 @@ class _Header extends StatelessWidget {
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
-            onTap: () => context.go('/settings?section=lastfm'),
+            onTap: () => context.go('/settings?section=services'),
             child: Container(
               padding:
                   const EdgeInsets.symmetric(horizontal: 14, vertical: 8),

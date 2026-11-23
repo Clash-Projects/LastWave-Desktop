@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../core/l10n/app_localizations.dart';
 import '../components/inputs.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
@@ -28,95 +29,95 @@ class SettingsSearchEntry {
 /// to `_Group` in `settings_page.dart`.
 const settingsSearchEntries = <SettingsSearchEntry>[
   SettingsSearchEntry(
-    id: 'general.behaviour',
-    section: 'general',
+    id: 'display.behaviour',
+    section: 'display',
     title: 'Behaviour',
     subtitle: 'Startup and window defaults',
     keywords: 'close button minimize tray background window startup '
         'miniplayer mini player style compact card ambient classic lyrics',
   ),
   SettingsSearchEntry(
-    id: 'general.language',
-    section: 'general',
+    id: 'display.language',
+    section: 'display',
     title: 'Language',
-    subtitle: 'Select the interface and innerTube language',
+    subtitle: 'Select the interface and music catalog language',
     keywords:
         'language locale english hindi spanish french german russian turkish chinese translation l10n',
   ),
   SettingsSearchEntry(
-    id: 'general.backup',
-    section: 'general',
+    id: 'library.backup',
+    section: 'library',
     title: 'Backup',
     subtitle: 'Move your playlists and settings to another device',
     keywords: 'export import json restore backup playlists migrate',
   ),
   SettingsSearchEntry(
-    id: 'general.cache',
-    section: 'general',
+    id: 'library.cache',
+    section: 'library',
     title: 'Cached data',
     subtitle: 'Pages saved on this device so they open instantly',
     keywords: 'cache clear storage snapshot disk space lyrics home offline',
   ),
   SettingsSearchEntry(
-    id: 'general.diagnostics',
-    section: 'general',
+    id: 'services.diagnostics',
+    section: 'services',
     title: 'Diagnostics',
     subtitle: 'Local logs for troubleshooting',
     keywords: 'logs verbose logging export log folder crash report debug',
   ),
   SettingsSearchEntry(
-    id: 'playback.main',
-    section: 'playback',
+    id: 'sound.playback',
+    section: 'sound',
     title: 'Playback',
     subtitle: 'Gapless, crossfade and output behaviour',
     keywords: 'autoplay similar crossfade gapless radio queue ends',
   ),
   SettingsSearchEntry(
-    id: 'audio.output',
-    section: 'audio',
+    id: 'sound.output',
+    section: 'sound',
     title: 'Audio output',
     subtitle: 'Device, exclusive mode and bit-perfect',
     keywords: 'wasapi exclusive bit-perfect bit perfect device dac output',
   ),
   SettingsSearchEntry(
-    id: 'audio.quality',
-    section: 'audio',
+    id: 'sound.quality',
+    section: 'sound',
     title: 'Streaming and Download quality',
     subtitle: 'Lossless-first with YouTube fallback',
     keywords: 'lossless hi-res flac opus prefer lossless streaming '
         'download quality bitrate data saver',
   ),
   SettingsSearchEntry(
-    id: 'audio.loudness',
-    section: 'audio',
+    id: 'sound.loudness',
+    section: 'sound',
     title: 'Loudness',
     subtitle: 'Track or album normalization',
     keywords: 'loudness replaygain normalization volume',
   ),
   SettingsSearchEntry(
-    id: 'audio.headphones',
-    section: 'audio',
+    id: 'sound.headphones',
+    section: 'sound',
     title: 'Headphone correction',
     subtitle: 'Built-in curves for common headphones',
     keywords: 'headphone eq correction',
   ),
   SettingsSearchEntry(
-    id: 'audio.automix',
-    section: 'audio',
+    id: 'sound.automix',
+    section: 'sound',
     title: 'AutoMix',
     subtitle: 'Timed overlap between tracks',
     keywords: 'automix crossfade mix transition overlap',
   ),
   SettingsSearchEntry(
-    id: 'audio.equalizer',
-    section: 'audio',
+    id: 'sound.equalizer',
+    section: 'sound',
     title: 'Equalizer & Sound FX',
     subtitle: '10-band ISO curves',
     keywords: 'eq equalizer studio master clarity preset bands sound fx',
   ),
   SettingsSearchEntry(
-    id: 'downloads.offline',
-    section: 'downloads',
+    id: 'library.offline',
+    section: 'library',
     title: 'Offline',
     subtitle: 'Download behaviour, save location and folder layout',
     keywords: 'download lyrics lrc save location folder layout artist album '
@@ -138,8 +139,8 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'word by word karaoke synced lyrics provider source',
   ),
   SettingsSearchEntry(
-    id: 'appearance.theme',
-    section: 'appearance',
+    id: 'display.theme',
+    section: 'display',
     title: 'Theme',
     subtitle: 'Midnight, Pearl, artwork, or your own colours',
     keywords:
@@ -148,15 +149,15 @@ const settingsSearchEntries = <SettingsSearchEntry>[
         'accent colour color picker palette mode personalize',
   ),
   SettingsSearchEntry(
-    id: 'appearance.haze',
-    section: 'appearance',
+    id: 'display.haze',
+    section: 'display',
     title: 'Haze material',
     subtitle: 'Blur and translucency of panels',
     keywords: 'haze blur acrylic mica glass transparency intensity solid',
   ),
   SettingsSearchEntry(
-    id: 'appearance.ambient',
-    section: 'appearance',
+    id: 'lyrics.ambient',
+    section: 'lyrics',
     title: 'Now Playing ambient',
     subtitle: 'Background behind the cover and lyrics',
     keywords:
@@ -164,88 +165,88 @@ const settingsSearchEntries = <SettingsSearchEntry>[
         'now playing lyrics colours colors',
   ),
   SettingsSearchEntry(
-    id: 'appearance.surfaces',
-    section: 'appearance',
+    id: 'display.surfaces',
+    section: 'display',
     title: 'Surfaces',
     subtitle: 'Contrast and artwork tinting',
     keywords: 'amoled black dynamic artwork theme tint now playing contrast',
   ),
   SettingsSearchEntry(
-    id: 'appearance.font',
-    section: 'appearance',
+    id: 'display.font',
+    section: 'display',
     title: 'Font',
     subtitle: 'The typeface used across the app',
     keywords: 'font typeface typography text inter poppins geist manrope',
   ),
   SettingsSearchEntry(
-    id: 'lastfm.connection',
-    section: 'lastfm',
+    id: 'services.connection',
+    section: 'services',
     title: 'Last.fm connection',
     subtitle: 'Scrobbling and discovery need a session',
     keywords: 'lastfm last.fm account sign in sign out session profile',
   ),
   SettingsSearchEntry(
-    id: 'lastfm.keys',
-    section: 'lastfm',
+    id: 'services.keys',
+    section: 'services',
     title: 'API keys',
     subtitle: 'Your own keys from last.fm/api/account/create',
     keywords: 'api key secret lastfm custom bring your own',
   ),
   SettingsSearchEntry(
-    id: 'lastfm.scrobbling',
-    section: 'lastfm',
+    id: 'services.scrobbling',
+    section: 'services',
     title: 'Scrobbler rules',
     subtitle: 'Thresholds apply across all connected scrobblers',
     keywords: 'scrobble scrobbler now playing threshold percent history',
   ),
   SettingsSearchEntry(
-    id: 'lastfm.others',
-    section: 'lastfm',
+    id: 'services.others',
+    section: 'services',
     title: 'ListenBrainz & Libre.fm',
     subtitle: 'Connect accounts to scrobble simultaneously with LastWave',
     keywords: 'listenbrainz libre.fm librefm gnu fm maloja koito scrobble '
         'token self-hosted',
   ),
   SettingsSearchEntry(
-    id: 'integrations.ytm',
-    section: 'integrations',
+    id: 'services.ytm',
+    section: 'services',
     title: 'YouTube Music',
     subtitle: 'Personal library, history and uploads',
     keywords: 'youtube music ytm google account sign in cookies brand '
         'channel sync listening history liked songs',
   ),
   SettingsSearchEntry(
-    id: 'integrations.spotify',
-    section: 'integrations',
+    id: 'services.spotify',
+    section: 'services',
     title: 'Spotify',
     subtitle: 'Your playlists, Liked Songs and Canvas',
     keywords: 'spotify sp_dc cookie sign in login webview canvas playlists '
         'liked songs recommendations algorithm radio autoplay youtube music',
   ),
   SettingsSearchEntry(
-    id: 'integrations.discord',
-    section: 'integrations',
+    id: 'services.discord',
+    section: 'services',
     title: 'Discord',
     subtitle: 'Show what you are listening to',
     keywords: 'discord rich presence status activity',
   ),
   SettingsSearchEntry(
-    id: 'sources.addons',
-    section: 'sources',
+    id: 'services.addons',
+    section: 'services',
     title: 'Addon sources',
     subtitle: 'Lossless catalog addons',
     keywords: 'addon url source lossless catalog provider server',
   ),
   SettingsSearchEntry(
-    id: 'experimental.main',
-    section: 'experimental',
+    id: 'display.experimental',
+    section: 'display',
     title: 'Experimental',
     subtitle: 'Opt-in desktop prototypes',
     keywords: 'extra translucency wavy seekbar timeline prototype beta',
   ),
   SettingsSearchEntry(
-    id: 'about.main',
-    section: 'about',
+    id: 'services.about',
+    section: 'services',
     title: 'About LastWave',
     subtitle: 'Build and project links',
     keywords: 'version update check updates github links',
@@ -423,7 +424,7 @@ class _SettingsSearchBoxState extends State<SettingsSearchBox> {
               ListTile(
                 title: Text(hit.title),
                 subtitle: Text(
-                  '${_sectionLabel(hit.section)} · ${hit.subtitle}',
+                  '${_sectionLabel(hit.section, context.l10n)} · ${hit.subtitle}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -435,7 +436,23 @@ class _SettingsSearchBoxState extends State<SettingsSearchBox> {
   }
 }
 
-String _sectionLabel(String id) => switch (id) {
-      'lastfm' => 'Scrobbler',
+String _sectionLabel(String id, [AppLocalizations? l10n]) {
+  if (l10n != null) {
+    return switch (id) {
+      'sound' => l10n.settingsSound,
+      'display' => l10n.settingsDisplay,
+      'lyrics' => l10n.settingsLyrics,
+      'library' => l10n.settingsLibrary,
+      'services' => l10n.settingsServices,
       _ => '${id[0].toUpperCase()}${id.substring(1)}',
     };
+  }
+  return switch (id) {
+    'sound' => 'Sound & Playback',
+    'display' => 'Performance & Display',
+    'lyrics' => 'Lyrics & Visuals',
+    'library' => 'Storage & Library',
+    'services' => 'Accounts & Services',
+    _ => '${id[0].toUpperCase()}${id.substring(1)}',
+  };
+}
