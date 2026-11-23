@@ -7,9 +7,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'desktop_lyrics_painter.dart';
-import 'active_lyric_sweep_widget.dart';
-import 'lyric_clock_controller.dart';
-import 'lyric_texture_cache.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -2476,101 +2473,21 @@ class _AppleLineLyricsView extends StatefulWidget {
   State<_AppleLineLyricsView> createState() => _AppleLineLyricsViewState();
 }
 
-class _AppleLineLyricsViewState extends State<_AppleLineLyricsView>
-    with SingleTickerProviderStateMixin {
+class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
   int _lastIndex = -1;
   bool _pinnedOpening = false;
-  final LyricTextureCache _textureCache = LyricTextureCache();
-  late final LyricClockController _clockController;
-  ui.FragmentShader? _shader;
 
   @override
   void initState() {
     super.initState();
-    _clockController = LyricClockController(vsync: this);
     widget.activeLineListenable.addListener(_onActiveLineChanged);
-    widget.positionListenable.addListener(_onPositionChanged);
     _lastIndex = widget.activeLineListenable.value;
-    _loadShader();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _syncTextureCache(widget.activeLineListenable.value);
-    });
-  }
-
-  void _loadShader() async {
-    try {
-      final program =
-          await ui.FragmentProgram.fromAsset('shaders/karaoke_sweep.frag');
-      if (mounted) {
-        setState(() {
-          _shader = program.fragmentShader();
-        });
-      }
-    } catch (_) {}
-  }
-
-  void _onPositionChanged() {
-    _clockController.syncPlayback(
-      isPlaying: true,
-      isVisible: true,
-      audioMs: widget.positionListenable.value,
-    );
-  }
-
-  void _syncTextureCache(int active) {
-    if (!mounted || active < 0 || active >= widget.result.lines.length) return;
-    final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 2.0);
-    final maxWidth =
-        MediaQuery.sizeOf(context).width *
-        DesktopLyricsTokens.maxDuetWidthRatio;
-    final baseFontSize =
-        widget.fontSize ??
-        (widget.compact ? 28.0 : DesktopLyricsTokens.fontSizeBase);
-    final dark = waveIsDark(context);
-    final activeStyle = TextStyle(
-      fontSize: baseFontSize,
-      fontWeight: FontWeight.bold,
-      color: Colors.white,
-      height: DesktopLyricsTokens.lineHeight,
-    );
-    final idleStyle = TextStyle(
-      fontSize: baseFontSize,
-      fontWeight: FontWeight.normal,
-      color: (dark ? Colors.white : Colors.black).withValues(
-        alpha: DesktopLyricsTokens.inactiveOpacity,
-      ),
-      height: DesktopLyricsTokens.lineHeight,
-    );
-
-    _textureCache
-        .syncWindow(
-          activeIndex: active,
-          lines: widget.result.lines,
-          maxWidth: maxWidth,
-          dpr: dpr,
-          activeStyle: activeStyle,
-          inactiveStyle: idleStyle,
-          font: 'Segoe UI',
-          blurSigma: 0.0,
-        )
-        .then((_) {
-          if (mounted) {
-            final currentActive = widget.activeLineListenable.value;
-            if (currentActive == active) {
-              _clockController.setActiveBakedLine(_textureCache[active]);
-              setState(() {});
-            }
-          }
-        });
   }
 
   @override
   void dispose() {
     widget.activeLineListenable.removeListener(_onActiveLineChanged);
-    widget.positionListenable.removeListener(_onPositionChanged);
-    _clockController.dispose();
-    _textureCache.dispose();
     super.dispose();
   }
 
@@ -2621,15 +2538,9 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView>
       oldWidget.activeLineListenable.removeListener(_onActiveLineChanged);
       widget.activeLineListenable.addListener(_onActiveLineChanged);
     }
-    if (oldWidget.positionListenable != widget.positionListenable) {
-      oldWidget.positionListenable.removeListener(_onPositionChanged);
-      widget.positionListenable.addListener(_onPositionChanged);
-    }
     if (oldWidget.result != widget.result) {
       _pinnedOpening = false;
       _lastIndex = -1;
-      _textureCache.invalidate();
-      _syncTextureCache(widget.activeLineListenable.value);
     }
     if (widget.following && !oldWidget.following) {
       final untimed =
@@ -2640,7 +2551,6 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView>
 
   void _onActiveLineChanged() {
     final active = widget.activeLineListenable.value;
-    _syncTextureCache(active);
     if (widget.following && _scroll.isAttached) {
       if (active <= 0) {
         _pinOpeningToTop();
@@ -2742,13 +2652,8 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView>
 
     final list = NotificationListener<ScrollNotification>(
       onNotification: (n) {
-        if (n is ScrollStartNotification) {
-          _clockController.setScrolling(true);
-          if (n.dragDetails != null) {
-            widget.onUserScroll();
-          }
-        } else if (n is ScrollEndNotification) {
-          _clockController.setScrolling(false);
+        if (n is ScrollStartNotification && n.dragDetails != null) {
+          widget.onUserScroll();
         }
         return false;
       },
@@ -2839,25 +2744,6 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView>
                 blurSigma: 0.0, // HARD ZERO to eliminate GPU ImageFilter.blur lag & RAM spike!
               );
 
-              final baked = _textureCache[i];
-              final Widget lineContent;
-              if (isActive && widget.result.isWordSynced && baked != null) {
-                lineContent = RepaintBoundary(
-                  child: ActiveLyricSweepWidget(
-                    baked: baked,
-                    sweepStateListenable: _clockController.sweepNotifier,
-                    shader: _shader,
-                    dpr: MediaQuery.devicePixelRatioOf(context).clamp(1.0, 2.0),
-                    alignment: alignment,
-                    isRtl: line.isRtl,
-                    fadeBandHeight: 80.0,
-                    viewportHeight: MediaQuery.sizeOf(context).height,
-                  ),
-                );
-              } else {
-                lineContent = lineWidget;
-              }
-
               return _tappableLine(
                 index: i,
                 seekable: true,
@@ -2878,7 +2764,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView>
                             breakStartMs: prevEndMs,
                             breakEndMs: line.timeMs,
                           ),
-                        lineContent,
+                        lineWidget,
                       ],
                     ),
                   ),
