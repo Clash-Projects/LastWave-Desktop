@@ -436,6 +436,10 @@ class Prefs {
   bool get wavySeekbar => _sp.getBool('lw_wavy_seekbar') ?? false;
   Future<void> setWavySeekbar(bool v) => _sp.setBool('lw_wavy_seekbar', v);
 
+  /// Interface scale factor (1.0 = 100%).
+  double get uiScale => _sp.getDouble('lw_ui_scale') ?? 1.0;
+  Future<void> setUiScale(double v) => _sp.setDouble('lw_ui_scale', v);
+
   // -- Scrobbler --------------------------------------------------------------
   bool get scrobblerEnabled => _sp.getBool('lw_scrobbler_enabled') ?? false;
 

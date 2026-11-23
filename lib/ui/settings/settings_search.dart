@@ -193,6 +193,13 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords: 'font typeface typography text inter poppins geist manrope',
   ),
   SettingsSearchEntry(
+    id: 'appearance.scale',
+    section: 'appearance',
+    title: 'Interface scale',
+    subtitle: 'Adjust app zoom for display resolution or preference (Ctrl +/-)',
+    keywords: 'zoom scale interface size display resolution dpi ctrl+ ctrl- magnify window',
+  ),
+  SettingsSearchEntry(
     id: 'accounts.connection',
     section: 'accounts',
     title: 'Last.fm connection',

@@ -22,6 +22,7 @@ import '../../core/platform/renderer_mode.dart';
 import '../../core/l10n/app_language.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../features/settings/app_fonts.dart';
+import '../../features/settings/ui_scale.dart';
 import '../../features/scrobblers/extra_scrobblers.dart';
 import '../../features/addons/addon_api.dart';
 import '../../features/innertube/innertube_api.dart';
@@ -1244,6 +1245,26 @@ class _Appearance extends ConsumerWidget {
                 ),
             ],
             onChanged: (v) => onUpdate((p) => p.setAppFont(v)),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _Group(
+          id: 'appearance.scale',
+          title: 'Interface scale',
+          subtitle: 'Adjust app zoom for display resolution or preference (Ctrl +/-)',
+          child: _BehaviourSelectRow<double>(
+            title: 'Zoom level',
+            subtitle: 'Shortcuts: Ctrl + to zoom in, Ctrl - to zoom out, Ctrl 0 to reset.',
+            value: ref.watch(uiScaleProvider),
+            options: [
+              for (final val in UiScalePresets.values)
+                WaveSelectOption<double>(
+                  value: val,
+                  label: UiScalePresets.label(val),
+                  hint: val == 1.0 ? 'Default' : '${(val * 100).round()}%',
+                ),
+            ],
+            onChanged: (v) => ref.read(uiScaleProvider.notifier).setScale(v),
           ),
         ),
         const SizedBox(height: 16),
@@ -4920,13 +4941,14 @@ class _SwitchRow extends StatelessWidget {
   }
 }
 
-class _BehaviourSelectRow extends StatelessWidget {
+class _BehaviourSelectRow<T> extends StatelessWidget {
   final String title;
   final String subtitle;
-  final String value;
-  final List<WaveSelectOption<String>> options;
-  final ValueChanged<String> onChanged;
+  final T value;
+  final List<WaveSelectOption<T>> options;
+  final ValueChanged<T> onChanged;
   const _BehaviourSelectRow({
+    super.key,
     required this.title,
     required this.subtitle,
     required this.value,
@@ -4957,7 +4979,7 @@ class _BehaviourSelectRow extends StatelessWidget {
           const SizedBox(width: 10),
           SizedBox(
             width: 220,
-            child: WaveSelect<String>(
+            child: WaveSelect<T>(
               expanded: true,
               minMenuWidth: 220,
               value: value,

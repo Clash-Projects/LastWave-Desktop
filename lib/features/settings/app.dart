@@ -33,6 +33,7 @@ import '../performance/performance_controller.dart';
 import 'accent.dart';
 import 'app_fonts.dart';
 import 'theme_controller.dart';
+import 'ui_scale.dart';
 
 /// LastWave desktop application root.
 ///
@@ -250,6 +251,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         // back the identical widget so Flutter skips rebuilding the app.
         // Everything _themed reads: palette, theme state, brightness, font, language.
         final currentLanguage = ref.watch(appLanguageProvider);
+        final uiScale = ref.watch(uiScaleProvider);
         final key = (
           p,
           theme,
@@ -257,10 +259,11 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           ref.watch(appFontFamilyProvider).valueOrNull,
           currentLanguage,
           performanceMode,
+          uiScale,
         );
         if (key == _themedKey && _themedApp != null) return _themedApp!;
         _themedKey = key;
-        return _themedApp = _themed(theme, p.$1, p.$2, light, currentLanguage, performanceMode);
+        return _themedApp = _themed(theme, p.$1, p.$2, light, currentLanguage, performanceMode, uiScale);
       },
     );
   }
@@ -272,6 +275,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     bool light,
     AppLanguage lang,
     bool performanceMode,
+    double uiScale,
   ) {
     final effectiveGlass = !performanceMode && theme.glass;
     final surfaces = effectiveGlass ? base.glass(light: light) : base;
@@ -349,15 +353,38 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                     )
                   : directed,
             );
+            Widget framed = content;
             if (Platform.isLinux) {
               final isMaximized = ref.watch(windowMaximizedProvider);
-              return DragToResizeArea(
+              framed = DragToResizeArea(
                 enableResizeEdges: isMaximized ? [] : null,
                 resizeEdgeSize: 6,
                 child: content,
               );
             }
-            return content;
+            if ((uiScale - 1.0).abs() < 0.001) return framed;
+
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final scaledW = constraints.maxWidth / uiScale;
+                final scaledH = constraints.maxHeight / uiScale;
+                return Transform.scale(
+                  scale: uiScale,
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(
+                    width: scaledW,
+                    height: scaledH,
+                    child: MediaQuery(
+                      data: MediaQuery.of(context).copyWith(
+                        size: Size(scaledW, scaledH),
+                        textScaler: TextScaler.linear(uiScale),
+                      ),
+                      child: framed,
+                    ),
+                  ),
+                );
+              },
+            );
           },
         ),
       ),

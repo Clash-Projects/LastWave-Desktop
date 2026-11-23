@@ -28,6 +28,7 @@ import '../canvas/canvas_panel.dart';
 import '../now_playing/immersive.dart';
 import '../queue/queue_panel.dart';
 import '../theme/tokens.dart';
+import '../../features/settings/ui_scale.dart';
 import '../updates/update_dialog.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/updates/update_service.dart';
@@ -366,6 +367,15 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         },
         seekBySeconds: _seekBySeconds,
         volumeByDelta: _volumeByDelta,
+        zoomIn: () {
+          if (mounted) ref.read(uiScaleProvider.notifier).zoomIn();
+        },
+        zoomOut: () {
+          if (mounted) ref.read(uiScaleProvider.notifier).zoomOut();
+        },
+        resetZoom: () {
+          if (mounted) ref.read(uiScaleProvider.notifier).reset();
+        },
       ),
     );
   }
@@ -539,16 +549,19 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     if (clean == '/liked' || clean.startsWith('/liked/')) return 3;
     if (clean == '/albums' ||
         clean.startsWith('/albums/') ||
-        clean.startsWith('/album/'))
+        clean.startsWith('/album/')) {
       return 4;
+    }
     if (clean == '/artists' ||
         clean.startsWith('/artists/') ||
-        clean.startsWith('/artist/'))
+        clean.startsWith('/artist/')) {
       return 5;
+    }
     if (clean == '/playlists' ||
         clean.startsWith('/playlists/') ||
-        clean.startsWith('/ytplaylist/'))
+        clean.startsWith('/ytplaylist/')) {
       return 6;
+    }
     if (clean == '/podcasts' || clean.startsWith('/podcasts/')) return 7;
     if (clean == '/library' ||
         clean.startsWith('/library/') ||
