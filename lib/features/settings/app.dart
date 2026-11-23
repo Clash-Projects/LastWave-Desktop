@@ -27,6 +27,7 @@ import '../library/yt_library_sync.dart';
 import '../mpris/mpris_service.dart';
 import '../smtc/smtc_service.dart';
 import '../presence/discord_presence_service.dart';
+import '../performance/performance_controller.dart';
 import 'accent.dart';
 import 'app_fonts.dart';
 import 'theme_controller.dart';
@@ -210,6 +211,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     // Bridges Jam room events to the player; idle until a room is joined.
     ref.watch(jamSyncProvider);
     final theme = ref.watch(themeControllerProvider);
+    final performanceMode = ref.watch(performanceModeProvider);
     // Accent source (custom / LastWave neutral / system / artwork) is
     // resolved in one place; anything that can't answer falls back to the
     // custom pick there.
@@ -252,10 +254,11 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           light,
           ref.watch(appFontFamilyProvider).valueOrNull,
           currentLanguage,
+          performanceMode,
         );
         if (key == _themedKey && _themedApp != null) return _themedApp!;
         _themedKey = key;
-        return _themedApp = _themed(theme, p.$1, p.$2, light, currentLanguage);
+        return _themedApp = _themed(theme, p.$1, p.$2, light, currentLanguage, performanceMode);
       },
     );
   }
@@ -266,8 +269,10 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     WaveSurfaces base,
     bool light,
     AppLanguage lang,
+    bool performanceMode,
   ) {
-    final surfaces = theme.glass ? base.glass(light: light) : base;
+    final effectiveGlass = !performanceMode && theme.glass;
+    final surfaces = effectiveGlass ? base.glass(light: light) : base;
     final font = ref.watch(appFontFamilyProvider).valueOrNull;
     final darkTheme = buildWaveFluentTheme(
       accent: accent,
@@ -284,17 +289,19 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     );
 
     return WaveHazeScope(
-      material: switch (theme.hazeMaterial) {
-        'haze' => WaveMaterialMode.haze,
-        'solid' => WaveMaterialMode.solid,
-        _ => WaveMaterialMode.automatic,
-      },
+      material: performanceMode
+          ? WaveMaterialMode.solid
+          : switch (theme.hazeMaterial) {
+              'haze' => WaveMaterialMode.haze,
+              'solid' => WaveMaterialMode.solid,
+              _ => WaveMaterialMode.automatic,
+            },
       intensity: switch (theme.hazeIntensity) {
         'low' => WaveHazeIntensity.low,
         'high' => WaveHazeIntensity.high,
         _ => WaveHazeIntensity.medium,
       },
-      liquidGlass: theme.liquidGlass,
+      liquidGlass: performanceMode ? false : theme.liquidGlass,
       child: WindowLifecycle(
         child: FluentApp.router(
           title: 'LastWave',
@@ -326,7 +333,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
               child: page,
             );
             return DisableAcrylic(
-              child: theme.glass
+              child: effectiveGlass
                   ? WaveGlassStage(
                       veil: base.background,
                       light: light,

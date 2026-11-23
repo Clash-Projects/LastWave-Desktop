@@ -50,6 +50,7 @@ import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/equalizer/headphone_profiles.dart';
 import '../../features/player/loudness.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/performance/performance_controller.dart';
 import '../../features/presence/discord_presence_service.dart';
 import '../../features/updates/update_service.dart';
 import '../updates/update_dialog.dart';
@@ -58,6 +59,7 @@ import 'cache_settings.dart';
 import 'diagnostics_actions.dart';
 import 'download_layout_settings.dart';
 import 'library_settings.dart';
+import 'performance_mode_card.dart';
 import 'settings_search.dart';
 import '../theme/wave_icons.dart';
 
@@ -108,6 +110,58 @@ String _sectionTitle(BuildContext context, String key, String fallback) {
     'about' => l10n.settingsAbout,
     _ => fallback,
   };
+}
+
+Future<void> _confirmDisablePerformanceMode(
+  BuildContext context,
+  WidgetRef ref,
+  String featureName,
+  VoidCallback onEnable,
+) async {
+  final l10n = context.l10n;
+  await showDialog<bool>(
+    context: context,
+    builder: (ctx) => ContentDialog(
+      constraints: const BoxConstraints(minWidth: 420, maxWidth: 460),
+      title: Text(
+        l10n.performanceModeConflictTitle,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 12),
+        child: Text(
+          'Enabling "$featureName" requires background GPU shaders and animations. This will turn off Performance Mode to apply your change.',
+          style: const TextStyle(fontSize: 13, height: 1.4),
+        ),
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            child: Text(
+              l10n.performanceModeConflictCancel,
+              maxLines: 1,
+            ),
+          ),
+        ),
+        FilledButton(
+          onPressed: () {
+            ref.read(performanceModeProvider.notifier).setPerformanceMode(false);
+            onEnable();
+            Navigator.pop(ctx, true);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            child: Text(
+              l10n.performanceModeConflictConfirm,
+              maxLines: 1,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
@@ -817,78 +871,6 @@ class _Audio extends ConsumerWidget {
   }
 }
 
-class _EqualizerSettingsSummary extends ConsumerWidget {
-  const _EqualizerSettingsSummary();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final eq = ref.watch(equalizerProvider);
-    final notifier = ref.read(equalizerProvider.notifier);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _SwitchRow(
-          value: eq.enabled,
-          onChanged: (v) => notifier.setEnabled(v),
-          title: '10-Band Equalizer',
-          subtitle: eq.enabled
-              ? 'Active: ${eq.presetName} (-8 dB to +8 dB per band)'
-              : 'Bit-perfect direct stream bypass (filter removed)',
-        ),
-        const SizedBox(height: 8),
-        _SwitchRow(
-          value: eq.studioClarityEnabled,
-          onChanged: (v) => notifier.setStudioClarityEnabled(v),
-          title: 'Studio Master Clarity',
-          subtitle:
-              'Acoustic & stage compensation (${eq.clarityPreset.displayName})',
-        ),
-        if (eq.studioClarityEnabled) ...[
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Text('Clarity target', style: WaveType.trackTitle),
-              const Spacer(),
-              WaveSelect<String>(
-                value: eq.clarityPreset.key,
-                options: [
-                  for (final t in ClarityPresets.all)
-                    WaveSelectOption(value: t.key, label: t.displayName),
-                ],
-                onChanged: (key) => notifier.setClarityPreset(key),
-              ),
-            ],
-          ),
-        ],
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            const Text('Equalizer preset', style: WaveType.trackTitle),
-            const Spacer(),
-            WaveSelect<String>(
-              value: EqualizerPresets.all.any((p) => p.name == eq.presetName)
-                  ? eq.presetName
-                  : 'Custom',
-              options: [
-                for (final p in EqualizerPresets.all)
-                  WaveSelectOption(value: p.name, label: p.name),
-                if (!EqualizerPresets.all.any((p) => p.name == eq.presetName))
-                  const WaveSelectOption(value: 'Custom', label: 'Custom'),
-              ],
-              onChanged: (preset) {
-                if (preset != 'Custom') {
-                  notifier.setPreset(preset);
-                }
-              },
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
 const _accentPresets = <Color>[
   Color(0xFFF5F4F0),
   Color(0xFF4CC2FF),
@@ -908,6 +890,8 @@ class _Appearance extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
     final theme = ref.watch(themeControllerProvider);
+    final isPerfOn = ref.watch(performanceModeProvider);
+    final l10n = context.l10n;
     // Each font's name drawn in its own typeface in the picker.
     final previews =
         ref.watch(appFontPreviewsProvider).valueOrNull ?? const {};
@@ -951,11 +935,23 @@ class _Appearance extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
               _SwitchRow(
-                value: theme.glass,
+                value: isPerfOn ? false : theme.glass,
+                enabled: !isPerfOn,
+                badgeText: isPerfOn ? l10n.performanceModeManagedTag : null,
+                onDisabledTap: isPerfOn
+                    ? () => _confirmDisablePerformanceMode(
+                          context,
+                          ref,
+                          'Glassmorphism',
+                          () => onUpdate((p) => p.setGlassmorphism(true)),
+                        )
+                    : null,
                 onChanged: (v) => onUpdate((p) => p.setGlassmorphism(v)),
                 title: 'Glassmorphism',
-                subtitle: 'The whole app as frosted glass over the playing '
-                    'artwork · works with every theme',
+                subtitle: isPerfOn
+                    ? 'Frosted glass is paused by Performance Mode to reduce GPU blur.'
+                    : 'The whole app as frosted glass over the playing '
+                        'artwork · works with every theme',
               ),
               if (theme.isCustom) ...[
                 const SizedBox(height: 12),
@@ -1053,19 +1049,31 @@ class _Appearance extends ConsumerWidget {
         _Group(
           id: 'appearance.haze',
           title: 'Haze material',
-          subtitle:
-              'Automatic uses Haze L1–L3 as designed · Solid disables blur',
+          subtitle: isPerfOn
+              ? 'Solid mode active · Managed by Performance Mode'
+              : 'Automatic uses Haze L1–L3 as designed · Solid disables blur',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               WaveSelect<String>(
-                value: theme.hazeMaterial,
+                value: isPerfOn ? 'solid' : theme.hazeMaterial,
                 options: const [
                   WaveSelectOption(value: 'automatic', label: 'Automatic'),
                   WaveSelectOption(value: 'haze', label: 'Haze'),
                   WaveSelectOption(value: 'solid', label: 'Solid'),
                 ],
-                onChanged: (v) => onUpdate((p) => p.setHazeMaterial(v)),
+                onChanged: isPerfOn
+                    ? (v) {
+                        if (v != 'solid') {
+                          _confirmDisablePerformanceMode(
+                            context,
+                            ref,
+                            'Haze glass effects',
+                            () => onUpdate((p) => p.setHazeMaterial(v)),
+                          );
+                        }
+                      }
+                    : (v) => onUpdate((p) => p.setHazeMaterial(v)),
               ),
               const SizedBox(height: 10),
               const Text('Haze intensity', style: WaveType.trackTitle),
@@ -1077,8 +1085,14 @@ class _Appearance extends ConsumerWidget {
                       padding: const EdgeInsets.only(right: 6),
                       child: ToggleButton(
                         checked: theme.hazeIntensity == opt,
-                        onChanged: (_) =>
-                            onUpdate((p) => p.setHazeIntensity(opt)),
+                        onChanged: isPerfOn
+                            ? (_) => _confirmDisablePerformanceMode(
+                                  context,
+                                  ref,
+                                  'Haze intensity',
+                                  () => onUpdate((p) => p.setHazeIntensity(opt)),
+                                )
+                            : (_) => onUpdate((p) => p.setHazeIntensity(opt)),
                         child: Text(
                           '${opt[0].toUpperCase()}${opt.substring(1)}',
                         ),
@@ -1619,6 +1633,8 @@ class _SpotifyCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(spotifyAuthProvider);
     final prefs = ref.watch(prefsProvider);
+    final isPerfOn = ref.watch(performanceModeProvider);
+    final l10n = context.l10n;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1651,12 +1667,23 @@ class _SpotifyCard extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         _SwitchRow(
-          value: prefs.spotifyCanvasEnabled,
+          value: isPerfOn ? false : prefs.spotifyCanvasEnabled,
+          enabled: !isPerfOn,
+          badgeText: isPerfOn ? l10n.performanceModeManagedTag : null,
+          onDisabledTap: isPerfOn
+              ? () => _confirmDisablePerformanceMode(
+                    context,
+                    ref,
+                    'Spotify Canvas',
+                    () => onUpdate((p) => p.setSpotifyCanvasEnabled(true)),
+                  )
+              : null,
           onChanged: (v) => onUpdate((p) => p.setSpotifyCanvasEnabled(v)),
           title: 'Spotify Canvas',
-          subtitle:
-              'Use Spotify\'s vertical looping video in the Canvas panel '
-              '(needs a connected account)',
+          subtitle: isPerfOn
+              ? 'Video canvas is paused by Performance Mode to save CPU usage.'
+              : 'Use Spotify\'s vertical looping video in the Canvas panel '
+                  '(needs a connected account)',
         ),
         const SizedBox(height: 6),
         _BehaviourSelectRow(
@@ -3347,6 +3374,8 @@ class _General extends ConsumerWidget {
     final prefs = ref.watch(prefsProvider);
     return Column(
       children: [
+        const PerformanceModeCard(),
+        const SizedBox(height: 16),
         _Group(
           id: 'general.behaviour',
           title: 'Behaviour',
@@ -3828,6 +3857,8 @@ class _Experimental extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(prefsProvider);
+    final isPerfOn = ref.watch(performanceModeProvider);
+    final l10n = context.l10n;
     return _Group(
       id: 'experimental.main',
       title: 'Experimental',
@@ -3835,10 +3866,22 @@ class _Experimental extends ConsumerWidget {
       child: Column(
         children: [
           _SwitchRow(
-            value: prefs.liquidGlass,
+            value: isPerfOn ? false : prefs.liquidGlass,
+            enabled: !isPerfOn,
+            badgeText: isPerfOn ? l10n.performanceModeManagedTag : null,
+            onDisabledTap: isPerfOn
+                ? () => _confirmDisablePerformanceMode(
+                      context,
+                      ref,
+                      'Extra translucency',
+                      () => onUpdate((p) => p.setLiquidGlass(true)),
+                    )
+                : null,
             onChanged: (v) => onUpdate((p) => p.setLiquidGlass(v)),
             title: 'Extra translucency',
-            subtitle: 'Stronger Haze on panels (may cost FPS)',
+            subtitle: isPerfOn
+                ? 'Extra translucency is paused by Performance Mode to maintain FPS.'
+                : 'Stronger Haze on panels (may cost FPS)',
           ),
           _SwitchRow(
             value: prefs.wavySeekbar,
@@ -4030,47 +4073,97 @@ class _SwitchRow extends StatelessWidget {
   final bool value;
   final bool enabled;
   final ValueChanged<bool> onChanged;
+  final VoidCallback? onDisabledTap;
   final String title;
   final String? subtitle;
+  final String? badgeText;
   const _SwitchRow({
     required this.value,
     required this.onChanged,
     required this.title,
     this.subtitle,
     this.enabled = true,
+    this.onDisabledTap,
+    this.badgeText,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: WaveType.trackTitle),
-                if (subtitle != null)
-                  Text(
-                    subtitle!,
-                    style: WaveType.meta.copyWith(
-                      color: waveTextSecondary(context),
+    final rowContent = Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(title, style: WaveType.trackTitle),
+                  if (badgeText != null) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF107C41).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        badgeText!,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF107C41),
+                        ),
+                      ),
                     ),
+                  ],
+                ],
+              ),
+              if (subtitle != null)
+                Text(
+                  subtitle!,
+                  style: WaveType.meta.copyWith(
+                    color: waveTextSecondary(context),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
-          const SizedBox(width: 10),
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
+        ),
+        const SizedBox(width: 10),
+        IgnorePointer(
+          ignoring: !enabled,
+          child: MouseRegion(
+            cursor: enabled
+                ? SystemMouseCursors.click
+                : SystemMouseCursors.basic,
             child: ToggleSwitch(
               checked: value,
               onChanged: enabled ? onChanged : null,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+
+    if (!enabled && onDisabledTap != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onDisabledTap,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: rowContent,
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: rowContent,
     );
   }
 }

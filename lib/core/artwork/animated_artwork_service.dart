@@ -9,6 +9,7 @@ import 'package:unorm_dart/unorm_dart.dart' as unorm;
 import '../network/dio_factory.dart';
 import '../storage/app_database.dart';
 import '../../features/innertube/innertube_api.dart';
+import '../../features/performance/performance_controller.dart';
 import '../../features/search/shared_providers.dart';
 import 'apple_music_canvas.dart';
 import 'community_canvas.dart';
@@ -1299,6 +1300,7 @@ final animatedArtworkServiceProvider = Provider<AnimatedArtworkService>((ref) {
 
 final animatedArtworkProvider =
     FutureProvider.family<AnimatedArtwork?, AnimatedArtworkQuery>((ref, query) {
+  if (ref.watch(performanceModeProvider)) return Future.value(null);
   final svc = ref.watch(animatedArtworkServiceProvider);
   if (svc.isCached(query)) return Future.value(svc.peek(query));
   return svc.lookup(query);

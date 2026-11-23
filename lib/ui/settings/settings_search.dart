@@ -36,6 +36,14 @@ const settingsSearchEntries = <SettingsSearchEntry>[
         'miniplayer mini player style compact card ambient classic lyrics',
   ),
   SettingsSearchEntry(
+    id: 'general.language',
+    section: 'general',
+    title: 'Language',
+    subtitle: 'Select the interface and innerTube language',
+    keywords:
+        'language locale english hindi spanish french german russian turkish chinese translation l10n',
+  ),
+  SettingsSearchEntry(
     id: 'general.backup',
     section: 'general',
     title: 'Backup',

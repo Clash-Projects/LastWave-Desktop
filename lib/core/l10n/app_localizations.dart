@@ -139,6 +139,23 @@ class AppLocalizations {
   String get loading => tr('loading');
   String get noResults => tr('noResults');
 
+  // Performance Mode
+  String get performanceMode => tr('performance_mode');
+  String get performanceModeDescOn => tr('performance_mode_desc_on');
+  String get performanceModeDescOff => tr('performance_mode_desc_off');
+  String get performanceModeRecommended => tr('performance_mode_recommended');
+  String get performanceModeWhyLagTitle => tr('performance_mode_why_lag_title');
+  String get performanceModeWhyLagBody => tr('performance_mode_why_lag_body');
+  String get performanceModeOptimizationsActive => tr('performance_mode_optimizations_active');
+  String get performanceModeOptimizationsActiveSub => tr('performance_mode_optimizations_active_sub');
+  String get performanceModeOptimizationsPlanned => tr('performance_mode_optimizations_planned');
+  String get performanceModeOptimizationsPlannedSub => tr('performance_mode_optimizations_planned_sub');
+  String get performanceModeManagedTag => tr('performance_mode_managed_tag');
+  String get performanceModeConflictTitle => tr('performance_mode_conflict_title');
+  String get performanceModeConflictBody => tr('performance_mode_conflict_body');
+  String get performanceModeConflictConfirm => tr('performance_mode_conflict_confirm');
+  String get performanceModeConflictCancel => tr('performance_mode_conflict_cancel');
+
   static const LocalizationsDelegate<AppLocalizations> delegate =
       _AppLocalizationsDelegate();
 }
