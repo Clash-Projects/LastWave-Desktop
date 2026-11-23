@@ -111,7 +111,7 @@ class AboutHeroCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              const Text('🇮🇳', style: TextStyle(fontSize: 14)),
+              const IndiaFlag(),
             ],
           ),
           const SizedBox(height: 14),
@@ -131,6 +131,109 @@ class AboutHeroCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Clean vector representation of the Indian flag (Tricolor + 24-spoke Ashoka Chakra).
+/// Drawn with CustomPaint instead of emoji fonts to ensure pixel-perfect rendering
+/// across all platforms (Linux, Windows, macOS) without missing glyphs.
+class IndiaFlag extends StatelessWidget {
+  final double width;
+  final double height;
+
+  const IndiaFlag({
+    super.key,
+    this.width = 20,
+    this.height = 13.3,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Indian Flag',
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(2.0),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 2,
+              offset: const Offset(0, 0.5),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(2.0),
+          child: CustomPaint(
+            size: Size(width, height),
+            painter: const _IndiaFlagPainter(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IndiaFlagPainter extends CustomPainter {
+  const _IndiaFlagPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final bandH = h / 3.0;
+
+    // Saffron top band
+    final saffronPaint = Paint()..color = const Color(0xFFFF9933);
+    canvas.drawRect(Rect.fromLTWH(0, 0, w, bandH), saffronPaint);
+
+    // White middle band
+    final whitePaint = Paint()..color = const Color(0xFFFFFFFF);
+    canvas.drawRect(Rect.fromLTWH(0, bandH, w, bandH), whitePaint);
+
+    // Green bottom band
+    final greenPaint = Paint()..color = const Color(0xFF138808);
+    canvas.drawRect(Rect.fromLTWH(0, bandH * 2, w, bandH), greenPaint);
+
+    // Ashoka Chakra in center of white band
+    final chakraCenter = Offset(w / 2.0, h / 2.0);
+    final chakraRadius = (bandH / 2.0) * 0.82;
+    const navy = Color(0xFF000080);
+
+    final rimPaint = Paint()
+      ..color = navy
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.65;
+    canvas.drawCircle(chakraCenter, chakraRadius, rimPaint);
+
+    final hubPaint = Paint()
+      ..color = navy
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(chakraCenter, chakraRadius * 0.22, hubPaint);
+
+    // 24 spokes
+    final spokePaint = Paint()
+      ..color = navy
+      ..strokeWidth = 0.45;
+    for (int i = 0; i < 24; i++) {
+      final angle = (i * 2.0 * math.pi) / 24.0;
+      final dx = math.cos(angle);
+      final dy = math.sin(angle);
+      final start = Offset(
+        chakraCenter.dx + dx * (chakraRadius * 0.2),
+        chakraCenter.dy + dy * (chakraRadius * 0.2),
+      );
+      final end = Offset(
+        chakraCenter.dx + dx * chakraRadius,
+        chakraCenter.dy + dy * chakraRadius,
+      );
+      canvas.drawLine(start, end, spokePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// Styled interactive action tile for the About section.

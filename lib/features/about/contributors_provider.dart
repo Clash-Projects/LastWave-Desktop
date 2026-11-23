@@ -24,20 +24,20 @@ class Contributor {
 
 const List<Contributor> bundledContributors = [
   Contributor(
-    login: 'NONDEADER',
-    name: 'Ayush Yadav',
-    avatarUrl: 'https://avatars.githubusercontent.com/NONDEADER',
-    profileUrl: 'https://github.com/NONDEADER',
-    role: 'Founder & Maintainer',
-    contributions: 100,
-  ),
-  Contributor(
     login: 'ajisth69',
     name: 'Ajisth Singh',
     avatarUrl: 'https://avatars.githubusercontent.com/ajisth69',
     profileUrl: 'https://github.com/ajisth69',
-    role: 'Core Maintainer',
-    contributions: 90,
+    role: 'Founder & Lead Maintainer',
+    contributions: 292,
+  ),
+  Contributor(
+    login: 'MrinmoyHaloi',
+    name: 'Mrinmoy Haloi',
+    avatarUrl: 'https://avatars.githubusercontent.com/MrinmoyHaloi',
+    profileUrl: 'https://github.com/MrinmoyHaloi',
+    role: 'Core Developer (Desktop)',
+    contributions: 258,
   ),
   Contributor(
     login: 'duxtami',
@@ -45,7 +45,15 @@ const List<Contributor> bundledContributors = [
     avatarUrl: 'https://avatars.githubusercontent.com/duxtami',
     profileUrl: 'https://github.com/duxtami',
     role: 'Core Developer',
-    contributions: 60,
+    contributions: 161,
+  ),
+  Contributor(
+    login: 'NONDEADER',
+    name: 'Ayush',
+    avatarUrl: 'https://avatars.githubusercontent.com/NONDEADER',
+    profileUrl: 'https://github.com/NONDEADER',
+    role: 'Contributor',
+    contributions: 23,
   ),
   Contributor(
     login: 'SYR3X',
@@ -53,15 +61,7 @@ const List<Contributor> bundledContributors = [
     avatarUrl: 'https://avatars.githubusercontent.com/SYR3X',
     profileUrl: 'https://github.com/SYR3X',
     role: 'Developer',
-    contributions: 30,
-  ),
-  Contributor(
-    login: 'MrinmoyHaloi',
-    name: 'Mrinmoy Haloi',
-    avatarUrl: 'https://avatars.githubusercontent.com/MrinmoyHaloi',
-    profileUrl: 'https://github.com/MrinmoyHaloi',
-    role: 'Contributor',
-    contributions: 15,
+    contributions: 14,
   ),
   Contributor(
     login: 'Yadnesht909',
@@ -69,15 +69,7 @@ const List<Contributor> bundledContributors = [
     avatarUrl: 'https://avatars.githubusercontent.com/Yadnesht909',
     profileUrl: 'https://github.com/Yadnesht909',
     role: 'Contributor',
-    contributions: 15,
-  ),
-  Contributor(
-    login: 'Abhinav-Abster',
-    name: 'Abhinav Ricky',
-    avatarUrl: 'https://avatars.githubusercontent.com/Abhinav-Abster',
-    profileUrl: 'https://github.com/Abhinav-Abster',
-    role: 'Contributor',
-    contributions: 10,
+    contributions: 5,
   ),
   Contributor(
     login: 'UmangNamdeo',
@@ -85,23 +77,7 @@ const List<Contributor> bundledContributors = [
     avatarUrl: 'https://avatars.githubusercontent.com/UmangNamdeo',
     profileUrl: 'https://github.com/UmangNamdeo',
     role: 'Contributor',
-    contributions: 10,
-  ),
-  Contributor(
-    login: 'vaibhxvvy',
-    name: 'Vaibhav Surthi',
-    avatarUrl: 'https://avatars.githubusercontent.com/vaibhxvvy',
-    profileUrl: 'https://github.com/vaibhxvvy',
-    role: 'Contributor',
-    contributions: 8,
-  ),
-  Contributor(
-    login: 'xppenTC',
-    name: 'xppenTC',
-    avatarUrl: 'https://avatars.githubusercontent.com/xppenTC',
-    profileUrl: 'https://github.com/xppenTC',
-    role: 'Contributor',
-    contributions: 8,
+    contributions: 5,
   ),
   Contributor(
     login: 'Sahank29',
@@ -109,7 +85,47 @@ const List<Contributor> bundledContributors = [
     avatarUrl: 'https://avatars.githubusercontent.com/Sahank29',
     profileUrl: 'https://github.com/Sahank29',
     role: 'Contributor',
-    contributions: 6,
+    contributions: 5,
+  ),
+  Contributor(
+    login: 'Abhinav-Abster',
+    name: 'Abhinav Ricky',
+    avatarUrl: 'https://avatars.githubusercontent.com/Abhinav-Abster',
+    profileUrl: 'https://github.com/Abhinav-Abster',
+    role: 'Contributor',
+    contributions: 4,
+  ),
+  Contributor(
+    login: 'vaibhxvvy',
+    name: 'Vaibhav Surthi',
+    avatarUrl: 'https://avatars.githubusercontent.com/vaibhxvvy',
+    profileUrl: 'https://github.com/vaibhxvvy',
+    role: 'Contributor',
+    contributions: 3,
+  ),
+  Contributor(
+    login: 'xppenTC',
+    name: 'xppenTC',
+    avatarUrl: 'https://avatars.githubusercontent.com/xppenTC',
+    profileUrl: 'https://github.com/xppenTC',
+    role: 'Contributor',
+    contributions: 2,
+  ),
+  Contributor(
+    login: 'kanishk-upadhyay',
+    name: 'Kanishk Upadhyay',
+    avatarUrl: 'https://avatars.githubusercontent.com/kanishk-upadhyay',
+    profileUrl: 'https://github.com/kanishk-upadhyay',
+    role: 'Contributor',
+    contributions: 2,
+  ),
+  Contributor(
+    login: 'JJRPF',
+    name: 'Justin Pfister',
+    avatarUrl: 'https://avatars.githubusercontent.com/JJRPF',
+    profileUrl: 'https://github.com/JJRPF',
+    role: 'Contributor',
+    contributions: 2,
   ),
   Contributor(
     login: 'AndyDL24',
@@ -117,7 +133,7 @@ const List<Contributor> bundledContributors = [
     avatarUrl: 'https://avatars.githubusercontent.com/AndyDL24',
     profileUrl: 'https://github.com/AndyDL24',
     role: 'Contributor',
-    contributions: 6,
+    contributions: 2,
   ),
 ];
 
@@ -149,7 +165,11 @@ final contributorsProvider =
     for (final item in rawList) {
       if (item is Map<String, dynamic>) {
         final login = item['login'] as String? ?? '';
-        if (login.isEmpty || login.endsWith('[bot]')) continue;
+        if (login.isEmpty ||
+            login.endsWith('[bot]') ||
+            login.toLowerCase() == 'claude') {
+          continue;
+        }
         final key = login.toLowerCase();
         final avatarUrl = item['avatar_url'] as String? ??
             'https://avatars.githubusercontent.com/$login';
@@ -179,7 +199,20 @@ final contributorsProvider =
       }
     }
 
-    return merged.values.toList();
+    const pinnedLogins = ['ajisth69', 'mrinmoyhaloi', 'duxtami', 'nondeader'];
+    final result = merged.values.toList();
+    result.sort((a, b) {
+      final aKey = a.login.toLowerCase();
+      final bKey = b.login.toLowerCase();
+      final aPinned = pinnedLogins.indexOf(aKey);
+      final bPinned = pinnedLogins.indexOf(bKey);
+      if (aPinned != -1 && bPinned != -1) return aPinned.compareTo(bPinned);
+      if (aPinned != -1) return -1;
+      if (bPinned != -1) return 1;
+      return b.contributions.compareTo(a.contributions);
+    });
+
+    return result;
   } catch (_) {
     // Return bundled list if offline or rate-limited
     return bundledContributors;

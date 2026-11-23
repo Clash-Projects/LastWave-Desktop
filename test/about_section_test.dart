@@ -4,30 +4,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/app_info.dart';
 import 'package:lastwave_desktop/features/about/contributors_provider.dart';
 import 'package:lastwave_desktop/ui/settings/about_components.dart';
+import 'package:lastwave_desktop/ui/settings/settings_page.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('contributorsProvider', () {
-    test('returns bundled contributors with founder & maintainers', () {
+    test('returns bundled contributors with Ajisth as founder and Ayush as contributor', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
       final list = container.read(contributorsProvider).valueOrNull ?? bundledContributors;
       expect(list.isNotEmpty, isTrue);
 
-      final founder = list.firstWhere((c) => c.login == 'NONDEADER');
-      expect(founder.name, equals('Ayush Yadav'));
-      expect(founder.role, contains('Founder'));
+      final founder = list.firstWhere((c) => c.login == 'ajisth69');
+      expect(founder.name, equals('Ajisth Singh'));
+      expect(founder.role, equals('Founder & Lead Maintainer'));
 
-      final maintainer = list.firstWhere((c) => c.login == 'ajisth69');
-      expect(maintainer.name, equals('Ajisth Singh'));
-      expect(maintainer.role, contains('Maintainer'));
+      final mrinmoy = list.firstWhere((c) => c.login == 'MrinmoyHaloi');
+      expect(mrinmoy.name, equals('Mrinmoy Haloi'));
+      expect(mrinmoy.role, equals('Core Developer (Desktop)'));
+
+      final contributor = list.firstWhere((c) => c.login == 'NONDEADER');
+      expect(contributor.name, equals('Ayush'));
+      expect(contributor.role, equals('Contributor'));
     });
   });
 
   group('AboutHeroCard', () {
-    testWidgets('renders LastWave title, version, India flag and download button', (tester) async {
+    testWidgets('renders LastWave title, version, IndiaFlag and download button', (tester) async {
       var downloaded = false;
       await tester.pumpWidget(
         FluentApp(
@@ -43,7 +48,7 @@ void main() {
       expect(find.text('LastWave'), findsOneWidget);
       expect(find.text('Version $appVersion'), findsOneWidget);
       expect(find.text('Made by LastWave Team'), findsOneWidget);
-      expect(find.text('🇮🇳'), findsOneWidget);
+      expect(find.byType(IndiaFlag), findsOneWidget);
       expect(find.text('Download Mobile App'), findsOneWidget);
 
       await tester.tap(find.text('Download Mobile App'));
@@ -105,10 +110,21 @@ void main() {
       await tester.pumpAndSettle();
 
       // Once expanded, verify contributor cards are shown
-      expect(find.text('Ayush Yadav'), findsOneWidget);
-      expect(find.text('Founder & Maintainer'), findsOneWidget);
       expect(find.text('Ajisth Singh'), findsOneWidget);
-      expect(find.text('Core Maintainer'), findsOneWidget);
+      expect(find.text('Founder & Lead Maintainer'), findsOneWidget);
+      expect(find.text('Mrinmoy Haloi'), findsOneWidget);
+      expect(find.text('Core Developer (Desktop)'), findsOneWidget);
+      expect(find.text('Ayush'), findsOneWidget);
+      expect(find.text('Contributor'), findsWidgets);
+    });
+  });
+
+  group('SettingsSection routing', () {
+    test('routes sources and addons to sources section', () {
+      expect(normalizeSection('sources'), equals('sources'));
+      expect(normalizeSection('addons'), equals('sources'));
+      expect(normalizeSection('addon'), equals('sources'));
+      expect(normalizeSection('about'), equals('about'));
     });
   });
 }

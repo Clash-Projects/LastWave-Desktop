@@ -73,6 +73,7 @@ const waveSettingsSections = [
   ('audio', 'Audio', WaveIcons.speaker),
   ('playback', 'Playback', WaveIcons.equalizer),
   ('lyrics', 'Lyrics', WaveIcons.lyrics),
+  ('sources', 'Sources', FluentIcons.cloud),
   ('library', 'Library & Storage', WaveIcons.library),
   ('accounts', 'Accounts', FluentIcons.link),
   ('about', 'About', WaveIcons.info),
@@ -86,9 +87,10 @@ String normalizeSection(String? raw) {
     'audio' || 'sound' => 'audio',
     'playback' => 'playback',
     'lyrics' => 'lyrics',
+    'sources' || 'addons' || 'addon' => 'sources',
     'library' || 'downloads' || 'storage' => 'library',
     'accounts' || 'services' || 'lastfm' || 'integrations' || 'scrobbler' || 'spotify' || 'discord' => 'accounts',
-    'about' || 'updates' || 'diagnostics' || 'sources' || 'experimental' => 'about',
+    'about' || 'updates' || 'diagnostics' || 'experimental' => 'about',
     _ => 'general',
   };
 }
@@ -116,6 +118,7 @@ String _sectionTitle(BuildContext context, String key, String fallback) {
     'audio' => l10n.settingsAudio,
     'playback' => l10n.settingsPlayback,
     'lyrics' => l10n.settingsLyrics,
+    'sources' => 'Sources',
     'library' => l10n.settingsLibrary,
     'accounts' => l10n.settingsAccounts,
     'about' => l10n.settingsAbout,
@@ -290,7 +293,11 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                 _SectionSwap(
                   child: RepaintBoundary(
                     key: ValueKey(_section),
-                    child: _SectionBody(section: _section, onUpdate: _update),
+                    child: _SectionBody(
+                      section: _section,
+                      onUpdate: _update,
+                      onNavigateSection: (sec) => setState(() => _section = sec),
+                    ),
                   ),
                 ),
               ],
@@ -350,6 +357,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                         child: _SectionBody(
                           section: _section,
                           onUpdate: _update,
+                          onNavigateSection: (sec) => setState(() => _section = sec),
                         ),
                       ),
                     ),
@@ -367,7 +375,12 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
 class _SectionBody extends ConsumerWidget {
   final String section;
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _SectionBody({required this.section, required this.onUpdate});
+  final void Function(String)? onNavigateSection;
+  const _SectionBody({
+    required this.section,
+    required this.onUpdate,
+    this.onNavigateSection,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -377,11 +390,16 @@ class _SectionBody extends ConsumerWidget {
       case 'appearance':
         return _AppearanceSection(onUpdate: onUpdate);
       case 'audio':
-        return _AudioSection(onUpdate: onUpdate);
+        return _AudioSection(
+          onUpdate: onUpdate,
+          onNavigateSection: onNavigateSection,
+        );
       case 'playback':
         return _PlaybackSection(onUpdate: onUpdate);
       case 'lyrics':
         return _LyricsSection(onUpdate: onUpdate);
+      case 'sources':
+        return _SourcesSection(onUpdate: onUpdate);
       case 'library':
         return _LibrarySection(onUpdate: onUpdate);
       case 'accounts':
@@ -801,7 +819,8 @@ class _InShellConnectState extends ConsumerState<_InShellConnect> {
 
 class _AudioSection extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _AudioSection({required this.onUpdate});
+  final void Function(String)? onNavigateSection;
+  const _AudioSection({required this.onUpdate, this.onNavigateSection});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -844,6 +863,25 @@ class _AudioSection extends ConsumerWidget {
                 subtitle:
                     'Stream in lossless FLAC when available, otherwise standard high quality',
               ),
+              if (onNavigateSection != null) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: WaveButton(
+                    onPressed: () => onNavigateSection!('sources'),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.cloud, size: 14),
+                        SizedBox(width: 8),
+                        Text('Manage Lossless Addon Sources'),
+                        SizedBox(width: 6),
+                        Icon(FluentIcons.chevron_right, size: 10),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -3396,7 +3434,7 @@ class _Sources extends ConsumerWidget {
         ? src.quotaByBase
         : const <String, AddonQuota>{};
     return _Group(
-      id: 'about.addons',
+      id: 'sources.addons',
       title: 'Addon sources',
       subtitle: urls.isEmpty
           ? 'No addon configured — using the built-in lossless backend'
@@ -4109,6 +4147,76 @@ class _DiscordCard extends ConsumerWidget {
   }
 }
 
+class _SourcesSection extends ConsumerWidget {
+  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
+  const _SourcesSection({required this.onUpdate});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final urls = ref.watch(prefsProvider).addonUrls;
+    final theme = FluentTheme.of(context);
+    final accent = waveAccent(context);
+    final isCustomAddon = urls.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.resources.cardBackgroundFillColorDefault,
+            borderRadius: BorderRadius.circular(WaveRadius.artwork),
+            border: Border.all(color: theme.resources.cardStrokeColorDefault),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(WaveRadius.controls),
+                ),
+                child: Center(
+                  child: Icon(
+                    isCustomAddon ? FluentIcons.cloud : FluentIcons.music_in_collection,
+                    size: 18,
+                    color: accent,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isCustomAddon
+                          ? 'Lossless streaming powered by Custom Addons'
+                          : 'Lossless streaming powered by Built-in Backend',
+                      style: WaveType.trackTitle.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isCustomAddon
+                          ? '${urls.length} custom addon source${urls.length > 1 ? 's' : ''} active for FLAC / Hi-Res streaming.'
+                          : 'Using the default built-in lossless streaming backend. You can add personal addon endpoints below for dedicated quotas.',
+                      style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _Sources(onUpdate: onUpdate),
+      ],
+    );
+  }
+}
+
 class _AboutSection extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _AboutSection({required this.onUpdate});
@@ -4118,8 +4226,6 @@ class _AboutSection extends ConsumerWidget {
     return Column(
       children: [
         const _About(),
-        const SizedBox(height: 16),
-        _Sources(onUpdate: onUpdate),
         const SizedBox(height: 16),
         _Diagnostics(onUpdate: onUpdate),
       ],
