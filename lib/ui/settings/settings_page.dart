@@ -550,23 +550,25 @@ class _Group extends StatelessWidget {
 
 class _StatusPill extends StatelessWidget {
   final String label;
-  const _StatusPill(this.label);
+  final Color? color;
+  const _StatusPill(this.label, {this.color});
 
   @override
   Widget build(BuildContext context) {
+    final effectiveColor = color ?? WaveColors.success;
     return Container(
       padding: const EdgeInsets.fromLTRB(6, 1.5, 6, 2.5),
       decoration: BoxDecoration(
-        color: WaveColors.success.withValues(alpha: 0.15),
+        color: effectiveColor.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w700,
           height: 1.1,
-          color: WaveColors.success,
+          color: effectiveColor,
         ),
       ),
     );
@@ -805,34 +807,37 @@ class _AudioSection extends ConsumerWidget {
           id: 'audio.output',
           title: 'Audio output',
           subtitle: Platform.isWindows
-              ? 'WASAPI Exclusive bypasses the Windows mixer'
-              : 'System audio output',
+              ? 'WASAPI Exclusive and hardware output routing'
+              : 'System audio device and hardware routing',
           child: _WasapiOutputSettings(onUpdate: onUpdate),
         ),
         const SizedBox(height: 16),
         _Group(
           id: 'audio.quality',
           title: 'Streaming and Download quality',
-          subtitle: 'Lossless-first with YouTube fallback',
+          subtitle: 'High-fidelity lossless streaming and offline downloads',
           child: Column(
             children: [
               _QualityRow(
                 title: 'Streaming quality',
+                subtitle: 'Target audio fidelity for live network playback',
                 value: prefs.losslessQuality,
                 onChanged: (q) => onUpdate((p) => p.setLosslessQuality(q)),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               _QualityRow(
                 title: 'Download quality',
+                subtitle: 'Saved audio quality for offline library tracks',
                 value: prefs.downloadQuality,
                 onChanged: (q) => onUpdate((p) => p.setDownloadQuality(q)),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               _SwitchRow(
                 value: prefs.preferLossless,
                 onChanged: (v) => onUpdate((p) => p.setPreferLossless(v)),
                 title: 'Prefer lossless',
-                subtitle: 'Stream in lossless FLAC when available, otherwise standard high quality',
+                subtitle:
+                    'Stream in lossless FLAC when available, otherwise standard high quality',
               ),
             ],
           ),
@@ -841,18 +846,37 @@ class _AudioSection extends ConsumerWidget {
         _Group(
           id: 'audio.loudness',
           title: 'Loudness',
-          subtitle: LoudnessMath.settingsSubtitle(prefs.loudnessMode),
+          subtitle:
+              'Normalization · ${LoudnessMath.settingsSubtitle(prefs.loudnessMode)}',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text('Normalization', style: WaveType.trackTitle),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
+              Text(
+                'Prevents sudden volume jumps between quiet and loud songs',
+                style:
+                    WaveType.meta.copyWith(color: waveTextSecondary(context)),
+              ),
+              const SizedBox(height: 8),
               WaveSelect<String>(
                 value: prefs.loudnessMode,
                 options: const [
-                  WaveSelectOption(value: 'off', label: 'Off'),
-                  WaveSelectOption(value: 'track', label: 'Track'),
-                  WaveSelectOption(value: 'album', label: 'Album'),
+                  WaveSelectOption(
+                    value: 'off',
+                    label: 'Off',
+                    hint: 'Original dynamic range untouched',
+                  ),
+                  WaveSelectOption(
+                    value: 'track',
+                    label: 'Track',
+                    hint: 'Equal volume per track (best for shuffle & playlists)',
+                  ),
+                  WaveSelectOption(
+                    value: 'album',
+                    label: 'Album',
+                    hint: 'Preserves dynamic contrasts across a full album',
+                  ),
                 ],
                 onChanged: (mode) async {
                   await onUpdate((p) => p.setLoudnessMode(mode));
@@ -4495,16 +4519,30 @@ class _WasapiOutputSettings extends ConsumerWidget {
     final notifier = ref.read(audioOutputProvider.notifier);
     final devices = output.devices;
     final selected = output.selectedId.isEmpty ? '' : output.selectedId;
+
+    final isBitPerfect = output.path.bitPerfect;
+    final isExclusive = output.path.exclusiveActive;
+    final statusColor = isBitPerfect
+        ? WaveColors.success
+        : (isExclusive ? waveAccent(context) : waveTextSecondary(context));
+    final statusLabel = isBitPerfect
+        ? 'Bit-Perfect'
+        : (isExclusive ? 'Exclusive' : 'Shared Mixer');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Device', style: WaveType.trackTitle),
+        const Text('Output device', style: WaveType.trackTitle),
         const SizedBox(height: 6),
         WaveSelect<String>(
           expanded: true,
           value: devices.any((d) => d.id == selected) ? selected : '',
           options: [
-            const WaveSelectOption(value: '', label: 'System Default'),
+            const WaveSelectOption(
+              value: '',
+              label: 'System Default',
+              hint: 'Follows OS audio settings',
+            ),
             for (final d in devices)
               WaveSelectOption(
                 value: d.id,
@@ -4517,8 +4555,8 @@ class _WasapiOutputSettings extends ConsumerWidget {
             await onUpdate((_) async {});
           },
         ),
-        const SizedBox(height: 10),
-        if (Platform.isWindows)
+        if (Platform.isWindows) ...[
+          const SizedBox(height: 12),
           _SwitchRow(
             value: output.exclusiveRequested,
             onChanged: (v) async {
@@ -4526,21 +4564,81 @@ class _WasapiOutputSettings extends ConsumerWidget {
               await onUpdate((_) async {});
             },
             title: 'WASAPI Exclusive',
-            subtitle: output.path.bitPerfect
-                ? 'Mixer bypassed · bit-perfect when the DAC matches the source'
+            subtitle: isBitPerfect
+                ? 'Bit-perfect direct PCM · Bypasses the Windows system mixer'
                 : (output.exclusiveRequested
                       ? output.path.reason.label
-                      : 'Shared mode — mixer may resample'),
+                      : 'Shared mode — Audio is mixed with system sounds'),
           ),
-        const SizedBox(height: 8),
-        Text(
-          output.selected == null
-              ? 'Probe the DAC after connecting it to see exclusive PCM rates.'
-              : output.selected!.supportedSummary,
-          style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
-        ),
+        ],
         const SizedBox(height: 12),
-        WaveStreamPathPanel(path: output.path),
+        Expander(
+          initiallyExpanded: false,
+          header: Row(
+            children: [
+              Icon(
+                WaveIcons.streamPath,
+                size: 14,
+                color: waveTextSecondary(context),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Audio Pipeline & Hardware Details',
+                style: WaveType.meta.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              _StatusPill(statusLabel, color: statusColor),
+            ],
+          ),
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (output.selected != null &&
+                  output.selected!.supportedSummary.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: waveSurface(context),
+                    borderRadius: BorderRadius.circular(WaveRadius.menu),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Reported DAC PCM Capabilities',
+                        style: WaveType.overline.copyWith(
+                          color: waveTextSecondary(context),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        output.selected!.supportedSummary,
+                        style: WaveType.meta,
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (output.selected == null) ...[
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    Platform.isWindows
+                        ? 'Connect an external DAC to probe supported hardware PCM rates.'
+                        : 'Using system audio output engine.',
+                    style: WaveType.meta.copyWith(
+                      color: waveTextSecondary(context),
+                    ),
+                  ),
+                ),
+              ],
+              WaveStreamPathPanel(path: output.path),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -4548,10 +4646,12 @@ class _WasapiOutputSettings extends ConsumerWidget {
 
 class _QualityRow extends StatelessWidget {
   final String title;
+  final String? subtitle;
   final int value;
   final ValueChanged<int> onChanged;
   const _QualityRow({
     required this.title,
+    this.subtitle,
     required this.value,
     required this.onChanged,
   });
@@ -4565,20 +4665,26 @@ class _QualityRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title, style: WaveType.trackTitle),
-              Text(AudioQualityTiers.label(value), style: WaveType.meta),
+              const SizedBox(height: 2),
+              Text(
+                subtitle ?? AudioQualityTiers.label(value),
+                style:
+                    WaveType.meta.copyWith(color: waveTextSecondary(context)),
+              ),
             ],
           ),
         ),
+        const SizedBox(width: 16),
         WaveSelect<int>(
           value: value,
           options: const [
-            WaveSelectOption(value: 28, label: 'Dolby Atmos'),
-            WaveSelectOption(value: 27, label: 'Hi-Res · 24/192'),
-            WaveSelectOption(value: 7, label: 'Hi-Res · 24/96'),
-            WaveSelectOption(value: 6, label: 'Lossless · 16/44.1'),
-            WaveSelectOption(value: 5, label: '320k MP3'),
-            WaveSelectOption(value: -1, label: 'Opus · YouTube'),
-            WaveSelectOption(value: 4, label: 'Data saver'),
+            WaveSelectOption(value: 28, label: 'Dolby Atmos', hint: 'Spatial'),
+            WaveSelectOption(value: 27, label: 'Hi-Res · 24/192', hint: 'Lossless'),
+            WaveSelectOption(value: 7, label: 'Hi-Res · 24/96', hint: 'Lossless'),
+            WaveSelectOption(value: 6, label: 'Lossless · 16/44.1', hint: 'CD Quality'),
+            WaveSelectOption(value: 5, label: '320k MP3', hint: 'High'),
+            WaveSelectOption(value: -1, label: 'Opus · YouTube', hint: 'Standard'),
+            WaveSelectOption(value: 4, label: 'Data saver', hint: 'Low data'),
           ],
           onChanged: onChanged,
         ),

@@ -19,7 +19,7 @@ class WaveStreamPathPanel extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: 72,
+              width: 80,
               child: Text(
                 key,
                 style: WaveType.overline.copyWith(color: secondary),
@@ -37,6 +37,9 @@ class WaveStreamPathPanel extends StatelessWidget {
         ),
       );
     }
+
+    final statusColor =
+        path.bitPerfect ? WaveColors.success : WaveColors.warn;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,18 +65,36 @@ class WaveStreamPathPanel extends StatelessWidget {
               ? 'DAC hardware'
               : (path.softwareVolume ? 'Software' : 'Unity'),
         ),
-        const SizedBox(height: 6),
-        Text(
-          path.bitPerfect ? 'Bit-Perfect' : path.reason.label,
-          style: WaveType.label.copyWith(
-            color: path.bitPerfect ? WaveColors.success : WaveColors.warn,
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: statusColor.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            path.bitPerfect ? '✓ Bit-Perfect stream active' : path.reason.label,
+            style: WaveType.meta.copyWith(
+              fontWeight: FontWeight.w600,
+              color: statusColor,
+            ),
           ),
         ),
         if (path.error != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            path.error!,
-            style: WaveType.meta.copyWith(color: WaveColors.danger),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: WaveColors.danger.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              path.error!,
+              style: WaveType.meta.copyWith(
+                fontWeight: FontWeight.w600,
+                color: WaveColors.danger,
+              ),
+            ),
           ),
         ],
       ],

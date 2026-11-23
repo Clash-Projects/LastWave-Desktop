@@ -59,6 +59,10 @@ class WaveSelect<T> extends StatefulWidget {
   /// the window). The trigger's own width always wins over it.
   final double menuMaxWidth;
 
+  /// Preferred flyout placement. If null, auto-selects based on screen
+  /// position (bottom-right when on the right half, bottom-left otherwise).
+  final FlyoutPlacementMode? placement;
+
   const WaveSelect({
     super.key,
     required this.value,
@@ -68,6 +72,7 @@ class WaveSelect<T> extends StatefulWidget {
     this.expanded = false,
     this.minMenuWidth = 200,
     this.menuMaxWidth = 360,
+    this.placement,
   });
 
   @override
@@ -99,15 +104,15 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
   double _menuWidth() {
     final trigger = context.size?.width ?? 0;
     var content = 0.0;
-    // Row chrome: WaveMenuRow's 12/10 padding, a 16px leading + 10px gap,
-    // and the panel's own inset of 4 on both sides.
-    const chrome = 12 + 10 + 16 + 10 + 8;
+    // Row chrome: WaveMenuRow's 12 start + 10 end padding, a 16px leading icon + 10px gap,
+    // a 12px gap between label and hint, the panel's own inset of 4 on both sides (8px),
+    // and an 8px safety buffer for font kerning/subpixel rendering.
+    const chrome = 12 + 10 + 16 + 10 + 12 + 8 + 8;
     for (final option in widget.options) {
-      content = math.max(content, _textWidth(option.label) + chrome);
+      final labelW = _textWidth(option.label);
       final hint = option.hint;
-      if (hint != null) {
-        content = math.max(content, _textWidth(hint, fontSize: 12) + chrome);
-      }
+      final hintW = hint != null ? _textWidth(hint, fontSize: 11) : 0.0;
+      content = math.max(content, labelW + hintW + chrome);
     }
     final upper = math.max(widget.menuMaxWidth, trigger);
     return math.min(
@@ -135,14 +140,33 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
     if (onChanged == null || _open) return;
     final width = _menuWidth();
     setState(() => _open = true);
+
+    FlyoutPlacementMode effectivePlacement;
+    if (widget.placement != null) {
+      effectivePlacement = widget.placement!;
+    } else if (widget.expanded) {
+      effectivePlacement = FlyoutPlacementMode.bottomLeft;
+    } else {
+      final renderBox = context.findRenderObject() as RenderBox?;
+      if (renderBox != null && renderBox.hasSize) {
+        final offset = renderBox.localToGlobal(Offset.zero);
+        final screenWidth = MediaQuery.of(context).size.width;
+        final isRightHalf =
+            (offset.dx + renderBox.size.width / 2) > (screenWidth / 2);
+        effectivePlacement = isRightHalf
+            ? FlyoutPlacementMode.bottomRight
+            : FlyoutPlacementMode.bottomLeft;
+      } else {
+        effectivePlacement = FlyoutPlacementMode.bottomLeft;
+      }
+    }
+
     await _controller.showFlyout<void>(
       barrierColor: Colors.transparent,
       dismissWithEsc: true,
-      // Auto placement with a bottomLeft preference (the plugin's own
-      // DropDownButton contract): a field near the window edge opens
-      // upward instead of having its last rows cut off.
+      placementMode: effectivePlacement,
       autoModeConfiguration: FlyoutAutoConfiguration(
-        preferredMode: FlyoutPlacementMode.bottomLeft,
+        preferredMode: effectivePlacement,
       ),
       additionalOffset: 4,
       transitionDuration: const Duration(milliseconds: 90),
