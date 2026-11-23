@@ -42,6 +42,10 @@ class SecureStore {
     } catch (_) {}
   }
 
+  Future<String?> read(String key) => _read(key);
+  Future<void> write(String key, String? value) => _write(key, value);
+  Future<void> delete(String key) => _write(key, null);
+
   Future<String?> readSessionKey() => _read(_sessionKey);
   Future<void> writeSessionKey(String? v) => _write(_sessionKey, v);
 

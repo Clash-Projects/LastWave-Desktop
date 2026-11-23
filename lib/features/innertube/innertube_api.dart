@@ -24,6 +24,7 @@ import '../search/shared_providers.dart';
 import '../player/play_diag.dart';
 import 'potoken_engine.dart';
 import 'signature_decipher.dart';
+import 'yt_auth_store.dart';
 
 /// Structured stream debug log. Mirrors Android `STREAM_LOG_TAG`
 /// fields (stage/videoId/client/itag/mime/expiry/retry/http).
@@ -749,6 +750,7 @@ class InnerTubeMusicApi {
   final SecureStore _secure;
   late final SignatureDecipher _decipher;
   final PoTokenEngine? _poTokens;
+  late final YtAuthStore authStore;
   AppDatabase? _disk;
   bool _diskLoaded = false;
 
@@ -772,6 +774,8 @@ class InnerTubeMusicApi {
   YtConnection _connection = const YtConnection();
 
   InnerTubeMusicApi(this._dio, this._secure, [this._poTokens]) {
+    authStore = YtAuthStore(_secure);
+    unawaited(authStore.load());
     _decipher = SignatureDecipher(_dio);
     // Google rotates the session cookies (`__Secure-*PSIDTS`, `SIDCC`
     // family) through `Set-Cookie` on authenticated responses. Without
@@ -964,6 +968,7 @@ class InnerTubeMusicApi {
       _rotationWrite = _rotationWrite.then((_) async {
         try {
           await _secure.writeYtCookies(next);
+          await authStore.updateCookies(next);
         } catch (_) {}
         try {
           onCookiesRotated?.call(current, next);
@@ -1323,6 +1328,7 @@ class InnerTubeMusicApi {
     } catch (_) {}
     await _secure.writeYtCookies(normalized);
     _persistedCookies = normalized;
+    await authStore.updateCookies(normalized);
     await _persistActivePointer();
     if (kDebugMode) {
       debugPrint('InnerTube: connect verified');
@@ -5357,13 +5363,22 @@ class InnerTubeMusicApi {
   /// invalidated the cache and recreated the OS window per song (popup
   /// on Windows, destroy-crash on Linux). `visitorData` is still sent
   /// as `X-Goog-Visitor-Id` on player requests.
-  Future<PoTokenResult?> _mintPoToken(String videoId) async {
+  Future<PoTokenResult?> _mintPoToken(String videoId, {bool forceRefresh = false}) async {
     final engine = _poTokens;
     if (engine == null || !poTokenEnabled || !engine.enabled) return null;
+    if (!forceRefresh) {
+      final current = authStore.current;
+      if (!current.isPoTokenStale && current.poToken.isNotEmpty) {
+        return PoTokenResult(
+          playerToken: current.poToken,
+          sessionToken: current.poToken,
+        );
+      }
+    }
     try {
       return await engine
-          .mintToken(videoId)
-          .timeout(const Duration(seconds: 12));
+          .mintToken(videoId, forceRefresh: forceRefresh)
+          .timeout(const Duration(seconds: 15));
     } catch (_) {
       return null;
     }
@@ -5889,6 +5904,8 @@ class InnerTubeMusicApi {
       }
       _logStream('report-failure', videoId: videoId);
     }
+    // Proactive 403 recovery: refresh poToken asynchronously in ephemeral burst
+    unawaited(_mintPoToken(videoId, forceRefresh: true));
   }
 
   /// FIFO trim for the plain insertion-ordered caches: drop the oldest
