@@ -90,6 +90,7 @@ Future<void> exportLyricsShareCard(
                   for (final s in styles)
                     Tooltip(
                       message: s.label,
+                      useMousePosition: false,
                       child: GestureDetector(
                         onTap: () => setState(() => selected = s),
                         child: Container(

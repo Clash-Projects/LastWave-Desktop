@@ -668,7 +668,7 @@ class _ContributorChipCardState extends State<_ContributorChipCard> {
           child: LWTooltip(
             message: 'View ${c.displayName} on GitHub',
             child: Container(
-              constraints: const BoxConstraints(minWidth: 150, maxWidth: 190),
+              constraints: const BoxConstraints(minWidth: 160, maxWidth: 230),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: _pressed

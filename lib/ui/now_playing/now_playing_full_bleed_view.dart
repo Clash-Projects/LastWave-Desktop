@@ -290,6 +290,7 @@ class _FullBleedIconButtonState extends State<_FullBleedIconButton> {
   Widget build(BuildContext context) {
     return Tooltip(
       message: widget.tooltip,
+      useMousePosition: false,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),

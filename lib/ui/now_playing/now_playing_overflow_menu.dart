@@ -968,6 +968,7 @@ class _StepperBtnState extends State<_StepperBtn> {
     final dark = waveIsDark(context);
     return Tooltip(
       message: widget.tooltip,
+      useMousePosition: false,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
@@ -1023,6 +1024,7 @@ class _QuickActionButtonState extends State<_QuickActionButton> {
     final accent = waveAccent(context);
     return Tooltip(
       message: widget.tooltip,
+      useMousePosition: false,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
@@ -1083,6 +1085,7 @@ class _CircularIconButtonState extends State<_CircularIconButton> {
   Widget build(BuildContext context) {
     return Tooltip(
       message: widget.tooltip,
+      useMousePosition: false,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),

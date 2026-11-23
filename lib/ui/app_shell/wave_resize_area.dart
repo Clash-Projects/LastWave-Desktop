@@ -20,8 +20,8 @@ class WaveWindowResizeArea extends StatelessWidget {
     super.key,
     required this.child,
     this.enabled = true,
-    this.edgeSize = 8.0,
-    this.cornerSize = 16.0,
+    this.edgeSize = 4.0,
+    this.cornerSize = 14.0,
   });
 
   Widget _buildHandle({

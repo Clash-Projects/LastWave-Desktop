@@ -894,6 +894,7 @@ class _DailyActivityBarChart extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 2.5),
               child: Tooltip(
                 message: '${item.count} plays on ${item.date}',
+                useMousePosition: false,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
@@ -987,6 +988,7 @@ class _HourlyDistributionChart extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 1),
                   child: Tooltip(
                     message: '$count plays around $hr:00',
+                    useMousePosition: false,
                     child: Align(
                       alignment: Alignment.bottomCenter,
                       child: FractionallySizedBox(

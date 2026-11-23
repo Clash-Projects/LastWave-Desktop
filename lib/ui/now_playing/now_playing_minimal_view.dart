@@ -297,6 +297,7 @@ class _CollapseChevronButtonState extends State<_CollapseChevronButton> {
   Widget build(BuildContext context) {
     return Tooltip(
       message: 'Collapse Now Playing',
+      useMousePosition: false,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),

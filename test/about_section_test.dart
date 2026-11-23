@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/app_info.dart';
 import 'package:lastwave_desktop/features/about/contributors_provider.dart';
+import 'package:lastwave_desktop/ui/components/buttons.dart';
 import 'package:lastwave_desktop/ui/settings/about_components.dart';
 import 'package:lastwave_desktop/ui/settings/settings_page.dart';
 
@@ -125,6 +126,25 @@ void main() {
       expect(normalizeSection('addons'), equals('sources'));
       expect(normalizeSection('addon'), equals('sources'));
       expect(normalizeSection('about'), equals('about'));
+    });
+  });
+
+  group('LWTooltip positioning under scale', () {
+    testWidgets('LWTooltip configures useMousePosition: false to prevent scale drift', (tester) async {
+      await tester.pumpWidget(
+        const FluentApp(
+          home: ScaffoldPage(
+            content: LWTooltip(
+              message: 'Attached Tooltip',
+              child: SizedBox(width: 32, height: 32),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final tooltipWidget = tester.widget<Tooltip>(find.byType(Tooltip));
+      expect(tooltipWidget.useMousePosition, isFalse);
     });
   });
 }

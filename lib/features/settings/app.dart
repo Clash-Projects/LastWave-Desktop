@@ -384,8 +384,8 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
               final isMaximized = ref.watch(windowMaximizedProvider);
               root = WaveWindowResizeArea(
                 enabled: !isMaximized,
-                edgeSize: 8,
-                cornerSize: 16,
+                edgeSize: 4,
+                cornerSize: 14,
                 child: root,
               );
             }

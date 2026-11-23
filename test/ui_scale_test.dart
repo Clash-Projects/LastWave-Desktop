@@ -191,7 +191,7 @@ void main() {
   });
 
   group('WaveWindowResizeArea Linux Window Controls', () {
-    testWidgets('Provides 16px corner zones and 8px edge zones with proper cursors', (tester) async {
+    testWidgets('Provides 14px corner zones and 4px edge zones with proper cursors', (tester) async {
       tester.view.physicalSize = const Size(800, 600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -201,8 +201,8 @@ void main() {
         FluentApp(
           home: SizedBox.expand(
             child: WaveWindowResizeArea(
-              edgeSize: 8,
-              cornerSize: 16,
+              edgeSize: 4,
+              cornerSize: 14,
               child: const SizedBox.expand(),
             ),
           ),

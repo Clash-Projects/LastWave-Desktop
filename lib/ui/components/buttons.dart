@@ -675,6 +675,7 @@ class _LWTooltipState extends State<LWTooltip> {
     if (!_armed) return child;
     return Tooltip(
       message: widget.message,
+      useMousePosition: false,
       style: const TooltipThemeData(
         waitDuration: WaveState.tooltipDelay,
       ),
