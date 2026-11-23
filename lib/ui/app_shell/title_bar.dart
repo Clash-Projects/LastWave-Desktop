@@ -864,7 +864,7 @@ class _CommunityMenu extends StatelessWidget {
       ],
       buttonBuilder: (context, onOpen) => _BarBtn(
         tooltip: 'Community',
-        icon: WaveIcons.friends,
+        icon: WaveIcons.community,
         onTap: onOpen,
       ),
     );
