@@ -160,6 +160,9 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   /// timestamp for LINE-synced lyrics (which no longer run the Ticker).
   Timer? _lineTimer;
 
+  /// One-shot timer that resumes the Ticker right before an upcoming word/line.
+  Timer? _wakeTimer;
+
   // Memo for the translation key: it hashes every lyric line, and used to
   // be rebuilt on every build of this view.
   LyricsResult? _tkResult;
@@ -244,23 +247,25 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
     }
     final pos = _getCurrentPositionMs();
     final firstStart = res.lines.first.timeMs;
-    // Before song intro starts:
-    if (pos < firstStart - 600) return false;
+    // Before song intro starts (wake 100ms before):
+    if (pos < firstStart - 100) return false;
 
     // After last line ends:
     final lastLine = res.lines.last;
     final lastEnd = lastLine.timeMs + math.max(lastLine.durationMs, 3000);
-    if (pos > lastEnd + 1000) return false;
+    if (pos > lastEnd + 500) return false;
 
-    // In an instrumental break between lines:
+    // In an instrumental break or inter-line gap (>400ms):
     final activeIdx = _activeLineIndex.value;
-    if (activeIdx >= 0 && activeIdx < res.lines.length - 1) {
+    if (activeIdx >= 0 && activeIdx < res.lines.length) {
       final curLine = res.lines[activeIdx];
-      final curEnd = curLine.timeMs + math.max(curLine.durationMs, 1000);
-      final nextStart = res.lines[activeIdx + 1].timeMs;
-      if (nextStart - curEnd > 1800) {
-        if (pos > curEnd + 300 && pos < nextStart - 600) {
-          return false;
+      final curEnd = curLine.timeMs + math.max(curLine.durationMs, 800);
+      if (activeIdx < res.lines.length - 1) {
+        final nextStart = res.lines[activeIdx + 1].timeMs;
+        if (nextStart - curEnd > 400) {
+          if (pos > curEnd + 150 && pos < nextStart - 100) {
+            return false;
+          }
         }
       }
     }
@@ -270,9 +275,47 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   void _updateTickerState() {
     final shouldRun = _shouldTickerRun();
     if (shouldRun && !_ticker.isActive) {
+      _wakeTimer?.cancel();
+      _wakeTimer = null;
       _ticker.start();
-    } else if (!shouldRun && _ticker.isActive) {
-      _ticker.stop();
+    } else if (!shouldRun) {
+      if (_ticker.isActive) {
+        _ticker.stop();
+      }
+      _scheduleWakeTimer();
+    }
+  }
+
+  void _scheduleWakeTimer() {
+    _wakeTimer?.cancel();
+    _wakeTimer = null;
+    if (!_isEffectivelyActive || !_isPlaying) return;
+    final res = _currentResult;
+    if (res == null || !res.isSynced || res.lines.isEmpty || !res.isWordSynced) return;
+
+    final pos = _getCurrentPositionMs();
+    final firstStart = res.lines.first.timeMs;
+    int? targetMs;
+
+    if (pos < firstStart - 100) {
+      targetMs = firstStart - 80;
+    } else {
+      final activeIdx = _activeLineIndex.value;
+      if (activeIdx >= 0 && activeIdx < res.lines.length - 1) {
+        targetMs = res.lines[activeIdx + 1].timeMs - 80;
+      }
+    }
+
+    if (targetMs != null && targetMs > pos) {
+      final delayMs = ((targetMs - pos) / (_speed <= 0 ? 1.0 : _speed)).round();
+      if (delayMs > 0 && delayMs < 120000) {
+        _wakeTimer = Timer(Duration(milliseconds: delayMs), () {
+          _wakeTimer = null;
+          if (mounted && _isPlaying) {
+            _syncPlaybackClock();
+          }
+        });
+      }
     }
   }
 
@@ -393,6 +436,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
   void dispose() {
     _hideTimer?.cancel();
     _lineTimer?.cancel();
+    _wakeTimer?.cancel();
     _controlsShown.dispose();
     _posSub?.close();
     _playingSub?.close();
@@ -432,7 +476,7 @@ class _WaveKaraokeLyricsViewState extends ConsumerState<WaveKaraokeLyricsView>
 
       // Check if we entered an idle gap or reached the end
       if (!_shouldTickerRun()) {
-        _ticker.stop();
+        _updateTickerState();
       }
     });
   }
@@ -1020,7 +1064,7 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
           ? [
               Shadow(
                 color: activeTextColor.withValues(alpha: dark ? 0.28 : 0.14),
-                blurRadius: 16,
+                blurRadius: 8,
                 offset: const Offset(0, 1),
               ),
             ]
@@ -1173,26 +1217,25 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
         ? 0.0
         : widget.blurSigma.clamp(0.0, 12.0);
 
-    final Widget blurredBody = TweenAnimationBuilder<double>(
-      tween: Tween<double>(end: targetBlur),
-      duration: waveMotion(context, const Duration(milliseconds: 240)),
-      curve: Curves.easeOutCubic,
-      builder: (context, sigma, child) {
-        // `enabled` instead of returning the bare child: swapping the
-        // wrapper in and out remounted the line (its karaoke painters and
-        // state) every time a line became active or stopped being active.
-        return ImageFiltered(
-          enabled: sigma > 0.05,
-          imageFilter: ui.ImageFilter.blur(
-            sigmaX: sigma,
-            sigmaY: sigma,
-            tileMode: TileMode.decal,
-          ),
-          child: child,
-        );
-      },
-      child: body,
-    );
+    final Widget blurredBody = (widget.blurSigma <= 0.0 || targetBlur <= 0.0)
+        ? body
+        : TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: targetBlur),
+            duration: waveMotion(context, const Duration(milliseconds: 240)),
+            curve: Curves.easeOutCubic,
+            builder: (context, sigma, child) {
+              return ImageFiltered(
+                enabled: sigma > 0.05,
+                imageFilter: ui.ImageFilter.blur(
+                  sigmaX: sigma,
+                  sigmaY: sigma,
+                  tileMode: TileMode.decal,
+                ),
+                child: child,
+              );
+            },
+            child: body,
+          );
 
     return IgnorePointer(
       ignoring: widget.lineOpacity < 0.05,
@@ -2110,44 +2153,60 @@ class InstrumentalCountdownDots extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
-      valueListenable: positionListenable,
-      builder: (context, posMs, _) {
-        final totalDur = math.max(1, breakEndMs - breakStartMs);
-        final progress = ((posMs - breakStartMs) / totalDur).clamp(0.0, 1.0);
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20.0),
-          child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(3, (i) {
-                final threshold = (i + 1) / 4.0;
-                final isLit = progress >= threshold;
-                return Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 5.0),
-                  width: isLit ? 9.0 : 7.0,
-                  height: isLit ? 9.0 : 7.0,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: isLit ? 0.9 : 0.25),
-                    boxShadow: isLit
-                        ? [
-                            BoxShadow(
-                              color: Colors.white.withValues(alpha: 0.4),
-                              blurRadius: 6.0,
-                              spreadRadius: 1.0,
-                            ),
-                          ]
-                        : null,
-                  ),
-                );
-              }),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20.0),
+      child: Center(
+        child: RepaintBoundary(
+          child: CustomPaint(
+            size: const Size(60, 20),
+            painter: _CountdownDotsPainter(
+              positionListenable: positionListenable,
+              breakStartMs: breakStartMs,
+              breakEndMs: breakEndMs,
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
+}
+
+class _CountdownDotsPainter extends CustomPainter {
+  final ValueListenable<int> positionListenable;
+  final int breakStartMs;
+  final int breakEndMs;
+
+  _CountdownDotsPainter({
+    required this.positionListenable,
+    required this.breakStartMs,
+    required this.breakEndMs,
+  }) : super(repaint: positionListenable);
+
+  final Paint _paint = Paint()..isAntiAlias = true;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final posMs = positionListenable.value;
+    final totalDur = math.max(1, breakEndMs - breakStartMs);
+    final progress = ((posMs - breakStartMs) / totalDur).clamp(0.0, 1.0);
+
+    const centers = [15.0, 30.0, 45.0];
+    final centerY = size.height / 2;
+
+    for (var i = 0; i < 3; i++) {
+      final threshold = (i + 1) / 4.0;
+      final isLit = progress >= threshold;
+      final radius = isLit ? 4.5 : 3.5;
+
+      _paint.color = Colors.white.withValues(alpha: isLit ? 0.9 : 0.25);
+      canvas.drawCircle(Offset(centers[i], centerY), radius, _paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CountdownDotsPainter oldDelegate) =>
+      oldDelegate.breakStartMs != breakStartMs ||
+      oldDelegate.breakEndMs != breakEndMs;
 }
 
 /// Stanza Block Layout Widget: Groups lines and subordinate background harmonies
@@ -2944,7 +3003,7 @@ class _RenderViewportEdgeFade extends RenderProxyBox {
   }
 
   @override
-  bool get alwaysNeedsCompositing => child != null;
+  bool get alwaysNeedsCompositing => false;
 
   int _alpha() {
     final viewport = RenderAbstractViewport.maybeOf(this);
