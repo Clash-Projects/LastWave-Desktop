@@ -142,12 +142,12 @@ class WaveTitleBar extends ConsumerWidget {
                     ),
                   ),
                 ),
-                // Community shortcuts — tiny, before the profile.
-                const _CommunityBtns(),
+                // Community shortcuts — consolidated flyout.
+                const _CommunityMenu(),
                 const SizedBox(width: 6),
                 const _ProfileBtn(),
                 const SizedBox(width: 6),
-                _AppMenu(),
+                const _AppMenu(),
                 const SizedBox(width: 6),
                 // macOS draws its own traffic lights: the window is
                 // `TitleBarStyle.hidden`, which hides the bar but keeps the
@@ -830,10 +830,9 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
   }
 }
 
-/// Telegram + Discord shortcuts in the title bar (external links,
-/// silent fail — never disturb the shell on error).
-class _CommunityBtns extends StatelessWidget {
-  const _CommunityBtns();
+/// Telegram + Discord shortcuts in the title bar (consolidated flyout menu).
+class _CommunityMenu extends StatelessWidget {
+  const _CommunityMenu();
 
   static const _telegramUrl = 'https://t.me/clashprojects';
   static const _discordUrl = 'https://discord.com/invite/TMCEPSUNk2';
@@ -849,21 +848,25 @@ class _CommunityBtns extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _BarBtn(
-          tooltip: 'Telegram community',
-          iconWidget: const TelegramIcon(size: 15),
-          onTap: () => _open(_telegramUrl),
+    return WaveMenuButton(
+      placement: FlyoutPlacementMode.bottomRight,
+      entries: [
+        WaveMenuAction(
+          leading: const TelegramIcon(size: 15),
+          label: 'Telegram Community',
+          onPressed: () => _open(_telegramUrl),
         ),
-        const SizedBox(width: 2),
-        _BarBtn(
-          tooltip: 'Discord server',
-          iconWidget: const DiscordIcon(size: 15),
-          onTap: () => _open(_discordUrl),
+        WaveMenuAction(
+          leading: const DiscordIcon(size: 15),
+          label: 'Discord Server',
+          onPressed: () => _open(_discordUrl),
         ),
       ],
+      buttonBuilder: (context, onOpen) => _BarBtn(
+        tooltip: 'Community',
+        icon: WaveIcons.friends,
+        onTap: onOpen,
+      ),
     );
   }
 }
