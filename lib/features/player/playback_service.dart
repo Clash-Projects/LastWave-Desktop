@@ -734,6 +734,12 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
             _dumpMpvLog('p.stream.error');
           }
           _crumb('player error: $e');
+          final lower = e.toLowerCase();
+          if (lower.contains('audio device') ||
+              lower.contains('audio driver')) {
+            unawaited(runGuardedAsync(
+                'player.audio-recover', () => _recoverAudioDevice()));
+          }
           unawaited(runGuardedAsync(
               'player.error', () => _onPlayerError()));
         });
@@ -2200,6 +2206,31 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     await _player?.setVolume(_fullDeckVolume);
+  }
+
+  /// Falls mpv back to the live system default audio device whenever WASAPI
+  /// reports a missing/invalidated endpoint (`Could not open/initialize audio
+  /// device -> no sound`). Runs even while paused so resuming later has sound.
+  Future<void> _recoverAudioDevice() async {
+    final player = _player;
+    if (player == null || !Platform.isWindows) return;
+    _crumb('recoverAudioDevice -> auto (was=$_currentAudioDevice)');
+    _currentAudioDevice = 'auto';
+    exclusiveApplied = false;
+    _lockSoftwareVolume = false;
+    _hardwareVolume = false;
+    await _serializedMpv(() async {
+      final dyn = player.platform as dynamic;
+      try {
+        await dyn.setProperty('audio-exclusive', 'no');
+      } catch (_) {}
+      try {
+        await player.setAudioDevice(AudioDevice.auto());
+      } catch (_) {}
+      try {
+        await player.setVolume(_fullDeckVolume);
+      } catch (_) {}
+    });
   }
 
   /// Apply WASAPI exclusive / device to the existing libmpv player.

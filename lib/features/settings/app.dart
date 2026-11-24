@@ -86,13 +86,11 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     if (launchLink != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openLink(launchLink));
     }
-    // Warm start (non-blocking, best-effort): create the single
-    // persistent media_kit/libmpv player. BotGuard pre-warms once on a
-    // delay (single hidden window, reused for app lifetime): this moves
-    // the one-time WebView init off the first ciphered playback, so a
-    // WEB_REMIX fallback never stalls transport on a cold window spawn.
-    // Direct-only mode (lw_disable_potoken) skips it — zero WebViews.
-    Future.microtask(() {
+    // Defer heavy native startup (libmpv dlopen, WASAPI COM device probe,
+    // YT library sync, Discord/SMTC IPC) until after the first frame paints
+    // so the window opens immediately responsive without a launch stall.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       // Artist tiles whose Deezer lookup fails (rate limit, no press
       // photo) fall back to the YouTube Music portrait, same as the
       // artist detail page.
@@ -143,17 +141,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         ref.read(playbackServiceProvider.notifier).ensurePlayer();
       } catch (_) {}
       try {
-        // Two-way YouTube Music sync; idle until an account is connected.
-        final sync = ref.read(ytLibrarySyncProvider)..start();
-        _lifecycle = AppLifecycleListener(onResume: sync.kick);
-      } catch (_) {}
-      try {
         ref.read(audioOutputProvider.notifier).attach();
-      } catch (_) {}
-      try {
-        // Discord Rich Presence: own block so an audio failure above can
-        // never skip it; never throws (Discord closed degrades to silence).
-        ref.read(discordPresenceProvider).startup();
       } catch (_) {}
       try {
         // MPRIS (Linux): exposes now-playing + transport on the session
@@ -166,7 +154,23 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         // keys. No-op elsewhere.
         ref.read(smtcProvider).startup();
       } catch (_) {}
+      // Stagger secondary background network/IPC startups slightly so the
+      // initial UI frames and first click stay completely lag-free.
+      Future<void>.delayed(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+        try {
+          // Two-way YouTube Music sync; idle until an account is connected.
+          final sync = ref.read(ytLibrarySyncProvider)..start();
+          _lifecycle = AppLifecycleListener(onResume: sync.kick);
+        } catch (_) {}
+        try {
+          // Discord Rich Presence: own block so an audio failure above can
+          // never skip it; never throws (Discord closed degrades to silence).
+          ref.read(discordPresenceProvider).startup();
+        } catch (_) {}
+      });
       Future<void>.delayed(const Duration(seconds: 20), () {
+        if (!mounted) return;
         try {
           if (ref.read(prefsProvider).disablePoToken) return;
           ref.read(innerTubeProvider).preWarmBotGuard();

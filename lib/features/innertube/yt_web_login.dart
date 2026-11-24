@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show WidgetsBinding;
+import 'package:window_manager/window_manager.dart';
 
 import '../../core/diagnostics/diagnostics_log.dart';
 import 'webview_profile.dart';
@@ -514,6 +515,15 @@ class YtWebLogin {
       // (same as the BotGuard window); [_unpark] brings it back if the
       // user ever needs to see it.
       final park = !show && Platform.isWindows;
+      // Remember whether LastWave had foreground focus before creating a
+      // silent background WebView2 window (desktop_webview_window spawns
+      // WS_VISIBLE and briefly steals Win32 focus on creation).
+      var hadFocus = false;
+      if (park) {
+        try {
+          hadFocus = await windowManager.isFocused();
+        } catch (_) {}
+      }
       final w = await WebviewWindow.create(
         configuration: CreateConfiguration(
           title: _windowTitle,
@@ -543,7 +553,9 @@ class YtWebLogin {
         if (identical(_cachedWindow, w)) _cachedWindow = null;
       }));
       if (!show) {
-        // Background use (silent session refresh): hide straight away.
+        // Background use (silent session refresh): hide straight away and
+        // immediately hand foreground focus back to LastWave on Windows so
+        // the app never feels frozen or unclickable.
         _expectVisible = false;
         if (Platform.isLinux) {
           await YtWebviewGuard.hide();
@@ -551,6 +563,11 @@ class YtWebLogin {
           try {
             await w.setWebviewWindowVisibility(false);
           } catch (_) {}
+          if (hadFocus) {
+            try {
+              await windowManager.focus();
+            } catch (_) {}
+          }
         }
       } else if (Platform.isLinux) {
         // Ensure it is visible (create shows it; harmless if so).

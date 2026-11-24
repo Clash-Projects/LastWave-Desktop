@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -38,13 +40,37 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
   String? _dismissedDownloadKey;
   String? _dismissedQuotaNotice;
   bool _ytRecovering = false;
+  Timer? _ytRecoverDelay;
 
   @override
   void initState() {
     super.initState();
     // The stale flag may already be set before this host mounts.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && ref.read(ytAuthStaleProvider)) _recoverYt();
+      if (mounted && ref.read(ytAuthStaleProvider)) _scheduleRecoverYt();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ytRecoverDelay?.cancel();
+    super.dispose();
+  }
+
+  /// Defers silent WebView2 session recovery briefly after launch so cold
+  /// Edge WebView2 boot never stalls the UI thread or shows a busy cursor
+  /// right when the user opens a newly downloaded build.
+  void _scheduleRecoverYt() {
+    if (_ytRecovering ||
+        YtSessionKeeper.autoAttempted ||
+        (_ytRecoverDelay?.isActive ?? false)) {
+      return;
+    }
+    _ytRecoverDelay = Timer(const Duration(seconds: 4), () {
+      _ytRecoverDelay = null;
+      if (mounted && ref.read(ytAuthStaleProvider)) {
+        unawaited(_recoverYt());
+      }
     });
   }
 
@@ -66,7 +92,7 @@ class _WaveInfoBarHostState extends ConsumerState<WaveInfoBarHost> {
   @override
   Widget build(BuildContext context) {
     ref.listen<bool>(ytAuthStaleProvider, (prev, stale) {
-      if (stale && prev != true) _recoverYt();
+      if (stale && prev != true) _scheduleRecoverYt();
     });
     final online = ref.watch(networkMonitorProvider);
     final auth = ref.watch(authRepositoryProvider);

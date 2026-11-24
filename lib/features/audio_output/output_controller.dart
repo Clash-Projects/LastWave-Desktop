@@ -197,9 +197,16 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
             device: device,
             exclusiveRequested: exclusive,
           );
+    // When using System Default in shared mode, leave mpv on `auto` instead
+    // of pinning the current default endpoint's concrete WASAPI GUID. Pinning
+    // a GUID breaks mpv's hotplug reload whenever headphones are unplugged,
+    // Bluetooth switches, or Windows wakes from sleep (`Failed to find device
+    // -> no sound`). Pin a specific GUID only when the user explicitly chose
+    // a device or when Exclusive Mode requires opening that exact endpoint.
+    final wantAuto = state.selectedId.isEmpty && !exclusive;
     await playback.configureWasapi(
       exclusive: exclusive,
-      mpvDevice: device?.mpvDeviceName ?? 'auto',
+      mpvDevice: wantAuto ? 'auto' : (device?.mpvDeviceName ?? 'auto'),
       // Only pin the software volume when the DAC really has a hardware
       // volume to take over. Without one the slider must keep working
       // (software gain), otherwise exclusive mode left volume dead.
