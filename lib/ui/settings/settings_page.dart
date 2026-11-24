@@ -69,6 +69,7 @@ import '../theme/wave_icons.dart';
 
 const waveSettingsSections = [
   ('general', 'General', FluentIcons.settings),
+  ('integrations', 'Integrations', FluentIcons.link),
   ('playback', 'Playback', FluentIcons.play),
   ('audio', 'Audio', FluentIcons.speakers),
   ('downloads', 'Downloads', FluentIcons.download),
@@ -76,7 +77,6 @@ const waveSettingsSections = [
   ('lyrics', 'Lyrics', FluentIcons.microphone),
   ('appearance', 'Appearance', FluentIcons.brush),
   ('lastfm', 'Scrobbler', WaveIcons.liked),
-  ('integrations', 'Integrations', FluentIcons.link),
   ('sources', 'Sources', FluentIcons.cloud),
   ('experimental', 'Experimental', FluentIcons.bug),
   ('about', 'About', FluentIcons.info),
@@ -1744,8 +1744,19 @@ class _SpotifyCard extends ConsumerWidget {
           title: 'Spotify Canvas',
           subtitle: isPerfOn
               ? 'Video canvas is paused by Performance Mode to save CPU usage.'
-              : 'Use Spotify\'s vertical looping video in the Canvas panel '
+              : 'Use Spotify\'s vertical looping video in Full Bleed '
                   '(needs a connected account)',
+        ),
+        const SizedBox(height: 6),
+        _SwitchRow(
+          value: isPerfOn || !prefs.spotifyCanvasEnabled
+              ? false
+              : prefs.preferSpotifyCanvas,
+          enabled: !isPerfOn && prefs.spotifyCanvasEnabled,
+          onChanged: (v) => onUpdate((p) => p.setPreferSpotifyCanvas(v)),
+          title: 'Prefer Spotify Canvas',
+          subtitle:
+              'Prefer Spotify Canvas over Apple Music & Tidal in Full Bleed',
         ),
         const SizedBox(height: 6),
         _BehaviourSelectRow(
@@ -3564,6 +3575,8 @@ class _PlaybackState extends ConsumerState<_Playback> {
   @override
   Widget build(BuildContext context) {
     final prefs = ref.watch(prefsProvider);
+    final isPerfOn = ref.watch(performanceModeProvider);
+    final l10n = context.l10n;
     final currentSeconds = _dragSeconds ?? prefs.crossfadeSeconds.toDouble();
 
     return _Group(
@@ -3577,6 +3590,25 @@ class _PlaybackState extends ConsumerState<_Playback> {
             onChanged: (v) => widget.onUpdate((p) => p.setAutoplaySimilar(v)),
             title: 'Autoplay similar',
             subtitle: 'Keep playing related tracks after a queue ends',
+          ),
+          const SizedBox(height: 8),
+          _SwitchRow(
+            value: isPerfOn ? false : prefs.canvasEnabled,
+            enabled: !isPerfOn,
+            badgeText: isPerfOn ? l10n.performanceModeManagedTag : null,
+            onDisabledTap: isPerfOn
+                ? () => _confirmDisablePerformanceMode(
+                      context,
+                      ref,
+                      'Canvas & animated artwork',
+                      () => widget.onUpdate((p) => p.setCanvasEnabled(true)),
+                    )
+                : null,
+            onChanged: (v) => widget.onUpdate((p) => p.setCanvasEnabled(v)),
+            title: 'Canvas & animated artwork',
+            subtitle: isPerfOn
+                ? 'Paused by Performance Mode to save CPU & GPU usage.'
+                : 'Play looping Canvas and motion cover art in Now Playing',
           ),
           if (Platform.isMacOS) ...[
             const SizedBox(height: 8),

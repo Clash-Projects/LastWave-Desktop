@@ -11,6 +11,7 @@ import '../../features/spotify/canvas_clip.dart';
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artwork.dart';
+import '../lyrics/lyrics_panel.dart' show waveLyricsProvider;
 import '../theme/tokens.dart';
 import 'immersive.dart';
 import 'now_playing_overflow_menu.dart';
@@ -34,7 +35,6 @@ class _NowPlayingFullBleedViewState
     extends ConsumerState<NowPlayingFullBleedView> {
   String _lastClipUrl = '';
   String _lastClipFallbackUrl = '';
-  bool _lastClipVertical = true;
   bool _sleeveGone = false;
 
   @override
@@ -43,6 +43,15 @@ class _NowPlayingFullBleedViewState
     final isImmersive = ref.watch(nowPlayingImmersiveProvider);
     final controlsIdle = ref.watch(nowPlayingControlsIdleProvider);
     final ambientStyle = ref.watch(ambientStyleProvider);
+    final lyricsAsync = ref.watch(waveLyricsProvider(track));
+    final lyricsState = lyricsAsync.when(
+      loading: () => (missing: false, instrumental: false),
+      error: (_, _) => (missing: true, instrumental: false),
+      data: (r) => (
+        missing: r.isEmpty || r.isInstrumental,
+        instrumental: r.isInstrumental,
+      ),
+    );
 
     // Prefer Spotify Canvas first, then Apple Music / Tidal / Community canvas.
     final canvasAsync = ref.watch(
@@ -56,26 +65,19 @@ class _NowPlayingFullBleedViewState
     final clip = canvasAsync.valueOrNull?.clip;
     final clipUrl = clip?.url ?? '';
     final clipFallbackUrl = clip?.fallbackUrl ?? '';
-    final clipVertical = clip?.vertical ?? true;
     if (!canvasAsync.isLoading || clipUrl.isNotEmpty) {
       _lastClipUrl = clipUrl;
       _lastClipFallbackUrl = clipFallbackUrl;
-      _lastClipVertical = clipVertical;
     }
     final activeUrl =
         clipUrl.isNotEmpty ? clipUrl : (canvasAsync.isLoading ? _lastClipUrl : '');
     final activeFallbackUrl = clipUrl.isNotEmpty
         ? clipFallbackUrl
         : (canvasAsync.isLoading ? _lastClipFallbackUrl : '');
-    final usePortrait =
-        clipUrl.isNotEmpty ? clipVertical : _lastClipVertical;
-    final sessionProvider = usePortrait
-        ? canvasPanelSessionProvider
-        : animatedArtworkSessionProvider;
     final videoReady =
         clipUrl.isNotEmpty &&
         ref.watch(
-          sessionProvider.select((s) => s.isReadyFor(clipUrl)),
+          animatedArtworkSessionProvider.select((s) => s.isReadyFor(clipUrl)),
         );
     if (!videoReady) _sleeveGone = false;
     final showSleeve = !videoReady || !_sleeveGone;
@@ -153,7 +155,6 @@ class _NowPlayingFullBleedViewState
                               fallbackUrl: activeFallbackUrl,
                               width: math.max(0.0, artWidth - 4),
                               height: h,
-                              usePortraitSession: usePortrait,
                             ),
                           if (showSleeve)
                             AnimatedOpacity(
@@ -190,7 +191,7 @@ class _NowPlayingFullBleedViewState
               ),
             ),
 
-            // 2. Right Pane: Lyrics
+            // 2. Right Pane: Lyrics (or clean auto-hiding "Lyrics not found" notice)
             Positioned(
               top: 0,
               bottom: 0,
@@ -198,13 +199,34 @@ class _NowPlayingFullBleedViewState
               right: 0,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(28, 64, 52, 32),
-                child: WaveKaraokeLyricsView(
-                  track: track,
-                  compact: false,
-                  showHeaderControls: false,
-                  fontSize: 34.0,
-                  isActive: true,
-                ),
+                child: lyricsState.missing
+                    ? AnimatedOpacity(
+                        duration: waveMotion(
+                          context,
+                          const Duration(milliseconds: 350),
+                        ),
+                        opacity: controlsIdle ? 0.0 : 1.0,
+                        child: Center(
+                          child: Text(
+                            lyricsState.instrumental
+                                ? 'Instrumental'
+                                : 'Lyrics not found',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white.withValues(alpha: 0.48),
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                        ),
+                      )
+                    : WaveKaraokeLyricsView(
+                        track: track,
+                        compact: false,
+                        showHeaderControls: false,
+                        fontSize: 34.0,
+                        isActive: true,
+                      ),
               ),
             ),
 

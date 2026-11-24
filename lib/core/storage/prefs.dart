@@ -676,11 +676,24 @@ class Prefs {
   Future<void> setJamDisplayName(String name) =>
       _sp.setString('lw_jam_display_name', name.trim());
 
+  // -- Canvas & animated artwork --------------------------------------------
+  /// Master toggle for looping Canvas / animated cover art in Now Playing.
+  bool get canvasEnabled => _sp.getBool('lw_canvas_enabled') ?? true;
+  Future<void> setCanvasEnabled(bool v) => _sp.setBool('lw_canvas_enabled', v);
+
   // -- Spotify canvas (cookie itself lives in secure storage) ---------------
   bool get spotifyCanvasEnabled =>
       _sp.getBool('spotify_canvas_enabled') ?? true;
   Future<void> setSpotifyCanvasEnabled(bool v) =>
       _sp.setBool('spotify_canvas_enabled', v);
+
+  /// When true, Full Bleed prefers Spotify Canvas ahead of Apple Music /
+  /// Tidal / Community motion art. When false, higher-bitrate Apple/Tidal
+  /// motion art is preferred and Spotify Canvas fills the gaps.
+  bool get preferSpotifyCanvas =>
+      _sp.getBool('lw_prefer_spotify_canvas') ?? false;
+  Future<void> setPreferSpotifyCanvas(bool v) =>
+      _sp.setBool('lw_prefer_spotify_canvas', v);
 
   /// Which service picks the songs autoplay / endless radio adds:
   /// `'youtube'` (YouTube Music related songs, default) or `'spotify'`

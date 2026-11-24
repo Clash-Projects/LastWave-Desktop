@@ -32,10 +32,6 @@ class AnimatedArtworkVideo extends ConsumerStatefulWidget {
   final double? width;
   final double? height;
 
-  /// When true, uses [canvasPanelSessionProvider] (portrait 9:16 texture)
-  /// instead of [animatedArtworkSessionProvider] (square 1:1 texture).
-  final bool usePortraitSession;
-
   const AnimatedArtworkVideo({
     super.key,
     required this.url,
@@ -43,7 +39,6 @@ class AnimatedArtworkVideo extends ConsumerStatefulWidget {
     this.size,
     this.width,
     this.height,
-    this.usePortraitSession = false,
   });
 
   @override
@@ -54,15 +49,10 @@ class AnimatedArtworkVideo extends ConsumerStatefulWidget {
 class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
   AnimatedArtworkSession? _session;
 
-  ChangeNotifierProvider<AnimatedArtworkSession> get _provider =>
-      widget.usePortraitSession
-          ? canvasPanelSessionProvider
-          : animatedArtworkSessionProvider;
-
   @override
   void initState() {
     super.initState();
-    _session = ref.read(_provider);
+    _session = ref.read(animatedArtworkSessionProvider);
     _session!.setPlaybackPaused(!ref.read(playbackServiceProvider).isPlaying);
     _session!.attach(widget.url, fallbackUrl: widget.fallbackUrl);
   }
@@ -70,14 +60,6 @@ class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
   @override
   void didUpdateWidget(covariant AnimatedArtworkVideo oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.usePortraitSession != widget.usePortraitSession) {
-      _session?.hideSurface();
-      _session?.detach();
-      _session = ref.read(_provider);
-      _session!.setPlaybackPaused(!ref.read(playbackServiceProvider).isPlaying);
-      _session!.attach(widget.url, fallbackUrl: widget.fallbackUrl);
-      return;
-    }
     if (oldWidget.url != widget.url ||
         oldWidget.fallbackUrl != widget.fallbackUrl) {
       _session?.open(widget.url, fallbackUrl: widget.fallbackUrl);
@@ -97,7 +79,9 @@ class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
       playbackServiceProvider.select((s) => s.isPlaying),
       (_, playing) => _session?.setPlaybackPaused(!playing),
     );
-    final controller = ref.watch(_provider.select((s) => s.controller));
+    final controller = ref.watch(
+      animatedArtworkSessionProvider.select((s) => s.controller),
+    );
     if (controller == null) return const SizedBox.expand();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _session?.showSurface();

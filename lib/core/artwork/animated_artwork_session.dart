@@ -41,8 +41,12 @@ const bool _forceSoftwareDecode =
 String get _artworkHwdec =>
     Platform.isWindows && !_forceSoftwareDecode ? 'd3d11va-copy' : 'no';
 
-/// Output edge for square motion art: crisp at 420–480px covers at HiDPI and Full Bleed.
-const int _artworkOutputPx = 768;
+/// Output edge for the unified motion-art / Canvas texture: 1080×1080 sits
+/// strictly within media_kit_video's SW_RENDERING_MAX_HEIGHT (1080) while
+/// preserving full 1:1 native 1080px horizontal resolution on 1080×1920
+/// Spotify Canvases (cropped via panscan=1.0 instead of shrinking to 608px
+/// and re-stretching 2× in Full Bleed) and 1080×1080 Apple/Tidal covers.
+const int _artworkOutputPx = 1080;
 
 class AnimatedArtworkSession extends ChangeNotifier {
   /// Fixed texture size. Square for cover clips; the canvas panel passes
@@ -755,14 +759,9 @@ final animatedArtworkSessionProvider =
       return AnimatedArtworkSession();
     });
 
-/// Second, independent motion player for the Canvas side panel.
+/// Unified motion-art and Canvas player (1080×1080, single mpv instance).
 ///
-/// The Now Playing cover owns [animatedArtworkSessionProvider]; sharing one
-/// texture between a square cover clip and a 9:16 canvas clip would make
-/// them fight over the same `loadfile`. Same crash-hardening contract: one
-/// player + one texture for the whole run, created lazily on first open.
-final canvasPanelSessionProvider =
-    ChangeNotifierProvider<AnimatedArtworkSession>((ref) {
-      // Max 9:16 resolution within media_kit_video's SW_RENDERING_MAX_HEIGHT (1080).
-      return AnimatedArtworkSession(outputWidth: 608, outputHeight: 1080);
-    });
+/// Aliasing [canvasPanelSessionProvider] to [animatedArtworkSessionProvider]
+/// avoids keeping a second permanent mpv player + 8.3 MB pixel buffer +
+/// D3D11VA decode pool resident in RAM/VRAM.
+final canvasPanelSessionProvider = animatedArtworkSessionProvider;

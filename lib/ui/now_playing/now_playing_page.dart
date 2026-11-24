@@ -22,6 +22,7 @@ import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/player/playback_service.dart';
 import '../../features/podcasts/podcast_repository.dart';
+import '../../features/spotify/spotify_api.dart' show canvasEnabledProvider;
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artist_line.dart';
@@ -29,6 +30,7 @@ import '../components/artwork.dart';
 import '../components/image_aspect.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/states.dart';
+import '../lyrics/lyrics_panel.dart' show waveLyricsProvider;
 import '../theme/fluent_theme.dart';
 import '../theme/haze.dart';
 import '../theme/tokens.dart';
@@ -200,6 +202,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     final current = ref.watch(playbackServiceProvider.select((s) => s.current));
 
     final visualizerEnabled = ref.watch(visualizerEnabledProvider);
+    final canvasEnabled = ref.watch(canvasEnabledProvider);
     final isImmersive = ref.watch(nowPlayingImmersiveProvider);
     final nowPlayingStyle = ref.watch(nowPlayingStyleProvider);
 
@@ -263,7 +266,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
     // and nothing looks it up when the toggle is off. Re-arms on the toggle
     // so flipping it on warms the current track instead of waiting for the
     // first fade.
-    if (visualizerEnabled && current.queueKey != _prefetchedMotionKey) {
+    if (visualizerEnabled && canvasEnabled && current.queueKey != _prefetchedMotionKey) {
       _prefetchedMotionKey = current.queueKey;
       final snap = ref.read(playbackServiceProvider);
       final q = snap.queue;
@@ -287,6 +290,23 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
           ),
         );
       }
+    }
+
+    final lyricsAsync = ref.watch(waveLyricsProvider(current));
+    final lyricsMissing = lyricsAsync.when(
+      loading: () => false,
+      error: (_, _) => true,
+      data: (r) => r.isEmpty || r.isInstrumental,
+    );
+    final effectiveLyricsVisible = _lyricsVisible && !lyricsMissing;
+    final effectiveFocusMode = _focusMode && !lyricsMissing;
+
+    void toggleLyrics() {
+      _resetIdleTimer();
+      setState(() {
+        _lyricsVisible = !_lyricsVisible;
+        if (!_lyricsVisible) _focusMode = false;
+      });
     }
 
     return CallbackShortcuts(
@@ -330,6 +350,8 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
               Positioned.fill(
                 child: NowPlayingMinimalView(
                   track: current,
+                  lyricsVisible: _lyricsVisible,
+                  onToggleLyrics: toggleLyrics,
                   onClose: () {
                     if (ref.read(nowPlayingImmersiveProvider)) {
                       ref.read(nowPlayingImmersiveProvider.notifier).state =
@@ -374,8 +396,8 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                               ? _DesktopDualPane(
                                   topInset: _kTopBarHeight,
                                   track: current,
-                                  lyricsVisible: _lyricsVisible,
-                                  focusMode: _focusMode,
+                                  lyricsVisible: effectiveLyricsVisible,
+                                  focusMode: effectiveFocusMode,
                                 )
                               : Padding(
                                   padding: const EdgeInsets.only(
@@ -383,7 +405,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                                   ),
                                   child: _NarrowCenteredPane(
                                     track: current,
-                                    lyricsVisible: _lyricsVisible,
+                                    lyricsVisible: effectiveLyricsVisible,
                                   ),
                                 ),
                         ),
@@ -408,13 +430,7 @@ class _WaveNowPlayingPageState extends ConsumerState<WaveNowPlayingPage> {
                                   focusMode: _focusMode,
                                   showBackButton: isImmersive,
                                   onInteraction: _resetIdleTimer,
-                                  onToggleLyrics: () {
-                                    _resetIdleTimer();
-                                    setState(() {
-                                      _lyricsVisible = !_lyricsVisible;
-                                      if (!_lyricsVisible) _focusMode = false;
-                                    });
-                                  },
+                                  onToggleLyrics: toggleLyrics,
                                   onToggleFocus: () {
                                     _resetIdleTimer();
                                     setState(() {
@@ -1020,8 +1036,10 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
         ),
       );
     }
-    // Visualizer toggle owns ALL page motion: aura + motion-art clip.
-    final visualizerOn = ref.watch(visualizerEnabledProvider);
+    // Visualizer toggle + Playback Canvas toggle own motion-art playback.
+    final visualizerOn =
+        ref.watch(visualizerEnabledProvider) &&
+        ref.watch(canvasEnabledProvider);
     final motion = ref.watch(
       animatedArtworkProvider(
         AnimatedArtworkQuery(

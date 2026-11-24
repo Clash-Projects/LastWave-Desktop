@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:fluent_ui/fluent_ui.dart' hide Colors;
 import 'package:flutter/material.dart' show Colors, Icons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,24 +8,30 @@ import '../../core/artwork/animated_artwork_service.dart';
 import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
-import '../../features/performance/performance_controller.dart';
+import '../../features/spotify/spotify_api.dart' show canvasEnabledProvider;
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artwork.dart';
+import '../lyrics/lyrics_panel.dart' show waveLyricsProvider;
 import '../theme/tokens.dart';
 import 'immersive.dart';
 import 'now_playing_overflow_menu.dart';
 
-/// Minimal Now Playing layout: Sharp cover art (with Canvas / motion art and
-/// hi-res official artwork), centered metadata, and distraction-free synced lyrics.
+/// Minimal Now Playing layout: Sharp cover art (with motion art and hi-res
+/// official artwork), centered metadata, and distraction-free synced lyrics.
+/// Automatically centers the artwork when lyrics are hidden or unavailable.
 class NowPlayingMinimalView extends ConsumerStatefulWidget {
   final PlayableTrack track;
   final VoidCallback onClose;
+  final bool lyricsVisible;
+  final VoidCallback? onToggleLyrics;
 
   const NowPlayingMinimalView({
     super.key,
     required this.track,
     required this.onClose,
+    this.lyricsVisible = true,
+    this.onToggleLyrics,
   });
 
   @override
@@ -39,12 +47,19 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
   @override
   Widget build(BuildContext context) {
     final track = widget.track;
-    final isPerfMode = ref.watch(performanceModeProvider);
+    final canvasEnabled = ref.watch(canvasEnabledProvider);
     final controlsIdle = ref.watch(nowPlayingControlsIdleProvider);
+    final lyricsAsync = ref.watch(waveLyricsProvider(track));
+    final lyricsMissing = lyricsAsync.when(
+      loading: () => false,
+      error: (_, _) => true,
+      data: (r) => r.isEmpty || r.isInstrumental,
+    );
+    final showLyrics = widget.lyricsVisible && !lyricsMissing;
 
     // Minimal uses non-Spotify motion art (Apple Music / Tidal / Community);
     // Spotify 9:16 Canvas is reserved exclusively for Full Bleed.
-    final motionAsync = isPerfMode
+    final motionAsync = !canvasEnabled
         ? const AsyncData<AnimatedArtwork?>(null)
         : ref.watch(
             animatedArtworkProvider(
@@ -62,18 +77,18 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
       _lastClipUrl = clipUrl;
       _lastClipFallbackUrl = clipFallbackUrl;
     }
-    final activeUrl = isPerfMode
+    final activeUrl = !canvasEnabled
         ? ''
         : (clipUrl.isNotEmpty
             ? clipUrl
             : (motionAsync.isLoading ? _lastClipUrl : ''));
-    final activeFallbackUrl = isPerfMode
+    final activeFallbackUrl = !canvasEnabled
         ? ''
         : (clipUrl.isNotEmpty
             ? clipFallbackUrl
             : (motionAsync.isLoading ? _lastClipFallbackUrl : ''));
     final videoReady =
-        !isPerfMode &&
+        canvasEnabled &&
         clipUrl.isNotEmpty &&
         ref.watch(
           animatedArtworkSessionProvider.select((s) => s.isReadyFor(clipUrl)),
@@ -95,135 +110,195 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
           ),
         ),
 
-        // 2. Main Two-Column Row (Album Cover + Centered Info on Left, Synced Lyrics on Right)
+        // 2. Main Layout: Centers cover smoothly when lyrics are hidden or unavailable
         Positioned.fill(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 40),
-            child: Row(
-              children: [
-                // Left Column: Sharp square cover (Canvas / Hi-Res Art) + centered title & artist
-                Expanded(
-                  flex: 42,
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: 420,
-                        maxHeight: 520,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availW = constraints.maxWidth;
+                final availH = constraints.maxHeight;
+                final targetLeftW = showLyrics
+                    ? math.min(
+                        availW,
+                        math.max(0.0, (availW - 48.0) * 0.42).clamp(0.0, 440.0),
+                      )
+                    : math.min(
+                        availW,
+                        math.max(0.0, math.min(availH - 80.0, 460.0)),
+                      );
+                final gapW =
+                    showLyrics && availW > targetLeftW + 48.0 ? 48.0 : 0.0;
+                final targetLyricsW = showLyrics
+                    ? math.max(0.0, availW - targetLeftW - gapW)
+                    : 0.0;
+                final coverMax = showLyrics ? 420.0 : 440.0;
+                final animDuration = waveMotion(
+                  context,
+                  const Duration(milliseconds: 420),
+                );
+
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Cover + Centered Track Info (smoothly centers when lyrics are off/missing)
+                    AnimatedContainer(
+                      duration: animDuration,
+                      curve: Curves.easeInOutCubic,
+                      width: targetLeftW,
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: coverMax,
+                            maxHeight: coverMax + 100,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // Sharp square album cover with motion art & Hi-Res Official Art
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: coverMax,
+                                  maxHeight: coverMax,
+                                ),
+                                child: AspectRatio(
+                                  aspectRatio: 1,
+                                  child: LayoutBuilder(
+                                    builder: (context, box) {
+                                      final side = box.maxWidth;
+                                      return RepaintBoundary(
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(2.0),
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              if (activeUrl.isNotEmpty)
+                                                AnimatedArtworkVideo(
+                                                  url: activeUrl,
+                                                  fallbackUrl:
+                                                      activeFallbackUrl,
+                                                  size: side,
+                                                ),
+                                              if (showSleeve)
+                                                AnimatedOpacity(
+                                                  opacity:
+                                                      videoReady ? 0.0 : 1.0,
+                                                  duration: const Duration(
+                                                    milliseconds: 320,
+                                                  ),
+                                                  curve: Curves.easeOut,
+                                                  onEnd: () {
+                                                    if (videoReady &&
+                                                        !_sleeveGone &&
+                                                        mounted) {
+                                                      setState(
+                                                        () =>
+                                                            _sleeveGone = true,
+                                                      );
+                                                    }
+                                                  },
+                                                  child: WaveArtwork(
+                                                    url: track.artworkUrl,
+                                                    videoId: track.videoId,
+                                                    size: side,
+                                                    decodeExtent: 1024,
+                                                    radius: 2.0,
+                                                    label: track.title,
+                                                    title: track.title,
+                                                    artist: track.artist,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+
+                              // Centered Track Title
+                              Text(
+                                track.title,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+
+                              // Centered Artist Name
+                              Text(
+                                track.artist,
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w400,
+                                  color: Colors.white.withValues(alpha: 0.65),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          // Sharp square album cover with Canvas & Hi-Res Official Art
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(
-                              maxWidth: 420,
-                              maxHeight: 420,
-                            ),
-                            child: AspectRatio(
-                              aspectRatio: 1,
-                              child: LayoutBuilder(
-                                builder: (context, box) {
-                                  final side = box.maxWidth;
-                                  return RepaintBoundary(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(2.0),
-                                      child: Stack(
-                                        fit: StackFit.expand,
-                                        children: [
-                                          if (activeUrl.isNotEmpty)
-                                            AnimatedArtworkVideo(
-                                              url: activeUrl,
-                                              fallbackUrl: activeFallbackUrl,
-                                              size: side,
-                                            ),
-                                          if (showSleeve)
-                                            AnimatedOpacity(
-                                              opacity: videoReady ? 0.0 : 1.0,
-                                              duration: const Duration(
-                                                milliseconds: 320,
-                                              ),
-                                              curve: Curves.easeOut,
-                                              onEnd: () {
-                                                if (videoReady &&
-                                                    !_sleeveGone &&
-                                                    mounted) {
-                                                  setState(
-                                                    () => _sleeveGone = true,
-                                                  );
-                                                }
-                                              },
-                                              child: WaveArtwork(
-                                                url: track.artworkUrl,
-                                                videoId: track.videoId,
-                                                size: side,
-                                                decodeExtent: 1024,
-                                                radius: 2.0,
-                                                label: track.title,
-                                                title: track.title,
-                                                artist: track.artist,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
+                    ),
+
+                    AnimatedContainer(
+                      duration: animDuration,
+                      curve: Curves.easeInOutCubic,
+                      width: gapW,
+                    ),
+
+                    // Right Column: Synced Lyrics (collapses smoothly when hidden or not found)
+                    AnimatedContainer(
+                      duration: animDuration,
+                      curve: Curves.easeInOutCubic,
+                      width: targetLyricsW,
+                      child: ClipRect(
+                        child: AnimatedOpacity(
+                          duration: waveMotion(
+                            context,
+                            const Duration(milliseconds: 260),
+                          ),
+                          opacity: showLyrics ? 1.0 : 0.0,
+                          child: ExcludeFocus(
+                            excluding: !showLyrics,
+                            child: IgnorePointer(
+                              ignoring: !showLyrics,
+                              child: OverflowBox(
+                                alignment: Alignment.centerLeft,
+                                minWidth: showLyrics
+                                    ? targetLyricsW
+                                    : math.max(320.0, (availW - 48.0) * 0.58),
+                                maxWidth: showLyrics
+                                    ? targetLyricsW
+                                    : math.max(320.0, (availW - 48.0) * 0.58),
+                                child: WaveKaraokeLyricsView(
+                                  track: track,
+                                  compact: false,
+                                  showHeaderControls: false,
+                                  fontSize: 34.0,
+                                  isActive: showLyrics,
+                                ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 18),
-
-                          // Centered Track Title
-                          Text(
-                            track.title,
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-
-                          // Centered Artist Name
-                          Text(
-                            track.artist,
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w400,
-                              color: Colors.white.withValues(alpha: 0.65),
-                            ),
-                          ),
-                          // Nothing else below Artist (zero codec badge, zero bitrate row, zero UP NEXT strip)
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ),
-
-                const SizedBox(width: 48),
-
-                // Right Column: Synced Lyrics at full height with spatial duet layout
-                Expanded(
-                  flex: 58,
-                  child: ClipRect(
-                    child: WaveKaraokeLyricsView(
-                      track: track,
-                      compact: false,
-                      showHeaderControls: false,
-                      fontSize: 34.0,
-                      isActive: true,
-                    ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -269,6 +344,8 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
                 ignoring: controlsIdle,
                 child: NowPlayingTopActions(
                   track: track,
+                  lyricsVisible: widget.lyricsVisible,
+                  onToggleLyrics: widget.onToggleLyrics,
                   onInteraction: () =>
                       ref.read(nowPlayingActivityProvider.notifier).state++,
                 ),

@@ -10,6 +10,7 @@ import '../../core/artwork/animated_artwork_service.dart'
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/storage/prefs.dart';
 import '../performance/performance_controller.dart';
+import '../settings/theme_controller.dart';
 import 'spotify_auth.dart';
 import 'spotify_web_player.dart';
 
@@ -1104,10 +1105,31 @@ final spotifyPlaylistContentProvider =
       return ref.watch(spotifyApiProvider).playlist(id);
     });
 
+/// Master toggle for looping Canvas & motion artwork across Now Playing
+/// (Settings → Playback). Also forced off while Performance Mode is active.
+final canvasEnabledProvider = Provider<bool>(
+  (ref) {
+    ref.watch(themeControllerProvider);
+    if (ref.watch(performanceModeProvider)) return false;
+    return ref.watch(prefsProvider).canvasEnabled;
+  },
+);
+
 /// Whether Spotify canvases are used (Settings → Integrations).
 final spotifyCanvasEnabledProvider = Provider<bool>(
   (ref) {
+    ref.watch(themeControllerProvider);
     if (ref.watch(performanceModeProvider)) return false;
+    if (!ref.watch(prefsProvider).canvasEnabled) return false;
     return ref.watch(prefsProvider).spotifyCanvasEnabled;
+  },
+);
+
+/// Whether Full Bleed prefers Spotify Canvas ahead of Apple Music / Tidal
+/// (Settings → Integrations → Spotify).
+final preferSpotifyCanvasProvider = Provider<bool>(
+  (ref) {
+    ref.watch(themeControllerProvider);
+    return ref.watch(prefsProvider).preferSpotifyCanvas;
   },
 );
