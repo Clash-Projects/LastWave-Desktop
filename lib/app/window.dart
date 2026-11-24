@@ -86,8 +86,8 @@ Future<void> applyWindowMaterial({
 }
 
 /// Switch the native titlebar decoration style: `system` restores native OS
-/// window frame and controls (`TitleBarStyle.normal`), while `custom` and
-/// `none` hide it (`TitleBarStyle.hidden`) so Flutter handles chrome.
+/// window frame and controls (`TitleBarStyle.normal`), while `custom` hides it
+/// (`TitleBarStyle.hidden`) so Flutter handles chrome.
 Future<void> applyTitlebarStyle(String style) async {
   try {
     if (!Platform.isLinux && !Platform.isWindows && !Platform.isMacOS) return;

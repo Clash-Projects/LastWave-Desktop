@@ -1208,7 +1208,6 @@ class _Appearance extends ConsumerWidget {
             options: const [
               WaveSelectOption(value: 'custom', label: 'Custom (app-drawn)'),
               WaveSelectOption(value: 'system', label: 'System decorations'),
-              WaveSelectOption(value: 'none', label: 'No titlebar'),
             ],
             onChanged: (v) async {
               await onUpdate((p) => p.setTitlebarStyle(v));

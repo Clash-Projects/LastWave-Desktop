@@ -125,12 +125,10 @@ class Prefs {
       );
 
   /// Window titlebar style: `'custom'` (app-drawn header with controls, the
-  /// default), `'system'` (native OS titlebar and decorations), `'none'`
-  /// (frameless edge-to-edge content without titlebar).
+  /// default) or `'system'` (native OS titlebar and decorations).
   static const titlebarStyles = [
     'custom',
     'system',
-    'none',
   ];
   String get titlebarStyle {
     final raw = _sp.getString('lw_titlebar_style') ?? 'custom';

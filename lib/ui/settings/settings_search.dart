@@ -205,7 +205,7 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     title: 'Titlebar',
     subtitle: 'Window header and decorations',
     keywords:
-        'titlebar title bar system decorations custom app-drawn none frameless window chrome controls',
+        'titlebar title bar system decorations custom app-drawn window chrome controls',
   ),
   SettingsSearchEntry(
     id: 'lastfm.connection',

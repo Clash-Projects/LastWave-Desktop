@@ -740,7 +740,6 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     final isNowPlaying = routePath.startsWith('/now');
     final immersive =
         ref.watch(nowPlayingImmersiveProvider) && isNowPlaying;
-    final titlebarStyle = ref.watch(prefsProvider).titlebarStyle;
     // Immersive only lives on Now Playing: leaving the route resets it.
     if (!isNowPlaying && ref.read(nowPlayingImmersiveProvider)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -860,8 +859,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         child: Column(
           children: [
             if (!immersive) ...[
-              if (titlebarStyle != 'none')
-                _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
+              _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
               const WaveInfoBarHost(),
             ],
             // Overlay rail: the content below keeps full width and the

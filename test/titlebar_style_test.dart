@@ -24,17 +24,13 @@ void main() {
 
     test('defaults to custom', () {
       expect(prefs.titlebarStyle, 'custom');
-      expect(Prefs.titlebarStyles, containsAll(['custom', 'system', 'none']));
+      expect(Prefs.titlebarStyles, containsAll(['custom', 'system']));
+      expect(Prefs.titlebarStyles.contains('none'), isFalse);
     });
 
     test('can set to system decorations', () async {
       await prefs.setTitlebarStyle('system');
       expect(prefs.titlebarStyle, 'system');
-    });
-
-    test('can set to none', () async {
-      await prefs.setTitlebarStyle('none');
-      expect(prefs.titlebarStyle, 'none');
     });
 
     test('falls back to custom on unrecognized value', () async {
@@ -63,12 +59,6 @@ void main() {
           hit.title,
       ];
       expect(queryAppDrawn, contains('Titlebar'));
-
-      final queryFrameless = [
-        for (final hit in filterSettings(settingsSearchEntries, 'frameless'))
-          hit.title,
-      ];
-      expect(queryFrameless, contains('Titlebar'));
     });
   });
 
@@ -76,7 +66,6 @@ void main() {
     test('applyTitlebarStyle executes without error', () async {
       await expectLater(applyTitlebarStyle('custom'), completes);
       await expectLater(applyTitlebarStyle('system'), completes);
-      await expectLater(applyTitlebarStyle('none'), completes);
     });
   });
 
