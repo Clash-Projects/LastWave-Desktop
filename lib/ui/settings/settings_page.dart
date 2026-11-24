@@ -83,7 +83,7 @@ const waveSettingsSections = [
 String normalizeSection(String? raw) {
   if (raw == null || raw.isEmpty) return 'general';
   return switch (raw.toLowerCase()) {
-    'general' || 'display' || 'behaviour' || 'language' => 'general',
+    'general' || 'display' || 'behaviour' || 'language' || 'experimental' => 'general',
     'appearance' || 'theme' => 'appearance',
     'audio' || 'sound' => 'audio',
     'playback' => 'playback',
@@ -91,7 +91,7 @@ String normalizeSection(String? raw) {
     'sources' || 'addons' || 'addon' => 'sources',
     'library' || 'downloads' || 'storage' => 'library',
     'accounts' || 'services' || 'lastfm' || 'integrations' || 'scrobbler' || 'spotify' || 'discord' => 'accounts',
-    'about' || 'updates' || 'diagnostics' || 'experimental' => 'about',
+    'about' || 'updates' || 'diagnostics' => 'about',
     _ => 'general',
   };
 }

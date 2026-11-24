@@ -174,7 +174,7 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
     await _controller.showFlyout<void>(
       barrierColor: Colors.transparent,
       dismissWithEsc: true,
-      placementMode: effectivePlacement,
+      placementMode: widget.placement ?? FlyoutPlacementMode.auto,
       autoModeConfiguration: FlyoutAutoConfiguration(
         preferredMode: effectivePlacement,
       ),

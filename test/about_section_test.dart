@@ -126,6 +126,7 @@ void main() {
       expect(normalizeSection('addons'), equals('sources'));
       expect(normalizeSection('addon'), equals('sources'));
       expect(normalizeSection('about'), equals('about'));
+      expect(normalizeSection('experimental'), equals('general'));
     });
   });
 
