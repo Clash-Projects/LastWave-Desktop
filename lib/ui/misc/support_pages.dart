@@ -108,6 +108,16 @@ class _WaveProfilePageState
   String _period = '7day';
 
   @override
+  void initState() {
+    super.initState();
+    // If stats previously failed (e.g. offline during title bar initial fetch),
+    // entering /profile immediately retries a fresh fetch.
+    if (ref.read(_profileStatsProvider(null)).hasError) {
+      ref.invalidate(_profileStatsProvider(null));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authRepositoryProvider);
     final user = auth.username;
@@ -138,8 +148,8 @@ class _WaveProfilePageState
                 ),
               ),
               Builder(builder: (context) {
-                final stats =
-                    ref.watch(_profileStatsProvider(null)).valueOrNull;
+                final statsAsync = ref.watch(_profileStatsProvider(null));
+                final stats = statsAsync.valueOrNull;
                 String n(int v) => v.toString().replaceAllMapped(
                       RegExp(r'\B(?=(\d{3})+(?!\d))'),
                       (m) => ',',
@@ -179,6 +189,18 @@ class _WaveProfilePageState
                               ].join(' · '),
                               style: WaveType.meta.copyWith(
                                 color: waveTextTertiary(context),
+                              ),
+                            ),
+                          ] else if (statsAsync.hasError) ...[
+                            const SizedBox(height: 6),
+                            GestureDetector(
+                              onTap: () =>
+                                  ref.invalidate(_profileStatsProvider(null)),
+                              child: Text(
+                                'Failed to load stats · Tap to retry',
+                                style: WaveType.meta.copyWith(
+                                  color: waveAccent(context),
+                                ),
                               ),
                             ),
                           ],

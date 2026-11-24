@@ -78,6 +78,43 @@ void main() {
       final avatar = container.read(userAvatarUrlProvider);
       expect(avatar, equals('https://example.com/youtube_avatar.png'));
     });
+
+    test('retries userProfileStatsProvider on invalidate after transient failure', () async {
+      int attempts = 0;
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith(
+            (ref) => _MockAuth(const AuthState(
+              status: AuthStatus.signedIn,
+              username: 'test_user',
+            )),
+          ),
+          userProfileStatsProvider.overrideWith((ref, viewing) {
+            attempts++;
+            if (attempts == 1) {
+              return Future.error(Exception('Network error'));
+            }
+            return Future.value(const HomeStats(avatarUrl: 'https://example.com/retry.png'));
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // First attempt fails
+      try {
+        await container.read(userProfileStatsProvider(null).future);
+        fail('Expected error');
+      } catch (e) {
+        expect(e, isA<Exception>());
+      }
+
+      // Invalidate to retry (as triggered on /profile visit or tap)
+      container.invalidate(userProfileStatsProvider(null));
+
+      final stats = await container.read(userProfileStatsProvider(null).future);
+      expect(stats.avatarUrl, equals('https://example.com/retry.png'));
+      expect(attempts, equals(2));
+    });
   });
 
   group('Avatar rendering in UI', () {

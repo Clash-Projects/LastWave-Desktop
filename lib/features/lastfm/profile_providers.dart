@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/prefs.dart';
@@ -9,19 +11,29 @@ import 'lastfm_snapshot.dart';
 
 /// SWR-cached Last.fm profile stats for a user (scrobbles, counts, avatarUrl).
 final userProfileStatsProvider =
-    FutureProvider.autoDispose.family<HomeStats, String?>((ref, viewing) {
+    FutureProvider.autoDispose.family<HomeStats, String?>((ref, viewing) async {
   final home = ref.watch(homeRepositoryProvider);
   final username = ref.watch(prefsProvider.select((p) => p.username));
   if (username.isEmpty && viewing == null) return const HomeStats();
-  return swrLoad<HomeStats>(
-    ref,
-    key: lastFmCacheKey('stats', username, viewing: viewing),
-    codec: homeStatsSnapshotCodec,
-    group: cacheGroupLastFm,
-    maxAge: lastFmCacheMaxAge,
-    everyBuild: true,
-    fetch: () => home.fetchStats(viewingAs: viewing),
-  );
+  try {
+    return await swrLoad<HomeStats>(
+      ref,
+      key: lastFmCacheKey('stats', username, viewing: viewing),
+      codec: homeStatsSnapshotCodec,
+      group: cacheGroupLastFm,
+      maxAge: lastFmCacheMaxAge,
+      everyBuild: true,
+      fetch: () => home.fetchStats(viewingAs: viewing),
+    );
+  } catch (err) {
+    // If the initial fetch fails while pinned by persistent subscribers (like the title bar),
+    // schedule auto-invalidation after a backoff so transient network errors are retried automatically.
+    final timer = Timer(const Duration(seconds: 30), () {
+      ref.invalidateSelf();
+    });
+    ref.onDispose(timer.cancel);
+    rethrow;
+  }
 });
 
 /// Reactive user avatar URL provider.
