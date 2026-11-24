@@ -1858,62 +1858,13 @@ class _Lyrics extends ConsumerWidget {
   }
 }
 
-class _NowPlayingAmbient extends ConsumerWidget {
-  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _NowPlayingAmbient({required this.onUpdate});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final currentStyle = ref.watch(ambientStyleProvider);
-    return _Group(
-      id: 'lyrics.ambient',
-      title: 'Now Playing ambient',
-      subtitle: 'Dynamic backdrop styling behind cover art and lyrics',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              for (final style in AmbientStyle.values) ...[
-                if (style != AmbientStyle.values.first)
-                  const SizedBox(width: 8),
-                Expanded(
-                  child: ToggleButton(
-                    checked: currentStyle == style,
-                    onChanged: (_) =>
-                        ref.read(ambientStyleProvider.notifier).set(style),
-                    child: Text(style.label),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            currentStyle == AmbientStyle.apple
-                ? 'Vivid blurred colors sampled from the artwork on a dark stage with clean white text.'
-                : 'A calm, subtle accent tone sampled from the artwork that harmonizes with your active app theme.',
-            style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _LyricsSection extends ConsumerWidget {
   final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
   const _LyricsSection({required this.onUpdate});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Column(
-      children: [
-        _Lyrics(onUpdate: onUpdate),
-        const SizedBox(height: 16),
-        _NowPlayingAmbient(onUpdate: onUpdate),
-      ],
-    );
+    return _Lyrics(onUpdate: onUpdate);
   }
 }
 

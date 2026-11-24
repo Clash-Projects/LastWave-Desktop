@@ -81,7 +81,7 @@ class WaveHomePage extends ConsumerWidget {
 
     final showPerfBanner = ref.watch(isModestHardwareProvider) &&
         !ref.watch(performanceModeProvider) &&
-        !ref.watch(prefsProvider).performancePromptDismissed;
+        !ref.watch(performancePromptDismissedProvider);
 
     final username = auth.status == AuthStatus.signedIn &&
             auth.username.isNotEmpty
@@ -120,17 +120,34 @@ class WaveHomePage extends ConsumerWidget {
                   'Modest hardware detected. Enable Performance Mode to reduce GPU blur and video decoding load.',
                 ),
                 severity: InfoBarSeverity.info,
-                action: Button(
-                  child: const Text('Enable'),
-                  onPressed: () {
-                    ref
-                        .read(performanceModeProvider.notifier)
-                        .setPerformanceMode(true);
-                  },
+                action: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Button(
+                      child: const Text('Enable'),
+                      onPressed: () {
+                        ref
+                            .read(performanceModeProvider.notifier)
+                            .setPerformanceMode(true);
+                        ref
+                            .read(performancePromptDismissedProvider.notifier)
+                            .dismiss();
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    LWTooltip(
+                      message: 'Close',
+                      child: IconButton(
+                        icon: const Icon(FluentIcons.chrome_close, size: 12),
+                        onPressed: () {
+                          ref
+                              .read(performancePromptDismissedProvider.notifier)
+                              .dismiss();
+                        },
+                      ),
+                    ),
+                  ],
                 ),
-                onClose: () {
-                  ref.read(prefsProvider).setPerformancePromptDismissed(true);
-                },
               ),
             ),
           ),

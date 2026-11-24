@@ -12,6 +12,24 @@ final performanceModeProvider =
   return PerformanceController(prefs, ref);
 });
 
+/// Provider for tracking whether the user dismissed the modest hardware / performance prompt.
+final performancePromptDismissedProvider =
+    StateNotifierProvider<PerformancePromptDismissedNotifier, bool>((ref) {
+  final prefs = ref.watch(prefsProvider);
+  return PerformancePromptDismissedNotifier(prefs);
+});
+
+class PerformancePromptDismissedNotifier extends StateNotifier<bool> {
+  final Prefs _prefs;
+  PerformancePromptDismissedNotifier(this._prefs)
+      : super(_prefs.performancePromptDismissed);
+
+  Future<void> dismiss() async {
+    state = true;
+    await _prefs.setPerformancePromptDismissed(true);
+  }
+}
+
 class PerformanceController extends StateNotifier<bool> {
   final Prefs _prefs;
   final Ref? _ref;

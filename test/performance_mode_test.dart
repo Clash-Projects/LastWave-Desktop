@@ -57,6 +57,21 @@ void main() {
     expect(opts.first.subtitle, contains('Zero GPU lag'));
   });
 
+  test('performancePromptDismissedProvider dismisses and persists state', () async {
+    final container = ProviderContainer(
+      overrides: [
+        prefsProvider.overrideWithValue(prefs),
+      ],
+    );
+
+    expect(container.read(performancePromptDismissedProvider), isFalse);
+    expect(prefs.performancePromptDismissed, isFalse);
+
+    await container.read(performancePromptDismissedProvider.notifier).dismiss();
+    expect(container.read(performancePromptDismissedProvider), isTrue);
+    expect(prefs.performancePromptDismissed, isTrue);
+  });
+
   test('hardware detection provides boolean value safely', () {
     final container = ProviderContainer(
       overrides: [
