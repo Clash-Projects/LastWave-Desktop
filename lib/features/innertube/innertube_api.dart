@@ -5904,8 +5904,9 @@ class InnerTubeMusicApi {
       }
       _logStream('report-failure', videoId: videoId);
     }
-    // Proactive 403 recovery: refresh poToken asynchronously in ephemeral burst
-    unawaited(_mintPoToken(videoId, forceRefresh: true));
+    // Direct-URL clients never use poTokens; do not eagerly open a BotGuard
+    // WebView on playback failures. If retry falls through to a ciphered web
+    // client (WEB_REMIX/EMBEDDED/MWEB), ensureAux() mints lazily there.
   }
 
   /// FIFO trim for the plain insertion-ordered caches: drop the oldest

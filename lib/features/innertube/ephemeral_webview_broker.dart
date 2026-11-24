@@ -86,10 +86,15 @@ class EphemeralWebViewBroker {
 
       final completer = Completer<EphemeralTokenResult?>();
       _inflightCompleter = completer;
+      var cancelled = false;
 
       try {
-        final result = await _runEphemeralBurst(videoId, sessionId)
-            .timeout(_watchdogTimeout, onTimeout: () {
+        final result = await _runEphemeralBurst(
+          videoId,
+          sessionId,
+          isCancelled: () => cancelled,
+        ).timeout(_watchdogTimeout, onTimeout: () {
+          cancelled = true;
           debugPrint('EphemeralWebViewBroker: Watchdog timeout (15s) triggered');
           final stuck = _activeWebview;
           _activeWebview = null;
@@ -125,12 +130,14 @@ class EphemeralWebViewBroker {
   /// Executes BotGuard handshake in an isolated, short-lived WebView2 window.
   Future<EphemeralTokenResult?> _runEphemeralBurst(
     String videoId,
-    String sessionId,
-  ) async {
+    String sessionId, {
+    required bool Function() isCancelled,
+  }) async {
     Webview? webview;
     Directory? tempDir;
     try {
       final html = await rootBundle.loadString('assets/po_token.html');
+      if (isCancelled()) return null;
       final patched = html.replaceFirst(
         '</script>',
         '\nwindow.__bgLoaded=true;</script>',
@@ -140,8 +147,10 @@ class EphemeralWebViewBroker {
         '${tempDir.path}${Platform.pathSeparator}po_token.html',
       );
       await file.writeAsString(patched);
+      if (isCancelled()) return null;
 
       final profileFolder = await webviewUserDataFolder('botguard');
+      if (isCancelled()) return null;
       webview = await WebviewWindow.create(
         configuration: CreateConfiguration(
           title: 'LastWave BotGuard',
@@ -156,6 +165,7 @@ class EphemeralWebViewBroker {
               : profileFolder,
         ),
       );
+      if (isCancelled()) return null;
       _activeWebview = webview;
 
       if (Platform.isLinux || Platform.isWindows) {
@@ -244,7 +254,7 @@ class EphemeralWebViewBroker {
       if (identical(_activeWebview, webview)) {
         _activeWebview = null;
       }
-      _teardown(webview);
+      _teardown(webview, immediate: true);
       if (tempDir != null) {
         try {
           tempDir.deleteSync(recursive: true);

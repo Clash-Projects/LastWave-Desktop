@@ -44,6 +44,7 @@ class FlutterWindow : public Win32Window {
   // and Alt-Tab switcher ("lastwave/yt_webview").
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       webview_guard_channel_;
+  HWINEVENTHOOK botguard_event_hook_ = nullptr;
   // Set at the start of OnDestroy: DestroyWindow() re-enters the WndProc
   // via a user-callback while teardown is in flight (release crash
   // flutter_windows+1e220). Once set, messages go to DefWindowProc

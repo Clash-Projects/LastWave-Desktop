@@ -45,6 +45,52 @@ void SetWindowAppUserModelId(HWND hwnd) {
   store->Release();
 }
 
+bool IsBotGuardWindow(HWND hwnd) {
+  if (hwnd == nullptr || !::IsWindow(hwnd)) return false;
+  DWORD pid = 0;
+  ::GetWindowThreadProcessId(hwnd, &pid);
+  if (pid != ::GetCurrentProcessId()) return false;
+  wchar_t title[128]{};
+  int len = ::GetWindowTextW(hwnd, title, 128);
+  if (len <= 0) return false;
+  return wcscmp(title, L"LastWave BotGuard") == 0 ||
+         wcscmp(title, L"LastWave BotGuard Ephemeral") == 0;
+}
+
+void HideBotGuardHwnd(HWND bg) {
+  ::ShowWindow(bg, SW_HIDE);
+  LONG_PTR ex = ::GetWindowLongPtrW(bg, GWL_EXSTYLE);
+  ex = (ex & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+  ::SetWindowLongPtrW(bg, GWL_EXSTYLE, ex);
+  ::SetWindowPos(bg, nullptr, -32000, -32000, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                     SWP_FRAMECHANGED | SWP_HIDEWINDOW);
+}
+
+bool HideAllBotGuardWindows() {
+  bool found = false;
+  ::EnumWindows(
+      [](HWND hwnd, LPARAM lparam) -> BOOL {
+        if (IsBotGuardWindow(hwnd)) {
+          HideBotGuardHwnd(hwnd);
+          *reinterpret_cast<bool*>(lparam) = true;
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&found));
+  return found;
+}
+
+void CALLBACK BotGuardWinEventProc(HWINEVENTHOOK /*hook*/, DWORD event,
+                                   HWND hwnd, LONG id_object, LONG id_child,
+                                   DWORD /*thread*/, DWORD /*time*/) {
+  if (id_object != OBJID_WINDOW || id_child != CHILDID_SELF) return;
+  if (event != EVENT_OBJECT_CREATE && event != EVENT_OBJECT_SHOW) return;
+  if (IsBotGuardWindow(hwnd)) {
+    HideBotGuardHwnd(hwnd);
+  }
+}
+
 }  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -84,6 +130,9 @@ bool FlutterWindow::OnCreate() {
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "lastwave/deeplink",
           &flutter::StandardMethodCodec::GetInstance());
+  botguard_event_hook_ = ::SetWinEventHook(
+      EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, nullptr, &BotGuardWinEventProc,
+      ::GetCurrentProcessId(), 0, WINEVENT_OUTOFCONTEXT);
   webview_guard_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "lastwave/yt_webview",
@@ -93,22 +142,7 @@ bool FlutterWindow::OnCreate() {
          std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
              result) {
         if (call.method_name() == "hideBotGuard") {
-          HWND bg = ::FindWindowW(nullptr, L"LastWave BotGuard");
-          if (bg == nullptr) {
-            bg = ::FindWindowW(nullptr, L"LastWave BotGuard Ephemeral");
-          }
-          if (bg != nullptr) {
-            ::ShowWindow(bg, SW_HIDE);
-            LONG_PTR ex = ::GetWindowLongPtrW(bg, GWL_EXSTYLE);
-            ex = (ex & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
-            ::SetWindowLongPtrW(bg, GWL_EXSTYLE, ex);
-            ::SetWindowPos(bg, nullptr, 0, 0, 0, 0,
-                           SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
-                               SWP_NOACTIVATE | SWP_FRAMECHANGED);
-            result->Success(flutter::EncodableValue(true));
-          } else {
-            result->Success(flutter::EncodableValue(false));
-          }
+          result->Success(flutter::EncodableValue(HideAllBotGuardWindows()));
         } else {
           result->NotImplemented();
         }
@@ -162,6 +196,10 @@ bool FlutterWindow::OnCreate() {
 
 void FlutterWindow::OnDestroy() {
   destroying_ = true;
+  if (botguard_event_hook_ != nullptr) {
+    ::UnhookWinEvent(botguard_event_hook_);
+    botguard_event_hook_ = nullptr;
+  }
   smtc_channel_.reset();
   deeplink_channel_.reset();
   webview_guard_channel_.reset();
