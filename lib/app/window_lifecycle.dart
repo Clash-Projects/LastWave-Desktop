@@ -47,6 +47,9 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     } catch (_) {}
     try {
       windowManager.addListener(this);
+      windowManager.isMaximized().then((m) {
+        if (mounted) ref.read(windowMaximizedProvider.notifier).state = m;
+      }).catchError((_) {});
     } catch (_) {}
     _startMemoryHygiene();
   }
@@ -171,7 +174,33 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
   }
 
   @override
-  void onWindowMaximize() => _setWindowVisible(true);
+  void onWindowMaximize() {
+    _setWindowVisible(true);
+    try {
+      ref.read(windowMaximizedProvider.notifier).state = true;
+    } catch (_) {}
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    try {
+      ref.read(windowMaximizedProvider.notifier).state = false;
+    } catch (_) {}
+  }
+
+  @override
+  void onWindowEnterFullScreen() {
+    try {
+      ref.read(windowMaximizedProvider.notifier).state = true;
+    } catch (_) {}
+  }
+
+  @override
+  void onWindowLeaveFullScreen() {
+    try {
+      ref.read(windowMaximizedProvider.notifier).state = false;
+    } catch (_) {}
+  }
 
   /// A window that takes focus is on screen. Only repairs a stale
   /// "hidden" flag — e.g. Linux MPRIS `Raise` shows the window from the
@@ -249,3 +278,6 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
 /// never touch this. Playback state always keeps flowing. Defaults true
 /// (window.dart shows at launch).
 final windowVisibleProvider = StateProvider<bool>((ref) => true);
+
+/// True while the window is maximized or fullscreen (disables edge resize handles).
+final windowMaximizedProvider = StateProvider<bool>((ref) => false);
