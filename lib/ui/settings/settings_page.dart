@@ -29,6 +29,7 @@ import '../../features/innertube/yt_library_providers.dart';
 import '../../features/innertube/yt_session_keeper.dart';
 import '../../features/innertube/yt_web_login.dart';
 import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
+import '../app_shell/title_bar.dart' show searchBarPositionProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
 import '../now_playing/immersive.dart' show nowPlayingAutoHideSecondsProvider;
@@ -47,8 +48,6 @@ import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
-import '../../features/equalizer/equalizer_controller.dart';
-import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/equalizer/headphone_profiles.dart';
 import '../../features/player/loudness.dart';
@@ -1113,6 +1112,34 @@ class _Appearance extends ConsumerWidget {
           title: 'Now Playing style',
           subtitle: 'Layout and presentation for the player screen',
           child: NowPlayingStylePicker(),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'appearance.search_bar_position',
+          title: 'Search bar placement',
+          subtitle:
+              'Position of the search box in the top title bar navigation',
+          child: Row(
+            children: [
+              for (final (pos, label) in const [
+                ('left', 'Left'),
+                ('center', 'Center'),
+                ('right', 'Right'),
+                ('icon', 'Icon only'),
+              ]) ...[
+                if (pos != 'left') const SizedBox(width: 8),
+                Expanded(
+                  child: ToggleButton(
+                    checked: ref.watch(searchBarPositionProvider) == pos,
+                    onChanged: (_) => ref
+                        .read(searchBarPositionProvider.notifier)
+                        .setPosition(pos),
+                    child: Text(label),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
         const SizedBox(height: 8),
         _Group(
