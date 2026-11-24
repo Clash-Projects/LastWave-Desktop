@@ -333,67 +333,72 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           // on every toolbar popup. The app is opaque dark anyway, so
           // solid flyouts read identically. (Own haze system untouched.)
           builder: (context, child) {
-            final page = child ?? const SizedBox.shrink();
-            final directed = Directionality(
-              textDirection:
-                  lang.isRtl ? TextDirection.rtl : TextDirection.ltr,
-              child: page,
-            );
-            final content = DisableAcrylic(
-              child: effectiveGlass
-                  ? WaveGlassStage(
-                      veil: base.background,
-                      light: light,
-                      accent: accent,
-                      flavor: theme.isArtwork
-                          ? GlassFlavor.artwork
-                          : theme.isCustom
-                              ? GlassFlavor.custom
-                              : GlassFlavor.midnight,
-                      child: directed,
-                    )
-                  : directed,
-            );
+            return Consumer(
+              builder: (context, ref, _) {
+                final page = child ?? const SizedBox.shrink();
+                final directed = Directionality(
+                  textDirection:
+                      lang.isRtl ? TextDirection.rtl : TextDirection.ltr,
+                  child: page,
+                );
+                final content = DisableAcrylic(
+                  child: effectiveGlass
+                      ? WaveGlassStage(
+                          veil: base.background,
+                          light: light,
+                          accent: accent,
+                          flavor: theme.isArtwork
+                              ? GlassFlavor.artwork
+                              : theme.isCustom
+                                  ? GlassFlavor.custom
+                                  : GlassFlavor.midnight,
+                          child: directed,
+                        )
+                      : directed,
+                );
 
-            final uiScale = ref.watch(uiScaleProvider);
-            Widget root = content;
-            if ((uiScale - 1.0).abs() >= 0.001) {
-              root = LayoutBuilder(
-                builder: (context, constraints) {
-                  final scaledW = constraints.maxWidth / uiScale;
-                  final scaledH = constraints.maxHeight / uiScale;
-                  return Transform.scale(
-                    scale: uiScale,
-                    alignment: Alignment.topLeft,
-                    child: OverflowBox(
-                      alignment: Alignment.topLeft,
-                      minWidth: scaledW,
-                      maxWidth: scaledW,
-                      minHeight: scaledH,
-                      maxHeight: scaledH,
-                      child: MediaQuery(
-                        data: MediaQuery.of(context).copyWith(
-                          size: Size(scaledW, scaledH),
+                final uiScale = ref.watch(uiScaleProvider);
+                Widget root = content;
+                if ((uiScale - 1.0).abs() >= 0.001) {
+                  root = LayoutBuilder(
+                    builder: (context, constraints) {
+                      final scaledW = constraints.maxWidth / uiScale;
+                      final scaledH = constraints.maxHeight / uiScale;
+                      return Transform.scale(
+                        key: const ValueKey('wave-ui-scale-transform'),
+                        scale: uiScale,
+                        alignment: Alignment.topLeft,
+                        child: OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: scaledW,
+                          maxWidth: scaledW,
+                          minHeight: scaledH,
+                          maxHeight: scaledH,
+                          child: MediaQuery(
+                            data: MediaQuery.of(context).copyWith(
+                              size: Size(scaledW, scaledH),
+                            ),
+                            child: content,
+                          ),
                         ),
-                        child: content,
-                      ),
-                    ),
+                      );
+                    },
                   );
-                },
-              );
-            }
+                }
 
-            if (Platform.isLinux) {
-              final isMaximized = ref.watch(windowMaximizedProvider);
-              return WaveWindowResizeArea(
-                enabled: !isMaximized,
-                edgeSize: 4.0,
-                cornerSize: 14.0,
-                child: root,
-              );
-            }
+                if (Platform.isLinux) {
+                  final isMaximized = ref.watch(windowMaximizedProvider);
+                  return WaveWindowResizeArea(
+                    enabled: !isMaximized,
+                    edgeSize: 4.0,
+                    cornerSize: 14.0,
+                    child: root,
+                  );
+                }
 
-            return root;
+                return root;
+              },
+            );
           },
         ),
       ),

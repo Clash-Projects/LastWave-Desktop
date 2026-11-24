@@ -229,5 +229,62 @@ void main() {
       // Right edge must be exactly at or within window right bound (1024.0)
       expect(rightEdge, closeTo(1024.0, 0.5));
     });
+
+    testWidgets('Real-time reactivity: uiScaleProvider updates transform dynamically without app restart', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final localPrefs = await Prefs.load();
+      final container = ProviderContainer(
+        overrides: [
+          prefsProvider.overrideWithValue(localPrefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: FluentApp(
+            builder: (context, child) {
+              return Consumer(
+                builder: (context, ref, _) {
+                  final uiScale = ref.watch(uiScaleProvider);
+                  Widget root = child ?? const SizedBox();
+                  if ((uiScale - 1.0).abs() >= 0.001) {
+                    root = Transform.scale(
+                      key: const ValueKey('wave-ui-scale-transform'),
+                      scale: uiScale,
+                      child: root,
+                    );
+                  }
+                  return root;
+                },
+              );
+            },
+            home: const SizedBox(key: ValueKey('test-home')),
+          ),
+        ),
+      );
+
+      final transformFinder = find.byKey(const ValueKey('wave-ui-scale-transform'));
+
+      // Initially at 1.0 (standard): no scale transform applied
+      expect(transformFinder, findsNothing);
+
+      // Change scale in real-time
+      await container.read(uiScaleProvider.notifier).setScale(1.25);
+      await tester.pump();
+
+      // Instantly renders with Transform scale 1.25 without app restart
+      expect(transformFinder, findsOneWidget);
+      final Transform transformWidget = tester.widget(transformFinder);
+      expect(transformWidget.transform.getMaxScaleOnAxis(), closeTo(1.25, 0.001));
+
+      // Reset in real-time
+      await container.read(uiScaleProvider.notifier).reset();
+      await tester.pump();
+
+      // Transform removed immediately
+      expect(transformFinder, findsNothing);
+    });
   });
 }
