@@ -131,8 +131,9 @@ void main() {
     await prefs.setSearchBarPosition('center');
     await tester.pumpWidget(createSubject());
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('drag_center_left')), findsOneWidget);
-    expect(find.byKey(const ValueKey('drag_center_right')), findsOneWidget);
+    expect(find.byKey(const ValueKey('drag_center')), findsOneWidget);
+    expect(find.text('Search'), findsOneWidget);
+    expect(find.byTooltip('Commands (Ctrl+K)'), findsOneWidget);
 
     // 3. Right placement
     await prefs.setSearchBarPosition('right');

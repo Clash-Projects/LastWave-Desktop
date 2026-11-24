@@ -285,19 +285,28 @@ class _WaveTitleBarState extends ConsumerState<WaveTitleBar> {
 
             final effectivePos = compact ? 'left' : searchPos;
 
+            if (effectivePos == 'center') {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  Row(
+                    children: [
+                      ...navButtons,
+                      dragArea(const ValueKey('drag_center')),
+                      commandsBtn,
+                      const SizedBox(width: 6),
+                      ...rightActions,
+                    ],
+                  ),
+                  Center(
+                    child: searchWidget,
+                  ),
+                ],
+              );
+            }
+
             final List<Widget> rowChildren;
             switch (effectivePos) {
-              case 'center':
-                rowChildren = [
-                  ...navButtons,
-                  dragArea(const ValueKey('drag_center_left')),
-                  searchWidget,
-                  const SizedBox(width: 4),
-                  commandsBtn,
-                  dragArea(const ValueKey('drag_center_right')),
-                  ...rightActions,
-                ];
-                break;
               case 'right':
                 rowChildren = [
                   ...navButtons,
