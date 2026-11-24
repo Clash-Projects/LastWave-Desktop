@@ -3296,11 +3296,13 @@ class _AboutState extends ConsumerState<_About> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 1. Android-identical Hero branding card
-        AboutHeroCard(
+    return SettingsTarget(
+      id: 'about.main',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Android-identical Hero branding card
+          AboutHeroCard(
           appVersion: appVersion,
           onDownloadMobile: () =>
               _open('https://github.com/Clash-Projects/LastWave-native'),
@@ -3429,8 +3431,9 @@ class _AboutState extends ConsumerState<_About> {
         // 4. Contributors & Team (Collapsible accordion)
         const ContributorsExpander(),
       ],
-    );
-  }
+    ),
+  );
+}
 }
 
 class _General extends ConsumerWidget {
