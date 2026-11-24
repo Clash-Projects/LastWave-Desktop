@@ -1111,7 +1111,8 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     // Devanagari headline bar) neighbouring glyphs then overlap, and the
     // translucent idle colour composites twice there — bright dots at
     // every join. Those scripts keep their natural advance.
-    final tracking = isJoinedScript(widget.line.text) ? 0.0 : -0.3;
+    final joined = isJoinedScript(widget.line.text);
+    final baseTracking = joined ? 0.0 : -0.3;
 
     final activeTextColor = dark
         ? const Color(0xFFF6F4EF)
@@ -1120,6 +1121,27 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
         (dark ? const Color(0xFFF6F4EF) : const Color(0xFF18181B)).withValues(
           alpha: widget.softenIdle ? (widget.isPast ? 0.38 : 0.44) : 0.92,
         );
+
+    // Style-specific typography (shared between active & unsung active styles
+    // so font metrics stay 100% identical with zero per-word jitter).
+    final FontWeight activeWeight = switch (widget.animationStyle) {
+      'kinetic_pop' => FontWeight.w900,
+      'neon_cyber' || 'glitch_snap' || 'elastic_tilt' => FontWeight.w800,
+      _ => FontWeight.w700,
+    };
+    final FontStyle activeFontStyle = widget.animationStyle == 'italic_wave'
+        ? FontStyle.italic
+        : FontStyle.normal;
+    final double activeTracking = joined
+        ? 0.0
+        : switch (widget.animationStyle) {
+            'kinetic_pop' => -0.8,
+            'neon_cyber' => 0.85,
+            'italic_wave' => 0.45,
+            'glitch_snap' => 0.35,
+            'elastic_tilt' => -0.5,
+            _ => baseTracking,
+          };
 
     List<Shadow>? activeShadows;
     if (widget.isActive) {
@@ -1159,6 +1181,76 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
             ),
           ];
           break;
+        case 'kinetic_pop':
+          // Punchy editorial drop-depth shadow:
+          activeShadows = [
+            Shadow(
+              color: Colors.black.withValues(alpha: dark ? 0.55 : 0.22),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+            Shadow(
+              color: activeTextColor.withValues(alpha: dark ? 0.28 : 0.14),
+              blurRadius: 6,
+              offset: Offset.zero,
+            ),
+          ];
+          break;
+        case 'neon_cyber':
+          // Dual-layer accent-lit neon bloom:
+          activeShadows = [
+            Shadow(
+              color: accent.withValues(alpha: dark ? 0.90 : 0.65),
+              blurRadius: 10,
+              offset: Offset.zero,
+            ),
+            Shadow(
+              color: accent.withValues(alpha: dark ? 0.55 : 0.35),
+              blurRadius: 24,
+              offset: Offset.zero,
+            ),
+          ];
+          break;
+        case 'italic_wave':
+          // Warm silk luminous halo:
+          activeShadows = [
+            Shadow(
+              color: activeTextColor.withValues(alpha: dark ? 0.45 : 0.22),
+              blurRadius: 14,
+              offset: const Offset(0, 1),
+            ),
+          ];
+          break;
+        case 'glitch_snap':
+          // Zero-shader RGB chromatic split (cyan left, magenta right):
+          activeShadows = [
+            Shadow(
+              color: const Color(0xFF00F0FF).withValues(alpha: dark ? 0.80 : 0.65),
+              blurRadius: 1.5,
+              offset: const Offset(-2.2, 0),
+            ),
+            Shadow(
+              color: const Color(0xFFFF2A85).withValues(alpha: dark ? 0.80 : 0.65),
+              blurRadius: 1.5,
+              offset: const Offset(2.2, 0),
+            ),
+          ];
+          break;
+        case 'elastic_tilt':
+          // Dramatic stage rim + depth shadow:
+          activeShadows = [
+            Shadow(
+              color: accent.withValues(alpha: dark ? 0.50 : 0.30),
+              blurRadius: 14,
+              offset: Offset.zero,
+            ),
+            Shadow(
+              color: Colors.black.withValues(alpha: dark ? 0.50 : 0.20),
+              blurRadius: 12,
+              offset: const Offset(2, 5),
+            ),
+          ];
+          break;
         case 'smooth_fade':
         default:
           activeShadows = null;
@@ -1168,10 +1260,11 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
 
     final activeStyle = TextStyle(
       fontSize: baseFontSize,
-      fontWeight: FontWeight.w700,
+      fontWeight: activeWeight,
+      fontStyle: activeFontStyle,
       color: activeTextColor,
       height: 1.42,
-      letterSpacing: tracking,
+      letterSpacing: activeTracking,
       shadows: activeShadows,
     );
 
@@ -1183,21 +1276,25 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     // frame the wipe front arrived — a visible dark flash per word.
     final activeUnsungStyle = TextStyle(
       fontSize: baseFontSize,
-      fontWeight: FontWeight.w700,
+      fontWeight: activeWeight,
+      fontStyle: activeFontStyle,
       color: activeTextColor.withValues(alpha: 0.38),
       height: 1.42,
-      letterSpacing: tracking,
+      letterSpacing: activeTracking,
       shadows: const [],
     );
 
     final idleStyle = TextStyle(
       fontSize: baseFontSize,
       fontWeight: FontWeight.w600,
+      fontStyle: widget.animationStyle == 'italic_wave'
+          ? FontStyle.italic
+          : FontStyle.normal,
       color: _isHovered
           ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.88)
           : idleTextColor,
       height: 1.42,
-      letterSpacing: tracking,
+      letterSpacing: baseTracking,
     );
 
     Widget content;
@@ -1353,12 +1450,23 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
             onEnter: (_) => setState(() => _isHovered = true),
             onExit: (_) => setState(() => _isHovered = false),
             child: AnimatedContainer(
-              duration: waveMotion(context, WaveMotion.normal),
-              curve: Curves.easeOutCubic,
-              transform: Matrix4.diagonal3Values(
-                widget.isActive ? 1.025 : 1.0,
-                widget.isActive ? 1.025 : 1.0,
-                1.0,
+              duration: waveMotion(
+                context,
+                switch (widget.animationStyle) {
+                  'glitch_snap' => const Duration(milliseconds: 170),
+                  'kinetic_pop' || 'elastic_tilt' => const Duration(milliseconds: 340),
+                  _ => WaveMotion.normal,
+                },
+              ),
+              curve: switch (widget.animationStyle) {
+                'kinetic_pop' || 'elastic_tilt' => Curves.easeOutBack,
+                'glitch_snap' => Curves.easeOutExpo,
+                _ => Curves.easeOutCubic,
+              },
+              transform: _activeLineTransform(
+                widget.animationStyle,
+                widget.isActive,
+                widget.line.isRtl,
               ),
               padding: EdgeInsets.symmetric(
                 horizontal: widget.compact ? 8 : 12,
@@ -1378,6 +1486,36 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
         ),
       ),
     );
+  }
+}
+
+/// GPU-only Matrix4 transform for the active lyric line (zero extra layers/CPU).
+Matrix4 _activeLineTransform(String style, bool isActive, bool isRtl) {
+  if (!isActive) return Matrix4.identity();
+  final dir = isRtl ? -1.0 : 1.0;
+  switch (style) {
+    case 'kinetic_pop':
+      return Matrix4.diagonal3Values(1.055, 1.055, 1.0)
+        ..setEntry(0, 3, 6.0 * dir);
+    case 'neon_cyber':
+      return Matrix4.diagonal3Values(1.035, 1.035, 1.0)
+        ..setEntry(0, 1, -0.065 * dir)
+        ..setEntry(0, 3, 4.0 * dir);
+    case 'italic_wave':
+      return Matrix4.diagonal3Values(1.035, 1.035, 1.0)
+        ..setEntry(0, 3, 7.0 * dir)
+        ..setEntry(1, 3, -2.0);
+    case 'glitch_snap':
+      return Matrix4.diagonal3Values(1.04, 1.04, 1.0)
+        ..setEntry(0, 3, 3.0 * dir);
+    case 'elastic_tilt':
+      final m = Matrix4.identity()
+        ..setEntry(3, 2, 0.0012)
+        ..rotateY(-0.075 * dir);
+      m.multiply(Matrix4.diagonal3Values(1.05, 1.05, 1.0));
+      return m;
+    default:
+      return Matrix4.diagonal3Values(1.025, 1.025, 1.0);
   }
 }
 
@@ -1702,23 +1840,76 @@ class _KaraokeSyllablePainter extends CustomPainter {
     Rect dirRect(double s0, double s1) {
       if (s1 - s0 < 0.05) return Rect.zero;
       return isRtl
-          ? Rect.fromLTRB(width - s1, -12, width - s0, size.height + 12)
-          : Rect.fromLTRB(s0, -12, s1, size.height + 12);
+          ? Rect.fromLTRB(width - s1, -20, width - s0, size.height + 20)
+          : Rect.fromLTRB(s0, -20, s1, size.height + 20);
     }
 
     double liftY = 0.0;
+    double shiftX = 0.0;
+    double scale = 1.0;
+    double angle = 0.0;
+    double skewX = 0.0;
     if (progress > 0.0 && progress < 1.0) {
       final bounce = math.sin(math.pi * progress);
-      if (animationStyle == 'karaoke_bounce') {
-        liftY = -2.8 * bounce;
-      } else if (animationStyle == 'apple_fluid') {
-        liftY = -1.2 * bounce;
+      switch (animationStyle) {
+        case 'karaoke_bounce':
+          liftY = -2.8 * bounce;
+          break;
+        case 'apple_fluid':
+          liftY = -1.2 * bounce;
+          break;
+        case 'kinetic_pop':
+          // Bold spring pop around syllable center + punchy upward leap.
+          liftY = -5.2 * bounce;
+          scale = 1.0 + 0.13 * bounce;
+          break;
+        case 'neon_cyber':
+          // Forward speed slant + electric surge lift on syllable ignition.
+          liftY = -3.4 * bounce;
+          skewX = -0.11 * bounce;
+          scale = 1.0 + 0.05 * bounce;
+          break;
+        case 'italic_wave':
+          // Liquid silk tilt wave rippling across each syllable.
+          liftY = -3.8 * bounce;
+          angle = -0.045 * math.sin(2 * math.pi * progress);
+          break;
+        case 'glitch_snap':
+          // Crisp quantized digital micro-snap on attack, locking steady fast.
+          if (progress < 0.65) {
+            final step = ((progress * 10).floor().isEven ? 1.0 : -1.0);
+            final decay = 1.0 - (progress / 0.65);
+            shiftX = step * 1.8 * decay;
+            liftY = -2.8 * decay;
+          }
+          break;
+        case 'elastic_tilt':
+          // Overshoot spring scale + playful twist arc.
+          liftY = -4.2 * bounce;
+          scale = 1.0 + 0.10 * bounce;
+          angle = 0.032 * math.sin(2 * math.pi * progress);
+          break;
+      }
+    }
+
+    void applySyllableTransform() {
+      final cx = width * 0.5;
+      final cy = size.height * 0.5;
+      if (shiftX != 0.0 || liftY != 0.0) {
+        canvas.translate(shiftX, liftY);
+      }
+      if (scale != 1.0 || angle != 0.0 || skewX != 0.0) {
+        canvas.translate(cx, cy);
+        if (angle != 0.0) canvas.rotate(angle);
+        if (skewX != 0.0) canvas.skew(skewX, 0.0);
+        if (scale != 1.0) canvas.scale(scale, scale);
+        canvas.translate(-cx, -cy);
       }
     }
 
     if (inner > 0.05) {
       canvas.save();
-      if (liftY != 0.0) canvas.translate(0, liftY);
+      applySyllableTransform();
       canvas.clipRect(dirRect(0, inner));
       activePainter.paint(canvas, Offset.zero);
       canvas.restore();
@@ -1732,7 +1923,7 @@ class _KaraokeSyllablePainter extends CustomPainter {
         final rect = dirRect(s0, s1);
         if (rect == Rect.zero) continue;
         canvas.save();
-        if (liftY != 0.0) canvas.translate(0, liftY);
+        applySyllableTransform();
         canvas.clipRect(rect);
         featherPainters[j].paint(canvas, Offset.zero);
         canvas.restore();

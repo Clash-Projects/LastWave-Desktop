@@ -152,6 +152,42 @@ class DesktopKaraokeLinePainter extends CustomPainter {
     // 2. Compute smooth horizontal sweep coordinate and syllable lift
     double sweepX = 0.0;
     double liftY = 0.0;
+    double shiftX = 0.0;
+    double skewX = 0.0;
+
+    void applyMotion(double progress, double scaleFactor) {
+      if (!springLift || progress <= 0.0 || progress >= 1.0) return;
+      final bounce = math.sin(math.pi * progress);
+      switch (animationStyle) {
+        case 'karaoke_bounce':
+          liftY = -3.0 * scaleFactor * bounce;
+          break;
+        case 'apple_fluid':
+          liftY = -1.5 * scaleFactor * bounce;
+          break;
+        case 'kinetic_pop':
+          liftY = -5.0 * scaleFactor * bounce;
+          break;
+        case 'neon_cyber':
+          liftY = -3.2 * scaleFactor * bounce;
+          skewX = -0.09 * bounce;
+          break;
+        case 'italic_wave':
+          liftY = -3.6 * scaleFactor * bounce;
+          break;
+        case 'glitch_snap':
+          if (progress < 0.65) {
+            final step = ((progress * 10).floor().isEven ? 1.0 : -1.0);
+            final decay = 1.0 - (progress / 0.65);
+            shiftX = step * 1.8 * decay;
+            liftY = -2.6 * decay;
+          }
+          break;
+        case 'elastic_tilt':
+          liftY = -4.0 * scaleFactor * bounce;
+          break;
+      }
+    }
 
     if (posMs >= line.timeMs + line.durationMs) {
       sweepX = layout.width;
@@ -168,13 +204,7 @@ class DesktopKaraokeLinePainter extends CustomPainter {
         } else if (posMs >= syl.timeMs) {
           final progress = ((posMs - syl.timeMs) / (sylEnd - syl.timeMs)).clamp(0.0, 1.0);
           sweepX = startX + progress * (endX - startX);
-          if (springLift) {
-            if (animationStyle == 'karaoke_bounce') {
-              liftY = -3.0 * math.sin(math.pi * progress);
-            } else if (animationStyle == 'apple_fluid') {
-              liftY = -1.5 * math.sin(math.pi * progress);
-            }
-          }
+          applyMotion(progress, 1.0);
           break;
         }
       }
@@ -182,13 +212,7 @@ class DesktopKaraokeLinePainter extends CustomPainter {
       final dur = math.max(1, line.durationMs);
       final progress = ((posMs - line.timeMs) / dur).clamp(0.0, 1.0);
       sweepX = progress * layout.width;
-      if (springLift && progress > 0.0 && progress < 1.0) {
-        if (animationStyle == 'karaoke_bounce') {
-          liftY = -2.0 * math.sin(math.pi * progress);
-        } else if (animationStyle == 'apple_fluid') {
-          liftY = -1.0 * math.sin(math.pi * progress);
-        }
-      }
+      applyMotion(progress, 0.7);
     }
 
     if (sweepX <= 0.0) return;
@@ -196,13 +220,16 @@ class DesktopKaraokeLinePainter extends CustomPainter {
     // 3. Draw active text clipped by sweepX
     canvas.save();
     if (isRtl) {
-      canvas.clipRect(Rect.fromLTWH(layout.width - sweepX, -12, sweepX, layout.height + 24));
+      canvas.clipRect(Rect.fromLTWH(layout.width - sweepX, -14, sweepX, layout.height + 28));
     } else {
-      canvas.clipRect(Rect.fromLTWH(0, -12, sweepX, layout.height + 24));
+      canvas.clipRect(Rect.fromLTWH(0, -14, sweepX, layout.height + 28));
     }
 
-    if (liftY != 0.0) {
-      canvas.translate(0, liftY);
+    if (shiftX != 0.0 || liftY != 0.0) {
+      canvas.translate(shiftX, liftY);
+    }
+    if (skewX != 0.0) {
+      canvas.skew(skewX, 0.0);
     }
 
     canvas.drawParagraph(layout.activeParagraph, Offset.zero);

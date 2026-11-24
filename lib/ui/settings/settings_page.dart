@@ -1565,6 +1565,16 @@ class _Lyrics extends ConsumerWidget {
               'glow_pulse' =>
                 'Rich centered radial glow bloom with steady alignment',
               'karaoke_bounce' => 'Energetic rhythmic syllable bounce',
+              'kinetic_pop' =>
+                'Ultra-bold punchy type with spring-popping syllables',
+              'neon_cyber' =>
+                'Accent-lit cyberpunk neon glow with forward kinetic slant',
+              'italic_wave' =>
+                'Expressive luxury italic type rippling like a liquid wave',
+              'glitch_snap' =>
+                'RGB chromatic split with crisp digital snap-in pulses',
+              'elastic_tilt' =>
+                '3D perspective stage lean with elastic overshoot motion',
               'smooth_fade' => 'Minimalist clean highlight without motion',
               _ => 'Smooth fluid syllable wipe with gentle micro-float',
             },
