@@ -29,6 +29,24 @@ import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
 import '../theme/wave_icons.dart';
 
+/// Reactive titlebar style provider. Reflects user choice: 'custom' or 'system'.
+final titlebarStyleProvider =
+    StateNotifierProvider<TitlebarStyleNotifier, String>((ref) {
+  return TitlebarStyleNotifier(ref.watch(prefsProvider));
+});
+
+class TitlebarStyleNotifier extends StateNotifier<String> {
+  final Prefs _prefs;
+  TitlebarStyleNotifier(this._prefs) : super(_prefs.titlebarStyle);
+
+  Future<void> set(String style) async {
+    final normalized = Prefs.titlebarStyles.contains(style) ? style : 'custom';
+    if (state == normalized) return;
+    state = normalized;
+    await _prefs.setTitlebarStyle(normalized);
+  }
+}
+
 /// Compact 44px title / nav / search bar.
 ///
 /// Left: back · forward
@@ -63,7 +81,7 @@ class WaveTitleBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
     final auth = ref.watch(authRepositoryProvider);
-    final titlebarStyle = ref.watch(prefsProvider).titlebarStyle;
+    final titlebarStyle = ref.watch(titlebarStyleProvider);
     return WaveHaze(
       level: LwHazeLevel.l1,
       enableBlur: false,

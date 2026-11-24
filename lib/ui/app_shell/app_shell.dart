@@ -205,6 +205,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   Widget? _titleBarCache;
   bool _titleCanBack = false;
   bool _titleCanForward = false;
+  String? _titleStyle;
   // Memoized dock (glyphs + cover art): same instance across
   // navigations so the element skips it. The cache key covers everything
   // behaviorally relevant.
@@ -262,13 +263,15 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 
   /// Cached title bar: same instance across navigations so the element
   /// skips it (no search-box reconstruction). Rebuilt only when the
-  /// back/forward ability flips.
-  Widget _titleBarFor(bool canGoBack, bool canGoForward) {
+  /// back/forward ability or titlebar style flips.
+  Widget _titleBarFor(bool canGoBack, bool canGoForward, String titleStyle) {
     if (_titleBarCache == null ||
         _titleCanBack != canGoBack ||
-        _titleCanForward != canGoForward) {
+        _titleCanForward != canGoForward ||
+        _titleStyle != titleStyle) {
       _titleCanBack = canGoBack;
       _titleCanForward = canGoForward;
+      _titleStyle = titleStyle;
       _titleBarCache = WaveTitleBar(
         searchController: _searchController,
         searchFocus: _searchFocus,
@@ -740,6 +743,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     final isNowPlaying = routePath.startsWith('/now');
     final immersive =
         ref.watch(nowPlayingImmersiveProvider) && isNowPlaying;
+    final titlebarStyle = ref.watch(titlebarStyleProvider);
     // Immersive only lives on Now Playing: leaving the route resets it.
     if (!isNowPlaying && ref.read(nowPlayingImmersiveProvider)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -859,7 +863,11 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         child: Column(
           children: [
             if (!immersive) ...[
-              _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
+              _titleBarFor(
+                _backStack.isNotEmpty,
+                _forwardStack.isNotEmpty,
+                titlebarStyle,
+              ),
               const WaveInfoBarHost(),
             ],
             // Overlay rail: the content below keeps full width and the

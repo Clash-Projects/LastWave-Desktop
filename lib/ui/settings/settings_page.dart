@@ -32,6 +32,7 @@ import '../../features/innertube/yt_web_login.dart';
 import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
+import '../app_shell/title_bar.dart' show titlebarStyleProvider;
 import '../now_playing/immersive.dart' show nowPlayingAutoHideSecondsProvider;
 import 'now_playing_style_picker.dart';
 import 'yt_profile_chooser.dart';
@@ -1204,13 +1205,13 @@ class _Appearance extends ConsumerWidget {
           child: _BehaviourSelectRow(
             title: 'Titlebar',
             subtitle: '',
-            value: prefs.titlebarStyle,
+            value: ref.watch(titlebarStyleProvider),
             options: const [
               WaveSelectOption(value: 'custom', label: 'Custom (app-drawn)'),
               WaveSelectOption(value: 'system', label: 'System decorations'),
             ],
             onChanged: (v) async {
-              await onUpdate((p) => p.setTitlebarStyle(v));
+              await ref.read(titlebarStyleProvider.notifier).set(v);
               await applyTitlebarStyle(v);
             },
           ),

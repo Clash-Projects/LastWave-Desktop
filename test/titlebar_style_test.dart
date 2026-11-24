@@ -139,5 +139,61 @@ void main() {
       expect(find.byTooltip('Minimize'), findsNothing);
       expect(find.byTooltip('Close'), findsNothing);
     });
+
+    testWidgets(
+        'dynamically toggles window buttons when style switches at runtime',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({'lw_titlebar_style': 'custom'});
+      final prefs = await Prefs.load();
+      final db = AppDatabase.inMemory();
+      addTearDown(db.close);
+
+      late WidgetRef capturedRef;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            prefsProvider.overrideWithValue(prefs),
+            databaseProvider.overrideWithValue(db),
+          ],
+          child: FluentApp(
+            home: Consumer(
+              builder: (context, ref, _) {
+                capturedRef = ref;
+                return ScaffoldPage(
+                  content: WaveTitleBar(
+                    searchController: TextEditingController(),
+                    searchFocus: FocusNode(),
+                    onSearchSubmit: (_) {},
+                    onGo: (_) {},
+                    onPalette: () {},
+                    onToggleRail: () {},
+                    canGoBack: false,
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      if (!Platform.isMacOS) {
+        expect(find.byTooltip('Minimize'), findsOneWidget);
+      }
+
+      // Switch to system decorations at runtime
+      await capturedRef.read(titlebarStyleProvider.notifier).set('system');
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Minimize'), findsNothing);
+
+      // Switch back to custom at runtime
+      await capturedRef.read(titlebarStyleProvider.notifier).set('custom');
+      await tester.pumpAndSettle();
+
+      if (!Platform.isMacOS) {
+        expect(find.byTooltip('Minimize'), findsOneWidget);
+      }
+    });
   });
 }

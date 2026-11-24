@@ -16,6 +16,7 @@ import '../../core/l10n/app_language.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/lastfm/auth_repository.dart';
+import '../../ui/app_shell/title_bar.dart' show titlebarStyleProvider;
 import '../../ui/app_shell/wave_resize_area.dart';
 import '../../ui/theme/fluent_theme.dart';
 import '../../ui/components/glass_stage.dart';
@@ -377,7 +378,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
             if (Platform.isLinux) {
               final isMaximized = ref.watch(windowMaximizedProvider);
               final isSystemDeco =
-                  ref.watch(prefsProvider).titlebarStyle == 'system';
+                  ref.watch(titlebarStyleProvider) == 'system';
               return WaveWindowResizeArea(
                 enabled: !isMaximized && !isSystemDeco,
                 edgeSize: 4.0,
