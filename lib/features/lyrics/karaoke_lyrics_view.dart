@@ -1122,24 +1122,23 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
           alpha: widget.softenIdle ? (widget.isPast ? 0.38 : 0.44) : 0.92,
         );
 
-    // Style-specific typography (shared between active & unsung active styles
-    // so font metrics stay 100% identical with zero per-word jitter).
-    final FontWeight activeWeight = switch (widget.animationStyle) {
-      'kinetic_pop' => FontWeight.w900,
-      'neon_cyber' || 'glitch_snap' || 'elastic_tilt' => FontWeight.w800,
+    // Style-specific typography shared identically across idle, active-unsung,
+    // and active styles so font metrics never snap or re-wrap lines on switch.
+    final FontWeight lineWeight = switch (widget.animationStyle) {
+      'kinetic_pop' || 'glitch_snap' || 'elastic_tilt' => FontWeight.w800,
       _ => FontWeight.w700,
     };
-    final FontStyle activeFontStyle = widget.animationStyle == 'italic_wave'
+    final FontStyle lineFontStyle = widget.animationStyle == 'italic_wave'
         ? FontStyle.italic
         : FontStyle.normal;
-    final double activeTracking = joined
+    final double lineTracking = joined
         ? 0.0
         : switch (widget.animationStyle) {
-            'kinetic_pop' => -0.8,
-            'neon_cyber' => 0.85,
-            'italic_wave' => 0.45,
-            'glitch_snap' => 0.35,
-            'elastic_tilt' => -0.5,
+            'kinetic_pop' => -0.5,
+            'neon_cyber' => 0.55,
+            'italic_wave' => 0.35,
+            'glitch_snap' => 0.25,
+            'elastic_tilt' => -0.4,
             _ => baseTracking,
           };
 
@@ -1260,11 +1259,11 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
 
     final activeStyle = TextStyle(
       fontSize: baseFontSize,
-      fontWeight: activeWeight,
-      fontStyle: activeFontStyle,
+      fontWeight: lineWeight,
+      fontStyle: lineFontStyle,
       color: activeTextColor,
       height: 1.42,
-      letterSpacing: activeTracking,
+      letterSpacing: lineTracking,
       shadows: activeShadows,
     );
 
@@ -1276,25 +1275,23 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     // frame the wipe front arrived — a visible dark flash per word.
     final activeUnsungStyle = TextStyle(
       fontSize: baseFontSize,
-      fontWeight: activeWeight,
-      fontStyle: activeFontStyle,
+      fontWeight: lineWeight,
+      fontStyle: lineFontStyle,
       color: activeTextColor.withValues(alpha: 0.38),
       height: 1.42,
-      letterSpacing: activeTracking,
+      letterSpacing: lineTracking,
       shadows: const [],
     );
 
     final idleStyle = TextStyle(
       fontSize: baseFontSize,
-      fontWeight: FontWeight.w600,
-      fontStyle: widget.animationStyle == 'italic_wave'
-          ? FontStyle.italic
-          : FontStyle.normal,
+      fontWeight: lineWeight,
+      fontStyle: lineFontStyle,
       color: _isHovered
           ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.88)
           : idleTextColor,
       height: 1.42,
-      letterSpacing: baseTracking,
+      letterSpacing: lineTracking,
     );
 
     Widget content;

@@ -225,6 +225,7 @@ class _NowPlayingOverflowMenuContent extends ConsumerStatefulWidget {
 class _NowPlayingOverflowMenuContentState
     extends ConsumerState<_NowPlayingOverflowMenuContent> {
   _CascadingSubmenuRowState? _openSubmenu;
+  Timer? _submenuCloseTimer;
   late bool _lyricsVisible;
   late bool _focusMode;
 
@@ -235,17 +236,41 @@ class _NowPlayingOverflowMenuContentState
     _focusMode = widget.focusMode;
   }
 
+  @override
+  void dispose() {
+    _submenuCloseTimer?.cancel();
+    super.dispose();
+  }
+
   void _onSubmenuOpened(_CascadingSubmenuRowState submenu) {
+    _submenuCloseTimer?.cancel();
+    _submenuCloseTimer = null;
     if (_openSubmenu != null && _openSubmenu != submenu) {
       _openSubmenu!.close();
     }
     _openSubmenu = submenu;
   }
 
-  void _closeSubmenu() {
-    _openSubmenu?.close();
-    _openSubmenu = null;
+  void _cancelCloseSubmenu() {
+    _submenuCloseTimer?.cancel();
+    _submenuCloseTimer = null;
   }
+
+  void _scheduleCloseSubmenu() {
+    if (_openSubmenu == null) return;
+    _submenuCloseTimer?.cancel();
+    // Forgiving grace window so diagonal pointer movement toward the open
+    // submenu never closes it when grazing another row.
+    _submenuCloseTimer = Timer(const Duration(milliseconds: 340), () {
+      _submenuCloseTimer = null;
+      if (!mounted) return;
+      _openSubmenu?.close();
+      _openSubmenu = null;
+    });
+  }
+
+  bool _hasOtherSubmenuOpen(_CascadingSubmenuRowState row) =>
+      _openSubmenu != null && _openSubmenu != row;
 
   void _bumpLyricsPrefs() {
     ref.read(lyricsPrefsRevisionProvider.notifier).state++;
@@ -333,7 +358,7 @@ class _NowPlayingOverflowMenuContentState
         // 1. Timing Offset Row (stays open while tapping)
         MouseRegion(
           opaque: false,
-          onEnter: (_) => _closeSubmenu(),
+          onEnter: (_) => _scheduleCloseSubmenu(),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
             child: Row(
@@ -435,6 +460,8 @@ class _NowPlayingOverflowMenuContentState
           hint: providerHint,
           active: effectiveProviderId != 'auto',
           onOpened: _onSubmenuOpened,
+          onSubmenuActivity: _cancelCloseSubmenu,
+          hasOtherOpenSubmenu: _hasOtherSubmenuOpen,
           items: () => [
             for (final provider in LyricsProviderId.values)
               WaveMenuAction(
@@ -456,6 +483,8 @@ class _NowPlayingOverflowMenuContentState
           hint: showTransliteration ? 'On' : 'Off',
           active: showTransliteration,
           onOpened: _onSubmenuOpened,
+          onSubmenuActivity: _cancelCloseSubmenu,
+          hasOtherOpenSubmenu: _hasOtherSubmenuOpen,
           items: () => [
             WaveMenuAction(
               leading: menuMark(!showTransliteration),
@@ -475,6 +504,8 @@ class _NowPlayingOverflowMenuContentState
           hint: translationLabel,
           active: translationActive,
           onOpened: _onSubmenuOpened,
+          onSubmenuActivity: _cancelCloseSubmenu,
+          hasOtherOpenSubmenu: _hasOtherSubmenuOpen,
           items: () => [
             for (final entry in Prefs.lyricsTranslationOptions.entries)
               WaveMenuAction(
@@ -495,6 +526,8 @@ class _NowPlayingOverflowMenuContentState
           hint: textScaleLabel,
           active: textScale != 1.0,
           onOpened: _onSubmenuOpened,
+          onSubmenuActivity: _cancelCloseSubmenu,
+          hasOtherOpenSubmenu: _hasOtherSubmenuOpen,
           items: () => [
             for (final entry in Prefs.lyricsTextScales)
               WaveMenuAction(
@@ -512,6 +545,8 @@ class _NowPlayingOverflowMenuContentState
           title: 'Animation style',
           hint: animationLabel,
           onOpened: _onSubmenuOpened,
+          onSubmenuActivity: _cancelCloseSubmenu,
+          hasOtherOpenSubmenu: _hasOtherSubmenuOpen,
           items: () => [
             for (final entry in Prefs.lyricsAnimationOptions.entries)
               WaveMenuAction(
@@ -537,7 +572,7 @@ class _NowPlayingOverflowMenuContentState
             title: 'Lyrics',
             hint: _lyricsVisible ? 'Visible' : 'Hidden',
             active: _lyricsVisible,
-            onHoverEnter: _closeSubmenu,
+            onHoverEnter: _scheduleCloseSubmenu,
             onTap: () {
               setState(() {
                 _lyricsVisible = !_lyricsVisible;
@@ -552,7 +587,7 @@ class _NowPlayingOverflowMenuContentState
             title: 'Focus on lyrics',
             hint: _focusMode ? 'On' : 'Off',
             active: _focusMode,
-            onHoverEnter: _closeSubmenu,
+            onHoverEnter: _scheduleCloseSubmenu,
             onTap: () {
               setState(() {
                 _focusMode = !_focusMode;
@@ -567,7 +602,7 @@ class _NowPlayingOverflowMenuContentState
             title: 'Ambient',
             hint: ambientEnabled ? 'On' : 'Off',
             active: ambientEnabled,
-            onHoverEnter: _closeSubmenu,
+            onHoverEnter: _scheduleCloseSubmenu,
             onTap: () => ref.read(visualizerEnabledProvider.notifier).toggle(),
           ),
         _MenuActionTile(
@@ -575,7 +610,7 @@ class _NowPlayingOverflowMenuContentState
           title: 'Fullscreen',
           hint: 'F11',
           active: isImmersive,
-          onHoverEnter: _closeSubmenu,
+          onHoverEnter: _scheduleCloseSubmenu,
           onTap: () {
             ref.read(nowPlayingImmersiveProvider.notifier).state = !isImmersive;
           },
@@ -589,7 +624,7 @@ class _NowPlayingOverflowMenuContentState
         // 4. Inline Layout Switcher (bottom section of the menu)
         MouseRegion(
           opaque: false,
-          onEnter: (_) => _closeSubmenu(),
+          onEnter: (_) => _scheduleCloseSubmenu(),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
             child: Column(
@@ -687,6 +722,8 @@ class _CascadingSubmenuRow extends StatefulWidget {
   final bool active;
   final List<WaveMenuEntry> Function() items;
   final ValueChanged<_CascadingSubmenuRowState> onOpened;
+  final VoidCallback? onSubmenuActivity;
+  final bool Function(_CascadingSubmenuRowState)? hasOtherOpenSubmenu;
 
   const _CascadingSubmenuRow({
     required this.icon,
@@ -695,6 +732,8 @@ class _CascadingSubmenuRow extends StatefulWidget {
     this.active = false,
     required this.items,
     required this.onOpened,
+    this.onSubmenuActivity,
+    this.hasOtherOpenSubmenu,
   });
 
   @override
@@ -718,12 +757,18 @@ class _CascadingSubmenuRowState extends State<_CascadingSubmenuRow> {
 
   void close() {
     _hoverTimer?.cancel();
-    if (_portal.isShowing) _portal.hide();
+    if (_portal.isShowing) {
+      _portal.hide();
+      if (mounted) setState(() {});
+    }
   }
 
   void openNow() {
     _hoverTimer?.cancel();
-    if (_portal.isShowing) return;
+    if (_portal.isShowing) {
+      widget.onSubmenuActivity?.call();
+      return;
+    }
     final box = context.findRenderObject();
     if (box is RenderBox && box.hasSize) {
       final topLeft = box.localToGlobal(Offset.zero);
@@ -739,6 +784,7 @@ class _CascadingSubmenuRowState extends State<_CascadingSubmenuRow> {
     }
     _portal.show();
     widget.onOpened(this);
+    if (mounted) setState(() {});
   }
 
   @override
@@ -762,12 +808,26 @@ class _CascadingSubmenuRowState extends State<_CascadingSubmenuRow> {
                 ? (_flipLeft ? Alignment.bottomRight : Alignment.bottomLeft)
                 : (_flipLeft ? Alignment.topRight : Alignment.topLeft),
             offset: Offset(
-              _flipLeft ? -4 : 4,
+              0,
               _openUp ? WaveMenuRow.inset : -WaveMenuRow.inset,
             ),
-            child: WaveFlyoutPanel.items(
-              entries: widget.items(),
-              maxHeight: _maxHeight,
+            // Padded bridge inside MouseRegion removes the dead gap between
+            // the main menu and the submenu panel so diagonal movement never
+            // drops hover. `closeOnAction: false` keeps the submenu open while
+            // previewing lyrics sources, animations, text sizes, etc.
+            child: MouseRegion(
+              onEnter: (_) => widget.onSubmenuActivity?.call(),
+              child: Padding(
+                padding: EdgeInsets.only(
+                  right: _flipLeft ? 6 : 0,
+                  left: _flipLeft ? 0 : 6,
+                ),
+                child: WaveFlyoutPanel.items(
+                  entries: widget.items(),
+                  maxHeight: _maxHeight,
+                  closeOnAction: false,
+                ),
+              ),
             ),
           ),
         ),
@@ -775,8 +835,16 @@ class _CascadingSubmenuRowState extends State<_CascadingSubmenuRow> {
           cursor: SystemMouseCursors.click,
           onEnter: (_) {
             setState(() => _hover = true);
+            if (_portal.isShowing) {
+              widget.onSubmenuActivity?.call();
+              return;
+            }
             _hoverTimer?.cancel();
-            _hoverTimer = Timer(const Duration(milliseconds: 180), openNow);
+            // Longer delay when switching away from an already-open submenu so
+            // grazing a neighbor row on a diagonal path never hijacks it.
+            final delayMs =
+                (widget.hasOtherOpenSubmenu?.call(this) ?? false) ? 340 : 140;
+            _hoverTimer = Timer(Duration(milliseconds: delayMs), openNow);
           },
           onExit: (_) {
             setState(() => _hover = false);

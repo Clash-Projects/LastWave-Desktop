@@ -81,12 +81,18 @@ class WaveMenuAction extends WaveMenuEntry {
 
   /// Draws the label in this family (the font picker previews each font).
   final String? fontFamily;
+
+  /// When false, activating this row runs [onPressed] without dismissing the
+  /// menu — useful for live-preview pickers (animation style, text size, etc.).
+  final bool closeOnTap;
+
   const WaveMenuAction({
     this.leading,
     required this.label,
     this.hint,
     this.onPressed,
     this.fontFamily,
+    this.closeOnTap = true,
   });
 }
 
@@ -480,18 +486,25 @@ class WaveFlyoutPanel extends StatefulWidget {
   final Widget? child;
   final double maxWidth;
   final double? maxHeight;
+
+  /// Whether tapping a [WaveMenuAction] dismisses the flyout by default.
+  /// Individual actions can still override via [WaveMenuAction.closeOnTap].
+  final bool closeOnAction;
+
   const WaveFlyoutPanel.items({
     super.key,
     required this.entries,
     this.maxWidth = 280,
     this.maxHeight,
+    this.closeOnAction = true,
   }) : child = null;
   const WaveFlyoutPanel.child({
     super.key,
     required this.child,
     this.maxWidth = 280,
     this.maxHeight,
-  }) : entries = null;
+  }) : entries = null,
+       closeOnAction = true;
   @override
   State<WaveFlyoutPanel> createState() => _WaveFlyoutPanelState();
 }
@@ -499,6 +512,7 @@ class WaveFlyoutPanel extends StatefulWidget {
 class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
   int _highlight = -1;
   _WaveSubmenuRowState? _openSubmenu;
+  Timer? _submenuCloseTimer;
   final Map<int, GlobalKey<_WaveSubmenuRowState>> _subKeys = {};
   final Map<int, GlobalKey> _rowKeys = {};
   late final ScrollController _scrollController;
@@ -511,6 +525,7 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
 
   @override
   void dispose() {
+    _submenuCloseTimer?.cancel();
     _scrollController.dispose();
     // The cascaded submenu is an OverlayPortal child of its row, so it
     // goes away with the parent; nothing to close here.
@@ -549,7 +564,26 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
     });
   }
 
+  void _cancelCloseSubmenu() {
+    _submenuCloseTimer?.cancel();
+    _submenuCloseTimer = null;
+  }
+
+  void _scheduleCloseSubmenu() {
+    if (_openSubmenu == null) return;
+    _submenuCloseTimer?.cancel();
+    // Grace delay prevents diagonal mouse movement toward the submenu from
+    // snapping it shut when briefly grazing a neighboring row.
+    _submenuCloseTimer = Timer(const Duration(milliseconds: 320), () {
+      _submenuCloseTimer = null;
+      if (!mounted) return;
+      _closeSubmenu();
+    });
+  }
+
   void _closeSubmenu() {
+    _submenuCloseTimer?.cancel();
+    _submenuCloseTimer = null;
     final sub = _openSubmenu;
     if (sub == null) return;
     _openSubmenu = null;
@@ -559,11 +593,14 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
   void _activate(BuildContext context, int index) {
     final entry = widget.entries![index];
     if (entry is WaveMenuSubmenu) {
+      _cancelCloseSubmenu();
       _subKeys[index]?.currentState?.openNow();
     } else if (entry is WaveMenuAction) {
       final onPressed = entry.onPressed;
       if (onPressed == null) return;
-      Navigator.of(context).maybePop();
+      if (widget.closeOnAction && entry.closeOnTap) {
+        Navigator.of(context).maybePop();
+      }
       onPressed();
     }
   }
@@ -618,7 +655,12 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
                 i, () => GlobalKey<_WaveSubmenuRowState>()),
             entry: entry,
             highlighted: i == _highlight,
+            hasOtherOpenSubmenu: () =>
+                _openSubmenu != null &&
+                _openSubmenu != _subKeys[i]?.currentState,
+            onSubmenuActivity: _cancelCloseSubmenu,
             onOpened: (c) {
+              _cancelCloseSubmenu();
               if (_openSubmenu != null && _openSubmenu != c) {
                 _openSubmenu!.close();
               }
@@ -630,7 +672,7 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
           rows.add(MouseRegion(
             key: rowKey,
             opaque: false,
-            onEnter: (_) => _closeSubmenu(),
+            onEnter: (_) => _scheduleCloseSubmenu(),
             child: WaveMenuRow(
               selected: i == _highlight,
               icon: entry.leading,
@@ -649,7 +691,9 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
               onPressed: onPressed == null
                   ? null
                   : () {
-                      Navigator.of(context).maybePop();
+                      if (widget.closeOnAction && entry.closeOnTap) {
+                        Navigator.of(context).maybePop();
+                      }
                       onPressed();
                     },
             ),
@@ -863,11 +907,15 @@ class _WaveSubmenuRow extends StatefulWidget {
   final WaveMenuSubmenu entry;
   final bool highlighted;
   final ValueChanged<_WaveSubmenuRowState> onOpened;
+  final VoidCallback? onSubmenuActivity;
+  final bool Function()? hasOtherOpenSubmenu;
   const _WaveSubmenuRow({
     super.key,
     required this.entry,
     required this.highlighted,
     required this.onOpened,
+    this.onSubmenuActivity,
+    this.hasOtherOpenSubmenu,
   });
 
   @override
@@ -943,12 +991,23 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
                 ? (_flipLeft ? Alignment.bottomRight : Alignment.bottomLeft)
                 : (_flipLeft ? Alignment.topRight : Alignment.topLeft),
             offset: Offset(
-              _flipLeft ? -2 : 2,
+              0,
               _openUp ? WaveMenuRow.inset : -WaveMenuRow.inset,
             ),
-            child: WaveFlyoutPanel.items(
-              entries: widget.entry.items(),
-              maxHeight: _maxHeight,
+            // Padded bridge inside MouseRegion eliminates the dead gap between
+            // parent menu and submenu so diagonal mouse motion never falls off.
+            child: MouseRegion(
+              onEnter: (_) => widget.onSubmenuActivity?.call(),
+              child: Padding(
+                padding: EdgeInsets.only(
+                  right: _flipLeft ? 6 : 0,
+                  left: _flipLeft ? 0 : 6,
+                ),
+                child: WaveFlyoutPanel.items(
+                  entries: widget.entry.items(),
+                  maxHeight: _maxHeight,
+                ),
+              ),
             ),
           ),
         ),
@@ -961,11 +1020,14 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) {
+        if (_portal.isShowing) {
+          widget.onSubmenuActivity?.call();
+          return;
+        }
         _hoverTimer?.cancel();
-        _hoverTimer = Timer(
-          const Duration(milliseconds: 250),
-          openNow,
-        );
+        final delayMs =
+            (widget.hasOtherOpenSubmenu?.call() ?? false) ? 340 : 180;
+        _hoverTimer = Timer(Duration(milliseconds: delayMs), openNow);
       },
       onExit: (_) => _hoverTimer?.cancel(),
       child: WaveMenuRow(
