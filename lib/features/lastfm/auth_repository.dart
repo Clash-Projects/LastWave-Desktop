@@ -111,10 +111,10 @@ class AuthRepository extends StateNotifier<AuthState> {
       final wasGuest = _prefs.isGuest;
       await _prefs.signOut();
       await _secure.writeSessionKey(null);
+      if (wasGuest) await _prefs.setGuestMode(true);
       state = AuthState(
         status: wasGuest ? AuthStatus.guest : AuthStatus.signedOut,
       );
-      if (wasGuest) await _prefs.setGuestMode(true);
     }
     state = state.copyWith(status: AuthStatus.signingIn);
     try {
@@ -130,7 +130,9 @@ class AuthRepository extends StateNotifier<AuthState> {
         throw LastFmException('Last.fm rejected these API keys');
       }
       await _prefs.saveLastFmKeys(apiKey: key, apiSecret: secret);
-      state = const AuthState(status: AuthStatus.signedOut);
+      state = AuthState(
+        status: _prefs.isGuest ? AuthStatus.guest : AuthStatus.signedOut,
+      );
     } catch (e) {
       state = state.copyWith(
         status: AuthStatus.error,
@@ -227,9 +229,9 @@ class AuthRepository extends StateNotifier<AuthState> {
   void clearError() {
     if (state.status == AuthStatus.error) {
       state = state.copyWith(
-        status: _prefs.username.isEmpty
-            ? AuthStatus.signedOut
-            : AuthStatus.signedIn,
+        status: _prefs.username.isNotEmpty
+            ? AuthStatus.signedIn
+            : (_prefs.isGuest ? AuthStatus.guest : AuthStatus.signedOut),
         message: '',
       );
     }

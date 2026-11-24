@@ -208,12 +208,32 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     ref.listen(paletteSurfacesProvider.select((s) => s?.background),
         (_, _) => syncWindow());
     // Live auth state drives the gate (login, logout, guest entry,
-    // session expiry). Guests count as inside.
+    // session expiry). Guests count as inside, and transient states
+    // preserve the current route so in-app Last.fm flows (e.g.
+    // connecting from Settings) are not interrupted by /welcome.
     ref.listen(
-        authRepositoryProvider.select((a) =>
-            a.status == AuthStatus.signedIn ||
-            a.status == AuthStatus.guest),
-        (_, inside) => _gate.update(inside));
+      authRepositoryProvider,
+      (previous, next) {
+        switch (next.status) {
+          case AuthStatus.signedIn:
+          case AuthStatus.guest:
+            _gate.update(true);
+            break;
+
+          case AuthStatus.signedOut:
+            // Saving API keys while in guest mode must not eject
+            // the user from the application.
+            _gate.update(ref.read(prefsProvider).isGuest);
+            break;
+
+          case AuthStatus.signingIn:
+          case AuthStatus.error:
+          case AuthStatus.unknown:
+            // Preserve the current navigation state.
+            break;
+        }
+      },
+    );
     // Bridges Jam room events to the player; idle until a room is joined.
     ref.watch(jamSyncProvider);
     final theme = ref.watch(themeControllerProvider);
