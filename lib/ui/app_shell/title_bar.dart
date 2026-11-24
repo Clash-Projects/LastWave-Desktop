@@ -160,7 +160,9 @@ class _WaveTitleBarState extends ConsumerState<WaveTitleBar> {
   }
 
   void _onSearchFocusChange() {
-    if (!widget.searchFocus.hasFocus &&
+    if (widget.searchFocus.hasFocus && !_iconSearchExpanded && mounted) {
+      setState(() => _iconSearchExpanded = true);
+    } else if (!widget.searchFocus.hasFocus &&
         widget.searchController.text.isEmpty &&
         _iconSearchExpanded &&
         mounted) {
@@ -189,7 +191,11 @@ class _WaveTitleBarState extends ConsumerState<WaveTitleBar> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;
-            final compact = maxW < 700;
+            // Center placement requires a wider title bar (>= 880px) to give sufficient
+            // breathing room and prevent the centered search box from overlapping
+            // the Commands and Community buttons. Below 880px, it safely falls back
+            // to compact left layout where controls are cleanly sequenced without stacking.
+            final compact = maxW < (searchPos == 'center' ? 880 : 700);
             final searchMax =
                 (maxW * 0.28).clamp(140.0, 300.0).toDouble();
 
@@ -315,13 +321,16 @@ class _WaveTitleBarState extends ConsumerState<WaveTitleBar> {
                     ),
                   )
                 : _SearchPlacementContextMenu(
-                    child: _BarBtn(
-                      tooltip: 'Search (Ctrl+F)',
-                      icon: WaveIcons.search,
-                      onTap: () {
-                        setState(() => _iconSearchExpanded = true);
-                        widget.searchFocus.requestFocus();
-                      },
+                    child: Focus(
+                      focusNode: widget.searchFocus,
+                      child: _BarBtn(
+                        tooltip: 'Search (Ctrl+F)',
+                        icon: WaveIcons.search,
+                        onTap: () {
+                          setState(() => _iconSearchExpanded = true);
+                          widget.searchFocus.requestFocus();
+                        },
+                      ),
                     ),
                   );
 
@@ -343,7 +352,7 @@ class _WaveTitleBarState extends ConsumerState<WaveTitleBar> {
                     children: [
                       ...navButtons,
                       dragArea(const ValueKey('drag_center')),
-                      commandsBtn,
+                      if (maxW >= 960) commandsBtn,
                       const SizedBox(width: 6),
                       ...rightActions,
                     ],
