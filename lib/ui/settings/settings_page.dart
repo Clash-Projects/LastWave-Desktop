@@ -47,8 +47,6 @@ import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
-import '../../features/equalizer/equalizer_controller.dart';
-import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/equalizer/headphone_profiles.dart';
 import '../../features/player/loudness.dart';
@@ -260,13 +258,10 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
         // width, unlike MediaQuery window width (+200 rail error).
         final narrow = constraints.maxWidth < 900;
         if (narrow) {
-          return Scrollbar(
+          return ListView(
             controller: _narrowScrollController,
-            interactive: true,
-            child: ListView(
-              controller: _narrowScrollController,
-              physics: const ClampingScrollPhysics(),
-              padding: waveDockPadding(context, const EdgeInsets.fromLTRB(16, 16, 16, 24)),
+            physics: const ClampingScrollPhysics(),
+            padding: waveDockPadding(context, const EdgeInsets.fromLTRB(16, 16, 16, 24)),
               children: [
                 Text(
                   'SYSTEM',
@@ -294,8 +289,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                   ),
                 ),
               ],
-            ),
-          );
+            );
         }
         return Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -338,28 +332,24 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
             ),
             Container(width: 1, color: waveDivider(context)),
             Expanded(
-              child: Scrollbar(
+              child: ListView(
                 controller: _contentScrollController,
-                interactive: true,
-                child: ListView(
-                  controller: _contentScrollController,
-                  physics: const ClampingScrollPhysics(),
-                  padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 24, 24)),
-                  children: [
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 640),
-                      child: _SectionSwap(
-                        child: RepaintBoundary(
-                          key: ValueKey(_section),
-                          child: _SectionBody(
-                            section: _section,
-                            onUpdate: _update,
-                          ),
+                physics: const ClampingScrollPhysics(),
+                padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 24, 24)),
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 640),
+                    child: _SectionSwap(
+                      child: RepaintBoundary(
+                        key: ValueKey(_section),
+                        child: _SectionBody(
+                          section: _section,
+                          onUpdate: _update,
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ],
