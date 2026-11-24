@@ -180,20 +180,21 @@ void main() {
               builder: (context, constraints) {
                 final scaledW = constraints.maxWidth / scale;
                 final scaledH = constraints.maxHeight / scale;
-                return Transform.scale(
-                  scale: scale,
-                  alignment: Alignment.topLeft,
-                  child: OverflowBox(
+                return SizedBox(
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
+                  child: FittedBox(
+                    fit: BoxFit.fill,
                     alignment: Alignment.topLeft,
-                    minWidth: scaledW,
-                    maxWidth: scaledW,
-                    minHeight: scaledH,
-                    maxHeight: scaledH,
-                    child: MediaQuery(
-                      data: MediaQuery.of(context).copyWith(
-                        size: Size(scaledW, scaledH),
+                    child: SizedBox(
+                      width: scaledW,
+                      height: scaledH,
+                      child: MediaQuery(
+                        data: MediaQuery.of(context).copyWith(
+                          size: Size(scaledW, scaledH),
+                        ),
+                        child: child!,
                       ),
-                      child: child!,
                     ),
                   ),
                 );
@@ -250,9 +251,10 @@ void main() {
                   final uiScale = ref.watch(uiScaleProvider);
                   Widget root = child ?? const SizedBox();
                   if ((uiScale - 1.0).abs() >= 0.001) {
-                    root = Transform.scale(
+                    root = FittedBox(
                       key: const ValueKey('wave-ui-scale-transform'),
-                      scale: uiScale,
+                      fit: BoxFit.fill,
+                      alignment: Alignment.topLeft,
                       child: root,
                     );
                   }
@@ -274,10 +276,8 @@ void main() {
       await container.read(uiScaleProvider.notifier).setScale(1.25);
       await tester.pump();
 
-      // Instantly renders with Transform scale 1.25 without app restart
+      // Instantly renders with FittedBox without app restart
       expect(transformFinder, findsOneWidget);
-      final Transform transformWidget = tester.widget(transformFinder);
-      expect(transformWidget.transform.getMaxScaleOnAxis(), closeTo(1.25, 0.001));
 
       // Reset in real-time
       await container.read(uiScaleProvider.notifier).reset();
@@ -285,6 +285,76 @@ void main() {
 
       // Transform removed immediately
       expect(transformFinder, findsNothing);
+    });
+
+    testWidgets('Hit-test under <100% zoom (75% and 80%) allows clicking edge controls without bounds clipping', (tester) async {
+      for (final scale in [0.75, 0.80]) {
+        bool tappedRight = false;
+        bool tappedBottom = false;
+
+        tester.view.physicalSize = const Size(1000, 800);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final scaledW = 1000.0 / scale;
+        final scaledH = 800.0 / scale;
+
+        await tester.pumpWidget(
+          FluentApp(
+            home: LayoutBuilder(
+              builder: (context, constraints) {
+                return SizedBox(
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
+                  child: FittedBox(
+                    fit: BoxFit.fill,
+                    alignment: Alignment.topLeft,
+                    child: SizedBox(
+                      width: scaledW,
+                      height: scaledH,
+                      child: Stack(
+                        children: [
+                          Align(
+                            alignment: Alignment.topRight,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => tappedRight = true,
+                              child: SizedBox(
+                                key: ValueKey('top-right-$scale'),
+                                width: 80,
+                                height: 40,
+                              ),
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.bottomRight,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => tappedBottom = true,
+                              child: SizedBox(
+                                key: ValueKey('bottom-right-$scale'),
+                                width: 80,
+                                height: 40,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+
+        await tester.tap(find.byKey(ValueKey('top-right-$scale')), warnIfMissed: false);
+        expect(tappedRight, isTrue);
+
+        await tester.tap(find.byKey(ValueKey('bottom-right-$scale')), warnIfMissed: false);
+        expect(tappedBottom, isTrue);
+      }
     });
   });
 }

@@ -364,21 +364,22 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                     builder: (context, constraints) {
                       final scaledW = constraints.maxWidth / uiScale;
                       final scaledH = constraints.maxHeight / uiScale;
-                      return Transform.scale(
-                        key: const ValueKey('wave-ui-scale-transform'),
-                        scale: uiScale,
-                        alignment: Alignment.topLeft,
-                        child: OverflowBox(
+                      return SizedBox(
+                        width: constraints.maxWidth,
+                        height: constraints.maxHeight,
+                        child: FittedBox(
+                          key: const ValueKey('wave-ui-scale-transform'),
+                          fit: BoxFit.fill,
                           alignment: Alignment.topLeft,
-                          minWidth: scaledW,
-                          maxWidth: scaledW,
-                          minHeight: scaledH,
-                          maxHeight: scaledH,
-                          child: MediaQuery(
-                            data: MediaQuery.of(context).copyWith(
-                              size: Size(scaledW, scaledH),
+                          child: SizedBox(
+                            width: scaledW,
+                            height: scaledH,
+                            child: MediaQuery(
+                              data: MediaQuery.of(context).copyWith(
+                                size: Size(scaledW, scaledH),
+                              ),
+                              child: content,
                             ),
-                            child: content,
                           ),
                         ),
                       );
