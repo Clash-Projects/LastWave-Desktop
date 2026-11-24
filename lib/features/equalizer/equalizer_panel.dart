@@ -231,33 +231,29 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     EqualizerState eq,
     EqualizerNotifier notifier,
   ) {
-    return Scrollbar(
+    return ListView(
       controller: _eqScrollController,
-      interactive: true,
-      child: ListView(
-        controller: _eqScrollController,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        children: [
-          // Frequency response visualizer
-          _buildVisualizer(context, dark, eq),
-          const SizedBox(height: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      children: [
+        // Frequency response visualizer
+        _buildVisualizer(context, dark, eq),
+        const SizedBox(height: 12),
 
-          // Presets chip selector
-          _buildPresetSelector(context, dark, eq, notifier),
-          const SizedBox(height: 14),
+        // Presets chip selector
+        _buildPresetSelector(context, dark, eq, notifier),
+        const SizedBox(height: 14),
 
-          // 10-band custom vertical bar rack
-          _buildSliderRack(context, dark, eq, notifier),
-          const SizedBox(height: 12),
+        // 10-band custom vertical bar rack
+        _buildSliderRack(context, dark, eq, notifier),
+        const SizedBox(height: 12),
 
-          // Quick toolbar
-          _buildQuickToolbar(context, dark, eq, notifier),
-          const SizedBox(height: 12),
+        // Quick toolbar
+        _buildQuickToolbar(context, dark, eq, notifier),
+        const SizedBox(height: 12),
 
-          // Footer status note
-          _buildFooterNote(context, dark, eq),
-        ],
-      ),
+        // Footer status note
+        _buildFooterNote(context, dark, eq),
+      ],
     );
   }
 
@@ -268,13 +264,10 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     EqualizerNotifier notifier,
   ) {
     final active = eq.studioClarityEnabled;
-    return Scrollbar(
+    return ListView(
       controller: _clarityScrollController,
-      interactive: true,
-      child: ListView(
-        controller: _clarityScrollController,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        children: [
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      children: [
         // Studio Master Clarity hero card
         Container(
           decoration: BoxDecoration(
@@ -399,9 +392,8 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           ),
         ),
       ],
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildTargetOptionCard(
     BuildContext context,

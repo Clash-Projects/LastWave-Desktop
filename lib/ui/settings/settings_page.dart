@@ -296,37 +296,33 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
           children: [
             SizedBox(
               width: 220,
-              child: Scrollbar(
+              child: SingleChildScrollView(
                 controller: _railScrollController,
-                interactive: true,
-                child: SingleChildScrollView(
-                  controller: _railScrollController,
-                  physics: const ClampingScrollPhysics(),
-                  padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 12, 20)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'SYSTEM',
-                        style: WaveType.overline.copyWith(
-                          color: waveAccent(context),
-                        ),
+                physics: const ClampingScrollPhysics(),
+                padding: waveDockPadding(context, const EdgeInsets.fromLTRB(24, 20, 12, 20)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'SYSTEM',
+                      style: WaveType.overline.copyWith(
+                        color: waveAccent(context),
                       ),
-                      Text(context.l10n.navSettings, style: WaveType.pageTitle),
-                      const SizedBox(height: 12),
-                      for (final s in waveSettingsSections)
-                        ListTile.selectable(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: WaveRadius.controlsRadius,
-                          ),
-                          selected: _section == s.$1,
-                          selectionMode: ListTileSelectionMode.single,
-                          leading: Icon(s.$3, size: 15),
-                          title: Text(_sectionTitle(context, s.$1, s.$2)),
-                          onPressed: () => setState(() => _section = s.$1),
+                    ),
+                    Text(context.l10n.navSettings, style: WaveType.pageTitle),
+                    const SizedBox(height: 12),
+                    for (final s in waveSettingsSections)
+                      ListTile.selectable(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: WaveRadius.controlsRadius,
                         ),
-                    ],
-                  ),
+                        selected: _section == s.$1,
+                        selectionMode: ListTileSelectionMode.single,
+                        leading: Icon(s.$3, size: 15),
+                        title: Text(_sectionTitle(context, s.$1, s.$2)),
+                        onPressed: () => setState(() => _section = s.$1),
+                      ),
+                  ],
                 ),
               ),
             ),
