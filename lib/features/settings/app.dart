@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,7 @@ import '../../core/l10n/app_language.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/lastfm/auth_repository.dart';
+import '../../ui/app_shell/wave_resize_area.dart';
 import '../../ui/theme/fluent_theme.dart';
 import '../../ui/components/glass_stage.dart';
 import '../../ui/theme/haze.dart';
@@ -332,7 +334,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                   lang.isRtl ? TextDirection.rtl : TextDirection.ltr,
               child: page,
             );
-            return DisableAcrylic(
+            final content = DisableAcrylic(
               child: effectiveGlass
                   ? WaveGlassStage(
                       veil: base.background,
@@ -347,6 +349,18 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                     )
                   : directed,
             );
+
+            if (Platform.isLinux) {
+              final isMaximized = ref.watch(windowMaximizedProvider);
+              return WaveWindowResizeArea(
+                enabled: !isMaximized,
+                edgeSize: 4.0,
+                cornerSize: 14.0,
+                child: content,
+              );
+            }
+
+            return content;
           },
         ),
       ),
