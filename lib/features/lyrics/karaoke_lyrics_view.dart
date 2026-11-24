@@ -2573,6 +2573,8 @@ class _InstrumentalCountdownDotsState extends State<InstrumentalCountdownDots>
             child: AnimatedBuilder(
               animation: _pulseAnimation,
               builder: (context, child) {
+                final dark = waveIsDark(context);
+                final ink = dark ? Colors.white : const Color(0xFF18181B);
                 final pulse = _pulseAnimation.value;
                 return Row(
                   mainAxisSize: MainAxisSize.min,
@@ -2581,14 +2583,15 @@ class _InstrumentalCountdownDotsState extends State<InstrumentalCountdownDots>
                     Text(
                       '♪',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: ink,
                         fontSize: effectiveFontSize,
                         fontWeight: FontWeight.w700,
                         height: 1.1,
                         shadows: [
                           Shadow(
-                            color: Colors.white
-                                .withValues(alpha: 0.55 + 0.35 * pulse),
+                            color: ink.withValues(
+                              alpha: (dark ? 0.55 : 0.22) + (dark ? 0.35 : 0.16) * pulse,
+                            ),
                             blurRadius: 8.0 + 8.0 * pulse,
                             offset: Offset.zero,
                           ),
@@ -2598,7 +2601,7 @@ class _InstrumentalCountdownDotsState extends State<InstrumentalCountdownDots>
                     SizedBox(width: effectiveFontSize * 0.35),
                     for (int dot = 0; dot < 3; dot++) ...[
                       if (dot > 0) SizedBox(width: effectiveFontSize * 0.18),
-                      _buildCountdownDot(dot, progress, pulse, dotSize),
+                      _buildCountdownDot(dot, progress, pulse, dotSize, ink, dark),
                     ],
                   ],
                 );
@@ -2615,6 +2618,8 @@ class _InstrumentalCountdownDotsState extends State<InstrumentalCountdownDots>
     double progress,
     double pulse,
     double baseSize,
+    Color ink,
+    bool dark,
   ) {
     final threshold = (dot + 1) / 4.0;
     final isLit = progress >= threshold;
@@ -2624,11 +2629,13 @@ class _InstrumentalCountdownDotsState extends State<InstrumentalCountdownDots>
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: isLit ? Colors.white : Colors.white.withValues(alpha: 0.28),
+        color: isLit ? ink : ink.withValues(alpha: 0.28),
         boxShadow: isLit
             ? [
                 BoxShadow(
-                  color: Colors.white.withValues(alpha: 0.65 + 0.35 * pulse),
+                  color: ink.withValues(
+                    alpha: (dark ? 0.65 : 0.25) + (dark ? 0.35 : 0.18) * pulse,
+                  ),
                   blurRadius: 6.0 + 4.0 * pulse,
                 ),
               ]
@@ -2842,6 +2849,9 @@ class DesktopStanzaWidget extends StatelessWidget {
       );
     }
 
+    final highlight =
+        activeStyle.color ??
+        (waveIsDark(context) ? Colors.white : const Color(0xFF18181B));
     final layout = layoutCache.getOrCreate(
       line: line,
       maxWidth: maxWidth,
@@ -2856,7 +2866,7 @@ class DesktopStanzaWidget extends StatelessWidget {
         positionListenable: positionListenable,
         line: line,
         layout: layout,
-        highlightColor: Colors.white,
+        highlightColor: highlight,
         isRtl: line.isRtl,
       ),
     );
@@ -2871,10 +2881,17 @@ class DesktopStanzaWidget extends StatelessWidget {
     final bgIndex = allLines.indexOf(bg);
     final isBgSelected = bgIndex >= 0 && selectedLines.contains(bgIndex);
     final isBgActive = bg.timeMs == activeLineTimeMs;
+    final highlight =
+        activeStyle.color ??
+        (waveIsDark(context) ? Colors.white : const Color(0xFF18181B));
 
     final subStyle = backgroundStyle.copyWith(
       fontSize: (backgroundStyle.fontSize ?? 36.0) * DesktopLyricsTokens.backgroundVocalFontScale,
       color: backgroundStyle.color!.withValues(alpha: isBgActive || isLeadActive ? 0.85 : 0.45),
+    );
+    final bgActiveStyle = subStyle.copyWith(
+      color: highlight,
+      fontWeight: FontWeight.bold,
     );
 
     return _buildTappableLine(
@@ -2891,7 +2908,7 @@ class DesktopStanzaWidget extends StatelessWidget {
                       .getOrCreate(
                         line: bg,
                         maxWidth: maxWidth,
-                        activeStyle: subStyle.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                        activeStyle: bgActiveStyle,
                         idleStyle: subStyle,
                         isRtl: bg.isRtl,
                       )
@@ -2900,7 +2917,7 @@ class DesktopStanzaWidget extends StatelessWidget {
                       .getOrCreate(
                         line: bg,
                         maxWidth: maxWidth,
-                        activeStyle: subStyle.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                        activeStyle: bgActiveStyle,
                         idleStyle: subStyle,
                         isRtl: bg.isRtl,
                       )
@@ -2912,11 +2929,11 @@ class DesktopStanzaWidget extends StatelessWidget {
                   layout: layoutCache.getOrCreate(
                     line: bg,
                     maxWidth: maxWidth,
-                    activeStyle: subStyle.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                    activeStyle: bgActiveStyle,
                     idleStyle: subStyle,
                     isRtl: bg.isRtl,
                   ),
-                  highlightColor: Colors.white,
+                  highlightColor: highlight,
                   isRtl: bg.isRtl,
                 ),
               )

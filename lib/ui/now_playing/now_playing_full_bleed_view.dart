@@ -214,7 +214,10 @@ class _NowPlayingFullBleedViewState
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
-                              color: Colors.white.withValues(alpha: 0.48),
+                              color: (waveIsDark(context)
+                                      ? Colors.white
+                                      : Colors.black)
+                                  .withValues(alpha: 0.48),
                               letterSpacing: -0.1,
                             ),
                           ),
@@ -275,7 +278,6 @@ class _NowPlayingFullBleedViewState
                     ignoring: controlsIdle,
                     child: NowPlayingTopActions(
                       track: track,
-                      showAmbientToggle: false,
                       onInteraction: () =>
                           ref.read(nowPlayingActivityProvider.notifier).state++,
                     ),
@@ -310,6 +312,8 @@ class _FullBleedIconButtonState extends State<_FullBleedIconButton> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final ink = dark ? Colors.white : Colors.black;
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
@@ -324,14 +328,16 @@ class _FullBleedIconButtonState extends State<_FullBleedIconButton> {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: _hover ? 0.20 : 0.10),
+              color: dark
+                  ? Colors.white.withValues(alpha: _hover ? 0.20 : 0.10)
+                  : Colors.white.withValues(alpha: _hover ? 0.85 : 0.68),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Center(
               child: Icon(
                 widget.icon,
                 size: 15,
-                color: Colors.white.withValues(alpha: _hover ? 1.0 : 0.85),
+                color: ink.withValues(alpha: _hover ? 1.0 : 0.85),
               ),
             ),
           ),

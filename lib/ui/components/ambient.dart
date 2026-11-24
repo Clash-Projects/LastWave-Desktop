@@ -1021,6 +1021,20 @@ class WaveAmbientMesh extends ConsumerWidget {
       // light cover parks cream/lightVibrant under white theme text
       // (Now Playing lyrics) with nothing to read against — the reason
       // solid mode looked "broken" next to automatic.
+      final lightWinUi = !apple && !isDark;
+      final solidColors = lightWinUi
+          ? [
+              Color.lerp(palette.primary, darkBase, 0.74) ?? darkBase,
+              Color.lerp(palette.vibrant, darkBase, 0.78) ?? darkBase,
+              Color.lerp(palette.cream, darkBase, 0.68) ?? darkBase,
+              Color.lerp(palette.lightVibrant, darkBase, 0.72) ?? darkBase,
+            ]
+          : [
+              palette.shadow,
+              palette.darkMuted,
+              palette.cream,
+              palette.lightVibrant,
+            ];
       return IgnorePointer(
         child: Opacity(
           opacity: opacity,
@@ -1032,12 +1046,7 @@ class WaveAmbientMesh extends ConsumerWidget {
                   gradient: LinearGradient(
                     begin: Alignment.centerLeft,
                     end: Alignment.bottomRight,
-                    colors: [
-                      palette.shadow,
-                      palette.darkMuted,
-                      palette.cream,
-                      palette.lightVibrant,
-                    ],
+                    colors: solidColors,
                     stops: const [0.0, 0.28, 0.68, 1.0],
                   ),
                 ),
@@ -1057,7 +1066,10 @@ class WaveAmbientMesh extends ConsumerWidget {
     }
 
     final Widget content;
-    if (cinematic && artworkUrl.isNotEmpty) {
+    // `_AppleArtworkAura` always paints a dark ground, so WinUI ambient in a
+    // light theme (e.g. Pearl) routes through `_AmbientMeshPainter` to keep a
+    // light artwork-tinted stage with crisp contrast for dark text & controls.
+    if (cinematic && artworkUrl.isNotEmpty && (apple || isDark)) {
       content = Stack(
         children: [
           _AppleArtworkAura(

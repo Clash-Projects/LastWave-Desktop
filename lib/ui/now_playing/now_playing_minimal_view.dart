@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart' hide Colors;
-import 'package:flutter/material.dart' show Colors, Icons;
+import 'package:flutter/material.dart' show Colors;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/artwork/animated_artwork_service.dart';
@@ -47,6 +47,9 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
   @override
   Widget build(BuildContext context) {
     final track = widget.track;
+    final dark = waveIsDark(context);
+    final ink = dark ? Colors.white : Colors.black;
+    final isImmersive = ref.watch(nowPlayingImmersiveProvider);
     final canvasEnabled = ref.watch(canvasEnabledProvider);
     final controlsIdle = ref.watch(nowPlayingControlsIdleProvider);
     final lyricsAsync = ref.watch(waveLyricsProvider(track));
@@ -226,10 +229,10 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
                                 textAlign: TextAlign.center,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w700,
-                                  color: Colors.white,
+                                  color: ink,
                                   letterSpacing: -0.2,
                                 ),
                               ),
@@ -244,7 +247,7 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
                                 style: TextStyle(
                                   fontSize: 13.5,
                                   fontWeight: FontWeight.w400,
-                                  color: Colors.white.withValues(alpha: 0.65),
+                                  color: ink.withValues(alpha: 0.65),
                                 ),
                               ),
                             ],
@@ -303,30 +306,31 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
           ),
         ),
 
-        // 3. Top-Left Downward Collapse Chevron (fades on idle)
-        Positioned(
-          top: 18,
-          left: 20,
-          child: AnimatedOpacity(
-            duration: waveMotion(
-              context,
-              const Duration(milliseconds: 350),
-            ),
-            opacity: controlsIdle ? 0.0 : 1.0,
-            child: ExcludeFocus(
-              excluding: controlsIdle,
-              child: IgnorePointer(
-                ignoring: controlsIdle,
-                child: _CollapseChevronButton(
-                  onTap: () {
-                    ref.read(nowPlayingActivityProvider.notifier).state++;
-                    widget.onClose();
-                  },
+        // 3. Top-Left Back button (only in immersive fullscreen, fades on idle)
+        if (isImmersive)
+          Positioned(
+            top: 18,
+            left: 20,
+            child: AnimatedOpacity(
+              duration: waveMotion(
+                context,
+                const Duration(milliseconds: 350),
+              ),
+              opacity: controlsIdle ? 0.0 : 1.0,
+              child: ExcludeFocus(
+                excluding: controlsIdle,
+                child: IgnorePointer(
+                  ignoring: controlsIdle,
+                  child: _CollapseChevronButton(
+                    onTap: () {
+                      ref.read(nowPlayingActivityProvider.notifier).state++;
+                      widget.onClose();
+                    },
+                  ),
                 ),
               ),
             ),
           ),
-        ),
 
         // 4. Unified Top-Right Control Bar (Ambient, Fullscreen, Overflow — fades on idle)
         Positioned(
@@ -372,8 +376,10 @@ class _CollapseChevronButtonState extends State<_CollapseChevronButton> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final ink = dark ? Colors.white : Colors.black;
     return Tooltip(
-      message: 'Collapse Now Playing',
+      message: 'Exit fullscreen (F11)',
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
@@ -381,20 +387,21 @@ class _CollapseChevronButtonState extends State<_CollapseChevronButton> {
         child: GestureDetector(
           onTap: widget.onTap,
           behavior: HitTestBehavior.opaque,
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
             width: 32,
             height: 32,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: _hover
-                  ? Colors.white.withValues(alpha: 0.12)
-                  : Colors.transparent,
+              color: ink.withValues(
+                alpha: _hover ? (dark ? 0.20 : 0.15) : (dark ? 0.10 : 0.08),
+              ),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Icon(
-              Icons.keyboard_arrow_down,
-              size: 22,
-              color: Colors.white.withValues(alpha: _hover ? 0.95 : 0.55),
+              FluentIcons.chevron_left,
+              size: 15,
+              color: ink.withValues(alpha: _hover ? 1.0 : 0.85),
             ),
           ),
         ),

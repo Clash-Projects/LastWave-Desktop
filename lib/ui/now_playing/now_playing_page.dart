@@ -1221,6 +1221,9 @@ class _TrackMetadataSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final dark = waveIsDark(context);
+    final ink = dark ? Colors.white : Colors.black;
+    final shadows = dark ? _metadataShadow : null;
     final stream = ref.watch(playbackServiceProvider.select((s) => s.stream));
     final quality = stream == null ? null : _streamQualityParts(stream);
 
@@ -1233,7 +1236,7 @@ class _TrackMetadataSection extends ConsumerWidget {
       height: 1.45,
       fontWeight: FontWeight.w500,
       letterSpacing: 0.1,
-      shadows: _metadataShadow,
+      shadows: shadows,
     );
 
     return Column(
@@ -1252,8 +1255,8 @@ class _TrackMetadataSection extends ConsumerWidget {
             height: 1.12,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.5,
-            color: Colors.white,
-            shadows: _metadataShadow,
+            color: ink,
+            shadows: shadows,
           ),
         ),
         const SizedBox(height: 5),
@@ -1261,21 +1264,21 @@ class _TrackMetadataSection extends ConsumerWidget {
           artist: track.artist,
           textAlign: alignCenter ? TextAlign.center : TextAlign.start,
           style: artistStyle.copyWith(
-            color: Colors.white.withValues(alpha: 0.86),
+            color: ink.withValues(alpha: 0.86),
           ),
           extraTrailingSpans: [
             if (showDistinctAlbum) ...[
               TextSpan(
                 text: '  ·  ',
                 style: artistStyle.copyWith(
-                  color: Colors.white.withValues(alpha: 0.30),
+                  color: ink.withValues(alpha: 0.30),
                   fontWeight: FontWeight.w400,
                 ),
               ),
               TextSpan(
                 text: track.album,
                 style: artistStyle.copyWith(
-                  color: Colors.white.withValues(alpha: 0.56),
+                  color: ink.withValues(alpha: 0.56),
                   fontWeight: FontWeight.w400,
                 ),
               ),
@@ -1300,6 +1303,9 @@ class _QualitySpecLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final ink = dark ? Colors.white : Colors.black;
+    final shadows = dark ? _metadataShadow : null;
     return Align(
       alignment: centered ? Alignment.center : Alignment.centerLeft,
       child: Row(
@@ -1309,7 +1315,7 @@ class _QualitySpecLine extends StatelessWidget {
           Icon(
             WaveIcons.equalizer,
             size: 11,
-            color: waveAccent(context).withValues(alpha: 0.62),
+            color: waveAccent(context).withValues(alpha: dark ? 0.62 : 0.80),
           ),
           const SizedBox(width: 6),
           Text(
@@ -1318,8 +1324,8 @@ class _QualitySpecLine extends StatelessWidget {
               fontSize: 9.5,
               letterSpacing: 1.05,
               fontWeight: FontWeight.w700,
-              color: Colors.white.withValues(alpha: 0.94),
-              shadows: _metadataShadow,
+              color: ink.withValues(alpha: 0.94),
+              shadows: shadows,
             ),
           ),
           if (quality.detail.isNotEmpty) ...[
@@ -1328,8 +1334,8 @@ class _QualitySpecLine extends StatelessWidget {
               '·',
               style: WaveType.label.copyWith(
                 fontSize: 10.5,
-                color: Colors.white.withValues(alpha: 0.32),
-                shadows: _metadataShadow,
+                color: ink.withValues(alpha: 0.32),
+                shadows: shadows,
               ),
             ),
             const SizedBox(width: 7),
@@ -1339,8 +1345,8 @@ class _QualitySpecLine extends StatelessWidget {
                 fontSize: 10.5,
                 fontWeight: FontWeight.w500,
                 letterSpacing: 0.1,
-                color: Colors.white.withValues(alpha: 0.68),
-                shadows: _metadataShadow,
+                color: ink.withValues(alpha: 0.68),
+                shadows: shadows,
               ),
             ),
           ],
@@ -1364,6 +1370,9 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final ink = dark ? Colors.white : Colors.black;
+    final shadows = dark ? _metadataShadow : null;
     final queue = ref.watch(playbackServiceProvider.select((s) => s.queue));
     final index = ref.watch(
       playbackServiceProvider.select((s) => s.currentIndex),
@@ -1375,8 +1384,8 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
     final nextTrack = queue[index + 1];
     final nextStyle = WaveType.meta.copyWith(
       fontSize: 11.5,
-      color: Colors.white.withValues(alpha: 0.62),
-      shadows: _metadataShadow,
+      color: ink.withValues(alpha: 0.62),
+      shadows: shadows,
     );
 
     final nextLabel = Text.rich(
@@ -1387,14 +1396,14 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
             style: WaveType.trackTitle.copyWith(
               fontSize: 12.5,
               fontWeight: FontWeight.w600,
-              color: Colors.white.withValues(alpha: 0.92),
-              shadows: _metadataShadow,
+              color: ink.withValues(alpha: 0.92),
+              shadows: shadows,
             ),
           ),
           TextSpan(
             text: '  ·  ',
             style: nextStyle.copyWith(
-              color: Colors.white.withValues(alpha: 0.30),
+              color: ink.withValues(alpha: 0.30),
             ),
           ),
           TextSpan(text: nextTrack.artist, style: nextStyle),
@@ -1413,8 +1422,8 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
             fontSize: 8.5,
             letterSpacing: 1.2,
             fontWeight: FontWeight.w700,
-            color: waveAccent(context).withValues(alpha: 0.82),
-            shadows: _metadataShadow,
+            color: waveAccent(context).withValues(alpha: dark ? 0.82 : 0.92),
+            shadows: shadows,
           ),
         ),
         const SizedBox(width: 10),
@@ -1435,7 +1444,7 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
             size: 11,
             color: _hovered
                 ? waveAccent(context)
-                : Colors.white.withValues(alpha: 0.42),
+                : ink.withValues(alpha: 0.42),
           ),
         ),
       ],
@@ -1451,7 +1460,7 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
           Container(
             width: 28,
             height: 1,
-            color: Colors.white.withValues(alpha: 0.16),
+            color: ink.withValues(alpha: 0.16),
           ),
           const SizedBox(height: 4),
           MouseRegion(
@@ -1467,7 +1476,7 @@ class _UpNextRowState extends ConsumerState<_UpNextRow> {
                 curve: WaveMotion.standard,
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: _hovered ? 0.06 : 0.0),
+                  color: ink.withValues(alpha: _hovered ? 0.06 : 0.0),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: content,

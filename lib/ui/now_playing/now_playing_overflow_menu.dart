@@ -1088,6 +1088,8 @@ class _QuickActionButtonState extends State<_QuickActionButton> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final ink = dark ? Colors.white : Colors.black;
     final accent = waveAccent(context);
     return Tooltip(
       message: widget.tooltip,
@@ -1104,13 +1106,11 @@ class _QuickActionButtonState extends State<_QuickActionButton> {
             height: 30,
             decoration: BoxDecoration(
               color: widget.active
-                  ? accent.withValues(alpha: 0.20)
-                  : (_hover
-                      ? Colors.white.withValues(alpha: 0.16)
-                      : Colors.white.withValues(alpha: 0.08)),
+                  ? accent.withValues(alpha: dark ? 0.20 : 0.16)
+                  : ink.withValues(alpha: _hover ? (dark ? 0.16 : 0.14) : (dark ? 0.08 : 0.08)),
               borderRadius: BorderRadius.circular(7),
               border: widget.active
-                  ? Border.all(color: accent.withValues(alpha: 0.45))
+                  ? Border.all(color: accent.withValues(alpha: dark ? 0.45 : 0.55))
                   : null,
             ),
             child: Center(
@@ -1119,7 +1119,7 @@ class _QuickActionButtonState extends State<_QuickActionButton> {
                 size: 14,
                 color: widget.active
                     ? accent
-                    : Colors.white.withValues(alpha: _hover ? 1.0 : 0.85),
+                    : ink.withValues(alpha: _hover ? 1.0 : 0.85),
               ),
             ),
           ),
@@ -1149,6 +1149,8 @@ class _CircularIconButtonState extends State<_CircularIconButton> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = waveIsDark(context);
+    final ink = dark ? Colors.white : Colors.black;
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
@@ -1164,13 +1166,15 @@ class _CircularIconButtonState extends State<_CircularIconButton> {
             height: 32,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: _hover ? 0.20 : 0.10),
+              color: ink.withValues(
+                alpha: _hover ? (dark ? 0.20 : 0.15) : (dark ? 0.10 : 0.08),
+              ),
             ),
             child: Center(
               child: Icon(
                 widget.icon,
                 size: 15,
-                color: Colors.white.withValues(alpha: _hover ? 1.0 : 0.85),
+                color: ink.withValues(alpha: _hover ? 1.0 : 0.85),
               ),
             ),
           ),
