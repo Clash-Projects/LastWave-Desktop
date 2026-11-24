@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../app/window.dart' show applyTitlebarStyle;
 import '../../app/auth_gate.dart';
 import '../../core/app_info.dart';
 import '../../core/audio/stream_models.dart';
@@ -47,8 +48,6 @@ import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
-import '../../features/equalizer/equalizer_controller.dart';
-import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/equalizer/headphone_profiles.dart';
 import '../../features/player/loudness.dart';
@@ -1195,6 +1194,26 @@ class _Appearance extends ConsumerWidget {
                 ),
             ],
             onChanged: (v) => onUpdate((p) => p.setAppFont(v)),
+          ),
+        ),
+        const SizedBox(height: 8),
+        _Group(
+          id: 'appearance.titlebar',
+          title: 'Titlebar',
+          subtitle: 'Window header and decorations',
+          child: _BehaviourSelectRow(
+            title: 'Titlebar',
+            subtitle: '',
+            value: prefs.titlebarStyle,
+            options: const [
+              WaveSelectOption(value: 'custom', label: 'Custom (app-drawn)'),
+              WaveSelectOption(value: 'system', label: 'System decorations'),
+              WaveSelectOption(value: 'none', label: 'No titlebar'),
+            ],
+            onChanged: (v) async {
+              await onUpdate((p) => p.setTitlebarStyle(v));
+              await applyTitlebarStyle(v);
+            },
           ),
         ),
         const SizedBox(height: 8),
@@ -4365,12 +4384,13 @@ class _BehaviourSelectRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title, style: WaveType.trackTitle),
-                Text(
-                  subtitle,
-                  style: WaveType.meta.copyWith(
-                    color: waveTextSecondary(context),
+                if (subtitle.isNotEmpty)
+                  Text(
+                    subtitle,
+                    style: WaveType.meta.copyWith(
+                      color: waveTextSecondary(context),
+                    ),
                   ),
-                ),
               ],
             ),
           ),

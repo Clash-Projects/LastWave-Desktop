@@ -124,6 +124,24 @@ class Prefs {
         miniPlayerStyles.contains(style) ? style : 'lyrics',
       );
 
+  /// Window titlebar style: `'custom'` (app-drawn header with controls, the
+  /// default), `'system'` (native OS titlebar and decorations), `'none'`
+  /// (frameless edge-to-edge content without titlebar).
+  static const titlebarStyles = [
+    'custom',
+    'system',
+    'none',
+  ];
+  String get titlebarStyle {
+    final raw = _sp.getString('lw_titlebar_style') ?? 'custom';
+    return titlebarStyles.contains(raw) ? raw : 'custom';
+  }
+
+  Future<void> setTitlebarStyle(String style) => _sp.setString(
+        'lw_titlebar_style',
+        titlebarStyles.contains(style) ? style : 'custom',
+      );
+
   // -- Playback behaviour -------------------------------------------------
   /// Keep playing similar tracks (endless radio) after a queue runs
   /// out. Default on — matches Spotify/YTM autoplay behaviour.

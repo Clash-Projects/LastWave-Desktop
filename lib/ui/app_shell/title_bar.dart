@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/track_actions.dart' show playGenerated;
+import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart' show GeneratedTrack;
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/search/search_repository.dart';
@@ -62,6 +63,7 @@ class WaveTitleBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
     final auth = ref.watch(authRepositoryProvider);
+    final titlebarStyle = ref.watch(prefsProvider).titlebarStyle;
     return WaveHaze(
       level: LwHazeLevel.l1,
       enableBlur: false,
@@ -201,7 +203,9 @@ class WaveTitleBar extends ConsumerWidget {
                 // macOS draws its own traffic lights: the window is
                 // `TitleBarStyle.hidden`, which hides the bar but keeps the
                 // lights, so our trio would be a second, non-native set.
-                if (!Platform.isMacOS) const _WindowButtons(),
+                // Under system decorations, the OS draws native window buttons.
+                if (!Platform.isMacOS && titlebarStyle != 'system')
+                  const _WindowButtons(),
               ],
             );
           },

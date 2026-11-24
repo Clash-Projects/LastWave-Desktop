@@ -170,6 +170,13 @@ const settingsSearchEntries = <SettingsSearchEntry>[
         'now playing style layout standard full bleed minimal edge to edge duet lyrics cover artwork',
   ),
   SettingsSearchEntry(
+    id: 'appearance.now_playing_autohide',
+    section: 'appearance',
+    title: 'Auto-hide Now Playing controls',
+    subtitle: 'Fade out the top buttons after mouse inactivity',
+    keywords: 'autohide auto-hide fade controls buttons inactivity timer',
+  ),
+  SettingsSearchEntry(
     id: 'appearance.ambient',
     section: 'appearance',
     title: 'Now Playing ambient',
@@ -191,6 +198,14 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     title: 'Font',
     subtitle: 'The typeface used across the app',
     keywords: 'font typeface typography text inter poppins geist manrope',
+  ),
+  SettingsSearchEntry(
+    id: 'appearance.titlebar',
+    section: 'appearance',
+    title: 'Titlebar',
+    subtitle: 'Window header and decorations',
+    keywords:
+        'titlebar title bar system decorations custom app-drawn none frameless window chrome controls',
   ),
   SettingsSearchEntry(
     id: 'lastfm.connection',

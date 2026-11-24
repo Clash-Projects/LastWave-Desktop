@@ -376,8 +376,10 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
 
             if (Platform.isLinux) {
               final isMaximized = ref.watch(windowMaximizedProvider);
+              final isSystemDeco =
+                  ref.watch(prefsProvider).titlebarStyle == 'system';
               return WaveWindowResizeArea(
-                enabled: !isMaximized,
+                enabled: !isMaximized && !isSystemDeco,
                 edgeSize: 4.0,
                 cornerSize: 14.0,
                 child: content,

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui' show Color;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -83,6 +82,20 @@ Future<void> applyWindowMaterial({
                   ? WaveColors.amoledBackground
                   : WaveColors.background)),
     );
+  } catch (_) {}
+}
+
+/// Switch the native titlebar decoration style: `system` restores native OS
+/// window frame and controls (`TitleBarStyle.normal`), while `custom` and
+/// `none` hide it (`TitleBarStyle.hidden`) so Flutter handles chrome.
+Future<void> applyTitlebarStyle(String style) async {
+  try {
+    if (!Platform.isLinux && !Platform.isWindows && !Platform.isMacOS) return;
+    if (style == 'system') {
+      await windowManager.setTitleBarStyle(TitleBarStyle.normal);
+    } else {
+      await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+    }
   } catch (_) {}
 }
 

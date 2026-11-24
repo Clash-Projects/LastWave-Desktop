@@ -101,6 +101,9 @@ Future<void> main(List<String> args) async {
   final database = await databaseFuture;
   OfficialArtworkService.instance.init(db: database);
   await windowFuture;
+  if (prefs.titlebarStyle == 'system') {
+    await applyTitlebarStyle('system');
+  }
 
   // Disk-side artwork cache bound. NOTE: this is currently a documented
   // no-op — the 759 heap "CacheObjects" were tiny metadata (~60 KB total),
