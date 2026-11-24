@@ -1200,10 +1200,10 @@ class _Appearance extends ConsumerWidget {
         _Group(
           id: 'appearance.scale',
           title: 'Interface scale',
-          subtitle: 'Adjust app zoom for display resolution or preference (Ctrl +/-)',
+          subtitle: 'Adjust app zoom for display resolution or preference (${Platform.isMacOS ? 'Cmd' : 'Ctrl'} +/-)',
           child: _BehaviourSelectRow(
             title: 'Zoom level',
-            subtitle: 'Shortcuts: Ctrl + to zoom in, Ctrl - to zoom out, Ctrl 0 to reset.',
+            subtitle: 'Shortcuts: ${Platform.isMacOS ? 'Cmd' : 'Ctrl'} + to zoom in, ${Platform.isMacOS ? 'Cmd' : 'Ctrl'} - to zoom out, ${Platform.isMacOS ? 'Cmd' : 'Ctrl'} 0 to reset.',
             value: ref.watch(uiScaleProvider).toStringAsFixed(2),
             options: [
               for (final val in UiScalePresets.values)

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
@@ -190,7 +192,9 @@ bool handleWaveHotkey(KeyEvent event, WaveHotkeyActions a) {
   }
 
   // --- Palette + search focus + Zoom: work while typing. ---
-  if (ctrl && !alt && !meta && isDown) {
+  // On macOS, accept Command modifier (meta) while retaining Ctrl on Windows/Linux.
+  final isPrimary = !alt && (Platform.isMacOS ? (meta || ctrl) : (ctrl && !meta));
+  if (isPrimary && isDown) {
     if (!shift && k == LogicalKeyboardKey.keyK) {
       a.openPalette();
       return true;
@@ -199,7 +203,7 @@ bool handleWaveHotkey(KeyEvent event, WaveHotkeyActions a) {
       a.focusSearch();
       return true;
     }
-    // Zoom shortcuts: Ctrl + (=, add, numpadAdd), Ctrl - (minus, numpadSubtract), Ctrl 0
+    // Zoom shortcuts: Cmd/Ctrl + (=, add, numpadAdd), Cmd/Ctrl - (minus, numpadSubtract), Cmd/Ctrl 0
     if (k == LogicalKeyboardKey.equal ||
         k == LogicalKeyboardKey.add ||
         k == LogicalKeyboardKey.numpadAdd) {
