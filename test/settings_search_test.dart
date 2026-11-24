@@ -54,7 +54,7 @@ void main() {
   test('the index and the settings page list the same cards', () {
     final source =
         File('lib/ui/settings/settings_page.dart').readAsStringSync();
-    final inPage = RegExp(r"^\s+id: '([a-z]+\.[a-z]+)',$", multiLine: true)
+    final inPage = RegExp(r"^\s+id: '([a-z_]+\.[a-z_]+)',$", multiLine: true)
         .allMatches(source)
         .map((m) => m.group(1)!)
         .toSet();
@@ -72,6 +72,7 @@ void main() {
       'audio',
       'playback',
       'lyrics',
+      'sources',
       'library',
       'accounts',
       'about',

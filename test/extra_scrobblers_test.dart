@@ -17,9 +17,9 @@ void main() {
     prefs = await Prefs.load();
   });
 
-  test('settings rail contains Scrobbler entry', () {
-    final scrobbler = waveSettingsSections.firstWhere((s) => s.$1 == 'lastfm');
-    expect(scrobbler.$2, 'Scrobbler');
+  test('settings rail contains Accounts entry', () {
+    final accounts = waveSettingsSections.firstWhere((s) => s.$1 == 'accounts');
+    expect(accounts.$2, 'Accounts');
   });
 
   test('normalizeServer adds https and strips trailing slash', () {
