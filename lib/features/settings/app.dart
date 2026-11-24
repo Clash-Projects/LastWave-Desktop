@@ -33,6 +33,7 @@ import '../performance/performance_controller.dart';
 import 'accent.dart';
 import 'app_fonts.dart';
 import 'theme_controller.dart';
+import 'ui_scale.dart';
 
 /// LastWave desktop application root.
 ///
@@ -354,17 +355,45 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
                   : directed,
             );
 
+            final uiScale = ref.watch(uiScaleProvider);
+            Widget root = content;
+            if ((uiScale - 1.0).abs() >= 0.001) {
+              root = LayoutBuilder(
+                builder: (context, constraints) {
+                  final scaledW = constraints.maxWidth / uiScale;
+                  final scaledH = constraints.maxHeight / uiScale;
+                  return Transform.scale(
+                    scale: uiScale,
+                    alignment: Alignment.topLeft,
+                    child: OverflowBox(
+                      alignment: Alignment.topLeft,
+                      minWidth: scaledW,
+                      maxWidth: scaledW,
+                      minHeight: scaledH,
+                      maxHeight: scaledH,
+                      child: MediaQuery(
+                        data: MediaQuery.of(context).copyWith(
+                          size: Size(scaledW, scaledH),
+                        ),
+                        child: content,
+                      ),
+                    ),
+                  );
+                },
+              );
+            }
+
             if (Platform.isLinux) {
               final isMaximized = ref.watch(windowMaximizedProvider);
               return WaveWindowResizeArea(
                 enabled: !isMaximized,
                 edgeSize: 4.0,
                 cornerSize: 14.0,
-                child: content,
+                child: root,
               );
             }
 
-            return content;
+            return root;
           },
         ),
       ),

@@ -412,6 +412,10 @@ class Prefs {
   Future<void> setHazeIntensity(String v) =>
       _sp.setString('lw_haze_intensity', v);
 
+  /// Interface zoom scaling factor (0.75 to 1.50, default 1.0).
+  double get uiScale => _sp.getDouble('lw_ui_scale') ?? 1.0;
+  Future<void> setUiScale(double v) => _sp.setDouble('lw_ui_scale', v);
+
   /// Accent source: 'system' | 'lastwave' | 'artwork' | 'custom'.
   /// 'manual' (legacy) is treated as 'custom'. The theme controller
   /// resolves the effective accent; artwork mode tints from the current

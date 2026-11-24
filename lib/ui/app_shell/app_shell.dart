@@ -33,6 +33,7 @@ import '../../features/updates/update_service.dart';
 import 'command_palette.dart';
 import 'title_bar.dart';
 import 'wave_hotkeys.dart';
+import '../../features/settings/ui_scale.dart';
 
 /// Rebuilt desktop shell — THIS IS A MUSIC PLAYER.
 ///
@@ -346,6 +347,15 @@ class _WaveShellState extends ConsumerState<WaveShell> {
         goForward: () {
           if (mounted) _goForward();
         },
+        zoomIn: () {
+          if (mounted) ref.read(uiScaleProvider.notifier).zoomIn();
+        },
+        zoomOut: () {
+          if (mounted) ref.read(uiScaleProvider.notifier).zoomOut();
+        },
+        resetZoom: () {
+          if (mounted) ref.read(uiScaleProvider.notifier).reset();
+        },
         handleEscape: () {
           if (!mounted) return false;
           return _handleEscape();
@@ -522,16 +532,19 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     if (clean == '/liked' || clean.startsWith('/liked/')) return 3;
     if (clean == '/albums' ||
         clean.startsWith('/albums/') ||
-        clean.startsWith('/album/'))
+        clean.startsWith('/album/')) {
       return 4;
+    }
     if (clean == '/artists' ||
         clean.startsWith('/artists/') ||
-        clean.startsWith('/artist/'))
+        clean.startsWith('/artist/')) {
       return 5;
+    }
     if (clean == '/playlists' ||
         clean.startsWith('/playlists/') ||
-        clean.startsWith('/ytplaylist/'))
+        clean.startsWith('/ytplaylist/')) {
       return 6;
+    }
     if (clean == '/podcasts' || clean.startsWith('/podcasts/')) return 7;
     if (clean == '/library' ||
         clean.startsWith('/library/') ||

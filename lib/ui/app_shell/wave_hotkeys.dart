@@ -44,6 +44,9 @@ class WaveHotkeyActions {
     required this.handleEscape,
     required this.seekBySeconds,
     required this.volumeByDelta,
+    this.zoomIn,
+    this.zoomOut,
+    this.resetZoom,
   });
 
   final bool Function() isTyping;
@@ -65,6 +68,9 @@ class WaveHotkeyActions {
   final bool Function() handleEscape;
   final void Function(int secondsDelta) seekBySeconds;
   final void Function(double delta) volumeByDelta;
+  final void Function()? zoomIn;
+  final void Function()? zoomOut;
+  final void Function()? resetZoom;
 }
 
 /// Seek/volume steps shared by the global handler and the dock tooltips.
@@ -183,16 +189,40 @@ bool handleWaveHotkey(KeyEvent event, WaveHotkeyActions a) {
     }
   }
 
-  // --- Palette + search focus: work while typing. Strict SingleActivator
-  // parity (no Alt/Meta/Shift stragglers). ---
-  if (ctrl && !alt && !meta && !shift && isDown) {
-    if (k == LogicalKeyboardKey.keyK) {
+  // --- Palette + search focus + Zoom: work while typing. ---
+  if (ctrl && !alt && !meta && isDown) {
+    if (!shift && k == LogicalKeyboardKey.keyK) {
       a.openPalette();
       return true;
     }
-    if (k == LogicalKeyboardKey.keyF) {
+    if (!shift && k == LogicalKeyboardKey.keyF) {
       a.focusSearch();
       return true;
+    }
+    // Zoom shortcuts: Ctrl + (=, add, numpadAdd), Ctrl - (minus, numpadSubtract), Ctrl 0
+    if (k == LogicalKeyboardKey.equal ||
+        k == LogicalKeyboardKey.add ||
+        k == LogicalKeyboardKey.numpadAdd) {
+      if (a.zoomIn != null) {
+        a.zoomIn!();
+        return true;
+      }
+    }
+    if (!shift &&
+        (k == LogicalKeyboardKey.minus ||
+            k == LogicalKeyboardKey.numpadSubtract)) {
+      if (a.zoomOut != null) {
+        a.zoomOut!();
+        return true;
+      }
+    }
+    if (!shift &&
+        (k == LogicalKeyboardKey.digit0 ||
+            k == LogicalKeyboardKey.numpad0)) {
+      if (a.resetZoom != null) {
+        a.resetZoom!();
+        return true;
+      }
     }
   }
 
