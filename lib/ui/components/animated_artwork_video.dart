@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../core/artwork/animated_artwork_session.dart';
+import '../../features/player/playback_service.dart';
 
 /// Forces alpha = 255 on every pixel without altering RGB.
 ///
@@ -62,6 +63,7 @@ class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
   void initState() {
     super.initState();
     _session = ref.read(_provider);
+    _session!.setPlaybackPaused(!ref.read(playbackServiceProvider).isPlaying);
     _session!.attach(widget.url, fallbackUrl: widget.fallbackUrl);
   }
 
@@ -72,6 +74,7 @@ class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
       _session?.hideSurface();
       _session?.detach();
       _session = ref.read(_provider);
+      _session!.setPlaybackPaused(!ref.read(playbackServiceProvider).isPlaying);
       _session!.attach(widget.url, fallbackUrl: widget.fallbackUrl);
       return;
     }
@@ -90,6 +93,10 @@ class _AnimatedArtworkVideoState extends ConsumerState<AnimatedArtworkVideo> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<bool>(
+      playbackServiceProvider.select((s) => s.isPlaying),
+      (_, playing) => _session?.setPlaybackPaused(!playing),
+    );
     final controller = ref.watch(_provider.select((s) => s.controller));
     if (controller == null) return const SizedBox.expand();
     WidgetsBinding.instance.addPostFrameCallback((_) {

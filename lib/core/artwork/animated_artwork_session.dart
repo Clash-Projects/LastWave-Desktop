@@ -83,6 +83,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
   // pauses, detach pauses, and track-change reloads never resume through
   // it. Merely unfocused (side-by-side) never sets it.
   bool _pausedForBackground = false;
+  // True while audio playback is paused: freezes Canvas on the current crisp
+  // frame so mpv stops decoding & uploading textures while music is paused.
+  bool _pausedForPlayback = false;
+  bool get _shouldPause => _pausedForBackground || _pausedForPlayback;
   // Serializes native ops (open/stop/dispose): each waits for the previous.
   Future<void> _tail = Future.value();
 
@@ -159,12 +163,13 @@ class AnimatedArtworkSession extends ChangeNotifier {
     if (!backgrounded) {
       if (!_pausedForBackground) return;
       _pausedForBackground = false;
+      if (_pausedForPlayback) return;
       unawaited(
         _serialized(() async {
           try {
             // Detached tiles stay paused: detach's own timer owns them,
             // and resuming a dead surface would flash black on return.
-            if (_refs > 0 && _player != null) {
+            if (_refs > 0 && _player != null && !_shouldPause) {
               await _ensureLoopProperties(_player!);
               if (_player!.state.completed) {
                 await _player!.seek(Duration.zero);
@@ -182,6 +187,39 @@ class AnimatedArtworkSession extends ChangeNotifier {
       _serialized(() async {
         try {
           await _player?.pause();
+        } catch (_) {}
+      }),
+    );
+  }
+
+  /// Syncs Canvas decoding with audio playback play/pause. Freezes on the
+  /// current decoded frame while paused so CPU/GPU decode drops to zero.
+  void setPlaybackPaused(bool paused) {
+    if (_disposed || _pausedForPlayback == paused) return;
+    _pausedForPlayback = paused;
+    if (paused) {
+      // Wait for first frame if a new clip is still opening; mark() pauses it.
+      if (!_ready || _player == null) return;
+      unawaited(
+        _serialized(() async {
+          try {
+            if (_pausedForPlayback) await _player?.pause();
+          } catch (_) {}
+        }),
+      );
+      return;
+    }
+    if (_pausedForBackground || _refs == 0 || _player == null) return;
+    unawaited(
+      _serialized(() async {
+        try {
+          if (_refs > 0 && _player != null && !_shouldPause) {
+            await _ensureLoopProperties(_player!);
+            if (_player!.state.completed) {
+              await _player!.seek(Duration.zero);
+            }
+            await _player!.play();
+          }
         } catch (_) {}
       }),
     );
@@ -209,7 +247,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
             if (_player!.state.completed) {
               await _player!.seek(Duration.zero);
             }
-            if (!_pausedForBackground) {
+            if (!_shouldPause) {
               await _player!.play();
             } else {
               await _player!.pause();
@@ -361,6 +399,15 @@ class AnimatedArtworkSession extends ChangeNotifier {
         );
       }
       if (_visible) _notify();
+      if (_shouldPause) {
+        unawaited(
+          _serialized(() async {
+            try {
+              if (_shouldPause) await _player?.pause();
+            } catch (_) {}
+          }),
+        );
+      }
     }
 
     void scheduleMark(Duration settleDelay) {
@@ -513,7 +560,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
     // `loop-file=inf` (e.g. non-byterange HLS playlists), immediately seek
     // back to 0 and resume so the canvas animation never stops.
     _completedSub = player.stream.completed.listen((completed) {
-      if (!completed || _disposed || _refs == 0 || _pausedForBackground) return;
+      if (!completed || _disposed || _refs == 0 || _shouldPause) return;
       final gen = _generation;
       final activeUrl = _openedUrl;
       unawaited(
@@ -521,7 +568,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
           if (_disposed ||
               gen != _generation ||
               _refs == 0 ||
-              _pausedForBackground) {
+              _shouldPause) {
             return;
           }
           final p = _player;
@@ -613,24 +660,23 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('ytdl', 'no');
       } catch (_) {}
       try {
-        await dyn.setProperty('vd-lavc-threads', '2');
+        await dyn.setProperty('vd-lavc-threads', '1');
       } catch (_) {}
       try {
         await dyn.setProperty('cache', 'yes');
       } catch (_) {}
       try {
-        await dyn.setProperty('demuxer-max-bytes', '4MiB');
+        await dyn.setProperty('demuxer-max-bytes', '2MiB');
       } catch (_) {}
       try {
         await dyn.setProperty('demuxer-max-back-bytes', '0');
       } catch (_) {}
       try {
-        // Cap decode presentation rate to 30fps so 24/25/30fps Spotify and
-        // Apple canvases play smoothly without frame drops while still capping
-        // 60fps clips. Avoid `vf=scale=...:flags=fast_bilinear` ahead of mpv's
-        // SW renderer so YUV color-range metadata on d3d11va-copy frames stays
-        // intact.
-        await dyn.setProperty('vf', 'fps=30');
+        // Cap decode presentation rate to 24fps (native Spotify Canvas cadence)
+        // to cut SW scaling & pixel-buffer upload overhead by 20% with zero
+        // visual motion loss. Avoid `vf=scale=...:flags=fast_bilinear` ahead
+        // of mpv's SW renderer so BT.709/sRGB levels stay intact.
+        await dyn.setProperty('vf', 'fps=24');
       } catch (_) {}
       try {
         await dyn.setProperty('video-output-levels', 'full');
@@ -648,7 +694,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
         await dyn.setProperty('sws-fast', 'no');
       } catch (_) {}
       try {
-        await dyn.setProperty('sws-scaler', 'bicubic');
+        await dyn.setProperty('sws-scaler', 'bilinear');
       } catch (_) {}
       try {
         // Crop to the texture's aspect instead of letterboxing, so a clip
