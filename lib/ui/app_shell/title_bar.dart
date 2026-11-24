@@ -18,9 +18,11 @@ import '../components/buttons.dart' show LWTooltip, WaveA11yButton;
 import '../components/inputs.dart';
 import '../components/menus.dart'
     show
+        LWContextMenu,
         WaveMenuAction,
         WaveMenuButton,
         WaveMenuSeparator;
+import '../../core/storage/prefs.dart';
 import '../navigation/wave_nav.dart';
 import '../search/search_page.dart';
 import '../theme/haze.dart';
@@ -28,12 +30,83 @@ import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
 import '../theme/wave_icons.dart';
 
+/// Manages the placement of the search bar in the title bar: 'left', 'center', 'right', 'icon'.
+final searchBarPositionProvider =
+    NotifierProvider<SearchBarPositionNotifier, String>(
+  SearchBarPositionNotifier.new,
+);
+
+class SearchBarPositionNotifier extends Notifier<String> {
+  @override
+  String build() {
+    return ref.watch(prefsProvider).searchBarPosition;
+  }
+
+  Future<void> setPosition(String position) async {
+    state = position;
+    await ref.read(prefsProvider).setSearchBarPosition(position);
+  }
+}
+
+/// Context menu allowing users to right-click anywhere on the search bar
+/// or search icon to switch its placement instantly on the fly.
+class _SearchPlacementContextMenu extends ConsumerWidget {
+  final Widget child;
+  const _SearchPlacementContextMenu({required this.child});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(searchBarPositionProvider);
+    return LWContextMenu(
+      items: () => [
+        WaveMenuAction(
+          leading: Icon(
+            current == 'left' ? FluentIcons.check_mark : null,
+            size: 13,
+          ),
+          label: 'Move to Left',
+          onPressed: () =>
+              ref.read(searchBarPositionProvider.notifier).setPosition('left'),
+        ),
+        WaveMenuAction(
+          leading: Icon(
+            current == 'center' ? FluentIcons.check_mark : null,
+            size: 13,
+          ),
+          label: 'Move to Center',
+          onPressed: () =>
+              ref.read(searchBarPositionProvider.notifier).setPosition('center'),
+        ),
+        WaveMenuAction(
+          leading: Icon(
+            current == 'right' ? FluentIcons.check_mark : null,
+            size: 13,
+          ),
+          label: 'Move to Right',
+          onPressed: () =>
+              ref.read(searchBarPositionProvider.notifier).setPosition('right'),
+        ),
+        WaveMenuAction(
+          leading: Icon(
+            current == 'icon' ? FluentIcons.check_mark : null,
+            size: 13,
+          ),
+          label: 'Collapse to Icon',
+          onPressed: () =>
+              ref.read(searchBarPositionProvider.notifier).setPosition('icon'),
+        ),
+      ],
+      child: child,
+    );
+  }
+}
+
 /// Compact 44px title / nav / search bar.
 ///
 /// Left: back · forward
-/// Centre-left: compact search (not a giant toolbar)
+/// Centre-left / Centre / Right: compact search (configurable)
 /// Right: profile · app menu · window controls
-class WaveTitleBar extends ConsumerWidget {
+class WaveTitleBar extends ConsumerStatefulWidget {
   final TextEditingController searchController;
   final FocusNode searchFocus;
   final ValueChanged<String> onSearchSubmit;
@@ -59,7 +132,47 @@ class WaveTitleBar extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WaveTitleBar> createState() => _WaveTitleBarState();
+}
+
+class _WaveTitleBarState extends ConsumerState<WaveTitleBar> {
+  bool _iconSearchExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.searchFocus.addListener(_onSearchFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(WaveTitleBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.searchFocus != widget.searchFocus) {
+      oldWidget.searchFocus.removeListener(_onSearchFocusChange);
+      widget.searchFocus.addListener(_onSearchFocusChange);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.searchFocus.removeListener(_onSearchFocusChange);
+    super.dispose();
+  }
+
+  void _onSearchFocusChange() {
+    if (widget.searchFocus.hasFocus && !_iconSearchExpanded && mounted) {
+      setState(() => _iconSearchExpanded = true);
+    } else if (!widget.searchFocus.hasFocus &&
+        widget.searchController.text.isEmpty &&
+        _iconSearchExpanded &&
+        mounted) {
+      setState(() => _iconSearchExpanded = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final searchPos = ref.watch(searchBarPositionProvider);
     final dark = waveIsDark(context);
     final auth = ref.watch(authRepositoryProvider);
     return WaveHaze(
@@ -78,88 +191,48 @@ class WaveTitleBar extends ConsumerWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;
-            final compact = maxW < 700;
+            // Center placement requires a wider title bar (>= 880px) to give sufficient
+            // breathing room and prevent the centered search box from overlapping
+            // the Commands and Community buttons. Below 880px, it safely falls back
+            // to compact left layout where controls are cleanly sequenced without stacking.
+            final compact = maxW < (searchPos == 'center' ? 880 : 700);
             final searchMax =
                 (maxW * 0.28).clamp(140.0, 300.0).toDouble();
-            return Row(
-              children: [
-                // macOS keeps the native traffic lights over the
-                // chromeless window; clear their corner (the lights
-                // end around x=74) instead of letting the nav buttons
-                // sit underneath them.
-                SizedBox(width: Platform.isMacOS ? 84 : 6),
-                _BarBtn(
-                  tooltip: 'Toggle navigation',
-                  icon: WaveIcons.panelLeft,
-                  onTap: onToggleRail,
-                ),
-                _BarBtn(
-                  tooltip: 'Back',
-                  icon: WaveIcons.back,
-                  onTap: canGoBack ? onBack : null,
-                ),
-                _BarBtn(
-                  tooltip: 'Forward',
-                  icon: WaveIcons.forward,
-                  onTap: canGoForward ? onForward : null,
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: searchMax,
-                  child: _WaveSearchBox(
-                    controller: searchController,
-                    focus: searchFocus,
-                    onSubmit: onSearchSubmit,
-                    onGo: onGo,
-                    onPalette: onPalette,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                if (!compact)
-                  _BarBtn(
-                    tooltip: 'Commands (Ctrl+K)',
-                    icon: WaveIcons.command,
-                    onTap: onPalette,
-                  ),
-                Expanded(
-                  child: DragToMoveArea(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      // WinUI: double-click title bar toggles maximize.
-                      onDoubleTap: () async {
-                        try {
-                          if (await windowManager.isMaximized()) {
-                            await windowManager.unmaximize();
-                          } else {
-                            await windowManager.maximize();
-                          }
-                        } catch (_) {}
-                      },
-                      child: const SizedBox(
-                        width: double.infinity,
-                        height: double.infinity,
-                      ),
-                    ),
-                  ),
-                ),
-                // Community shortcuts — tiny, before the profile.
-                const _CommunityBtns(),
-                const SizedBox(width: 6),
-                // Profile / account — tiny, no giant buttons.
-                WaveA11yButton(
-                  label: auth.status == AuthStatus.signedIn
-                      ? 'Profile, ${auth.username}'
-                      : 'Connect Last.fm',
-                  onTap: () {
-                    context.go(
-                      auth.status == AuthStatus.signedIn
-                          ? '/profile'
-                          : '/settings',
-                    );
-                  },
-                  child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
+
+            final navButtons = [
+              SizedBox(width: Platform.isMacOS ? 84 : 6),
+              _BarBtn(
+                tooltip: 'Toggle navigation',
+                icon: WaveIcons.panelLeft,
+                onTap: widget.onToggleRail,
+              ),
+              _BarBtn(
+                tooltip: 'Back',
+                icon: WaveIcons.back,
+                onTap: widget.canGoBack ? widget.onBack : null,
+              ),
+              _BarBtn(
+                tooltip: 'Forward',
+                icon: WaveIcons.forward,
+                onTap: widget.canGoForward ? widget.onForward : null,
+              ),
+              const SizedBox(width: 8),
+            ];
+
+            final profileBtn = WaveA11yButton(
+              label: auth.status == AuthStatus.signedIn
+                  ? 'Profile, ${auth.username}'
+                  : 'Connect Last.fm',
+              onTap: () {
+                context.go(
+                  auth.status == AuthStatus.signedIn
+                      ? '/profile'
+                      : '/settings',
+                );
+              },
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
                   onTap: () {
                     context.go(
                       auth.status == AuthStatus.signedIn
@@ -179,8 +252,7 @@ class WaveTitleBar extends ConsumerWidget {
                         color: dark
                             ? waveSurfaceRaised(context)
                             : waveSurfaceOverlay(context),
-                        border:
-                            Border.all(color: waveDivider(context)),
+                        border: Border.all(color: waveDivider(context)),
                       ),
                       child: Center(
                         child: Text(
@@ -188,22 +260,147 @@ class WaveTitleBar extends ConsumerWidget {
                                   auth.username.isNotEmpty
                               ? auth.username[0].toUpperCase()
                               : '?',
-                          style: WaveType.label
-                              .copyWith(fontSize: 11),
+                          style: WaveType.label.copyWith(fontSize: 11),
                         ),
                       ),
                     ),
                   ),
-                ))),
-                const SizedBox(width: 6),
-                _AppMenu(),
-                const SizedBox(width: 6),
-                // macOS draws its own traffic lights: the window is
-                // `TitleBarStyle.hidden`, which hides the bar but keeps the
-                // lights, so our trio would be a second, non-native set.
-                if (!Platform.isMacOS) const _WindowButtons(),
-              ],
+                ),
+              ),
             );
+
+            final rightActions = [
+              const _CommunityBtns(),
+              const SizedBox(width: 6),
+              profileBtn,
+              const SizedBox(width: 6),
+              _AppMenu(),
+              const SizedBox(width: 6),
+              if (!Platform.isMacOS) const _WindowButtons(),
+            ];
+
+            Widget dragArea([Key? key]) => Expanded(
+              key: key,
+              child: DragToMoveArea(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onDoubleTap: () async {
+                    try {
+                      if (await windowManager.isMaximized()) {
+                        await windowManager.unmaximize();
+                      } else {
+                        await windowManager.maximize();
+                      }
+                    } catch (_) {}
+                  },
+                  child: const SizedBox(
+                    width: double.infinity,
+                    height: double.infinity,
+                  ),
+                ),
+              ),
+            );
+
+            final isIconMode = searchPos == 'icon';
+            final showFullSearch = !isIconMode ||
+                _iconSearchExpanded ||
+                widget.searchFocus.hasFocus ||
+                widget.searchController.text.isNotEmpty;
+
+            final searchWidget = showFullSearch
+                ? SizedBox(
+                    width: searchMax,
+                    child: _SearchPlacementContextMenu(
+                      child: _WaveSearchBox(
+                        controller: widget.searchController,
+                        focus: widget.searchFocus,
+                        onSubmit: widget.onSearchSubmit,
+                        onGo: widget.onGo,
+                        onPalette: widget.onPalette,
+                      ),
+                    ),
+                  )
+                : _SearchPlacementContextMenu(
+                    child: Focus(
+                      focusNode: widget.searchFocus,
+                      child: _BarBtn(
+                        tooltip: 'Search (Ctrl+F)',
+                        icon: WaveIcons.search,
+                        onTap: () {
+                          setState(() => _iconSearchExpanded = true);
+                          widget.searchFocus.requestFocus();
+                        },
+                      ),
+                    ),
+                  );
+
+            final commandsBtn = !compact
+                ? _BarBtn(
+                    tooltip: 'Commands (Ctrl+K)',
+                    icon: WaveIcons.command,
+                    onTap: widget.onPalette,
+                  )
+                : const SizedBox.shrink();
+
+            final effectivePos = compact ? 'left' : searchPos;
+
+            if (effectivePos == 'center') {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  Row(
+                    children: [
+                      ...navButtons,
+                      dragArea(const ValueKey('drag_center')),
+                      if (maxW >= 960) commandsBtn,
+                      const SizedBox(width: 6),
+                      ...rightActions,
+                    ],
+                  ),
+                  Center(
+                    child: searchWidget,
+                  ),
+                ],
+              );
+            }
+
+            final List<Widget> rowChildren;
+            switch (effectivePos) {
+              case 'right':
+                rowChildren = [
+                  ...navButtons,
+                  dragArea(const ValueKey('drag_right')),
+                  searchWidget,
+                  const SizedBox(width: 4),
+                  commandsBtn,
+                  const SizedBox(width: 8),
+                  ...rightActions,
+                ];
+                break;
+              case 'icon':
+                rowChildren = [
+                  ...navButtons,
+                  searchWidget,
+                  const SizedBox(width: 4),
+                  commandsBtn,
+                  dragArea(const ValueKey('drag_icon')),
+                  ...rightActions,
+                ];
+                break;
+              case 'left':
+              default:
+                rowChildren = [
+                  ...navButtons,
+                  searchWidget,
+                  const SizedBox(width: 4),
+                  commandsBtn,
+                  dragArea(const ValueKey('drag_left')),
+                  ...rightActions,
+                ];
+                break;
+            }
+
+            return Row(children: rowChildren);
           },
         ),
       ),

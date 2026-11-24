@@ -412,6 +412,12 @@ class Prefs {
   Future<void> setHazeIntensity(String v) =>
       _sp.setString('lw_haze_intensity', v);
 
+  /// Title bar search bar placement: 'left' (default), 'center', 'right', 'icon'.
+  String get searchBarPosition =>
+      _sp.getString('lw_search_bar_position') ?? 'left';
+  Future<void> setSearchBarPosition(String v) =>
+      _sp.setString('lw_search_bar_position', v);
+
   /// Accent source: 'system' | 'lastwave' | 'artwork' | 'custom'.
   /// 'manual' (legacy) is treated as 'custom'. The theme controller
   /// resolves the effective accent; artwork mode tints from the current
