@@ -2991,6 +2991,11 @@ class _AppleLineLyricsView extends StatefulWidget {
 
 class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
   final ItemScrollController _scroll = ItemScrollController();
+  // Visible item range: drives the end-of-list check in [_scrollTo].
+  final ItemPositionsListener _positions = ItemPositionsListener.create();
+  // List height from the last layout; `context.size` asserts while the
+  // render object is dirty, which it is when a tick calls [_scrollTo].
+  double _viewHeight = 0;
   int _lastIndex = -1;
   bool _pinnedOpening = false;
   late List<VocalRole> _lineRoles;
@@ -3161,9 +3166,32 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
     }
   }
 
+  /// True when the list can't scroll further: the last line sits at the
+  /// bottom padding edge (or the whole lyric fits on screen).
+  bool _listAtEnd(Iterable<ItemPosition> visible) {
+    final height = _viewHeight;
+    if (height <= 0) return false;
+    final lastLine = widget.result.lines.length - 1;
+    for (final p in visible) {
+      if (p.index != lastLine) continue;
+      final bottomPadding = widget.compact ? 80.0 : 120.0;
+      return p.itemTrailingEdge * height <= height - bottomPadding + 2;
+    }
+    return false;
+  }
+
   void _scrollTo(int index, {bool animate = true}) {
     if (!_scroll.isAttached) return;
     if (index < 0) index = 0;
+    // Once the list is at its bottom edge, an 18% anchor can't be reached:
+    // the scroll overshoots and bounces back. At the end, a line that is
+    // already on screen needs no scroll at all. Note `itemPositions` also
+    // lists built-but-offscreen (cache extent) items, so edges are checked.
+    final visible = _positions.itemPositions.value;
+    final onScreen = visible.any(
+      (p) => p.index == index && p.itemTrailingEdge > 0 && p.itemLeadingEdge < 1,
+    );
+    if (onScreen && _listAtEnd(visible)) return;
     // 18% upper-third golden ratio focal anchor
     final alignment = lyricFollowAlignment(index, compact: widget.compact, targetAnchor: 0.18);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -3276,6 +3304,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       },
       child: ScrollablePositionedList.builder(
         itemScrollController: _scroll,
+        itemPositionsListener: _positions,
         initialScrollIndex: initialActive > 0 ? initialActive : 0,
         initialAlignment: lyricFollowAlignment(
           initialActive > 0 ? initialActive : 0,
@@ -3417,7 +3446,12 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
       },
       child: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-        child: list,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            _viewHeight = constraints.maxHeight;
+            return list;
+          },
+        ),
       ),
     );
 
