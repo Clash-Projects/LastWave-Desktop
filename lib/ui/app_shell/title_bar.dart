@@ -10,8 +10,8 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../app/track_actions.dart' show playGenerated;
 import '../../features/feed/feed_repository.dart' show GeneratedTrack;
-import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/profile_providers.dart';
+import '../../features/scrobblers/scrobbler_session.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../../app/accessibility.dart';
@@ -937,13 +937,17 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
-    final auth = ref.watch(authRepositoryProvider);
+    final session = ref.watch(activeScrobblerSessionProvider);
     final avatarUrl = ref.watch(userAvatarUrlProvider);
-    final isSignedIn = auth.status == AuthStatus.signedIn;
-    final username = auth.username;
+    final isSignedIn = session.connected;
+    final username = session.username;
 
-    final tooltip = isSignedIn ? username : 'Connect Last.fm';
-    final a11yLabel = isSignedIn ? 'Profile, $username' : 'Connect Last.fm';
+    final tooltip = isSignedIn
+        ? '$username (${session.displayName})'
+        : 'Connect a scrobbler';
+    final a11yLabel = isSignedIn
+        ? 'Profile, $username'
+        : 'Connect a scrobbler';
 
     Widget avatar;
     if (avatarUrl.isNotEmpty) {

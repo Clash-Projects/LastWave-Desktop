@@ -2,8 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/storage/prefs.dart';
-import '../../features/lastfm/auth_repository.dart' show lastFmApiProvider;
+import '../../features/lastfm/home_repository.dart';
+import '../../features/scrobblers/scrobbler_session.dart';
 import '../../features/search/shared_providers.dart';
 import '../components/artwork.dart';
 import '../components/menus.dart';
@@ -15,56 +15,35 @@ import '../theme/wave_icons.dart';
 
 final _waveArtistsProvider = FutureProvider<
     List<({String name, String artwork})>>((ref) async {
-  final api = ref.watch(lastFmApiProvider);
-  final apiKey = ref.watch(prefsApiKeyProvider);
-  // Select username only: any other prefs change (theme, quality,
-  // scrobble) must not rebuild the whole artists grid.
-  final user =
-      ref.watch(prefsProvider.select((p) => p.username));
+  final session = ref.watch(activeScrobblerSessionProvider);
+  if (session.connected) {
+    try {
+      final artists = await ref
+          .watch(homeRepositoryProvider)
+          .fetchTopArtists(period: '1month', limit: 30);
+      if (artists.isNotEmpty) {
+        return artists
+            .map((a) => (name: a.name, artwork: a.artworkUrl))
+            .where((e) => e.name.isNotEmpty)
+            .toList();
+      }
+    } catch (_) {}
+  }
+
+  // Guest / fallback: derive top artists from local play history.
   try {
-    final method =
-        user.isEmpty ? 'chart.gettopartists' : 'user.gettopartists';
-    final json = await api.get({
-      'method': method,
-      if (user.isNotEmpty) 'user': user,
-      'api_key': apiKey,
-      'limit': '30',
-      'period': '1month',
-    });
-    final root = user.isEmpty
-        ? json['artists']
-        : json['topartists'];
-    final items = root?['artist'];
-    final list = items is List
-        ? items.whereType<Map<String, dynamic>>().toList()
-        : items is Map<String, dynamic>
-            ? [items]
-            : <Map<String, dynamic>>[];
-    return list
-        .map((a) => (
-              name: a['name']?.toString() ?? '',
-              artwork: _img(a['image']),
-            ))
+    final local = ref.read(databaseProvider).getLocalStatsSummary();
+    final raw =
+        (local['topArtists'] as List<({String name, int count})>?) ?? [];
+    return raw
+        .take(30)
+        .map((a) => (name: a.name, artwork: ''))
         .where((e) => e.name.isNotEmpty)
         .toList();
   } catch (_) {
     return const [];
   }
 });
-
-String _img(Object? images) {
-  var fallback = '';
-  final list = images is List
-      ? images.whereType<Map>().toList()
-      : const [];
-  for (final img in list) {
-    final url = img['#text']?.toString() ?? '';
-    if (url.isEmpty) continue;
-    fallback = url;
-    if (img['size'] == 'extralarge') return url;
-  }
-  return fallback;
-}
 
 /// Artists — 120px circle portraits with rank pill, initials fallback.
 /// Tap opens the dedicated artist layout.

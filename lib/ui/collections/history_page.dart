@@ -6,11 +6,12 @@ import '../../app/track_actions.dart'
     show playGenerated, relativeTime;
 import '../../features/feed/feed_repository.dart';
 import '../../features/innertube/yt_library_providers.dart';
-import '../../core/storage/prefs.dart';
 import '../../features/home/home_snapshot.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/lastfm/lastfm_snapshot.dart';
 import '../../features/player/playback_service.dart';
+import '../../features/scrobblers/scrobbler_session.dart';
+import '../../features/search/shared_providers.dart';
 import '../components/states.dart';
 import '../components/track_row.dart';
 import '../theme/motion.dart';
@@ -18,11 +19,22 @@ import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
 final _waveHistoryProvider =
-    FutureProvider<List<HomeTrack>>((ref) {
+    FutureProvider<List<HomeTrack>>((ref) async {
+  final session = ref.watch(activeScrobblerSessionProvider);
+  if (!session.connected) {
+    final plays = ref.read(databaseProvider).loadRecentPlays(limit: 100);
+    return plays
+        .map((p) => HomeTrack(
+              name: p.title,
+              artist: p.artist,
+              timestampMillis: p.atMillis,
+            ))
+        .toList();
+  }
   final home = ref.watch(homeRepositoryProvider);
   return swrLoad<List<HomeTrack>>(
     ref,
-    key: lastFmCacheKey('recent', ref.read(prefsProvider).username),
+    key: lastFmCacheKey('recent', session.cacheScope),
     codec: homeTracksSnapshotCodec,
     group: cacheGroupLastFm,
     maxAge: lastFmCacheMaxAge,
@@ -103,7 +115,12 @@ class WaveHistoryPage extends ConsumerWidget {
                       CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'LAST.FM',
+                      ref.watch(activeScrobblerSessionProvider).connected
+                          ? ref
+                              .watch(activeScrobblerSessionProvider)
+                              .displayName
+                              .toUpperCase()
+                          : 'LOCAL',
                       style: WaveType.overline.copyWith(
                         color: waveAccent(context),
                       ),

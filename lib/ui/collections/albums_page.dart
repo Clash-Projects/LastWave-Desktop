@@ -3,13 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/track_actions.dart' show playGenerated;
-import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/innertube/album_match.dart';
 import '../../features/innertube/innertube_api.dart';
-import '../../features/lastfm/auth_repository.dart' show lastFmApiProvider;
+import '../../features/lastfm/home_repository.dart';
 import '../../features/player/playback_service.dart';
-import '../../features/search/shared_providers.dart' show prefsApiKeyProvider;
+import '../../features/scrobblers/scrobbler_session.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../components/menus.dart';
@@ -29,13 +28,8 @@ class _Album {
 
 final _waveAlbumsProvider =
     FutureProvider<List<_Album>>((ref) async {
-  final api = ref.watch(lastFmApiProvider);
-  final apiKey = ref.watch(prefsApiKeyProvider);
-  // Select username only: any other prefs change (theme, quality,
-  // scrobble) must not rebuild the whole albums grid.
-  final user =
-      ref.watch(prefsProvider.select((p) => p.username));
-  if (user.isEmpty) {
+  final session = ref.watch(activeScrobblerSessionProvider);
+  if (!session.connected) {
     try {
       final entities = await ref
           .watch(innerTubeProvider)
@@ -52,47 +46,17 @@ final _waveAlbumsProvider =
     }
   }
   try {
-    final json = await api.get({
-      'method': 'user.gettopalbums',
-      'user': user,
-      'api_key': apiKey,
-      'limit': '30',
-      'period': '1month',
-    });
-    final items = json['topalbums']?['album'];
-    final list = items is List
-        ? items.whereType<Map<String, dynamic>>().toList()
-        : items is Map<String, dynamic>
-            ? [items]
-            : <Map<String, dynamic>>[];
-    // Resolve browseIds on demand via search when opening.
-    return list
-        .map((a) => _Album(
-              a['name']?.toString() ?? '',
-              (a['artist'] as Map?)?['name']?.toString() ?? '',
-              _img(a['image']),
-              '',
-            ))
+    final albums = await ref
+        .watch(homeRepositoryProvider)
+        .fetchTopAlbums(period: '1month', limit: 30);
+    return albums
+        .map((a) => _Album(a.name, a.artist, a.artworkUrl, ''))
         .where((e) => e.title.isNotEmpty)
         .toList();
   } catch (_) {
     return const [];
   }
 });
-
-String _img(Object? images) {
-  var fallback = '';
-  final list = images is List
-      ? images.whereType<Map>().toList()
-      : const [];
-  for (final img in list) {
-    final url = img['#text']?.toString() ?? '';
-    if (url.isEmpty) continue;
-    fallback = url;
-    if (img['size'] == 'extralarge') return url;
-  }
-  return fallback;
-}
 
 /// Albums — premium responsive grid (max180/extent218, 160px art radius 6,
 /// hover quick-play 44px + more + playing indicator).

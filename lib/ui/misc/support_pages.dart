@@ -9,10 +9,10 @@ import '../../app/track_actions.dart'
 import '../../features/feed/feed_repository.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
-import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/lastfm/lastfm_snapshot.dart';
 import '../../features/lastfm/profile_providers.dart';
+import '../../features/scrobblers/scrobbler_session.dart';
 import '../../features/home/home_snapshot.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
@@ -35,10 +35,10 @@ final _waveTopTracksProvider =
     FutureProvider.family<List<HomeTrack>, _TopQuery>(
         (ref, q) {
   final home = ref.watch(homeRepositoryProvider);
+  final scope = ref.watch(activeScrobblerSessionProvider).cacheScope;
   return swrLoad<List<HomeTrack>>(
     ref,
-    key: lastFmCacheKey('top', ref.read(prefsProvider).username,
-        viewing: q.viewing, extra: q.period),
+    key: lastFmCacheKey('top', scope, viewing: q.viewing, extra: q.period),
     codec: homeTracksSnapshotCodec,
     group: cacheGroupLastFm,
     maxAge: lastFmCacheMaxAge,
@@ -119,13 +119,13 @@ class _WaveProfilePageState
 
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authRepositoryProvider);
-    final user = auth.username;
-    if (user.isEmpty) {
+    final session = ref.watch(activeScrobblerSessionProvider);
+    final user = session.username;
+    if (!session.connected) {
       return WaveEmpty(
         icon: FluentIcons.contact,
         title: 'No profile selected',
-        subtitle: 'Connect Last.fm in Settings to see your profile.',
+        subtitle: 'Connect a scrobbler in Settings to see your profile.',
         actionLabel: 'Open Settings',
         onAction: () => context.go('/settings?section=lastfm'),
       );
@@ -150,6 +150,7 @@ class _WaveProfilePageState
               Builder(builder: (context) {
                 final statsAsync = ref.watch(_profileStatsProvider(null));
                 final stats = statsAsync.valueOrNull;
+                final avatarUrl = ref.watch(userAvatarUrlProvider);
                 String n(int v) => v.toString().replaceAllMapped(
                       RegExp(r'\B(?=(\d{3})+(?!\d))'),
                       (m) => ',',
@@ -158,7 +159,7 @@ class _WaveProfilePageState
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     WaveArtwork.circle(
-                      url: stats?.avatarUrl ?? '',
+                      url: avatarUrl,
                       size: 88,
                       label: user,
                       title: user,
@@ -173,7 +174,7 @@ class _WaveProfilePageState
                           Text(user, style: WaveType.pageTitle),
                           const SizedBox(height: 4),
                           Text(
-                            'Your Last.fm profile',
+                            'Your ${session.displayName} profile',
                             style: WaveType.body.copyWith(
                               color: waveTextSecondary(context),
                             ),
