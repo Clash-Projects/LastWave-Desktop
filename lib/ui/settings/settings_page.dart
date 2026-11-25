@@ -23,6 +23,7 @@ import '../../core/l10n/app_language.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../features/settings/app_fonts.dart';
 import '../../features/scrobblers/extra_scrobblers.dart';
+import '../../features/scrobblers/scrobbler_session.dart';
 import '../../features/addons/addon_api.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
@@ -564,197 +565,6 @@ class _Group extends StatelessWidget {
           ),
           child: child,
         ),
-      ],
-    );
-  }
-}
-
-class _Account extends ConsumerWidget {
-  final Future<void> Function(Future<void> Function(Prefs)) onUpdate;
-  const _Account({required this.onUpdate});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final auth = ref.watch(authRepositoryProvider);
-    final prefs = ref.watch(prefsProvider);
-    final signedIn = auth.username.isNotEmpty;
-    final guest = auth.status == AuthStatus.guest || prefs.isGuest;
-    return _Group(
-      id: 'lastfm.connection',
-      title: 'Last.fm connection',
-      subtitle: 'Scrobbling and discovery need a session',
-      child: Column(
-        children: [
-          Row(
-            children: [
-              const Icon(FluentIcons.contact, size: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      signedIn
-                          ? auth.username
-                          : (guest ? 'Guest mode' : 'Not connected'),
-                      style: WaveType.trackTitle,
-                    ),
-                    Text(
-                      signedIn
-                          ? 'Last.fm connected'
-                          : (guest
-                                ? 'Last.fm disabled — save keys below, then connect'
-                                : 'Connect to scrobble and personalize'),
-                      style: WaveType.meta,
-                    ),
-                  ],
-                ),
-              ),
-              signedIn
-                  ? WaveButton(
-                      onPressed: () => signOutEverywhere(ref),
-                      child: const Text('Sign out'),
-                    )
-                  : const SizedBox.shrink(),
-            ],
-          ),
-          if (!signedIn) ...[
-            const SizedBox(height: 10),
-            const _InShellConnect(),
-          ],
-          const SizedBox(height: 20),
-          const _ApiKeys(),
-        ],
-      ),
-    );
-  }
-}
-
-/// Web-auth connect that runs inside Settings (no /welcome round-trip),
-/// so guests can attach Last.fm after saving keys. Mirrors the welcome
-/// approval flow: open the browser, approve, finish here.
-class _InShellConnect extends ConsumerStatefulWidget {
-  const _InShellConnect();
-  @override
-  ConsumerState<_InShellConnect> createState() => _InShellConnectState();
-}
-
-class _InShellConnectState extends ConsumerState<_InShellConnect> {
-  WebAuthHandshake? _handshake;
-  bool _busy = false;
-  String? _error;
-
-  Future<void> _begin() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final handshake = await ref
-          .read(authRepositoryProvider.notifier)
-          .beginWebAuth();
-      if (!mounted) return;
-      setState(() => _handshake = handshake);
-      final uri = Uri.parse(handshake.url);
-      try {
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
-      } catch (_) {}
-    } catch (e) {
-      if (!mounted) return;
-      setState(
-        () => _error =
-            'Could not reach Last.fm. Check your connection and retry.',
-      );
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _finish() async {
-    final handshake = _handshake;
-    if (handshake == null) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await ref
-          .read(authRepositoryProvider.notifier)
-          .completeWebAuth(handshake.token);
-      ref.invalidate(feedProvider);
-    } catch (e) {
-      if (!mounted) return;
-      setState(
-        () => _error =
-            'Not approved yet — approve LastWave in the browser, then retry.',
-      );
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final configured = ref.watch(prefsProvider).isLastFmConfigured;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (_error != null) ...[
-          Text(_error!, style: WaveType.meta.copyWith(color: Colors.red)),
-          const SizedBox(height: 8),
-        ],
-        WaveFilledButton(
-          onPressed: _busy || !configured ? null : _begin,
-          child: _busy && _handshake == null
-              ? const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: ProgressRing(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 8),
-                    Text('Contacting Last.fm…'),
-                  ],
-                )
-              : Text(
-                  _handshake == null
-                      ? 'Connect with Last.fm'
-                      : 'Restart approval',
-                ),
-        ),
-        if (!configured) ...[
-          const SizedBox(height: 6),
-          Text(
-            'Save your API keys below first.',
-            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
-          ),
-        ],
-        if (_handshake != null) ...[
-          const SizedBox(height: 8),
-          WaveButton(
-            onPressed: _busy ? null : _finish,
-            child: _busy
-                ? const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: ProgressRing(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Confirming…'),
-                    ],
-                  )
-                : const Text("I've approved — finish sign-in"),
-          ),
-        ],
       ],
     );
   }
@@ -3822,172 +3632,8 @@ class _LastFm extends ConsumerWidget {
       children: [
         _Scrobbler(onUpdate: onUpdate),
         const SizedBox(height: 8),
-        _Account(onUpdate: onUpdate),
-        const SizedBox(height: 8),
         const _OtherScrobblers(),
       ],
-    );
-  }
-}
-
-/// Last.fm BYOK editor: the user's own API key + shared secret.
-///
-/// Validated with a signed `auth.getToken` call before persisting;
-/// saving *different* keys signs the session out (sessions belong to
-/// their API key). Key values are never logged — only presence.
-class _ApiKeys extends ConsumerStatefulWidget {
-  const _ApiKeys();
-  @override
-  ConsumerState<_ApiKeys> createState() => _ApiKeysState();
-}
-
-class _ApiKeysState extends ConsumerState<_ApiKeys> {
-  TextEditingController? _key;
-  TextEditingController? _secret;
-  bool _busy = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _key?.dispose();
-    _secret?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await ref
-          .read(authRepositoryProvider.notifier)
-          .saveCustomKeys(_key?.text ?? '', _secret?.text ?? '');
-    } catch (e) {
-      if (mounted) {
-        setState(() => _error = _shortError(e));
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _clear() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await ref.read(authRepositoryProvider.notifier).clearCustomKeys();
-      _key?.clear();
-      _secret?.clear();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _error = _shortError(e));
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  static String _shortError(Object e) =>
-      e.toString().replaceFirst('LastFmException(null): ', '');
-
-  @override
-  Widget build(BuildContext context) {
-    // Subscribe to auth transitions so the status line below flips
-    // right after save/clear: Prefs itself never notifies (see
-    // welcome _AuthPanel — same pattern).
-    ref.watch(authRepositoryProvider.select((s) => s.status));
-    final prefs = ref.watch(prefsProvider);
-    _key ??= TextEditingController(text: prefs.lastFmApiKey);
-    _secret ??= TextEditingController(text: prefs.lastFmApiSecret);
-    final configured = prefs.isLastFmConfigured;
-    // Lives inside the Last.fm connection card; the keys belong to it.
-    return SettingsTarget(
-      id: 'lastfm.keys',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text('API keys', style: WaveType.label),
-          Text(
-            'Your own keys from last.fm/api/account/create',
-            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
-          ),
-          const SizedBox(height: 10),
-          const LastFmKeyGuide(),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Icon(
-                configured ? FluentIcons.check_mark : FluentIcons.warning,
-                size: 14,
-                color: configured ? Colors.green : Colors.orange,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  configured
-                      ? 'Keys saved — values never shown here'
-                      : 'Not configured — Last.fm is disabled',
-                  style: WaveType.meta,
-                ),
-              ),
-              if (configured)
-                WaveButton(
-                  onPressed: _busy ? null : _clear,
-                  child: const Text('Clear'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          const Text('API key', style: WaveType.label),
-          const SizedBox(height: 4),
-          TextBox(
-            decoration: waveInputDecoration(),
-            controller: _key,
-            placeholder: '32-character hex key',
-          ),
-          const SizedBox(height: 8),
-          const Text('Shared secret', style: WaveType.label),
-          const SizedBox(height: 4),
-          TextBox(
-            decoration: waveInputDecoration(),
-            controller: _secret,
-            placeholder: 'Shared secret',
-            obscureText: true,
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(_error!, style: WaveType.meta.copyWith(color: Colors.red)),
-          ],
-          const SizedBox(height: 10),
-          WaveFilledButton(
-            onPressed: _busy ? null : _save,
-            child: _busy
-                ? const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: ProgressRing(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Validating…'),
-                    ],
-                  )
-                : const Text('Save & validate'),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Saving different keys signs you out — sessions belong '
-            'to their API key. Reconnect afterwards.',
-            style: WaveType.meta.copyWith(color: waveTextTertiary(context)),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -4454,21 +4100,105 @@ class _OtherScrobblers extends ConsumerStatefulWidget {
 }
 
 class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
+  TextEditingController? _lfmKey;
+  TextEditingController? _lfmSecret;
   final _lbToken = TextEditingController();
   final _lbServer = TextEditingController();
   final _lfUser = TextEditingController();
   final _lfPass = TextEditingController();
   final _lfServer = TextEditingController();
   bool _busy = false;
+  bool _editingLfmKeys = false;
+  WebAuthHandshake? _lfmHandshake;
+  String? _lfmError;
   String? _lbError;
   String? _lfError;
 
   @override
   void dispose() {
+    _lfmKey?.dispose();
+    _lfmSecret?.dispose();
     for (final c in [_lbToken, _lbServer, _lfUser, _lfPass, _lfServer]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _saveLfmKeys() async {
+    setState(() {
+      _busy = true;
+      _lfmError = null;
+    });
+    try {
+      await ref
+          .read(authRepositoryProvider.notifier)
+          .saveCustomKeys(_lfmKey?.text ?? '', _lfmSecret?.text ?? '');
+      if (mounted) {
+        setState(() => _editingLfmKeys = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _lfmError =
+              e.toString().replaceFirst('LastFmException(null): ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _beginLfmAuth() async {
+    setState(() {
+      _busy = true;
+      _lfmError = null;
+    });
+    try {
+      final handshake =
+          await ref.read(authRepositoryProvider.notifier).beginWebAuth();
+      if (!mounted) return;
+      setState(() => _lfmHandshake = handshake);
+      final uri = Uri.parse(handshake.url);
+      try {
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _lfmError =
+              'Could not reach Last.fm. Check your connection and retry.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _finishLfmAuth() async {
+    final handshake = _lfmHandshake;
+    if (handshake == null) return;
+    setState(() {
+      _busy = true;
+      _lfmError = null;
+    });
+    try {
+      await ref
+          .read(authRepositoryProvider.notifier)
+          .completeWebAuth(handshake.token);
+      ref.invalidate(feedProvider);
+      if (mounted) setState(() => _lfmHandshake = null);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _lfmError =
+              'Not approved yet — approve LastWave in the browser, then retry.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _run(Future<void> Function() job) async {
@@ -4518,17 +4248,191 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
   @override
   Widget build(BuildContext context) {
     ref.watch(extraScrobblersRevisionProvider);
+    final auth = ref.watch(authRepositoryProvider);
     final prefs = ref.watch(prefsProvider);
     final lb = ref.read(listenBrainzProvider);
     final lf = ref.read(libreFmProvider);
+    final connected = ref.watch(connectedScrobblersProvider);
+    final active = ref.watch(activeScrobblerSessionProvider);
+    final lfmSignedIn = auth.username.isNotEmpty;
+    final lfmConfigured = prefs.isLastFmConfigured;
+    _lfmKey ??= TextEditingController(text: prefs.lastFmApiKey);
+    _lfmSecret ??= TextEditingController(text: prefs.lastFmApiSecret);
+
     return _Group(
-      id: 'lastfm.others',
-      title: 'ListenBrainz & Libre.fm',
-      subtitle: 'Connect accounts to scrobble simultaneously with LastWave',
+      id: 'lastfm.connection',
+      title: 'Scrobbler accounts',
+      subtitle:
+          'Connect Last.fm, ListenBrainz, or Libre.fm to scrobble and sync stats',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('ListenBrainz', style: WaveType.trackTitle),
+          if (connected.length > 1) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Primary scrobbler', style: WaveType.trackTitle),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Used for Stats, History, Home, and Top Artists/Albums.',
+                        style: WaveType.meta
+                            .copyWith(color: waveTextSecondary(context)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ComboBox<String>(
+                  value: prefs.primaryScrobbler.isEmpty ||
+                          !connected.any((k) => k.id == prefs.primaryScrobbler)
+                      ? ''
+                      : prefs.primaryScrobbler,
+                  items: [
+                    ComboBoxItem(
+                      value: '',
+                      child: Text('Auto (${active.displayName})'),
+                    ),
+                    for (final k in connected)
+                      ComboBoxItem(
+                        value: k.id,
+                        child: Text(k.displayName),
+                      ),
+                  ],
+                  onChanged: (v) async {
+                    if (v == null) return;
+                    await prefs.setPrimaryScrobbler(v);
+                    ref.read(extraScrobblersRevisionProvider.notifier).state++;
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+          const Text('Last.fm', style: WaveType.trackTitle),
+          const SizedBox(height: 6),
+          if (lfmSignedIn)
+            _connected(
+              'Last.fm',
+              auth.username,
+              '',
+              () => _run(() => signOutEverywhere(ref)),
+            )
+          else ...[
+            Text(
+              'Connect with your Last.fm account and personal API keys from last.fm/api/account/create.',
+              style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
+            ),
+            const SizedBox(height: 6),
+            SettingsTarget(
+              id: 'lastfm.keys',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (!lfmConfigured || _editingLfmKeys) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextBox(
+                            controller: _lfmKey,
+                            placeholder: 'API key',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextBox(
+                            controller: _lfmSecret,
+                            placeholder: 'Shared secret',
+                            obscureText: true,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        WaveFilledButton(
+                          onPressed: _busy ? null : _saveLfmKeys,
+                          child: const Text('Save keys'),
+                        ),
+                        if (_editingLfmKeys) ...[
+                          const SizedBox(width: 8),
+                          WaveButton(
+                            onPressed: _busy
+                                ? null
+                                : () => setState(() => _editingLfmKeys = false),
+                            child: const Text('Cancel'),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const LastFmKeyGuide(),
+                  ] else
+                    Row(
+                      children: [
+                        Icon(
+                          FluentIcons.check_mark,
+                          size: 14,
+                          color: waveAccent(context),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _lfmHandshake == null
+                                ? 'API keys saved — click Connect to authorize in browser.'
+                                : 'Approve LastWave in your browser, then click Finish.',
+                            style: WaveType.meta
+                                .copyWith(color: waveTextSecondary(context)),
+                          ),
+                        ),
+                        WaveButton(
+                          onPressed: _busy
+                              ? null
+                              : () => setState(() => _editingLfmKeys = true),
+                          child: const Text('Edit keys'),
+                        ),
+                        const SizedBox(width: 8),
+                        WaveButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _run(() async {
+                                  await ref
+                                      .read(authRepositoryProvider.notifier)
+                                      .clearCustomKeys();
+                                  _lfmKey?.clear();
+                                  _lfmSecret?.clear();
+                                  _lfmHandshake = null;
+                                }),
+                          child: const Text('Clear'),
+                        ),
+                        const SizedBox(width: 8),
+                        if (_lfmHandshake != null) ...[
+                          WaveButton(
+                            onPressed: _busy ? null : _beginLfmAuth,
+                            child: const Text('Restart'),
+                          ),
+                          const SizedBox(width: 8),
+                          WaveFilledButton(
+                            onPressed: _busy ? null : _finishLfmAuth,
+                            child: const Text('Finish'),
+                          ),
+                        ] else
+                          WaveFilledButton(
+                            onPressed: _busy ? null : _beginLfmAuth,
+                            child: const Text('Connect'),
+                          ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+            _error(_lfmError),
+          ],
+          const SizedBox(height: 16),
+          SettingsTarget(
+            id: 'lastfm.others',
+            child: const Text('ListenBrainz', style: WaveType.trackTitle),
+          ),
           const SizedBox(height: 6),
           if (lb.connected)
             _connected(
@@ -4629,7 +4533,7 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
                           if (err == null) _lfPass.clear();
                           if (mounted) setState(() => _lfError = err);
                         }),
-                  child: const Text('Sign in'),
+                  child: const Text('Connect'),
                 ),
               ],
             ),
