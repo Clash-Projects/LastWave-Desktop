@@ -69,7 +69,8 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     section: 'playback',
     title: 'Playback',
     subtitle: 'Gapless, crossfade and output behaviour',
-    keywords: 'autoplay similar crossfade gapless radio queue ends',
+    keywords: 'autoplay similar crossfade gapless radio queue ends '
+        'macos now playing lock screen media controls',
   ),
   SettingsSearchEntry(
     id: 'audio.output',
