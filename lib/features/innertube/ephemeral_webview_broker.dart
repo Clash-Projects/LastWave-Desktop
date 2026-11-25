@@ -46,6 +46,9 @@ class EphemeralWebViewBroker {
   final Lock _lock = Lock();
   Completer<EphemeralTokenResult?>? _inflightCompleter;
   Webview? _activeWebview;
+  // On Linux, desktop_webview_window 0.3.0 segfaults on close(), so we hide
+  // and reuse a single persistent Webview instance for the process lifetime.
+  Webview? _linuxWebview;
   final Set<String> _failedTracks = {};
 
   bool enabled = true;
@@ -127,6 +130,29 @@ class EphemeralWebViewBroker {
     });
   }
 
+  Future<(Directory, String)?> _writeTempBotGuardHtml(
+    bool Function() isCancelled,
+  ) async {
+    final html = await rootBundle.loadString('assets/po_token.html');
+    if (isCancelled()) return null;
+    final patched = html.replaceFirst(
+      '</script>',
+      '\nwindow.__bgLoaded=true;</script>',
+    );
+    final dir = await Directory.systemTemp.createTemp('lastwave_bg_ephemeral');
+    final file = File(
+      '${dir.path}${Platform.pathSeparator}po_token.html',
+    );
+    await file.writeAsString(patched);
+    if (isCancelled()) {
+      try {
+        dir.deleteSync(recursive: true);
+      } catch (_) {}
+      return null;
+    }
+    return (dir, Uri.file(file.path).toString());
+  }
+
   /// Executes BotGuard handshake in an isolated, short-lived WebView2 window.
   Future<EphemeralTokenResult?> _runEphemeralBurst(
     String videoId,
@@ -136,56 +162,75 @@ class EphemeralWebViewBroker {
     Webview? webview;
     Directory? tempDir;
     try {
-      final html = await rootBundle.loadString('assets/po_token.html');
-      if (isCancelled()) return null;
-      final patched = html.replaceFirst(
-        '</script>',
-        '\nwindow.__bgLoaded=true;</script>',
-      );
-      tempDir = await Directory.systemTemp.createTemp('lastwave_bg_ephemeral');
-      final file = File(
-        '${tempDir.path}${Platform.pathSeparator}po_token.html',
-      );
-      await file.writeAsString(patched);
-      if (isCancelled()) return null;
-
-      final profileFolder = await webviewUserDataFolder('botguard');
-      if (isCancelled()) return null;
-      webview = await WebviewWindow.create(
-        configuration: CreateConfiguration(
-          title: 'LastWave BotGuard',
-          titleBarHeight: 0,
-          windowWidth: 2,
-          windowHeight: 2,
-          windowPosX: -32000,
-          windowPosY: -32000,
-          useWindowPositionAndSize: true,
-          userDataFolderWindows: profileFolder.isEmpty
-              ? 'webview_window_WebView2'
-              : profileFolder,
-        ),
-      );
-      if (isCancelled()) return null;
-      _activeWebview = webview;
-
-      if (Platform.isLinux || Platform.isWindows) {
+      if (Platform.isLinux && _linuxWebview != null) {
+        webview = _linuxWebview;
+        _activeWebview = webview;
         await YtWebviewGuard.hideBotGuard();
-      }
-      try {
-        await webview.setWebviewWindowVisibility(false);
-      } catch (_) {}
+        final alreadyLoaded =
+            (await _eval(webview, 'window.__bgLoaded')) == 'true';
+        if (!alreadyLoaded) {
+          final written = await _writeTempBotGuardHtml(isCancelled);
+          if (written == null) return null;
+          tempDir = written.$1;
+          webview!.launch(written.$2);
+          await YtWebviewGuard.hideBotGuard();
+          final loaded = await _poll(
+            () async => (await _eval(webview, 'window.__bgLoaded')) == 'true',
+            timeout: const Duration(seconds: 5),
+          );
+          await YtWebviewGuard.hideBotGuard();
+          if (!loaded) throw StateError('Ephemeral bg page failed to load');
+        }
+      } else {
+        final written = await _writeTempBotGuardHtml(isCancelled);
+        if (written == null) return null;
+        tempDir = written.$1;
+        final uri = written.$2;
 
-      webview.launch(Uri.file(file.path).toString());
-      if (Platform.isWindows) {
-        await YtWebviewGuard.hideBotGuard();
-      }
+        final profileFolder = await webviewUserDataFolder('botguard');
+        if (isCancelled()) return null;
+        webview = await WebviewWindow.create(
+          configuration: CreateConfiguration(
+            title: 'LastWave BotGuard',
+            titleBarHeight: 0,
+            windowWidth: 2,
+            windowHeight: 2,
+            windowPosX: -32000,
+            windowPosY: -32000,
+            useWindowPositionAndSize: true,
+            userDataFolderWindows: profileFolder.isEmpty
+                ? 'webview_window_WebView2'
+                : profileFolder,
+          ),
+        );
+        if (Platform.isLinux) {
+          _linuxWebview = webview;
+        }
+        if (isCancelled()) return null;
+        _activeWebview = webview;
 
-      // 1. Wait for HTML page load
-      final loaded = await _poll(
-        () async => (await _eval(webview, 'window.__bgLoaded')) == 'true',
-        timeout: const Duration(seconds: 5),
-      );
-      if (!loaded) throw StateError('Ephemeral bg page failed to load');
+        if (Platform.isLinux || Platform.isWindows) {
+          await YtWebviewGuard.hideBotGuard();
+        }
+        try {
+          await webview.setWebviewWindowVisibility(false);
+        } catch (_) {}
+
+        webview.launch(uri);
+        if (Platform.isLinux || Platform.isWindows) {
+          await YtWebviewGuard.hideBotGuard();
+        }
+
+        // 1. Wait for HTML page load
+        final loaded = await _poll(
+          () async => (await _eval(webview, 'window.__bgLoaded')) == 'true',
+          timeout: const Duration(seconds: 5),
+        );
+        if (Platform.isLinux) {
+          await YtWebviewGuard.hideBotGuard();
+        }
+        if (!loaded) throw StateError('Ephemeral bg page failed to load');
+      }
 
       // 2. Fetch challenge
       final challengeJson = await _postJson(_createUrl, [_requestKey]);

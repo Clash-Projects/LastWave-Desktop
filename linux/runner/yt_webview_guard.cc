@@ -63,6 +63,25 @@ static void arm_delete_blocker(GtkWidget* window) {
                    nullptr);
 }
 
+static bool hide_all_windows_by_title(const char* title) {
+  GList* tops = gtk_window_list_toplevels();
+  bool found = false;
+  for (GList* l = tops; l != nullptr; l = l->next) {
+    if (!GTK_IS_WINDOW(l->data)) {
+      continue;
+    }
+    const gchar* t = gtk_window_get_title(GTK_WINDOW(l->data));
+    if (t != nullptr && strcmp(t, title) == 0) {
+      GtkWidget* w = GTK_WIDGET(l->data);
+      arm_delete_blocker(w);
+      gtk_widget_hide(w);
+      found = true;
+    }
+  }
+  g_list_free(tops);
+  return found;
+}
+
 static void handle_method_call(FlMethodChannel* /*channel*/,
                                FlMethodCall* method_call,
                                gpointer /*user_data*/) {
@@ -102,12 +121,8 @@ static void handle_method_call(FlMethodChannel* /*channel*/,
   // (called right after create, since plugin hide is a no-op) and a
   // show escape hatch for diagnostics.
   if (strcmp(method, "hideBotGuard") == 0) {
-    GtkWidget* bg = find_botguard_window();
-    if (bg != nullptr) {
-      arm_delete_blocker(bg);
-      gtk_widget_hide(bg);
-    }
-    g_autoptr(FlValue) result = fl_value_new_bool(bg != nullptr);
+    bool found = hide_all_windows_by_title(kBotGuardTitle);
+    g_autoptr(FlValue) result = fl_value_new_bool(found);
     fl_method_call_respond_success(method_call, result, nullptr);
     return;
   }
