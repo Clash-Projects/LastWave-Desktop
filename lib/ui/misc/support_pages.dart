@@ -12,6 +12,7 @@ import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/auth_repository.dart';
 import '../../features/lastfm/home_repository.dart';
 import '../../features/lastfm/lastfm_snapshot.dart';
+import '../../features/lastfm/profile_providers.dart';
 import '../../features/home/home_snapshot.dart';
 import '../../core/storage/prefs.dart';
 import '../../features/player/playback_service.dart';
@@ -28,20 +29,7 @@ import '../theme/tokens.dart';
 /// Top tracks query: friend view (or self) + Last.fm period.
 typedef _TopQuery = ({String? viewing, String period});
 
-final _profileStatsProvider =
-    FutureProvider.autoDispose.family<HomeStats, String?>((ref, viewing) {
-  final home = ref.watch(homeRepositoryProvider);
-  return swrLoad<HomeStats>(
-    ref,
-    key: lastFmCacheKey('stats', ref.read(prefsProvider).username,
-        viewing: viewing),
-    codec: homeStatsSnapshotCodec,
-    group: cacheGroupLastFm,
-    maxAge: lastFmCacheMaxAge,
-    everyBuild: true,
-    fetch: () => home.fetchStats(viewingAs: viewing),
-  );
-});
+final _profileStatsProvider = userProfileStatsProvider;
 
 final _waveTopTracksProvider =
     FutureProvider.family<List<HomeTrack>, _TopQuery>(
@@ -120,6 +108,16 @@ class _WaveProfilePageState
   String _period = '7day';
 
   @override
+  void initState() {
+    super.initState();
+    // If stats previously failed (e.g. offline during title bar initial fetch),
+    // entering /profile immediately retries a fresh fetch.
+    if (ref.read(_profileStatsProvider(null)).hasError) {
+      ref.invalidate(_profileStatsProvider(null));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authRepositoryProvider);
     final user = auth.username;
@@ -150,8 +148,8 @@ class _WaveProfilePageState
                 ),
               ),
               Builder(builder: (context) {
-                final stats =
-                    ref.watch(_profileStatsProvider(null)).valueOrNull;
+                final statsAsync = ref.watch(_profileStatsProvider(null));
+                final stats = statsAsync.valueOrNull;
                 String n(int v) => v.toString().replaceAllMapped(
                       RegExp(r'\B(?=(\d{3})+(?!\d))'),
                       (m) => ',',
@@ -191,6 +189,18 @@ class _WaveProfilePageState
                               ].join(' · '),
                               style: WaveType.meta.copyWith(
                                 color: waveTextTertiary(context),
+                              ),
+                            ),
+                          ] else if (statsAsync.hasError) ...[
+                            const SizedBox(height: 6),
+                            GestureDetector(
+                              onTap: () =>
+                                  ref.invalidate(_profileStatsProvider(null)),
+                              child: Text(
+                                'Failed to load stats · Tap to retry',
+                                style: WaveType.meta.copyWith(
+                                  color: waveAccent(context),
+                                ),
                               ),
                             ),
                           ],
