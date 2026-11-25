@@ -249,8 +249,7 @@ GoRouter buildRouter({required AuthGate gate}) {
                 path: '/album/:id',
                 pageBuilder: (c, s) => _anchoredPage(
                   WaveAlbumPage(
-                    browseId: Uri.decodeComponent(
-                        s.pathParameters['id'] ?? ''),
+                    browseId: s.pathParameters['id'] ?? '',
                     // What the pressed card already knew. The selection
                     // fills the header on the first frame (see
                     // waveAlbumLocation), so the entrance animates the album
@@ -274,8 +273,7 @@ GoRouter buildRouter({required AuthGate gate}) {
                 path: '/artist/:name',
                 pageBuilder: (c, s) => _anchoredPage(
                   WaveArtistPage(
-                    name: Uri.decodeComponent(
-                        s.pathParameters['name'] ?? ''),
+                    name: s.pathParameters['name'] ?? '',
                   ),
                 ),
               ),
@@ -336,8 +334,7 @@ GoRouter buildRouter({required AuthGate gate}) {
                 path: '/ytshelf/:title',
                 pageBuilder: (c, s) => _page(
                   WaveYtShelfPage(
-                    title: Uri.decodeComponent(
-                        s.pathParameters['title'] ?? ''),
+                    title: s.pathParameters['title'] ?? '',
                   ),
                 ),
               ),
@@ -354,8 +351,7 @@ GoRouter buildRouter({required AuthGate gate}) {
                     path: ':id',
                     pageBuilder: (c, s) => _anchoredPage(
                       WavePodcastShowPage(
-                        showId: Uri.decodeComponent(
-                            s.pathParameters['id'] ?? ''),
+                        showId: s.pathParameters['id'] ?? '',
                         fallbackTitle:
                             s.uri.queryParameters['title'] ?? '',
                       ),
