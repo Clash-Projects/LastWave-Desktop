@@ -33,6 +33,7 @@ import '../performance/performance_controller.dart';
 import 'accent.dart';
 import 'app_fonts.dart';
 import 'theme_controller.dart';
+import 'ui_scale.dart';
 
 /// LastWave desktop application root.
 ///
@@ -352,39 +353,73 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
           // on every toolbar popup. The app is opaque dark anyway, so
           // solid flyouts read identically. (Own haze system untouched.)
           builder: (context, child) {
-            final page = child ?? const SizedBox.shrink();
-            final directed = Directionality(
-              textDirection:
-                  lang.isRtl ? TextDirection.rtl : TextDirection.ltr,
-              child: page,
-            );
-            final content = DisableAcrylic(
-              child: effectiveGlass
-                  ? WaveGlassStage(
-                      veil: base.background,
-                      light: light,
-                      accent: accent,
-                      flavor: theme.isArtwork
-                          ? GlassFlavor.artwork
-                          : theme.isCustom
-                              ? GlassFlavor.custom
-                              : GlassFlavor.midnight,
-                      child: directed,
-                    )
-                  : directed,
-            );
+            return Consumer(
+              builder: (context, ref, _) {
+                final page = child ?? const SizedBox.shrink();
+                final directed = Directionality(
+                  textDirection:
+                      lang.isRtl ? TextDirection.rtl : TextDirection.ltr,
+                  child: page,
+                );
+                final content = DisableAcrylic(
+                  child: effectiveGlass
+                      ? WaveGlassStage(
+                          veil: base.background,
+                          light: light,
+                          accent: accent,
+                          flavor: theme.isArtwork
+                              ? GlassFlavor.artwork
+                              : theme.isCustom
+                                  ? GlassFlavor.custom
+                                  : GlassFlavor.midnight,
+                          child: directed,
+                        )
+                      : directed,
+                );
 
-            if (Platform.isLinux) {
-              final isMaximized = ref.watch(windowMaximizedProvider);
-              return WaveWindowResizeArea(
-                enabled: !isMaximized,
-                edgeSize: 4.0,
-                cornerSize: 14.0,
-                child: content,
-              );
-            }
+                final uiScale = ref.watch(uiScaleProvider);
+                Widget root = content;
+                if ((uiScale - 1.0).abs() >= 0.001) {
+                  root = LayoutBuilder(
+                    builder: (context, constraints) {
+                      final scaledW = constraints.maxWidth / uiScale;
+                      final scaledH = constraints.maxHeight / uiScale;
+                      return SizedBox(
+                        width: constraints.maxWidth,
+                        height: constraints.maxHeight,
+                        child: FittedBox(
+                          key: const ValueKey('wave-ui-scale-transform'),
+                          fit: BoxFit.fill,
+                          alignment: Alignment.topLeft,
+                          child: SizedBox(
+                            width: scaledW,
+                            height: scaledH,
+                            child: MediaQuery(
+                              data: MediaQuery.of(context).copyWith(
+                                size: Size(scaledW, scaledH),
+                              ),
+                              child: content,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                }
 
-            return content;
+                if (Platform.isLinux) {
+                  final isMaximized = ref.watch(windowMaximizedProvider);
+                  return WaveWindowResizeArea(
+                    enabled: !isMaximized,
+                    edgeSize: 4.0,
+                    cornerSize: 14.0,
+                    child: root,
+                  );
+                }
+
+                return root;
+              },
+            );
           },
         ),
       ),

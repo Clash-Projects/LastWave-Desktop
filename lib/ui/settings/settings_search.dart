@@ -170,6 +170,14 @@ const settingsSearchEntries = <SettingsSearchEntry>[
         'now playing style layout standard full bleed minimal edge to edge duet lyrics cover artwork',
   ),
   SettingsSearchEntry(
+    id: 'appearance.now_playing_autohide',
+    section: 'appearance',
+    title: 'Auto-hide Now Playing controls',
+    subtitle: 'Fade out the top buttons after mouse inactivity',
+    keywords:
+        'auto-hide autohide now playing controls fade buttons inactivity seconds timeout mouse',
+  ),
+  SettingsSearchEntry(
     id: 'appearance.ambient',
     section: 'appearance',
     title: 'Now Playing ambient',
@@ -177,6 +185,13 @@ const settingsSearchEntries = <SettingsSearchEntry>[
     keywords:
         'ambient apple music winui background visualizer blur aura stage '
         'now playing lyrics colours colors',
+  ),
+  SettingsSearchEntry(
+    id: 'appearance.scale',
+    section: 'appearance',
+    title: 'Interface scale',
+    subtitle: 'Adjust app zoom for display resolution or preference (Ctrl +/-)',
+    keywords: 'zoom scale interface size display resolution dpi ctrl+ ctrl- magnify window',
   ),
   SettingsSearchEntry(
     id: 'appearance.surfaces',

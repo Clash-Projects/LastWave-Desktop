@@ -81,7 +81,7 @@ class WaveHomePage extends ConsumerWidget {
 
     final showPerfBanner = ref.watch(isModestHardwareProvider) &&
         !ref.watch(performanceModeProvider) &&
-        !ref.watch(prefsProvider).performancePromptDismissed;
+        !ref.watch(performancePromptDismissedProvider);
 
     final username = auth.status == AuthStatus.signedIn &&
             auth.username.isNotEmpty
@@ -126,10 +126,15 @@ class WaveHomePage extends ConsumerWidget {
                     ref
                         .read(performanceModeProvider.notifier)
                         .setPerformanceMode(true);
+                    ref
+                        .read(performancePromptDismissedProvider.notifier)
+                        .dismiss();
                   },
                 ),
                 onClose: () {
-                  ref.read(prefsProvider).setPerformancePromptDismissed(true);
+                  ref
+                      .read(performancePromptDismissedProvider.notifier)
+                      .dismiss();
                 },
               ),
             ),

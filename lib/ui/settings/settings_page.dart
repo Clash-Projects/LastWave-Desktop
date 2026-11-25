@@ -31,6 +31,7 @@ import '../../features/innertube/yt_web_login.dart';
 import '../components/ambient.dart' show AmbientStyle, ambientStyleProvider;
 import '../components/artwork.dart';
 import '../components/select.dart';
+import '../../features/settings/ui_scale.dart';
 import '../now_playing/immersive.dart' show nowPlayingAutoHideSecondsProvider;
 import 'now_playing_style_picker.dart';
 import 'yt_profile_chooser.dart';
@@ -47,8 +48,6 @@ import '../../features/audio_output/output_path_sheet.dart';
 import '../../features/lyrics/lyrics_providers.dart';
 import '../theme/tokens.dart';
 import '../theme/brand_icons.dart';
-import '../../features/equalizer/equalizer_controller.dart';
-import '../../features/equalizer/equalizer_models.dart';
 import '../../features/equalizer/equalizer_panel.dart';
 import '../../features/equalizer/headphone_profiles.dart';
 import '../../features/player/loudness.dart';
@@ -1198,6 +1197,31 @@ class _Appearance extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 8),
+        _Group(
+          id: 'appearance.scale',
+          title: 'Interface scale',
+          subtitle: 'Adjust app zoom for display resolution or preference (${Platform.isMacOS ? 'Cmd' : 'Ctrl'} +/-)',
+          child: _BehaviourSelectRow(
+            title: 'Zoom level',
+            subtitle: 'Shortcuts: ${Platform.isMacOS ? 'Cmd' : 'Ctrl'} + to zoom in, ${Platform.isMacOS ? 'Cmd' : 'Ctrl'} - to zoom out, ${Platform.isMacOS ? 'Cmd' : 'Ctrl'} 0 to reset.',
+            value: ref.watch(uiScaleProvider).toStringAsFixed(2),
+            options: [
+              for (final val in UiScalePresets.values)
+                WaveSelectOption<String>(
+                  value: val.toStringAsFixed(2),
+                  label: UiScalePresets.label(val),
+                  hint: (val - 1.0).abs() < 0.001 ? 'Default' : '${(val * 100).round()}%',
+                ),
+            ],
+            onChanged: (v) {
+              final parsed = double.tryParse(v);
+              if (parsed != null) {
+                ref.read(uiScaleProvider.notifier).setScale(parsed);
+              }
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
         _Group(
           id: 'appearance.surfaces',
           title: 'Surfaces',
