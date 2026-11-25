@@ -2,82 +2,47 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/lastfm_api.dart';
 import '../../core/storage/prefs.dart';
+import '../scrobblers/extra_scrobblers.dart';
+import '../scrobblers/scrobbler_session.dart';
 import 'auth_repository.dart';
+import 'home_models.dart';
 
-/// Track/artist/album/user models for Last.fm data.
-/// Mirrors `data/model/*` in LastWave-native (subset used by desktop).
-class HomeTrack {
-  final String name;
-  final String artist;
-  final String artworkUrl;
-  final int? timestampMillis;
-  final int playCount;
-  const HomeTrack({
-    required this.name,
-    required this.artist,
-    this.artworkUrl = '',
-    this.timestampMillis,
-    this.playCount = 0,
-  });
-
-  String get key => '${name.toLowerCase()}|${artist.toLowerCase()}';
-}
-
-class HomeStats {
-  final int scrobbles;
-  final int artistCount;
-  final int albumCount;
-  final int trackCount;
-  final String avatarUrl;
-  const HomeStats({
-    this.scrobbles = 0,
-    this.artistCount = 0,
-    this.albumCount = 0,
-    this.trackCount = 0,
-    this.avatarUrl = '',
-  });
-}
+export 'home_models.dart';
 
 /// Profile/stats/home repository.
 ///
-/// Ported from LastWave-native `data/repository/HomeRepository.kt`.
+/// Dispatches reads to whichever scrobbler backend is currently active
+/// (`Last.fm`, `ListenBrainz`, or `Libre.fm`), or returns empty when running
+/// in Guest / Local-only mode.
 class HomeRepository {
   final LastFmApiService _api;
   final Prefs _prefs;
+  final ScrobblerKind? _activeKind;
+  final ListenBrainzScrobbler? _listenBrainz;
+  final LibreFmScrobbler? _libreFm;
 
-  HomeRepository(this._api, this._prefs);
+  HomeRepository(
+    this._api,
+    this._prefs, {
+    ScrobblerKind? activeKind,
+    ListenBrainzScrobbler? listenBrainz,
+    LibreFmScrobbler? libreFm,
+  })  : _activeKind = activeKind,
+        _listenBrainz = listenBrainz,
+        _libreFm = libreFm;
 
   String get _apiKey => _prefs.lastFmApiKey;
 
-  String? _effectiveUser(String? viewingAs) =>
-      viewingAs ?? (_prefs.username.isEmpty ? null : _prefs.username);
+  ScrobblerReadBackend? get _activeExtraBackend => switch (_activeKind) {
+        ScrobblerKind.listenbrainz => _listenBrainz,
+        ScrobblerKind.librefm => _libreFm,
+        _ => null,
+      };
 
-  Map<String, dynamic> _asMap(Object? v) =>
-      v is Map<String, dynamic> ? v : const {};
-
-  List<Map<String, dynamic>> _asList(Object? v) {
-    if (v is List) {
-      return v.whereType<Map<String, dynamic>>().toList();
-    }
-    if (v is Map<String, dynamic>) return [v];
-    return const [];
-  }
-
-  String _bestImage(Object? images) {
-    var fallback = '';
-    for (final img in _asList(images)) {
-      final url = img['#text']?.toString() ?? '';
-      if (url.isEmpty ||
-          url.contains('2a96cbd8') ||
-          url.contains('default_album') ||
-          url.contains('noimage')) {
-        continue;
-      }
-      fallback = url;
-      final size = img['size']?.toString() ?? '';
-      if (size == 'extralarge' || size == 'large') return url;
-    }
-    return fallback;
+  String? _effectiveLastFmUser(String? viewingAs) {
+    final user = viewingAs ?? (_prefs.username.isEmpty ? null : _prefs.username);
+    if (user == null || _apiKey.isEmpty) return null;
+    return user;
   }
 
   Future<List<HomeTrack>> fetchRecentTracks({
@@ -85,7 +50,16 @@ class HomeRepository {
     int limit = 30,
     int page = 1,
   }) async {
-    final user = _effectiveUser(viewingAs);
+    final extra = _activeExtraBackend;
+    if (extra != null) {
+      return extra.fetchRecentTracks(
+        viewingAs: viewingAs,
+        limit: limit,
+        page: page,
+      );
+    }
+    if (_activeKind == null && viewingAs == null) return const [];
+    final user = _effectiveLastFmUser(viewingAs);
     if (user == null) return const [];
     final json = await _api.get({
       'method': 'user.getrecenttracks',
@@ -95,28 +69,16 @@ class HomeRepository {
       'page': '$page',
       'extended': '0',
     });
-    final tracks = _asList(_asMap(json['recenttracks'])['track']);
-    final out = <HomeTrack>[];
-    for (final t in tracks) {
-      final attr = _asMap(t['@attr']);
-      if (attr['nowplaying'] == 'true') continue;
-      final artist = t['artist'] is Map
-          ? (t['artist'] as Map)['#text']?.toString() ?? ''
-          : t['artist']?.toString() ?? '';
-      final date = _asMap(t['date'])['uts']?.toString() ?? '';
-      out.add(HomeTrack(
-        name: t['name']?.toString() ?? '',
-        artist: artist,
-        artworkUrl: _bestImage(t['image']),
-        timestampMillis:
-            int.tryParse(date)?.let((s) => s * 1000),
-      ));
-    }
-    return out.where((t) => t.name.isNotEmpty).toList();
+    return LastFmResponseParser.parseRecentTracks(json);
   }
 
   Future<HomeStats> fetchStats({String? viewingAs}) async {
-    final user = _effectiveUser(viewingAs);
+    final extra = _activeExtraBackend;
+    if (extra != null) {
+      return extra.fetchStats(viewingAs: viewingAs);
+    }
+    if (_activeKind == null && viewingAs == null) return const HomeStats();
+    final user = _effectiveLastFmUser(viewingAs);
     if (user == null) return const HomeStats();
     final results = await Future.wait([
       _api.get({
@@ -146,18 +108,11 @@ class HomeRepository {
         'period': 'overall',
       }),
     ]);
-    int totalAttr(Map<String, dynamic> root, String key) {
-      final attr = _asMap(_asMap(root[key])['@attr']);
-      return int.tryParse(attr['total']?.toString() ?? '') ?? 0;
-    }
-
-    final info = _asMap(results[0]['user']);
-    return HomeStats(
-      scrobbles: int.tryParse(info['playcount']?.toString() ?? '') ?? 0,
-      trackCount: totalAttr(results[1], 'toptracks'),
-      artistCount: totalAttr(results[2], 'topartists'),
-      albumCount: totalAttr(results[3], 'topalbums'),
-      avatarUrl: _bestImage(info['image']),
+    return LastFmResponseParser.parseStats(
+      userInfoJson: results[0],
+      topTracksJson: results[1],
+      topArtistsJson: results[2],
+      topAlbumsJson: results[3],
     );
   }
 
@@ -166,7 +121,16 @@ class HomeRepository {
     required int fromMillis,
     required int toMillis,
   }) async {
-    final user = _effectiveUser(viewingAs);
+    final extra = _activeExtraBackend;
+    if (extra != null) {
+      return extra.fetchPeriodPlayCount(
+        viewingAs: viewingAs,
+        fromMillis: fromMillis,
+        toMillis: toMillis,
+      );
+    }
+    if (_activeKind == null && viewingAs == null) return 0;
+    final user = _effectiveLastFmUser(viewingAs);
     if (user == null) return 0;
     final json = await _api.get({
       'method': 'user.getrecenttracks',
@@ -177,8 +141,7 @@ class HomeRepository {
       'limit': '1',
       'page': '1',
     });
-    final attributes = _asMap(_asMap(json['recenttracks'])['@attr']);
-    return int.tryParse(attributes['total']?.toString() ?? '') ?? 0;
+    return LastFmResponseParser.parsePeriodPlayCount(json);
   }
 
   Future<List<HomeTrack>> fetchTopTracks({
@@ -186,7 +149,16 @@ class HomeRepository {
     String period = '7day',
     int limit = 20,
   }) async {
-    final user = _effectiveUser(viewingAs);
+    final extra = _activeExtraBackend;
+    if (extra != null) {
+      return extra.fetchTopTracks(
+        viewingAs: viewingAs,
+        period: period,
+        limit: limit,
+      );
+    }
+    if (_activeKind == null && viewingAs == null) return const [];
+    final user = _effectiveLastFmUser(viewingAs);
     if (user == null) return const [];
     final json = await _api.get({
       'method': 'user.gettoptracks',
@@ -195,18 +167,7 @@ class HomeRepository {
       'period': period,
       'limit': '$limit',
     });
-    return _asList(_asMap(json['toptracks'])['track'])
-        .map((t) => HomeTrack(
-              name: t['name']?.toString() ?? '',
-              artist: _asMap(t['artist'])['name']?.toString() ??
-                  t['artist']?.toString() ??
-                  '',
-              artworkUrl: _bestImage(t['image']),
-              playCount:
-                  int.tryParse(t['playcount']?.toString() ?? '') ?? 0,
-            ))
-        .where((t) => t.name.isNotEmpty)
-        .toList();
+    return LastFmResponseParser.parseTopTracks(json);
   }
 
   Future<List<({String name, int playCount, String artworkUrl})>> fetchTopArtists({
@@ -214,7 +175,16 @@ class HomeRepository {
     String period = '7day',
     int limit = 20,
   }) async {
-    final user = _effectiveUser(viewingAs);
+    final extra = _activeExtraBackend;
+    if (extra != null) {
+      return extra.fetchTopArtists(
+        viewingAs: viewingAs,
+        period: period,
+        limit: limit,
+      );
+    }
+    if (_activeKind == null && viewingAs == null) return const [];
+    final user = _effectiveLastFmUser(viewingAs);
     if (user == null) return const [];
     try {
       final json = await _api.get({
@@ -224,25 +194,28 @@ class HomeRepository {
         'period': period,
         'limit': '$limit',
       });
-      return _asList(_asMap(json['topartists'])['artist'])
-          .map((a) => (
-                name: a['name']?.toString() ?? '',
-                playCount: int.tryParse(a['playcount']?.toString() ?? '') ?? 0,
-                artworkUrl: _bestImage(a['image']),
-              ))
-          .where((a) => a.name.isNotEmpty)
-          .toList();
+      return LastFmResponseParser.parseTopArtists(json);
     } catch (_) {
       return const [];
     }
   }
 
-  Future<List<({String name, String artist, int playCount, String artworkUrl})>> fetchTopAlbums({
+  Future<List<({String name, String artist, int playCount, String artworkUrl})>>
+      fetchTopAlbums({
     String? viewingAs,
     String period = '7day',
     int limit = 20,
   }) async {
-    final user = _effectiveUser(viewingAs);
+    final extra = _activeExtraBackend;
+    if (extra != null) {
+      return extra.fetchTopAlbums(
+        viewingAs: viewingAs,
+        period: period,
+        limit: limit,
+      );
+    }
+    if (_activeKind == null && viewingAs == null) return const [];
+    final user = _effectiveLastFmUser(viewingAs);
     if (user == null) return const [];
     try {
       final json = await _api.get({
@@ -252,33 +225,20 @@ class HomeRepository {
         'period': period,
         'limit': '$limit',
       });
-      return _asList(_asMap(json['topalbums'])['album'])
-          .map((a) {
-            final artist = _asMap(a['artist'])['name']?.toString() ??
-                a['artist']?.toString() ??
-                '';
-            return (
-              name: a['name']?.toString() ?? '',
-              artist: artist,
-              playCount: int.tryParse(a['playcount']?.toString() ?? '') ?? 0,
-              artworkUrl: _bestImage(a['image']),
-            );
-          })
-          .where((a) => a.name.isNotEmpty)
-          .toList();
+      return LastFmResponseParser.parseTopAlbums(json);
     } catch (_) {
       return const [];
     }
   }
 }
 
-extension _Let<T> on T {
-  R let<R>(R Function(T) fn) => fn(this);
-}
-
 final homeRepositoryProvider = Provider<HomeRepository>((ref) {
+  final session = ref.watch(activeScrobblerSessionProvider);
   return HomeRepository(
     ref.watch(lastFmApiProvider),
     ref.watch(prefsProvider),
+    activeKind: session.kind,
+    listenBrainz: ref.watch(listenBrainzProvider),
+    libreFm: ref.watch(libreFmProvider),
   );
 });

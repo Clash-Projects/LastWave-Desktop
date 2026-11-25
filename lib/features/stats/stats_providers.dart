@@ -3,8 +3,8 @@ import 'package:intl/intl.dart';
 
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/audio/artist_parser.dart';
-import '../lastfm/auth_repository.dart';
 import '../lastfm/home_repository.dart';
+import '../scrobblers/scrobbler_session.dart';
 import '../search/shared_providers.dart';
 
 enum StatsPeriod {
@@ -77,6 +77,7 @@ class ListeningStatsData {
   final List<({String date, int count})> dailyActivity;
   final bool isLastFmConnected;
   final String lastFmUsername;
+  final String scrobblerName;
   final int lastFmScrobbles;
   final int lastFmArtistsCount;
   final int lastFmAlbumsCount;
@@ -100,6 +101,7 @@ class ListeningStatsData {
     required this.dailyActivity,
     required this.isLastFmConnected,
     required this.lastFmUsername,
+    this.scrobblerName = '',
     required this.lastFmScrobbles,
     required this.lastFmArtistsCount,
     required this.lastFmAlbumsCount,
@@ -114,7 +116,7 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
   final period = ref.watch(statsPeriodProvider);
   final db = ref.watch(databaseProvider);
   final homeRepo = ref.watch(homeRepositoryProvider);
-  final auth = ref.watch(authRepositoryProvider);
+  final session = ref.watch(activeScrobblerSessionProvider);
 
   int? sinceMillis;
   if (period.days != null) {
@@ -188,9 +190,10 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
     return '$h12:00 $periodStr';
   }
 
-  // 2. Fetch Last.fm Data if Signed In
+  // 2. Fetch Active Scrobbler Data if Connected (Last.fm / ListenBrainz / Libre.fm)
   var isLastFm = false;
   var lastFmUser = '';
+  var scrobblerName = '';
   var lastFmScrobbles = 0;
   var lastFmArtistsCount = 0;
   var lastFmAlbumsCount = 0;
@@ -203,9 +206,10 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
   List<({String name, String artist, int playCount, String artworkUrl})>
   lastFmTopAlbums = const [];
 
-  if (auth.status == AuthStatus.signedIn && auth.username.isNotEmpty) {
+  if (session.connected) {
     isLastFm = true;
-    lastFmUser = auth.username;
+    lastFmUser = session.username;
+    scrobblerName = session.displayName;
     try {
       final statsFuture = homeRepo.fetchStats();
       final topTracksFuture = homeRepo.fetchTopTracks(
@@ -366,6 +370,7 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
     dailyActivity: localDaily,
     isLastFmConnected: isLastFm,
     lastFmUsername: lastFmUser,
+    scrobblerName: scrobblerName,
     lastFmScrobbles: lastFmScrobbles,
     lastFmArtistsCount: lastFmArtistsCount,
     lastFmAlbumsCount: lastFmAlbumsCount,

@@ -4,6 +4,7 @@ import '../../core/network/lastfm_api.dart';
 import '../../core/storage/app_database.dart';
 import '../lastfm/auth_repository.dart';
 import '../lastfm/home_repository.dart';
+import '../scrobblers/scrobbler_session.dart';
 import '../search/shared_providers.dart';
 
 /// One bar on the Genres page.
@@ -357,17 +358,17 @@ const _localGenres = <({String key, String label, List<String> needles})>[
 
 final genreChartProvider = FutureProvider.autoDispose
     .family<GenreChart, String>((ref, period) async {
-  final auth = ref.watch(authRepositoryProvider);
+  final active = ref.watch(activeScrobblerSessionProvider);
   final apiKey = ref.watch(prefsApiKeyProvider);
-  final session = auth.status == AuthStatus.signedIn &&
-      auth.username.isNotEmpty &&
+  final isLastFm = active.kind == ScrobblerKind.lastfm &&
+      active.username.isNotEmpty &&
       apiKey.isNotEmpty;
   final source = GenreSource(
     api: ref.watch(lastFmApiProvider),
     home: ref.watch(homeRepositoryProvider),
     db: ref.watch(databaseProvider),
     apiKey: apiKey,
-    username: auth.username,
+    username: isLastFm ? active.username : '',
   );
-  return source.load(period: period, session: session);
+  return source.load(period: period, session: isLastFm);
 });
