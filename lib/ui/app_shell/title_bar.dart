@@ -19,9 +19,12 @@ import '../components/buttons.dart' show LWTooltip, WaveA11yButton;
 import '../components/inputs.dart';
 import '../components/menus.dart'
     show
+        WaveContextMenu,
         WaveMenuAction,
         WaveMenuButton,
-        WaveMenuSeparator;
+        WaveMenuEntry,
+        WaveMenuSeparator,
+        waveTrackMenuItems;
 import '../navigation/wave_nav.dart';
 import '../search/search_page.dart';
 import '../theme/haze.dart';
@@ -171,6 +174,7 @@ class _Hit {
   final String art;
   final bool circleArt;
   final VoidCallback onSelect;
+  final List<WaveMenuEntry> Function()? menuItems;
   const _Hit({
     required this.label,
     required this.sub,
@@ -178,6 +182,7 @@ class _Hit {
     required this.onSelect,
     this.art = '',
     this.circleArt = false,
+    this.menuItems,
   });
 }
 
@@ -208,6 +213,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
   Timer? _debounce;
   String _liveQ = '';
   int _selected = -1;
+  bool _menuOpen = false;
   // Rows for the current frame; built in build() (the only place providers
   // may be watched) and read by the overlay and key handlers.
   List<_Hit> _shown = const [];
@@ -230,7 +236,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
     if (widget.focus.hasFocus) {
       _selected = -1;
       _portal.show();
-    } else {
+    } else if (!_menuOpen) {
       _portal.hide();
     }
     setState(() {});
@@ -291,6 +297,15 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
               ),
               sourceLabel: 'Search',
             ),
+            menuItems: () => waveTrackMenuItems(
+              context: context,
+              ref: ref,
+              title: s.name,
+              artist: s.artist,
+              artworkUrl: s.artworkUrl,
+              videoId: s.videoId,
+              album: s.subtitle,
+            ),
           );
       final picked = <_Hit>[
         for (final s in songs.take(2)) song(s),
@@ -309,6 +324,27 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
                 artworkUrl: a.artworkUrl,
               ));
             },
+            menuItems: () => [
+              if (a.entityId.isNotEmpty)
+                WaveMenuAction(
+                  leading: const Icon(WaveIcons.albums, size: 15),
+                  label: 'Open album',
+                  onPressed: () => widget.onGo(waveAlbumLocation(
+                    browseId: a.entityId,
+                    title: a.name,
+                    artist: a.artist,
+                    artworkUrl: a.artworkUrl,
+                  )),
+                ),
+              if (a.artist.isNotEmpty)
+                WaveMenuAction(
+                  leading: const Icon(FluentIcons.contact, size: 15),
+                  label: 'Go to artist',
+                  onPressed: () => widget.onGo(
+                    '/artist/${Uri.encodeComponent(a.artist)}',
+                  ),
+                ),
+            ],
           ),
         for (final a in artists.take(1))
           _Hit(
@@ -319,6 +355,14 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
             circleArt: true,
             onSelect: () =>
                 widget.onGo('/artist/${Uri.encodeComponent(a.name)}'),
+            menuItems: () => [
+              WaveMenuAction(
+                leading: const Icon(FluentIcons.contact, size: 15),
+                label: 'Open artist',
+                onPressed: () =>
+                    widget.onGo('/artist/${Uri.encodeComponent(a.name)}'),
+              ),
+            ],
           ),
       ];
       // Top up with more songs when albums/artists came back short.
@@ -422,6 +466,58 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
         .contains(globalPosition);
   }
 
+  Widget _buildHitRow(_Hit hit, bool selected) {
+    final row = ListTile.selectable(
+      shape: RoundedRectangleBorder(
+        borderRadius: WaveRadius.controlsRadius,
+      ),
+      selected: selected,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      selectionMode: ListTileSelectionMode.single,
+      leading: SizedBox(
+        width: 28,
+        height: 28,
+        child: hit.art.isNotEmpty
+            ? (hit.circleArt
+                ? WaveArtwork.circle(
+                    url: hit.art,
+                    size: 28,
+                    label: hit.label,
+                  )
+                : WaveArtwork(
+                    url: hit.art,
+                    size: 28,
+                    radius: WaveRadius.artwork,
+                    label: hit.label,
+                  ))
+            : Icon(hit.icon, size: 15),
+      ),
+      title: Text(
+        hit.label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        hit.sub,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      onPressed: () => _activate(hit),
+    );
+    final menuItems = hit.menuItems;
+    if (menuItems == null) return row;
+    return WaveContextMenu(
+      items: menuItems,
+      openToSide: true,
+      onMenuOpen: () => _menuOpen = true,
+      onMenuClose: () {
+        _menuOpen = false;
+        if (mounted && !widget.focus.hasFocus) _portal.hide();
+      },
+      child: row,
+    );
+  }
+
   Widget _panel(BuildContext overlayContext) {
     final hits = _shown;
     if (hits.isEmpty) return const SizedBox.shrink();
@@ -458,44 +554,7 @@ class _WaveSearchBoxState extends ConsumerState<_WaveSearchBox> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (var i = 0; i < hits.length; i++)
-                  ListTile.selectable(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: WaveRadius.controlsRadius,
-                    ),
-                    selected: i == _selected,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    selectionMode: ListTileSelectionMode.single,
-                    leading: SizedBox(
-                      width: 28,
-                      height: 28,
-                      child: hits[i].art.isNotEmpty
-                          ? (hits[i].circleArt
-                              ? WaveArtwork.circle(
-                                  url: hits[i].art,
-                                  size: 28,
-                                  label: hits[i].label,
-                                )
-                              : WaveArtwork(
-                                  url: hits[i].art,
-                                  size: 28,
-                                  radius: WaveRadius.artwork,
-                                  label: hits[i].label,
-                                ))
-                          : Icon(hits[i].icon, size: 15),
-                    ),
-                    title: Text(
-                      hits[i].label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      hits[i].sub,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onPressed: () => _activate(hits[i]),
-                  ),
+                  _buildHitRow(hits[i], i == _selected),
               ],
             ),
           ),)

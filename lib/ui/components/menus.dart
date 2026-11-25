@@ -1049,10 +1049,18 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
 class WaveContextMenu extends StatefulWidget {
   final List<WaveMenuEntry> Function() items;
   final Widget child;
+  final FlyoutPlacementMode placement;
+  final bool openToSide;
+  final VoidCallback? onMenuOpen;
+  final VoidCallback? onMenuClose;
   const WaveContextMenu({
     super.key,
     required this.items,
     required this.child,
+    this.placement = FlyoutPlacementMode.auto,
+    this.openToSide = false,
+    this.onMenuOpen,
+    this.onMenuClose,
   });
   @override
   State<WaveContextMenu> createState() => _WaveContextMenuState();
@@ -1066,17 +1074,33 @@ class _WaveContextMenuState extends State<WaveContextMenu> {
     super.dispose();
   }
 
-  void _open() {
-    if (widget.items().isEmpty) return;
-    _controller.showFlyout(
-      barrierColor: Colors.transparent,
-      placementMode: FlyoutPlacementMode.auto,
-      transitionDuration: const Duration(milliseconds: 90),
-      transitionBuilder: fastFlyoutTransition,
-      builder: (context) => WaveFlyoutPanel.items(
-        entries: widget.items(),
-      ),
-    );
+  Future<void> _open() async {
+    final entries = widget.items();
+    if (entries.isEmpty) return;
+    widget.onMenuOpen?.call();
+    Offset? sidePos;
+    if (widget.openToSide) {
+      final box = context.findRenderObject();
+      if (box is RenderBox && box.attached && box.hasSize) {
+        sidePos = box.localToGlobal(Offset(box.size.width + 8, 0));
+      }
+    }
+    try {
+      await _controller.showFlyout<void>(
+        barrierColor: Colors.transparent,
+        position: sidePos,
+        placementMode: widget.openToSide
+            ? FlyoutPlacementMode.bottomLeft
+            : widget.placement,
+        transitionDuration: const Duration(milliseconds: 90),
+        transitionBuilder: fastFlyoutTransition,
+        builder: (context) => WaveFlyoutPanel.items(
+          entries: entries,
+        ),
+      );
+    } finally {
+      widget.onMenuClose?.call();
+    }
   }
 
   @override
