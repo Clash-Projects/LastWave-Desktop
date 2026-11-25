@@ -160,7 +160,10 @@ class ScrobbleRepository {
     required String track,
     required bool loved,
   }) async {
-    if (!_canWrite) return false;
+    _extras?.loveTrack(artist, track, loved);
+    if (!_canWrite) {
+      return _extras?.services.any((s) => s.connected) ?? false;
+    }
     try {
       await _paceWrites();
       final json = await _api.post(await _signed(
