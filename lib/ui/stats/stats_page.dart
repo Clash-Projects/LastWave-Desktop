@@ -10,7 +10,9 @@ import '../../app/track_actions.dart' show playGenerated, relativeTime;
 import '../../features/feed/feed_repository.dart';
 import '../../features/innertube/album_match.dart';
 import '../../features/innertube/innertube_api.dart' show innerTubeProvider;
+import '../../features/lastfm/profile_providers.dart';
 import '../../features/scrobblers/extra_scrobblers.dart';
+import '../../features/scrobblers/scrobbler_session.dart';
 import '../../features/stats/stats_providers.dart';
 import '../genres/genres_page.dart';
 import '../components/artist_line.dart';
@@ -407,23 +409,27 @@ class _PeriodPillSwitch extends StatelessWidget {
   }
 }
 
-/// Executive Last.fm Profile & Sync Hub
-class _LastFmProfileHub extends StatelessWidget {
+/// Executive Scrobbler Profile & Sync Hub
+class _LastFmProfileHub extends ConsumerWidget {
   final ListeningStatsData stats;
   const _LastFmProfileHub({required this.stats});
 
-  Future<void> _openLastFmWeb(String user) async {
-    final uri = Uri.parse('https://www.last.fm/user/$user');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+  Future<void> _openProfileWeb(Uri? uri, String fallbackUser) async {
+    final target = uri ?? Uri.parse('https://www.last.fm/user/$fallbackUser');
+    if (await canLaunchUrl(target)) {
+      await launchUrl(target, mode: LaunchMode.externalApplication);
     }
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dark = waveIsDark(context);
     final isConnected = stats.isLastFmConnected;
     final formatter = NumberFormat('#,###');
+    final session = ref.watch(activeScrobblerSessionProvider);
+    final serviceName = stats.scrobblerName.isNotEmpty
+        ? stats.scrobblerName
+        : (session.displayName.isNotEmpty ? session.displayName : 'Scrobbler');
 
     if (!isConnected) {
       return Container(
@@ -468,7 +474,7 @@ class _LastFmProfileHub extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Connect Last.fm for Cross-Device Scrobbling & Global Charts',
+                    'Connect a Scrobbler for Cross-Device Scrobbling & Global Charts',
                     style: WaveType.trackTitle.copyWith(
                       fontSize: 14.5,
                       fontWeight: FontWeight.w700,
@@ -476,7 +482,7 @@ class _LastFmProfileHub extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Scrobble every song in real-time, preserve lifetime stats, and unlock full album and artist rankings.',
+                    'Connect Last.fm, ListenBrainz, or Libre.fm to sync scrobbles, lifetime stats, and full rankings.',
                     style: WaveType.meta.copyWith(
                       color: waveTextSecondary(context),
                       fontSize: 12,
@@ -487,7 +493,7 @@ class _LastFmProfileHub extends StatelessWidget {
             ),
             const SizedBox(width: 16),
             WaveGhostButton(
-              label: 'Connect Last.fm',
+              label: 'Connect Scrobbler',
               icon: FluentIcons.settings,
               onPressed: () => context.go('/settings?section=lastfm'),
             ),
@@ -511,7 +517,9 @@ class _LastFmProfileHub extends StatelessWidget {
           ClipRRect(
             borderRadius: WaveRadius.artworkRadius,
             child: WaveArtwork(
-              url: stats.lastFmAvatarUrl,
+              url: stats.lastFmAvatarUrl.isNotEmpty
+                  ? stats.lastFmAvatarUrl
+                  : ref.watch(userAvatarUrlProvider),
               size: 32,
               kind: ArtworkKind.artist,
               label: stats.lastFmUsername,
@@ -533,7 +541,7 @@ class _LastFmProfileHub extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  '${formatter.format(stats.lastFmScrobbles)} scrobbles · all time',
+                  '$serviceName · ${formatter.format(stats.lastFmScrobbles)} scrobbles · all time',
                   style: WaveType.meta
                       .copyWith(color: waveTextSecondary(context)),
                 ),
@@ -541,13 +549,13 @@ class _LastFmProfileHub extends StatelessWidget {
             ),
           ),
           WaveIconButton(
-            tooltip: 'View profile on Last.fm',
+            tooltip: 'View profile on $serviceName',
             icon: const Icon(FluentIcons.open_in_new_window, size: 14),
-            onPressed: () => _openLastFmWeb(stats.lastFmUsername),
+            onPressed: () => _openProfileWeb(session.profileUrl, stats.lastFmUsername),
           ),
           const SizedBox(width: 4),
           WaveIconButton(
-            tooltip: 'Last.fm Settings',
+            tooltip: 'Scrobbler Settings',
             icon: const Icon(FluentIcons.settings, size: 14),
             onPressed: () => context.go('/settings?section=lastfm'),
           ),
@@ -1975,9 +1983,10 @@ class _OtherScrobblerStrips extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(extraScrobblersRevisionProvider);
+    final active = ref.watch(activeScrobblerSessionProvider);
     final connected = [
       for (final s in ref.watch(extraScrobblersProvider).services)
-        if (s.connected) s,
+        if (s.connected && s.name != active.displayName) s,
     ];
     if (connected.isEmpty) return const SizedBox.shrink();
     final formatter = NumberFormat('#,###');
