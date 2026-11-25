@@ -478,6 +478,12 @@ class Prefs {
     await _sp.setString('lw_librefm_user', user);
     await _sp.setString('lw_librefm_server', server);
   }
+
+  /// Active primary scrobbler for reads (Home, Stats, History, Collections):
+  /// `''` (auto), `'lastfm'`, `'listenbrainz'`, or `'librefm'`.
+  String get primaryScrobbler => _sp.getString('lw_primary_scrobbler') ?? '';
+  Future<void> setPrimaryScrobbler(String v) =>
+      _sp.setString('lw_primary_scrobbler', v);
   bool get scrobbleNowPlaying => _sp.getBool('lw_submit_now_playing') ?? true;
   int get scrobblePercent {
     final v = _sp.getInt('lw_scrobble_percent') ?? 50;
