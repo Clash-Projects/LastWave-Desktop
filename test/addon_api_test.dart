@@ -800,6 +800,67 @@ void main() {
           faithful('よあけのうた - Yoake no uta', 'Yoake no uta', 'jo0ji'),
           isTrue);
     });
+
+    test('rejects instrumental, karaoke, acapella, 8D, and speed variants across metadata', () {
+      expect(
+        AddonApi.isFaithfulVersion('Song (Instrumental)',
+            title: 'Song', artist: 'Artist'),
+        isFalse,
+      );
+      expect(
+        AddonApi.isFaithfulVersion('Song (Off Vocal)',
+            title: 'Song', artist: 'Artist'),
+        isFalse,
+      );
+      expect(
+        AddonApi.isFaithfulVersion('Song (Acapella)',
+            title: 'Song', artist: 'Artist'),
+        isFalse,
+      );
+      expect(
+        AddonApi.isFaithfulVersion('Song (8D Audio)',
+            title: 'Song', artist: 'Artist'),
+        isFalse,
+      );
+      expect(
+        AddonApi.isFaithfulVersion('Song',
+            title: 'Song',
+            artist: 'Artist',
+            candidateAlbum: 'Song (Instrumental Version)'),
+        isFalse,
+      );
+      expect(
+        AddonApi.isFaithfulVersion('Song',
+            title: 'Song',
+            artist: 'Artist',
+            candidateArtist: 'Karaoke Backing Track'),
+        isFalse,
+      );
+      expect(
+        AddonApi.isFaithfulVersion('Song',
+            title: 'Song',
+            artist: 'Artist',
+            candidateAlbum: 'Song (Slowed + Reverb)'),
+        isFalse,
+      );
+    });
+
+    test('allows language tag present in requested album', () {
+      expect(
+        AddonApi.isFaithfulVersion('Chuttamalle (Telugu)',
+            title: 'Chuttamalle',
+            artist: 'Shilpa Rao',
+            album: 'Devara Part 1 (Telugu)'),
+        isTrue,
+      );
+      expect(
+        AddonApi.isFaithfulVersion('Chuttamalle (Hindi)',
+            title: 'Chuttamalle',
+            artist: 'Shilpa Rao',
+            album: 'Devara Part 1 (Telugu)'),
+        isFalse,
+      );
+    });
   });
 
   group('searchQueries', () {
@@ -1131,6 +1192,83 @@ void main() {
         isNull,
       );
       expect(rec.queries.length, greaterThan(searches));
+    });
+  });
+
+  group('gateLanguage', () {
+    AddonTrack tl(String id, String title, String artist,
+            {String album = ''}) =>
+        AddonTrack(
+          id: id,
+          title: title,
+          artist: artist,
+          album: album,
+          durationSeconds: 210,
+        );
+
+    test('returns empty on multi-language pool when request is unmarked', () {
+      final filtered = AddonApi.gateLanguage(
+        [tl('te', 'Chuttamalle (Telugu)', 'Shilpa Rao')],
+        allCandidates: [
+          tl('te', 'Chuttamalle (Telugu)', 'Shilpa Rao'),
+          tl('hi', 'Chuttamalle (Hindi)', 'Shilpa Rao'),
+        ],
+        title: 'Chuttamalle',
+      );
+      expect(filtered, isEmpty);
+    });
+
+    test('returns empty for untagged plus tagged pair or explicit album language mismatch on unmarked request', () {
+      expect(
+        AddonApi.gateLanguage(
+          [
+            tl('plain', 'Chuttamalle', 'Shilpa Rao'),
+            tl('hi', 'Chuttamalle (Hindi)', 'Shilpa Rao'),
+          ],
+          title: 'Chuttamalle',
+        ),
+        isEmpty,
+      );
+      expect(
+        AddonApi.gateLanguage(
+          [
+            tl('hi', 'Chuttamalle', 'Shilpa Rao',
+                album: 'Devara Part 1 (Hindi)'),
+          ],
+          title: 'Chuttamalle',
+        ),
+        isEmpty,
+      );
+    });
+
+    test('selects matching language from request title or album', () {
+      final pool = [
+        tl('te', 'Chuttamalle (Telugu)', 'Shilpa Rao'),
+        tl('hi', 'Chuttamalle (Hindi)', 'Shilpa Rao'),
+      ];
+      expect(
+        AddonApi.gateLanguage(pool, title: 'Chuttamalle (Telugu)')
+            .map((e) => e.id)
+            .toList(),
+        ['te'],
+      );
+      expect(
+        AddonApi.gateLanguage(pool,
+                title: 'Chuttamalle', album: 'Devara Part 1 (Hindi)')
+            .map((e) => e.id)
+            .toList(),
+        ['hi'],
+      );
+      expect(
+        AddonApi.gateLanguage(pool, title: 'Chuttamalle (Tamil)'),
+        isEmpty,
+      );
+    });
+
+    test('searchQueries prepends album language when single explicit tag exists', () {
+      final queries = AddonApi.searchQueries(
+          'Chuttamalle', 'Shilpa Rao', 'Devara Part 1 (Telugu)');
+      expect(queries.first, contains('telugu'));
     });
   });
 }

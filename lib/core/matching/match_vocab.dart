@@ -30,7 +30,8 @@ class MatchVocab {
     'stems', 'stem', 'reprise', 'remake', 'rework', 'reverb', 'lofi',
     'symphonic', 'part', 'pt', 'chapter', 'atmos', 'dolby', 'spatial',
     'tribute', 'chopped', 'screwed', 'boosted', '8d', 'session',
-    'unreleased',
+    'unreleased', 'instrumentals', 'offvocal', 'minus', 'bgm',
+    'piano', 'guitar', 'violin', 'cello', 'lullaby', 'ringtone', '8bit',
     // Dubbed / translated releases are a different recording too (Native's
     // VERSION_WORDS carries `dub` and every LANGUAGE_TOKENS entry).
     'dub', 'dubbed',
@@ -43,9 +44,12 @@ class MatchVocab {
   static const Set<String> languageTokens = {
     'telugu', 'tamil', 'hindi', 'kannada', 'malayalam', 'punjabi',
     'marathi', 'gujarati', 'bengali', 'bhojpuri', 'odia', 'oriya',
-    'assamese', 'urdu', 'sanskrit', 'english', 'spanish', 'french',
-    'german', 'italian', 'portuguese', 'japanese', 'korean', 'chinese',
-    'arabic', 'turkish',
+    'assamese', 'urdu', 'sanskrit', 'haryanvi', 'rajasthani', 'nepali',
+    'sinhala', 'sinhalese', 'english', 'spanish', 'espanol', 'french',
+    'francais', 'german', 'deutsch', 'italian', 'italiano', 'portuguese',
+    'portugues', 'japanese', 'korean', 'chinese', 'mandarin', 'cantonese',
+    'arabic', 'turkish', 'persian', 'farsi', 'russian', 'indonesian',
+    'malay', 'thai', 'vietnamese', 'tagalog', 'filipino',
   };
 
   static final _scripts = <String, RegExp>{
@@ -57,6 +61,8 @@ class MatchVocab {
     'bengali': RegExp(r'[\u0980-\u09FF]'),
     'gujarati': RegExp(r'[\u0A80-\u0AFF]'),
     'hindi': RegExp(r'[\u0900-\u097F]'),
+    'korean': RegExp(r'[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]'),
+    'japanese': RegExp(r'[\u3040-\u309F\u30A0-\u30FF]'),
   };
 
   /// Languages a title/album names, by script and by language word.
@@ -73,8 +79,28 @@ class MatchVocab {
         .split(RegExp(r'\s+'));
     for (final w in words) {
       if (languageTokens.contains(w)) out.add(w);
-      if (w == 'panjabi') out.add('punjabi');
-      if (w == 'bangla') out.add('bengali');
+      switch (w) {
+        case 'panjabi':
+          out.add('punjabi');
+        case 'bangla':
+          out.add('bengali');
+        case 'espanol':
+          out.add('spanish');
+        case 'francais':
+          out.add('french');
+        case 'deutsch':
+          out.add('german');
+        case 'italiano':
+          out.add('italian');
+        case 'portugues':
+          out.add('portuguese');
+        case 'farsi':
+          out.add('persian');
+        case 'sinhalese':
+          out.add('sinhala');
+        case 'filipino':
+          out.add('tagalog');
+      }
     }
     return out;
   }

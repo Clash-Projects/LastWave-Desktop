@@ -488,51 +488,129 @@ class AddonApi implements LosslessSource {
     return feat.union(residual).union(versionToks).difference(artistTokens);
   }
 
-  /// Same song, same artist, different language (a soundtrack released in
-  /// Telugu / Hindi / Tamil under one title). Port of Native's
-  /// `gateAmbiguousLanguage`: when the request names a language only
-  /// candidates in it (or naming none) stay; when it names none, the
-  /// language-marked releases lose to an unmarked original. Never returns
-  /// fewer than it was given if that would leave nothing.
+  static final List<(String, RegExp)> _variantPatterns = [
+    ('instrumental', RegExp(
+      r'\binstrumentals?\b|\boff[\s-]?vocals?\b|\bminus[\s-]?(?:one|1)\b|'
+      r'\b(?:no|without)\s+(?:vocals?|lyrics|singing)\b|\bbgm\b|'
+      r'\bbackground\s+(?:music|score)\b|\btype\s+beat\b',
+    )),
+    ('karaoke', RegExp(r'\bkaraoke\b')),
+    ('acapella', RegExp(r'\ba\s*capp?ella\b|\bvocals?\s+only\b')),
+    ('backing', RegExp(r'\bbacking(?:\s+track)?\b|\bstems?\b')),
+    ('music-box', RegExp(r'\bmusic\s+box\b|\blullab(?:y|ies)\b|\b8[\s-]?bit\b|\bringtone\b')),
+    ('8d', RegExp(r'\b8d(?:\s+audio)?\b')),
+    ('solo-instrument', RegExp(
+      r'\b(?:piano|guitar|violin|cello|saxophone|sax)\s+(?:version|cover|instrumental|solo)\b|'
+      r'\bsolo\s+(?:piano|guitar|violin|cello)\b',
+    )),
+    ('orchestral', RegExp(r'\borchestral\b|\bsymphonic\b')),
+    ('tribute', RegExp(r'\btribute\b')),
+    ('cover', RegExp(r'\bcover\b')),
+    ('slowed', RegExp(r'\bslowed\b')),
+    ('reverb', RegExp(r'\breverb\b')),
+    ('sped-up', RegExp(r'\bsped\s+up\b')),
+    ('nightcore', RegExp(r'\bnightcore\b')),
+  ];
+
+  static const Set<String> _albumSafeVariantTags = {'cover'};
+  static const Set<String> _albumNeutralVersionWords = {
+    'part', 'pt', 'chapter', 'atmos', 'dolby', 'spatial', 'version',
+    'reprise', 'deluxe', 'bonus', 'edition', 'anniversary', 'remaster',
+    'remastered', 'original', 'explicit', 'clean', 'mono', 'stereo',
+  };
+
+  static Set<String> _variantTagsOf(String raw) {
+    final norm = _clean(raw);
+    if (norm.isEmpty) return const {};
+    return {
+      for (final (name, pattern) in _variantPatterns)
+        if (pattern.hasMatch(norm)) name,
+    };
+  }
+
+  static Set<String> _bracketOrDashTokens(String raw) {
+    if (raw.trim().isEmpty) return const {};
+    final segments = <String>[
+      for (final m in RegExp(r'[\(\[]([^\)\]]*)[\)\]]').allMatches(raw))
+        m.group(1)!,
+    ];
+    final dashMatch = RegExp(r'\s*[-–—:|]+\s*([^\-–—:|]+)$').firstMatch(raw);
+    if (dashMatch != null) {
+      segments.add(dashMatch.group(1)!);
+    }
+    return {
+      for (final seg in segments)
+        ..._clean(seg).split(' ').where((t) => t.isNotEmpty),
+    };
+  }
+
+  static Set<String> _explicitLanguageTags(String raw) =>
+      _bracketOrDashTokens(raw).intersection(MatchVocab.languageTokens);
+
   static List<AddonTrack> gateLanguage(
     List<AddonTrack> candidates, {
+    List<AddonTrack>? allCandidates,
     required String title,
     String album = '',
   }) {
-    if (candidates.length < 2) return candidates;
+    final pool = allCandidates ?? candidates;
+    if (pool.isEmpty) return candidates;
     final want = MatchVocab.languagesOf('$title $album');
+    final wantExplicit = _explicitLanguageTags('$title $album');
     Set<String> langs(AddonTrack c) =>
         MatchVocab.languagesOf('${c.title} ${c.album}');
     if (want.isNotEmpty) {
       final matching = candidates
           .where((c) => langs(c).intersection(want).isNotEmpty)
           .toList();
-      return matching.isNotEmpty ? matching : candidates;
+      if (matching.isNotEmpty) return matching;
+      if (wantExplicit.isNotEmpty) return const [];
+      return candidates;
     }
+    final distinctLangs = <String>{
+      for (final c in pool) ...langs(c),
+    };
+    if (distinctLangs.length > 1) return const [];
+    final hasExplicitAlbumLang = pool.any(
+      (c) => _explicitLanguageTags('${c.title} ${c.album}').isNotEmpty,
+    );
+    if (hasExplicitAlbumLang) return const [];
     final clean = candidates.where((c) => langs(c).isEmpty).toList();
     return clean.isNotEmpty ? clean : candidates;
   }
 
-  /// Whether [candidateTitle] is the requested recording (not just the
-  /// same song): it must add no feat credit or version billing beyond
-  /// the request, in ANY bilingual form (either script alone may carry
-  /// the match). The stream resolver serves only faithful versions —
-  /// anything else falls through to YouTube's match instead of playing
-  /// the wrong recording in lossless.
   static bool isFaithfulVersion(String candidateTitle,
       {required String title,
       required String artist,
+      String candidateAlbum = '',
+      String candidateArtist = '',
+      String album = '',
       bool allowAtmos = false}) {
     final artistTokens = _clean(artist)
         .split(' ')
         .where((t) => t.isNotEmpty)
         .toSet();
+    final albumLangs = _explicitLanguageTags(album);
     final wantDists = _titleForms(title)
-        .map((f) => _distinguishingTokens(f, artistTokens))
+        .map((f) => _distinguishingTokens(f, artistTokens).union(albumLangs))
         .toList();
+    final wantVariants = _variantTagsOf(title).union(
+      _variantTagsOf(album).difference(_albumSafeVariantTags),
+    );
+    final candVariants = _variantTagsOf(candidateTitle)
+        .union(_variantTagsOf(candidateAlbum).difference(_albumSafeVariantTags))
+        .union(_variantTagsOf(candidateArtist).difference(_albumSafeVariantTags));
+    if (candVariants.difference(wantVariants).isNotEmpty) {
+      return false;
+    }
+    final candAlbumExtra = _bracketOrDashTokens(candidateAlbum)
+        .intersection(MatchVocab.versionWords)
+        .difference(MatchVocab.neutralWords)
+        .difference(MatchVocab.languageTokens)
+        .difference(_albumNeutralVersionWords);
     const atmosTokens = {'atmos', 'dolby', 'spatial'};
     for (final cf in _titleForms(candidateTitle)) {
-      final cd = _distinguishingTokens(cf, artistTokens);
+      final cd = _distinguishingTokens(cf, artistTokens).union(candAlbumExtra);
       if (wantDists.any((wd) {
         final diff = cd.difference(wd);
         if (diff.isEmpty) return true;
@@ -1494,7 +1572,8 @@ class AddonApi implements LosslessSource {
   /// non-artist tail as the core, so "よあけのうた - Yoake no uta" also
   /// searches pure romaji). Capped so the concurrent fan-out stays
   /// bounded; the pool is re-ranked once, so order only breaks ties.
-  static List<String> searchQueries(String title, String artist) {
+  static List<String> searchQueries(String title, String artist,
+      [String album = '']) {
     final cleanT = _clean(title);
     final cleanA = _clean(artist);
     final out = <String>[];
@@ -1503,6 +1582,13 @@ class AddonApi implements LosslessSource {
       if (t.isNotEmpty && !out.contains(t)) out.add(t);
     }
 
+    final albumLangs = _explicitLanguageTags(album);
+    if (albumLangs.length == 1 &&
+        cleanA.isNotEmpty &&
+        cleanT.isNotEmpty &&
+        !cleanT.contains(albumLangs.first)) {
+      add('$cleanA $cleanT ${albumLangs.first}');
+    }
     if (cleanA.isNotEmpty && cleanT.isNotEmpty) {
       add('$cleanA $cleanT');
       add('$cleanT $cleanA');
@@ -1544,7 +1630,7 @@ class AddonApi implements LosslessSource {
     // right recording in nearly every resolve; the remaining queries
     // (reversed billing, bilingual halves, raw) are a recall fallback
     // that only runs when the first pass yields no faithful version.
-    final queries = searchQueries(title, artist);
+    final queries = searchQueries(title, artist, album);
     // Pool candidates across every query that ran, then rank once:
     // per-query winners with stripped-only scoring re-introduce the
     // exact bug being fixed (original beats remix). bestMatches ranks
@@ -1602,20 +1688,33 @@ class AddonApi implements LosslessSource {
           expectedDurationSeconds: expectedDurationSeconds,
         ).toList();
 
+    bool languageRejected = false;
     List<AddonTrack> faithfulOf(List<AddonTrack> ranked) {
       final faithful = ranked
-          .where((c) => isFaithfulVersion(c.title,
-              title: title, artist: artist, allowAtmos: isAtmosPreferred))
+          .where((c) => isFaithfulVersion(
+                c.title,
+                title: title,
+                artist: artist,
+                candidateAlbum: c.album,
+                candidateArtist: c.artist,
+                album: album,
+                allowAtmos: isAtmosPreferred,
+              ))
           .toList();
-      return gateLanguage(faithful, title: title, album: album)
-          .take(isAtmosPreferred ? 4 : 3)
-          .toList();
+      final gated = gateLanguage(
+        faithful,
+        allCandidates: ranked,
+        title: title,
+        album: album,
+      );
+      languageRejected = faithful.isNotEmpty && gated.isEmpty;
+      return gated.take(isAtmosPreferred ? 4 : 3).toList();
     }
 
     queriesOk += await searchAll(queries.take(1));
     var ranked = rankedPool();
     var matches = faithfulOf(ranked);
-    if (matches.isEmpty && queries.length > 1) {
+    if (matches.isEmpty && !languageRejected && queries.length > 1) {
       // Recall fallback: fan out the rest, then re-rank the union once
       // (exactly the old all-at-once semantics). Costs one extra round
       // trip only on tracks the addon does not carry.
