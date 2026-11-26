@@ -2027,9 +2027,7 @@ final addonNoticeProvider = StateProvider<String?>((_) => null);
 /// With no URLs configured this still constructs (unconfigured), so
 /// every consumer falls through to YouTube without branching.
 final losslessApiProvider = Provider<LosslessSource>((ref) {
-  final prefs = ref.watch(prefsProvider);
-  if (!prefs.addonsEnabled) return AddonApi(const []);
-  return AddonApi(prefs.addonUrls);
+  return AddonApi(ref.watch(prefsProvider).activeAddonUrls);
 });
 
 /// Validated manifest per addon root (null = unreachable/invalid).

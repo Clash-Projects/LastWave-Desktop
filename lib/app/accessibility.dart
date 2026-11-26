@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 /// Screen-reader plumbing shared by the whole app.
@@ -47,18 +48,45 @@ class AppFocusMemory {
   FocusNode? _last;
   bool _restoreQueued = false;
   DateTime? _lastPointerDownTime;
+  DateTime? _lastKeyNavTime;
 
   void start() {
     if (_started) return;
     _started = true;
     FocusManager.instance.addListener(_onFocusChanged);
     GestureBinding.instance.pointerRouter.addGlobalRoute(_onPointerEvent);
+    HardwareKeyboard.instance.addHandler(_onHardwareKey);
+  }
+
+  bool _onHardwareKey(KeyEvent event) {
+    if (event is KeyDownEvent || event is KeyRepeatEvent) {
+      final k = event.logicalKey;
+      if (k == LogicalKeyboardKey.tab ||
+          k == LogicalKeyboardKey.arrowLeft ||
+          k == LogicalKeyboardKey.arrowRight ||
+          k == LogicalKeyboardKey.arrowUp ||
+          k == LogicalKeyboardKey.arrowDown ||
+          k == LogicalKeyboardKey.f6) {
+        _lastKeyNavTime = DateTime.now();
+      }
+    }
+    return false;
   }
 
   void _onPointerEvent(PointerEvent event) {
     if (event is PointerDownEvent) {
       _lastPointerDownTime = DateTime.now();
+      _lastKeyNavTime = null;
     }
+  }
+
+  /// True only shortly after a keyboard traversal key (`Tab` / arrows / `F6`),
+  /// so `FocusHighlightStrategy.alwaysTraditional` keeps hover alive without
+  /// painting focus rings on mouse clicks or window-focus restores.
+  bool get isKeyboardNavigating {
+    final t = _lastKeyNavTime;
+    if (t == null) return false;
+    return DateTime.now().difference(t).inMilliseconds < 1000;
   }
 
   bool get _isPointerInteracting {

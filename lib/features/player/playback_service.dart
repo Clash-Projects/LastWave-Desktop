@@ -690,7 +690,15 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           // written to state during resolve.
           if (_scrobbleTrack != null &&
               _scrobbleTrack!.queueKey == state.current?.queueKey) {
+            final hadDuration = _scrobbleDurationSec > 0;
             _scrobbleDurationSec = v.inSeconds;
+            if (!hadDuration && v.inMilliseconds > 0) {
+              _sessions.updateLatestLocalPlayDuration(
+                _scrobbleTrack!.title,
+                _scrobbleTrack!.artist,
+                v.inMilliseconds,
+              );
+            }
           }
         });
       }),
@@ -3963,7 +3971,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     // Runs for every listener (not just Last.fm users); the DB call
     // is a single indexed insert, never on the audio path.
     try {
-      _sessions.recordLocalPlay(track.title, track.artist);
+      final knownDurMs = track.duration > Duration.zero
+          ? track.duration.inMilliseconds
+          : (state.current?.queueKey == track.queueKey
+              ? state.duration.inMilliseconds
+              : 0);
+      _sessions.recordLocalPlay(
+        track.title,
+        track.artist,
+        album: track.album,
+        durationMs: knownDurMs,
+      );
     } catch (_) {}
     _flushScrobble(completed: false);
     _scrobbleTrack = track;
@@ -4327,8 +4345,29 @@ class SessionStore {
   void save(Map<String, dynamic> payload) =>
       _db.savePlaybackSession(payload);
   void clear() => _db.clearPlaybackSession();
-  void recordLocalPlay(String title, String artist) =>
-      _db.recordLocalPlay(title: title, artist: artist);
+  void recordLocalPlay(
+    String title,
+    String artist, {
+    String album = '',
+    int durationMs = 0,
+  }) =>
+      _db.recordLocalPlay(
+        title: title,
+        artist: artist,
+        album: album,
+        durationMs: durationMs,
+      );
+
+  void updateLatestLocalPlayDuration(
+    String title,
+    String artist,
+    int durationMs,
+  ) =>
+      _db.updateLatestLocalPlayDuration(
+        title: title,
+        artist: artist,
+        durationMs: durationMs,
+      );
 }
 
 final playbackServiceProvider =

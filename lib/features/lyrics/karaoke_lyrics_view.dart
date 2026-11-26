@@ -1240,42 +1240,32 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
           ];
           break;
         case 'hyper_warp':
-          // Supersonic plasma bloom: electric cyan + hyper-violet + bright core:
+          // Crisp supersonic glow: electric cyan + violet + clean core:
           activeShadows = [
             Shadow(
-              color: const Color(0xFF00F5FF).withValues(alpha: dark ? 0.92 : 0.70),
-              blurRadius: 8,
-              offset: const Offset(-3, 0),
+              color: const Color(0xFF00F5FF).withValues(alpha: dark ? 0.72 : 0.50),
+              blurRadius: 6,
+              offset: const Offset(-1.5, 0),
             ),
             Shadow(
-              color: const Color(0xFF7B2FFF).withValues(alpha: dark ? 0.85 : 0.55),
-              blurRadius: 22,
-              offset: const Offset(3, 2),
-            ),
-            Shadow(
-              color: activeTextColor.withValues(alpha: dark ? 0.50 : 0.28),
+              color: const Color(0xFF7B2FFF).withValues(alpha: dark ? 0.65 : 0.42),
               blurRadius: 14,
-              offset: Offset.zero,
+              offset: const Offset(1.5, 1),
             ),
           ];
           break;
         case 'chaos_vortex':
-          // Prism concert flare: neon magenta + electric gold + deep punch:
+          // Crisp prism concert flare: neon magenta + electric gold:
           activeShadows = [
             Shadow(
-              color: const Color(0xFFFF1E6E).withValues(alpha: dark ? 0.90 : 0.68),
-              blurRadius: 6,
-              offset: const Offset(-3.5, -1.5),
+              color: const Color(0xFFFF1E6E).withValues(alpha: dark ? 0.70 : 0.48),
+              blurRadius: 5,
+              offset: const Offset(-1.8, -0.8),
             ),
             Shadow(
-              color: const Color(0xFFFFD000).withValues(alpha: dark ? 0.82 : 0.60),
-              blurRadius: 12,
-              offset: const Offset(3.5, 2.0),
-            ),
-            Shadow(
-              color: Colors.black.withValues(alpha: dark ? 0.65 : 0.28),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
+              color: const Color(0xFFFFD000).withValues(alpha: dark ? 0.62 : 0.42),
+              blurRadius: 10,
+              offset: const Offset(1.8, 1.0),
             ),
           ];
           break;
@@ -1539,33 +1529,31 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
   }
 }
 
-/// Continuous beat-paced 3D reactor transform for the craziest lyric modes.
+/// Continuous beat-paced 3D reactor transform kept strictly within layout bounds.
 Matrix4 _crazyReactorMatrix(String style, int posMs, bool isRtl) {
   final dir = isRtl ? -1.0 : 1.0;
   if (style == 'hyper_warp') {
     final t = ((posMs % 3200) / 3200.0) * 2 * math.pi;
-    final pulse = 1.04 + 0.045 * math.sin(t * 2);
+    final pulse = 1.008 + 0.010 * math.sin(t * 2);
     final m = Matrix4.identity()
-      ..setEntry(3, 2, 0.0028)
-      ..setEntry(0, 3, (6.0 + 7.0 * math.sin(t)) * dir)
-      ..setEntry(1, 3, -3.5 * math.cos(t * 2))
-      ..rotateX(-0.10 + 0.08 * math.cos(t))
-      ..rotateY(0.11 * math.sin(t) * dir)
-      ..rotateZ(0.032 * math.sin(t * 2) * dir);
+      ..setEntry(3, 2, 0.0014)
+      ..setEntry(1, 3, -1.5 * math.cos(t * 2))
+      ..rotateX(-0.04 + 0.03 * math.cos(t))
+      ..rotateY(0.04 * math.sin(t) * dir)
+      ..rotateZ(0.010 * math.sin(t * 2) * dir);
     m.multiply(Matrix4.diagonal3Values(pulse, pulse, 1.0));
     return m;
   }
   final t = ((posMs % 2400) / 2400.0) * 2 * math.pi;
-  final sx = 1.03 + 0.065 * math.sin(t * 2);
-  final sy = 1.03 + 0.065 * math.cos(t * 2);
+  final sx = 1.006 + 0.012 * math.sin(t * 2);
+  final sy = 1.006 + 0.012 * math.cos(t * 2);
   final m = Matrix4.identity()
-    ..setEntry(3, 2, 0.003)
-    ..setEntry(0, 3, 9.0 * math.sin(t * 2) * dir)
-    ..setEntry(1, 3, -6.0 * math.sin(t * 3).abs())
-    ..setEntry(0, 1, 0.085 * math.cos(t * 2) * dir)
-    ..rotateY(0.22 * math.sin(t) * dir)
-    ..rotateX(0.14 * math.cos(t))
-    ..rotateZ(0.068 * math.sin(t * 2) * dir);
+    ..setEntry(3, 2, 0.0016)
+    ..setEntry(1, 3, -2.0 * math.sin(t * 3).abs())
+    ..setEntry(0, 1, 0.030 * math.cos(t * 2) * dir)
+    ..rotateY(0.06 * math.sin(t) * dir)
+    ..rotateX(0.04 * math.cos(t))
+    ..rotateZ(0.016 * math.sin(t * 2) * dir);
   m.multiply(Matrix4.diagonal3Values(sx, sy, 1.0));
   return m;
 }
@@ -1576,45 +1564,37 @@ Matrix4 _activeLineTransform(String style, bool isActive, bool isRtl) {
   final dir = isRtl ? -1.0 : 1.0;
   switch (style) {
     case 'kinetic_pop':
-      return Matrix4.diagonal3Values(1.055, 1.055, 1.0)
-        ..setEntry(0, 3, 6.0 * dir);
+      return Matrix4.diagonal3Values(1.03, 1.03, 1.0);
     case 'neon_cyber':
-      return Matrix4.diagonal3Values(1.035, 1.035, 1.0)
-        ..setEntry(0, 1, -0.065 * dir)
-        ..setEntry(0, 3, 4.0 * dir);
+      return Matrix4.diagonal3Values(1.025, 1.025, 1.0)
+        ..setEntry(0, 1, -0.055 * dir);
     case 'italic_wave':
-      return Matrix4.diagonal3Values(1.035, 1.035, 1.0)
-        ..setEntry(0, 3, 7.0 * dir)
+      return Matrix4.diagonal3Values(1.025, 1.025, 1.0)
         ..setEntry(1, 3, -2.0);
     case 'glitch_snap':
-      return Matrix4.diagonal3Values(1.04, 1.04, 1.0)
-        ..setEntry(0, 3, 3.0 * dir);
+      return Matrix4.diagonal3Values(1.025, 1.025, 1.0);
     case 'elastic_tilt':
       final m = Matrix4.identity()
         ..setEntry(3, 2, 0.0012)
-        ..rotateY(-0.075 * dir);
-      m.multiply(Matrix4.diagonal3Values(1.05, 1.05, 1.0));
+        ..rotateY(-0.065 * dir);
+      m.multiply(Matrix4.diagonal3Values(1.03, 1.03, 1.0));
       return m;
     case 'hyper_warp':
       final m = Matrix4.identity()
-        ..setEntry(3, 2, 0.0022)
-        ..setEntry(0, 3, 10.0 * dir)
-        ..setEntry(1, 3, -3.0)
-        ..rotateX(-0.14)
-        ..rotateZ(-0.025 * dir);
-      m.multiply(Matrix4.diagonal3Values(1.095, 1.095, 1.0));
+        ..setEntry(3, 2, 0.0014)
+        ..setEntry(1, 3, -1.5)
+        ..rotateX(-0.05);
+      m.multiply(Matrix4.diagonal3Values(1.02, 1.02, 1.0));
       return m;
     case 'chaos_vortex':
       final m = Matrix4.identity()
-        ..setEntry(3, 2, 0.0025)
-        ..setEntry(0, 3, 8.0 * dir)
-        ..setEntry(1, 3, -4.0)
-        ..rotateY(0.14 * dir)
-        ..rotateZ(0.032 * dir);
-      m.multiply(Matrix4.diagonal3Values(1.08, 1.08, 1.0));
+        ..setEntry(3, 2, 0.0016)
+        ..setEntry(1, 3, -2.0)
+        ..rotateY(0.05 * dir);
+      m.multiply(Matrix4.diagonal3Values(1.02, 1.02, 1.0));
       return m;
     default:
-      return Matrix4.diagonal3Values(1.025, 1.025, 1.0);
+      return Matrix4.diagonal3Values(1.02, 1.02, 1.0);
   }
 }
 
@@ -2045,24 +2025,24 @@ class _KaraokeSyllablePainter extends CustomPainter {
           angle = 0.032 * math.sin(2 * math.pi * progress);
           break;
         case 'hyper_warp':
-          // Supersonic 1.55x shockwave explosion + hyperspace whip.
+          // Crisp kinetic warp: punchy pop + forward speed slant + subtle twist, readable.
           final surge = bounce * math.exp(-1.1 * progress);
-          liftY = -22.0 * bounce;
-          shiftX = 12.0 * math.sin(2 * math.pi * progress) * (1.0 - progress);
-          scaleX = 1.0 + 0.55 * surge;
-          scaleY = 1.0 + 0.42 * surge;
-          skewX = -0.52 * math.sin(2 * math.pi * progress);
-          angle = 0.22 * math.sin(3 * math.pi * progress);
+          liftY = -5.5 * bounce;
+          shiftX = 2.5 * math.sin(2 * math.pi * progress) * (1.0 - progress);
+          scaleX = 1.0 + 0.11 * surge;
+          scaleY = 1.0 + 0.09 * surge;
+          skewX = -0.17 * math.sin(2 * math.pi * progress);
+          angle = 0.045 * math.sin(3 * math.pi * progress);
           break;
         case 'chaos_vortex':
-          // Unhinged rubber trampoline + 27deg pendulum spin + squash & stretch.
+          // Energetic squash-and-stretch + controlled prism tilt, stays readable.
           final decay = 1.0 - progress * 0.25;
-          liftY = -24.0 * bounce - 8.0 * math.sin(4 * math.pi * progress) * (1.0 - progress);
-          shiftX = 13.0 * math.cos(3.5 * math.pi * progress) * (1.0 - progress);
-          scaleX = 1.0 + 0.55 * bounce - 0.18 * math.cos(4 * math.pi * progress);
-          scaleY = 1.0 + 0.58 * math.sin(2 * math.pi * progress).abs();
-          angle = 0.48 * math.sin(3 * math.pi * progress) * decay;
-          skewX = 0.48 * math.cos(2.5 * math.pi * progress);
+          liftY = -6.5 * bounce - 2.0 * math.sin(3 * math.pi * progress) * (1.0 - progress);
+          shiftX = 3.0 * math.cos(3 * math.pi * progress) * (1.0 - progress);
+          scaleX = 1.0 + 0.12 * bounce;
+          scaleY = 1.0 + 0.14 * math.sin(2 * math.pi * progress).abs();
+          angle = 0.085 * math.sin(2.5 * math.pi * progress) * decay;
+          skewX = 0.14 * math.cos(2 * math.pi * progress);
           break;
       }
     }
@@ -2094,35 +2074,35 @@ class _KaraokeSyllablePainter extends CustomPainter {
       }
     }
 
-    // Crazy Canvas VFX (shockwave rings, warp lasers, orbiting RGB ghosts, confetti shards)
+    // Kinetic Canvas VFX kept compact so neighboring lines stay clear
     if (progress > 0.0 && progress < 1.0) {
       final cx = width * 0.5 + shiftX;
       final cy = size.height * 0.5 + liftY;
-      final baseRadius = math.max(width, size.height) * 0.55;
+      final baseRadius = math.min(width, size.height) * 0.55;
 
       if (animationStyle == 'hyper_warp') {
         final fadeOut = (1.0 - progress).clamp(0.0, 1.0);
-        // Expanding cyan + violet shockwave rings
-        final ringRadius = baseRadius * (0.3 + 1.45 * progress);
+        // Compact cyan + violet shockwave rings
+        final ringRadius = baseRadius * (0.35 + 0.85 * progress);
         final ringPaint = Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = (3.5 * fadeOut).clamp(0.5, 4.0)
-          ..color = const Color(0xFF00F5FF).withValues(alpha: 0.72 * fadeOut);
+          ..strokeWidth = (2.2 * fadeOut).clamp(0.5, 2.5)
+          ..color = const Color(0xFF00F5FF).withValues(alpha: 0.55 * fadeOut);
         canvas.drawCircle(Offset(cx, cy), ringRadius, ringPaint);
         ringPaint
-          ..color = const Color(0xFFB829FF).withValues(alpha: 0.55 * fadeOut)
-          ..strokeWidth = (2.2 * fadeOut).clamp(0.5, 3.0);
+          ..color = const Color(0xFFB829FF).withValues(alpha: 0.42 * fadeOut)
+          ..strokeWidth = (1.5 * fadeOut).clamp(0.5, 2.0);
         canvas.drawCircle(Offset(cx, cy), ringRadius * 0.72, ringPaint);
 
-        // 10 radial supersonic warp speed streaks
+        // 8 compact radial warp speed streaks
         final streakPaint = Paint()
           ..strokeCap = StrokeCap.round
-          ..strokeWidth = 2.0 * fadeOut
-          ..color = const Color(0xFF00F5FF).withValues(alpha: 0.85 * fadeOut);
-        for (var k = 0; k < 10; k++) {
-          final theta = (k / 10.0) * 2 * math.pi + progress * 1.4;
-          final r0 = baseRadius * (0.45 + 0.65 * progress);
-          final r1 = r0 + 18.0 * (0.4 + progress);
+          ..strokeWidth = 1.5 * fadeOut
+          ..color = const Color(0xFF00F5FF).withValues(alpha: 0.65 * fadeOut);
+        for (var k = 0; k < 8; k++) {
+          final theta = (k / 8.0) * 2 * math.pi + progress * 1.2;
+          final r0 = baseRadius * (0.5 + 0.45 * progress);
+          final r1 = r0 + 10.0 * (0.4 + progress);
           canvas.drawLine(
             Offset(cx + math.cos(theta) * r0, cy + math.sin(theta) * r0),
             Offset(cx + math.cos(theta) * r1, cy + math.sin(theta) * r1),
@@ -2130,13 +2110,12 @@ class _KaraokeSyllablePainter extends CustomPainter {
           );
         }
 
-        // Flying cyan + violet afterimage text ghosts
+        // Tight cyan + violet afterimage text trails (keeps letters sharp)
         if (ghostPainterA != null && ghostPainterB != null) {
           final trail = 1.0 - progress;
           for (final (painter, dx, dy, ds) in [
-            (ghostPainterB!, -18.0 * trail, 6.0 * trail, 1.08),
-            (ghostPainterA!, -9.0 * trail, 3.0 * trail, 1.04),
-            (ghostPainterA!, 10.0 * trail, -4.0 * trail, 0.98),
+            (ghostPainterB!, -4.5 * trail, 1.8 * trail, 1.02),
+            (ghostPainterA!, 3.5 * trail, -1.2 * trail, 1.0),
           ]) {
             canvas.save();
             applySyllableTransform(dx, dy, 0.0, ds);
@@ -2146,57 +2125,51 @@ class _KaraokeSyllablePainter extends CustomPainter {
         }
       } else if (animationStyle == 'chaos_vortex') {
         final fadeOut = (1.0 - progress * 0.85).clamp(0.0, 1.0);
-        final orbitR = 20.0 * math.sin(math.pi * progress);
-        final spin = progress * 6.0 * math.pi;
+        final orbitR = 5.0 * math.sin(math.pi * progress);
+        final spin = progress * 4.0 * math.pi;
 
-        // 4 orbiting kaleidoscope magenta + gold text echoes
+        // 2 tight orbiting magenta + gold prism echoes (readable!)
         if (ghostPainterA != null && ghostPainterB != null) {
-          for (var k = 0; k < 4; k++) {
-            final theta = spin + k * (math.pi * 0.5);
-            final painter = k.isEven ? ghostPainterA! : ghostPainterB!;
+          for (var k = 0; k < 2; k++) {
+            final theta = spin + k * math.pi;
+            final painter = k == 0 ? ghostPainterA! : ghostPainterB!;
             canvas.save();
             applySyllableTransform(
               math.cos(theta) * orbitR,
               math.sin(theta) * orbitR,
-              0.15 * math.sin(theta),
-              0.94,
+              0.04 * math.sin(theta),
+              0.99,
             );
             painter.paint(canvas, Offset.zero);
             canvas.restore();
           }
         }
 
-        // Exploding neon confetti diamond shards + double vortex rings
+        // Compact prism rings + 8 crisp confetti sparks
         final ringPaint = Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5 * fadeOut
-          ..color = const Color(0xFFFF1E6E).withValues(alpha: 0.72 * fadeOut);
+          ..strokeWidth = 1.8 * fadeOut
+          ..color = const Color(0xFFFF1E6E).withValues(alpha: 0.55 * fadeOut);
         canvas.drawCircle(
           Offset(cx, cy),
-          baseRadius * (0.4 + 1.2 * progress),
-          ringPaint,
-        );
-        ringPaint.color = const Color(0xFFFFD000).withValues(alpha: 0.65 * fadeOut);
-        canvas.drawCircle(
-          Offset(cx, cy),
-          baseRadius * (0.25 + 0.9 * progress),
+          baseRadius * (0.4 + 0.8 * progress),
           ringPaint,
         );
 
         final shardPaint = Paint()..style = PaintingStyle.fill;
-        for (var k = 0; k < 12; k++) {
-          final theta = (k / 12.0) * 2 * math.pi + progress * 4.5;
-          final dist = baseRadius * (0.35 + 1.35 * progress);
+        for (var k = 0; k < 8; k++) {
+          final theta = (k / 8.0) * 2 * math.pi + progress * 3.5;
+          final dist = baseRadius * (0.45 + 0.85 * progress);
           final sx = cx + math.cos(theta) * dist;
           final sy = cy + math.sin(theta) * dist;
           shardPaint.color = (k.isEven
                   ? const Color(0xFFFF1E6E)
                   : const Color(0xFFFFD000))
-              .withValues(alpha: 0.9 * fadeOut);
+              .withValues(alpha: 0.78 * fadeOut);
           canvas.save();
           canvas.translate(sx, sy);
-          canvas.rotate(theta + progress * 8.0);
-          canvas.drawRect(const Rect.fromLTWH(-3.5, -2.0, 7.0, 4.0), shardPaint);
+          canvas.rotate(theta + progress * 6.0);
+          canvas.drawRect(const Rect.fromLTWH(-2.5, -1.5, 5.0, 3.0), shardPaint);
           canvas.restore();
         }
       }

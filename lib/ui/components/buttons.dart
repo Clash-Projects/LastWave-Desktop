@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/accessibility.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -694,6 +695,7 @@ class WaveA11yButton extends StatefulWidget {
   final String label;
   final VoidCallback? onTap;
   final bool selected;
+  final bool skipTraversal;
   final Widget child;
   const WaveA11yButton({
     super.key,
@@ -701,6 +703,7 @@ class WaveA11yButton extends StatefulWidget {
     required this.onTap,
     required this.child,
     this.selected = false,
+    this.skipTraversal = false,
   });
 
   @override
@@ -722,7 +725,11 @@ class _WaveA11yButtonState extends State<WaveA11yButton> {
       excludeSemantics: true,
       child: FocusableActionDetector(
         enabled: enabled,
-        onShowFocusHighlight: (v) => setState(() => _ring = v),
+        descendantsAreFocusable: !widget.skipTraversal,
+        onShowFocusHighlight: (v) {
+          final show = v && AppFocusMemory.instance.isKeyboardNavigating;
+          if (show != _ring) setState(() => _ring = show);
+        },
         actions: {
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {

@@ -4,20 +4,20 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/track_actions.dart' show playGenerated, relativeTime;
+import '../../core/artwork/official_artwork_service.dart';
 import '../../features/feed/feed_repository.dart';
+import '../../features/feed/genre_source.dart';
 import '../../features/innertube/album_match.dart';
 import '../../features/innertube/innertube_api.dart' show innerTubeProvider;
-import '../../features/lastfm/profile_providers.dart';
-import '../../features/scrobblers/extra_scrobblers.dart';
-import '../../features/scrobblers/scrobbler_session.dart';
+import '../../features/search/shared_providers.dart' show databaseProvider;
 import '../../features/stats/stats_providers.dart';
 import '../genres/genres_page.dart';
 import '../components/artist_line.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart';
+import '../components/menus.dart' show WaveContextMenu, waveTrackMenuItems;
 import '../components/shelf.dart' show LWSectionHeader;
 import '../components/states.dart';
 import '../navigation/wave_nav.dart';
@@ -56,6 +56,12 @@ class WaveStatsPage extends ConsumerWidget {
     final statsAsync = ref.watch(listeningStatsProvider);
     final activePeriod = ref.watch(statsPeriodProvider);
     final activeTab = ref.watch(_statsTabProvider);
+    final genreCount = ref
+        .watch(genreChartProvider(activePeriod.lastFmPeriod))
+        .valueOrNull
+        ?.bars
+        .length;
+    final stats = statsAsync.valueOrNull;
     final viewport = MediaQuery.sizeOf(context).width;
 
     final pad = viewport < 900 ? 16.0 : viewport < 1300 ? 24.0 : 28.0;
@@ -64,7 +70,7 @@ class WaveStatsPage extends ConsumerWidget {
             pad;
 
     return WaveEntranceGroup(
-      start: statsAsync.hasValue,
+      start: stats != null,
       child: CustomScrollView(
         slivers: [
           SliverPadding(
@@ -76,74 +82,73 @@ class WaveStatsPage extends ConsumerWidget {
                 child: _StatsHeader(
                   activePeriod: activePeriod,
                   activeTab: activeTab,
-                  stats: statsAsync.valueOrNull,
+                  stats: stats,
+                  genreCount: genreCount,
+                  isRefreshing: statsAsync.isLoading && stats != null,
                   onPeriodChanged: (p) =>
                       ref.read(statsPeriodProvider.notifier).state = p,
                   onTabChanged: (t) =>
                       ref.read(_statsTabProvider.notifier).state = t,
-                  onRefresh: () => ref.invalidate(listeningStatsProvider),
+                  onRefresh: () {
+                    ref.invalidate(listeningStatsProvider);
+                    ref.invalidate(
+                      genreChartProvider(activePeriod.lastFmPeriod),
+                    );
+                  },
                 ),
               ),
             ),
           ),
-          statsAsync.when(
-            loading: () => SliverPadding(
-              padding: EdgeInsets.fromLTRB(side, 36, side, 40),
-              sliver: const SliverToBoxAdapter(
-                child: WaveLoading(label: 'Syncing your music statistics…'),
+          if (stats != null)
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(side, 18, side, 44),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Active Tab Content (previous data stays mounted while refreshing)
+                    switch (activeTab) {
+                      StatsViewTab.overview => _OverviewTab(
+                          stats: stats,
+                          viewportWidth: viewport,
+                          onSwitchTab: (t) => ref
+                              .read(_statsTabProvider.notifier)
+                              .state = t,
+                        ),
+                      StatsViewTab.tracks => _TracksTab(tracks: stats.topTracks),
+                      StatsViewTab.artists =>
+                        _ArtistsTab(artists: stats.topArtists),
+                      StatsViewTab.albums =>
+                        _AlbumsTab(albums: stats.topAlbums),
+                      StatsViewTab.history =>
+                        _HistoryTab(recentPlays: stats.recentPlays),
+                      StatsViewTab.genres => WaveGenresPage(
+                          embedded: true,
+                          externalPeriod: activePeriod.lastFmPeriod,
+                        ),
+                    },
+                  ],
+                ),
               ),
-            ),
-            error: (err, _) => SliverPadding(
+            )
+          else if (statsAsync.hasError)
+            SliverPadding(
               padding: EdgeInsets.fromLTRB(side, 36, side, 40),
               sliver: SliverToBoxAdapter(
                 child: WaveError(
                   title: 'Could not load statistics',
-                  message: '$err',
+                  message: '${statsAsync.error}',
                   onRetry: () => ref.invalidate(listeningStatsProvider),
                 ),
               ),
+            )
+          else
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(side, 36, side, 40),
+              sliver: const SliverToBoxAdapter(
+                child: WaveLoading(label: 'Loading your music statistics…'),
+              ),
             ),
-            data: (stats) {
-              return SliverPadding(
-                padding: EdgeInsets.fromLTRB(side, 18, side, 44),
-                sliver: SliverToBoxAdapter(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 1. Last.fm Profile & Sync Hub
-                      if (stats.isLastFmConnected) ...[
-                        _LastFmProfileHub(stats: stats),
-                        const _OtherScrobblerStrips(),
-                        const SizedBox(height: 20),
-                      ] else
-                        const _OtherScrobblerStrips(bottomSpacing: 20),
-
-                      // 2. Active Tab Content
-                      switch (activeTab) {
-                        StatsViewTab.overview => _OverviewTab(
-                            stats: stats,
-                            viewportWidth: viewport,
-                            onSwitchTab: (t) => ref
-                                .read(_statsTabProvider.notifier)
-                                .state = t,
-                          ),
-                        StatsViewTab.tracks => _TracksTab(tracks: stats.topTracks),
-                        StatsViewTab.artists =>
-                          _ArtistsTab(artists: stats.topArtists),
-                        StatsViewTab.albums =>
-                          _AlbumsTab(albums: stats.topAlbums),
-                        StatsViewTab.history =>
-                          _HistoryTab(recentPlays: stats.recentPlays),
-                        StatsViewTab.genres => const WaveGenresPage(
-                            embedded: true,
-                          ),
-                      },
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
           const WaveDockSpacer(),
         ],
       ),
@@ -155,6 +160,8 @@ class _StatsHeader extends StatelessWidget {
   final StatsPeriod activePeriod;
   final StatsViewTab activeTab;
   final ListeningStatsData? stats;
+  final int? genreCount;
+  final bool isRefreshing;
   final ValueChanged<StatsPeriod> onPeriodChanged;
   final ValueChanged<StatsViewTab> onTabChanged;
   final VoidCallback onRefresh;
@@ -163,6 +170,8 @@ class _StatsHeader extends StatelessWidget {
     required this.activePeriod,
     required this.activeTab,
     this.stats,
+    this.genreCount,
+    this.isRefreshing = false,
     required this.onPeriodChanged,
     required this.onTabChanged,
     required this.onRefresh,
@@ -174,11 +183,20 @@ class _StatsHeader extends StatelessWidget {
 
     final title = Text('Statistics',
         style: WaveType.pageTitle.copyWith(fontSize: 27));
-    final refresh = WaveIconButton(
-      tooltip: 'Refresh statistics & scrobbles',
-      icon: const Icon(FluentIcons.refresh, size: 14),
-      onPressed: onRefresh,
-    );
+    final refresh = isRefreshing
+        ? const Padding(
+            padding: EdgeInsets.all(8),
+            child: SizedBox(
+              width: 14,
+              height: 14,
+              child: ProgressRing(strokeWidth: 2),
+            ),
+          )
+        : WaveIconButton(
+            tooltip: 'Refresh statistics',
+            icon: const Icon(FluentIcons.refresh, size: 14),
+            onPressed: onRefresh,
+          );
     final periods = _PeriodPillSwitch(
       activePeriod: activePeriod,
       onChanged: onPeriodChanged,
@@ -215,7 +233,7 @@ class _StatsHeader extends StatelessWidget {
                 StatsViewTab.artists => stats?.topArtists.length,
                 StatsViewTab.albums => stats?.topAlbums.length,
                 StatsViewTab.history => stats?.recentPlays.length,
-                StatsViewTab.genres => null,
+                StatsViewTab.genres => genreCount,
               };
 
               return Padding(
@@ -412,93 +430,6 @@ class _PeriodPillSwitch extends StatelessWidget {
   }
 }
 
-/// Executive Scrobbler Profile & Sync Hub
-class _LastFmProfileHub extends ConsumerWidget {
-  final ListeningStatsData stats;
-  const _LastFmProfileHub({required this.stats});
-
-  Future<void> _openProfileWeb(Uri? uri, String fallbackUser) async {
-    final target = uri ?? Uri.parse('https://www.last.fm/user/$fallbackUser');
-    if (await canLaunchUrl(target)) {
-      await launchUrl(target, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (!stats.isLastFmConnected) {
-      return const SizedBox.shrink();
-    }
-
-    final formatter = NumberFormat('#,###');
-    final session = ref.watch(activeScrobblerSessionProvider);
-    final serviceName = stats.scrobblerName.isNotEmpty
-        ? stats.scrobblerName
-        : (session.displayName.isNotEmpty ? session.displayName : 'Scrobbler');
-
-    // Connected: one quiet line. The artist/album/track totals live in the
-    // metric tiles below, so the strip only carries identity + lifetime
-    // scrobbles + links.
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: waveSurface(context),
-        borderRadius: WaveRadius.floatingRadius,
-        border: Border.all(color: waveDivider(context), width: 0.8),
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: WaveRadius.artworkRadius,
-            child: WaveArtwork(
-              url: stats.lastFmAvatarUrl.isNotEmpty
-                  ? stats.lastFmAvatarUrl
-                  : ref.watch(userAvatarUrlProvider),
-              size: 32,
-              kind: ArtworkKind.artist,
-              label: stats.lastFmUsername,
-              upgrade: false,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Row(
-              children: [
-                Flexible(
-                  child: Text(
-                    '@${stats.lastFmUsername}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.trackTitle
-                        .copyWith(fontSize: 14, fontWeight: FontWeight.w700),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  '$serviceName · ${formatter.format(stats.lastFmScrobbles)} scrobbles · all time',
-                  style: WaveType.meta
-                      .copyWith(color: waveTextSecondary(context)),
-                ),
-              ],
-            ),
-          ),
-          WaveIconButton(
-            tooltip: 'View profile on $serviceName',
-            icon: const Icon(FluentIcons.open_in_new_window, size: 14),
-            onPressed: () => _openProfileWeb(session.profileUrl, stats.lastFmUsername),
-          ),
-          const SizedBox(width: 4),
-          WaveIconButton(
-            tooltip: 'Scrobbler Settings',
-            icon: const Icon(FluentIcons.settings, size: 14),
-            onPressed: () => context.go('/settings?section=lastfm'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Overview tab: three key metrics, activity charts, then previews of Top
 /// Tracks, Artists and Recent History. The #1 track/artist are simply the
 /// first rows of the previews, so there is no separate spotlight.
@@ -602,23 +533,45 @@ class _MetricsGrid extends StatelessWidget {
     return 'Evening';
   }
 
+  String? _deltaText(int current, int? previous) {
+    if (previous == null || previous <= 0) return null;
+    final pct = (((current - previous) / previous) * 100).round();
+    final sign = pct > 0 ? '+' : '';
+    final unit = stats.period == StatsPeriod.week ? '7d' : '30d';
+    return '$sign$pct% vs prior $unit';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cols = viewportWidth < 700 ? 1 : 3;
     final formatter = NumberFormat('#,###');
     final streak = stats.currentStreakDays;
+    final timeDelta = _deltaText(
+      stats.totalMinutesListened,
+      stats.prevPeriodMinutesListened,
+    );
+    final playsDelta = _deltaText(stats.totalPlays, stats.prevPeriodPlays);
 
     final cards = [
       _MetricTile(
         icon: FluentIcons.stopwatch,
         title: 'Time listened',
         value: _formatListeningTime(stats.totalMinutesListened),
-        subtext: '$_scope · est. 3.5 min/play',
+        deltaText: timeDelta,
+        deltaPositive: (stats.prevPeriodMinutesListened ?? 0) <=
+            stats.totalMinutesListened,
+        subtext: stats.totalPlays == 0
+            ? '$_scope · no plays yet'
+            : (stats.hasEstimatedDuration
+                ? '$_scope · actual + est. fallback'
+                : '$_scope · actual track durations'),
       ),
       _MetricTile(
         icon: FluentIcons.play,
         title: 'Plays',
         value: formatter.format(stats.totalPlays),
+        deltaText: playsDelta,
+        deltaPositive: (stats.prevPeriodPlays ?? 0) <= stats.totalPlays,
         subtext:
             '$_scope · ${formatter.format(stats.uniqueArtists)} artists, '
             '${formatter.format(stats.uniqueTracks)} tracks',
@@ -629,9 +582,11 @@ class _MetricsGrid extends StatelessWidget {
             : FluentIcons.clear_night,
         title: 'Rhythm',
         value: stats.peakListeningLabel,
-        subtext: streak > 0
-            ? '$_peakPhase peak · $streak-day streak'
-            : '$_peakPhase peak · no active streak',
+        subtext: stats.peakListeningLabel == '—'
+            ? (streak > 0 ? 'No plays yet · $streak-day streak' : 'No plays yet')
+            : (streak > 0
+                ? '$_peakPhase peak · $streak-day streak'
+                : '$_peakPhase peak · no active streak'),
       ),
     ];
 
@@ -653,12 +608,16 @@ class _MetricTile extends StatelessWidget {
   final String title;
   final String value;
   final String subtext;
+  final String? deltaText;
+  final bool deltaPositive;
 
   const _MetricTile({
     required this.icon,
     required this.title,
     required this.value,
     required this.subtext,
+    this.deltaText,
+    this.deltaPositive = true,
   });
 
   @override
@@ -708,6 +667,28 @@ class _MetricTile extends StatelessWidget {
                   ),
                 ),
               ),
+              if (deltaText != null)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: (deltaPositive
+                            ? accent
+                            : waveTextTertiary(context))
+                        .withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    deltaText!,
+                    style: WaveType.meta.copyWith(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: deltaPositive
+                          ? accent
+                          : waveTextSecondary(context),
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -737,7 +718,7 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
-class _ChartsSection extends StatelessWidget {
+class _ChartsSection extends ConsumerStatefulWidget {
   final ListeningStatsData stats;
   final bool twoColumns;
 
@@ -747,41 +728,143 @@ class _ChartsSection extends StatelessWidget {
   });
 
   @override
+  ConsumerState<_ChartsSection> createState() => _ChartsSectionState();
+}
+
+class _ChartsSectionState extends ConsumerState<_ChartsSection> {
+  String? _selectedDate;
+
+  @override
+  void didUpdateWidget(covariant _ChartsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.stats.period != widget.stats.period) {
+      _selectedDate = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Both charts come from the on-device play log (Last.fm exposes no
-    // hourly breakdown), so say so rather than imply they match the tiles.
-    final shown = stats.dailyActivity
-        .take(14)
-        .toList()
-        .reversed
-        .toList(); // chart reads oldest -> newest
+    final stats = widget.stats;
+    final rawShown = switch (stats.period) {
+      StatsPeriod.week => stats.dailyActivity.take(7).toList(),
+      StatsPeriod.month => stats.dailyActivity.take(30).toList(),
+      StatsPeriod.allTime => stats.dailyActivity.take(60).toList(),
+    };
+    final shown = rawShown.reversed.toList(); // chart reads oldest -> newest
     final plays = shown.fold(0, (acc, e) => acc + e.count);
+    final windowLabel = stats.period == StatsPeriod.allTime
+        ? '${shown.length} active days'
+        : 'last ${shown.length} days';
+
+    final dayPlays = _selectedDate == null
+        ? const <({String title, String artist, int atMillis})>[]
+        : ref.read(databaseProvider).loadPlaysForDate(_selectedDate!);
 
     final activityCard = _StatsCard(
       title: 'Daily activity',
       icon: FluentIcons.b_i_dashboard,
-      note: '$plays plays on this device · last ${shown.length} days',
-      child: _DailyActivityBarChart(activity: shown),
+      note: shown.isEmpty
+          ? 'no activity in this period'
+          : '$plays plays on this device · $windowLabel · click a bar to inspect',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DailyActivityBarChart(
+            activity: shown,
+            selectedDate: _selectedDate,
+            onSelectDate: (date) => setState(() {
+              _selectedDate = _selectedDate == date ? null : date;
+            }),
+          ),
+          if (_selectedDate != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              decoration: BoxDecoration(
+                color: waveBackground(context).withValues(alpha: 0.45),
+                borderRadius: WaveRadius.controlsRadius,
+                border: Border.all(color: waveDivider(context), width: 0.8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Played on $_selectedDate (${dayPlays.length})',
+                        style: WaveType.label.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      WaveIconButton(
+                        tooltip: 'Close day breakdown',
+                        icon: const Icon(FluentIcons.chrome_close, size: 11),
+                        onPressed: () => setState(() => _selectedDate = null),
+                      ),
+                    ],
+                  ),
+                  if (dayPlays.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        'No tracks recorded on this day.',
+                        style: WaveType.meta
+                            .copyWith(color: waveTextTertiary(context)),
+                      ),
+                    )
+                  else ...[
+                    const SizedBox(height: 6),
+                    for (final p in dayPlays.take(8))
+                      _RecentPlayItem(
+                        item: (
+                          title: p.title,
+                          artist: p.artist,
+                          timestampMillis: p.atMillis,
+                          artworkUrl: OfficialArtworkService.instance
+                                  .peekTrack(title: p.title, artist: p.artist)
+                                  ?.artworkUrl ??
+                              '',
+                        ),
+                      ),
+                    if (dayPlays.length > 8)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          '+${dayPlays.length - 8} more tracks on $_selectedDate',
+                          style: WaveType.meta
+                              .copyWith(color: waveTextTertiary(context)),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
 
     final rhythmCard = _StatsCard(
       title: 'Time of day',
       icon: FluentIcons.clock,
-      note: 'peak ${stats.peakListeningLabel}',
+      note: stats.peakListeningLabel == '—'
+          ? 'no plays yet'
+          : 'peak ${stats.peakListeningLabel}',
       child: _HourlyDistributionChart(
         hourly: stats.hourlyDistribution,
         peakHour: stats.peakListeningHour,
       ),
     );
 
-    if (twoColumns) {
+    if (widget.twoColumns) {
       return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(flex: 3, child: activityCard),
-            const SizedBox(width: 18),
-            Expanded(flex: 2, child: rhythmCard),
-          ],
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(flex: 3, child: activityCard),
+          const SizedBox(width: 18),
+          Expanded(flex: 2, child: rhythmCard),
+        ],
       );
     }
 
@@ -797,7 +880,14 @@ class _ChartsSection extends StatelessWidget {
 
 class _DailyActivityBarChart extends StatelessWidget {
   final List<({String date, int count})> activity;
-  const _DailyActivityBarChart({required this.activity});
+  final String? selectedDate;
+  final ValueChanged<String>? onSelectDate;
+
+  const _DailyActivityBarChart({
+    required this.activity,
+    this.selectedDate,
+    this.onSelectDate,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -816,12 +906,18 @@ class _DailyActivityBarChart extends StatelessWidget {
       1,
       activity.fold(0, (prev, e) => math.max(prev, e.count)),
     );
+    final dense = activity.length > 14;
+    final labelStep = activity.length > 35
+        ? 6
+        : (activity.length > 20 ? 4 : (dense ? 2 : 1));
 
     return SizedBox(
-      height: 110,
+      height: 114,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
-        children: activity.map((item) {
+        children: activity.asMap().entries.map((entry) {
+          final index = entry.key;
+          final item = entry.value;
           final ratio = (item.count / maxCount).clamp(0.06, 1.0);
           final parsedDate = DateTime.tryParse(item.date);
           final dayLabel = parsedDate != null
@@ -830,56 +926,89 @@ class _DailyActivityBarChart extends StatelessWidget {
           final dayNum = parsedDate != null ? '${parsedDate.day}' : '';
           final isToday = parsedDate != null &&
               DateFormat('yyyy-MM-dd').format(DateTime.now()) == item.date;
+          final isSelected = selectedDate == item.date;
+          final showAxisLabel =
+              index % labelStep == 0 || index == activity.length - 1;
 
           return Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2.5),
+              padding: EdgeInsets.symmetric(horizontal: dense ? 1.2 : 2.5),
               child: Tooltip(
                 message: '${item.count} plays on ${item.date}',
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Text(
-                      item.count > 0 ? '${item.count}' : '',
-                      style: WaveType.overline.copyWith(
-                        fontSize: 8.5,
-                        color: waveTextTertiary(context),
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: FractionallySizedBox(
-                          heightFactor: ratio,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              // One accent: today solid, other days muted.
-                              color: item.count == 0
-                                  ? waveDivider(context).withValues(alpha: 0.3)
-                                  : (isToday
-                                      ? waveAccent(context)
-                                      : waveAccent(context)
-                                          .withValues(alpha: 0.45)),
-                              borderRadius: BorderRadius.circular(4),
+                child: MouseRegion(
+                  cursor: item.count > 0 && onSelectDate != null
+                      ? SystemMouseCursors.click
+                      : SystemMouseCursors.basic,
+                  child: GestureDetector(
+                    onTap: item.count > 0 && onSelectDate != null
+                        ? () => onSelectDate!(item.date)
+                        : null,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (!dense) ...[
+                          Text(
+                            item.count > 0 ? '${item.count}' : '',
+                            style: WaveType.overline.copyWith(
+                              fontSize: 8.5,
+                              color: isSelected
+                                  ? waveTextPrimary(context)
+                                  : waveTextTertiary(context),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                        ],
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: FractionallySizedBox(
+                              heightFactor: ratio,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: item.count == 0
+                                      ? waveDivider(context)
+                                          .withValues(alpha: 0.3)
+                                      : (isSelected || isToday
+                                          ? waveAccent(context)
+                                          : waveAccent(context)
+                                              .withValues(alpha: 0.48)),
+                                  border: isSelected
+                                      ? Border.all(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.85),
+                                          width: 1.3,
+                                        )
+                                      : null,
+                                  borderRadius: BorderRadius.circular(
+                                      dense ? 2.5 : 4),
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                        const SizedBox(height: 6),
+                        SizedBox(
+                          height: 12,
+                          child: showAxisLabel
+                              ? Text(
+                                  dense ? dayNum : '$dayLabel $dayNum',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.clip,
+                                  style: WaveType.label.copyWith(
+                                    fontSize: dense ? 8.5 : 9.0,
+                                    color: (isSelected || isToday)
+                                        ? waveTextPrimary(context)
+                                        : waveTextTertiary(context),
+                                    fontWeight: (isSelected || isToday)
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '$dayLabel $dayNum',
-                      style: WaveType.label.copyWith(
-                        fontSize: 9.0,
-                        color: isToday
-                            ? waveTextPrimary(context)
-                            : waveTextTertiary(context),
-                        fontWeight:
-                            isToday ? FontWeight.w700 : FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1141,6 +1270,130 @@ class _RecentHistoryPreview extends StatelessWidget {
   }
 }
 
+/// Shared filter + pagination wrapper for full Stats tabs.
+class _SearchablePagedCard<T> extends StatefulWidget {
+  final String title;
+  final IconData icon;
+  final String noteSuffix;
+  final List<T> items;
+  final String emptyText;
+  final String searchPlaceholder;
+  final bool Function(T item, String query) matches;
+  final Widget Function(BuildContext context, List<T> visible) builder;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const _SearchablePagedCard({
+    required this.title,
+    required this.icon,
+    required this.noteSuffix,
+    required this.items,
+    required this.emptyText,
+    required this.searchPlaceholder,
+    required this.matches,
+    required this.builder,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  @override
+  State<_SearchablePagedCard<T>> createState() => _SearchablePagedCardState<T>();
+}
+
+class _SearchablePagedCardState<T> extends State<_SearchablePagedCard<T>> {
+  static const int _pageSize = 25;
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+  int _limit = _pageSize;
+
+  @override
+  void didUpdateWidget(covariant _SearchablePagedCard<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items != widget.items) {
+      _limit = _pageSize;
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _query.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? widget.items
+        : widget.items.where((e) => widget.matches(e, q)).toList();
+    final shown = filtered.take(_limit).toList();
+    final remaining = filtered.length - shown.length;
+
+    return _StatsCard(
+      title: widget.title,
+      icon: widget.icon,
+      note: q.isEmpty
+          ? '${widget.items.length} ${widget.noteSuffix}'
+          : '${filtered.length} of ${widget.items.length} ${widget.noteSuffix}',
+      actionLabel: widget.actionLabel,
+      onAction: widget.onAction,
+      child: widget.items.isEmpty
+          ? _CardEmpty(widget.emptyText)
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (widget.items.length > 5) ...[
+                  SizedBox(
+                    width: 280,
+                    child: TextBox(
+                      controller: _searchCtrl,
+                      placeholder: widget.searchPlaceholder,
+                      prefix: const Padding(
+                        padding: EdgeInsets.only(left: 10),
+                        child: Icon(WaveIcons.search, size: 13),
+                      ),
+                      suffix: q.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(FluentIcons.chrome_close,
+                                  size: 10),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                setState(() {
+                                  _query = '';
+                                  _limit = _pageSize;
+                                });
+                              },
+                            )
+                          : null,
+                      onChanged: (v) => setState(() {
+                        _query = v;
+                        _limit = _pageSize;
+                      }),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (filtered.isEmpty)
+                  const _CardEmpty('No matching entries.')
+                else
+                  widget.builder(context, shown),
+                if (remaining > 0) ...[
+                  const SizedBox(height: 14),
+                  Center(
+                    child: WaveButton(
+                      onPressed: () => setState(() => _limit += _pageSize),
+                      child: Text(
+                        'Show more ($remaining remaining)',
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
 /// Full Top Tracks View Tab
 class _TracksTab extends StatelessWidget {
   final List<StatTrack> tracks;
@@ -1150,23 +1403,27 @@ class _TracksTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final topPlays = tracks.isNotEmpty ? tracks.first.playCount : 1;
 
-    return _StatsCard(
+    return _SearchablePagedCard<StatTrack>(
       title: 'Top tracks',
       icon: FluentIcons.music_in_collection,
-      note: '${tracks.length} ranked',
-      child: tracks.isEmpty
-          ? const _CardEmpty('No tracks played during this period.')
-          : ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: tracks.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 4),
-              itemBuilder: (context, i) => _TrackRowItem(
-                track: tracks[i],
-                rank: i + 1,
-                maxPlays: topPlays,
-              ),
-            ),
+      noteSuffix: 'ranked',
+      items: tracks,
+      emptyText: 'No tracks played during this period.',
+      searchPlaceholder: 'Filter tracks or artists…',
+      matches: (t, q) =>
+          t.name.toLowerCase().contains(q) ||
+          t.artist.toLowerCase().contains(q),
+      builder: (context, visible) => ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: visible.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 4),
+        itemBuilder: (context, i) => _TrackRowItem(
+          track: visible[i],
+          rank: i + 1,
+          maxPlays: topPlays,
+        ),
+      ),
     );
   }
 }
@@ -1182,30 +1439,32 @@ class _ArtistsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatsCard(
+    return _SearchablePagedCard<StatArtist>(
       title: 'Top artists',
       icon: FluentIcons.microphone,
-      note: '${artists.length} artists',
-      child: artists.isEmpty
-          ? const _CardEmpty('No artists recorded during this period.')
-          : LayoutBuilder(builder: (context, c) {
-              final cols = _gridColumns(c.maxWidth);
-              final itemWidth = (c.maxWidth - (cols - 1) * 14) / cols;
+      noteSuffix: 'artists',
+      items: artists,
+      emptyText: 'No artists recorded during this period.',
+      searchPlaceholder: 'Filter artists…',
+      matches: (a, q) => a.name.toLowerCase().contains(q),
+      builder: (context, visible) => LayoutBuilder(builder: (context, c) {
+        final cols = _gridColumns(c.maxWidth);
+        final itemWidth = (c.maxWidth - (cols - 1) * 14) / cols;
 
-              return Wrap(
-                spacing: 14,
-                runSpacing: 14,
-                children: artists.asMap().entries.map((entry) {
-                  return SizedBox(
-                    width: itemWidth,
-                    child: _ArtistGridCard(
-                      artist: entry.value,
-                      rank: entry.key + 1,
-                    ),
-                  );
-                }).toList(),
-              );
-            }),
+        return Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: visible.asMap().entries.map((entry) {
+            return SizedBox(
+              width: itemWidth,
+              child: _ArtistGridCard(
+                artist: entry.value,
+                rank: entry.key + 1,
+              ),
+            );
+          }).toList(),
+        );
+      }),
     );
   }
 }
@@ -1217,31 +1476,35 @@ class _AlbumsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatsCard(
+    return _SearchablePagedCard<StatAlbum>(
       title: 'Top albums',
       icon: WaveIcons.albums,
-      note: '${albums.length} albums',
-      child: albums.isEmpty
-          ? const _CardEmpty(
-              'No album scrobbles found for this period. Connect Last.fm or listen to full albums.')
-          : LayoutBuilder(builder: (context, c) {
-              final cols = _gridColumns(c.maxWidth);
-              final itemWidth = (c.maxWidth - (cols - 1) * 14) / cols;
+      noteSuffix: 'albums',
+      items: albums,
+      emptyText: 'No album plays found for this period.',
+      searchPlaceholder: 'Filter albums or artists…',
+      matches: (a, q) =>
+          a.name.toLowerCase().contains(q) ||
+          a.artist.toLowerCase().contains(q),
+      builder: (context, visible) => LayoutBuilder(builder: (context, c) {
+        final cols = _gridColumns(c.maxWidth);
+        final itemWidth = (c.maxWidth - (cols - 1) * 14) / cols;
 
-              return Wrap(
-                spacing: 14,
-                runSpacing: 14,
-                children: albums.asMap().entries.map((entry) {
-                  return SizedBox(
-                    width: itemWidth,
-                    child: _AlbumGridCard(
-                      album: entry.value,
-                      rank: entry.key + 1,
-                    ),
-                  );
-                }).toList(),
-              );
-            }),
+        return Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: visible.asMap().entries.map((entry) {
+            return SizedBox(
+              width: itemWidth,
+              child: _AlbumGridCard(
+                album: entry.value,
+                rank: entry.key + 1,
+                size: itemWidth,
+              ),
+            );
+          }).toList(),
+        );
+      }),
     );
   }
 }
@@ -1254,22 +1517,26 @@ class _HistoryTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatsCard(
+    return _SearchablePagedCard<
+        ({String title, String artist, int timestampMillis, String artworkUrl})>(
       title: 'Recently played',
       icon: WaveIcons.history,
-      note: '${recentPlays.length} plays',
+      noteSuffix: 'plays',
+      items: recentPlays,
+      emptyText: 'No recent playback records.',
+      searchPlaceholder: 'Filter history…',
+      matches: (p, q) =>
+          p.title.toLowerCase().contains(q) ||
+          p.artist.toLowerCase().contains(q),
       actionLabel: 'Full history →',
       onAction: () => context.go('/history'),
-      child: recentPlays.isEmpty
-          ? const _CardEmpty('No recent playback records.')
-          : ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: recentPlays.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 4),
-              itemBuilder: (context, i) =>
-                  _RecentPlayItem(item: recentPlays[i]),
-            ),
+      builder: (context, visible) => ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: visible.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 4),
+        itemBuilder: (context, i) => _RecentPlayItem(item: visible[i]),
+      ),
     );
   }
 }
@@ -1327,13 +1594,21 @@ class _TrackRowItemState extends ConsumerState<_TrackRowItem> {
       );
     }
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: play,
-        child: AnimatedContainer(
+    return WaveContextMenu(
+      items: () => waveTrackMenuItems(
+        context: context,
+        ref: ref,
+        title: track.name,
+        artist: track.artist,
+        artworkUrl: track.artworkUrl,
+      ),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: play,
+          child: AnimatedContainer(
           duration: waveMotion(context, WaveMotion.fast),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
@@ -1457,6 +1732,7 @@ class _TrackRowItemState extends ConsumerState<_TrackRowItem> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );
@@ -1718,18 +1994,32 @@ class _ArtistGridCardState extends State<_ArtistGridCard> {
   }
 }
 
-class _AlbumGridCard extends ConsumerWidget {
+class _AlbumGridCard extends ConsumerStatefulWidget {
   final StatAlbum album;
   final int rank;
+  final double size;
 
-  const _AlbumGridCard({required this.album, required this.rank});
+  const _AlbumGridCard({
+    required this.album,
+    required this.rank,
+    this.size = 160,
+  });
+
+  @override
+  ConsumerState<_AlbumGridCard> createState() => _AlbumGridCardState();
+}
+
+class _AlbumGridCardState extends ConsumerState<_AlbumGridCard> {
+  bool _hover = false;
+  bool _pressed = false;
 
   /// Last.fm gives no browseId, and `/album/` with an empty one is a
   /// dead route — resolve it, else fall back to a search.
-  Future<void> _open(BuildContext context, WidgetRef ref) async {
+  Future<void> _open() async {
+    final album = widget.album;
     final bid = await resolveAlbumBrowseId(ref.read(innerTubeProvider),
         title: album.name, artist: album.artist);
-    if (!context.mounted) return;
+    if (!mounted) return;
     if (bid.isEmpty) {
       context.go(
           '/search?q=${Uri.encodeComponent('${album.artist} ${album.name}')}');
@@ -1747,159 +2037,133 @@ class _AlbumGridCard extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    final album = widget.album;
+    final rank = widget.rank;
+    final isTop3 = rank <= 3;
+    final medalColor = rank == 1
+        ? const Color(0xFFFFD700)
+        : (rank == 2
+            ? const Color(0xFFC0C0C0)
+            : (rank == 3
+                ? const Color(0xFFCD7F32)
+                : Colors.white));
 
-    return WavePressable(
-      onTap: () => _open(context, ref),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: WaveRadius.artworkRadius,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: dark ? 0.35 : 0.12),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: WaveArtwork(
-                  url: album.artworkUrl,
-                  size: 140,
-                  radius: WaveRadius.artwork,
-                  title: album.name,
-                  artist: album.artist,
-                  kind: ArtworkKind.album,
-                  label: album.name,
-                ),
-              ),
-              Positioned(
-                left: 6,
-                top: 6,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2.5),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.75),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    '#$rank',
-                    style: WaveType.label.copyWith(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            album.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: WaveType.trackTitle.copyWith(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 1),
-          WaveArtistLine(
-            artist: album.artist,
-            style: WaveType.meta.copyWith(fontSize: 11.5),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            '${album.playCount} plays',
-            style: WaveType.meta.copyWith(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              color: waveTextTertiary(context),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RecentPlayItem extends ConsumerWidget {
-  final ({String title, String artist, int timestampMillis, String artworkUrl}) item;
-  const _RecentPlayItem({required this.item});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return WavePressable(
-      onTap: () {
-        playGenerated(
-          ref,
-          context,
-          GeneratedTrack(
-            name: item.title,
-            artist: item.artist,
-            artworkUrl: item.artworkUrl,
-          ),
-          sourceLabel: 'History',
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          borderRadius: WaveRadius.controlsRadius,
-          color: Colors.transparent,
-        ),
-        child: Row(
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: _open,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            WaveArtwork(
-              url: item.artworkUrl,
-              size: 40,
-              radius: WaveRadius.artwork,
-              title: item.title,
-              artist: item.artist,
-              label: item.title,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            AnimatedScale(
+              scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+              duration: waveMotion(context, WaveMotion.fast),
+              curve: Curves.easeOutCubic,
+              child: Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: WaveType.trackTitle.copyWith(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
+                  AnimatedContainer(
+                    duration: waveMotion(context, WaveMotion.normal),
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                      borderRadius: WaveRadius.artworkRadius,
+                      boxShadow: [
+                        if (_hover) ...WaveElevation.lift(dark),
+                        BoxShadow(
+                          color: Colors.black
+                              .withValues(alpha: dark ? 0.35 : 0.12),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                        if (isTop3)
+                          BoxShadow(
+                            color: medalColor.withValues(alpha: 0.25),
+                            blurRadius: 10,
+                          ),
+                      ],
+                    ),
+                    foregroundDecoration: BoxDecoration(
+                      borderRadius: WaveRadius.artworkRadius,
+                      border: Border.all(
+                        color: isTop3
+                            ? medalColor.withValues(alpha: 0.65)
+                            : waveDivider(context),
+                        width: isTop3 ? 1.5 : 0.8,
+                      ),
+                    ),
+                    child: WaveArtwork(
+                      url: album.artworkUrl,
+                      size: widget.size,
+                      radius: WaveRadius.artwork,
+                      title: album.name,
+                      artist: album.artist,
+                      kind: ArtworkKind.album,
+                      label: album.name,
                     ),
                   ),
-                  const SizedBox(height: 1),
-                  WaveArtistLine(artist: item.artist),
+                  Positioned(
+                    left: 6,
+                    top: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isTop3
+                            ? medalColor
+                            : Colors.black.withValues(alpha: 0.75),
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        '#$rank',
+                        style: WaveType.label.copyWith(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: isTop3 ? Colors.black : Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            const SizedBox(width: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: waveTextTertiary(context).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(999),
+            const SizedBox(height: 8),
+            Text(
+              album.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: WaveType.trackTitle.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
               ),
-              child: Text(
-                relativeTime(
-                  DateTime.fromMillisecondsSinceEpoch(item.timestampMillis),
-                ),
-                style: WaveType.meta.copyWith(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: waveTextSecondary(context),
-                ),
+            ),
+            const SizedBox(height: 1),
+            WaveArtistLine(
+              artist: album.artist,
+              style: WaveType.meta.copyWith(fontSize: 11.5),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${album.playCount} ${album.playCount == 1 ? 'play' : 'plays'}',
+              style: WaveType.meta.copyWith(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: waveTextTertiary(context),
               ),
             ),
           ],
@@ -1909,89 +2173,132 @@ class _RecentPlayItem extends ConsumerWidget {
   }
 }
 
-/// One strip per connected ListenBrainz / Libre.fm account, styled like
-/// the Last.fm strip: identity, lifetime listens, profile + settings.
-class _OtherScrobblerStrips extends ConsumerWidget {
-  final double bottomSpacing;
-  const _OtherScrobblerStrips({this.bottomSpacing = 0});
+class _RecentPlayItem extends ConsumerStatefulWidget {
+  final ({String title, String artist, int timestampMillis, String artworkUrl})
+      item;
+  const _RecentPlayItem({required this.item});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    ref.watch(extraScrobblersRevisionProvider);
-    final active = ref.watch(activeScrobblerSessionProvider);
-    final connected = [
-      for (final s in ref.watch(extraScrobblersProvider).services)
-        if (s.connected && s.name != active.displayName) s,
-    ];
-    if (connected.isEmpty) return const SizedBox.shrink();
-    final formatter = NumberFormat('#,###');
-    return Column(
-      children: [
-        for (final s in connected)
-          Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: waveSurface(context),
-                borderRadius: WaveRadius.floatingRadius,
-                border: Border.all(color: waveDivider(context), width: 0.8),
+  ConsumerState<_RecentPlayItem> createState() => _RecentPlayItemState();
+}
+
+class _RecentPlayItemState extends ConsumerState<_RecentPlayItem> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    final dark = waveIsDark(context);
+
+    return WaveContextMenu(
+      items: () => waveTrackMenuItems(
+        context: context,
+        ref: ref,
+        title: item.title,
+        artist: item.artist,
+        artworkUrl: item.artworkUrl,
+      ),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: () {
+            playGenerated(
+              ref,
+              context,
+              GeneratedTrack(
+                name: item.title,
+                artist: item.artist,
+                artworkUrl: item.artworkUrl,
               ),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: WaveRadius.artworkRadius,
-                    child: WaveArtwork(
-                      url: '',
-                      size: 32,
-                      label: s.username,
-                      upgrade: false,
+              sourceLabel: 'History',
+            );
+          },
+          child: AnimatedContainer(
+            duration: waveMotion(context, WaveMotion.fast),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              borderRadius: WaveRadius.controlsRadius,
+              color: _hover
+                  ? (dark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.black.withValues(alpha: 0.04))
+                  : Colors.transparent,
+            ),
+            child: Row(
+              children: [
+                Stack(
+                  children: [
+                    WaveArtwork(
+                      url: item.artworkUrl,
+                      size: 40,
+                      radius: WaveRadius.artwork,
+                      title: item.title,
+                      artist: item.artist,
+                      label: item.title,
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '@${s.username}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: WaveType.trackTitle.copyWith(
-                                fontSize: 14, fontWeight: FontWeight.w700),
+                    Positioned.fill(
+                      child: AnimatedOpacity(
+                        opacity: _hover ? 1.0 : 0.0,
+                        duration: waveMotion(context, WaveMotion.fast),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: WaveRadius.artworkRadius,
+                          ),
+                          child: const Center(
+                            child: Icon(WaveIcons.play,
+                                size: 15, color: Colors.white),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Text(
-                          switch (ref.watch(extraScrobbleCountProvider(s.name))) {
-                            AsyncData(:final value?) =>
-                              '${formatter.format(value)} scrobbles · all time · ${s.name}',
-                            _ => s.name,
-                          },
-                          style: WaveType.meta
-                              .copyWith(color: waveTextSecondary(context)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: WaveType.trackTitle.copyWith(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: 1),
+                      WaveArtistLine(artist: item.artist),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: waveTextTertiary(context).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    relativeTime(
+                      DateTime.fromMillisecondsSinceEpoch(item.timestampMillis),
+                    ),
+                    style: WaveType.meta.copyWith(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: waveTextSecondary(context),
                     ),
                   ),
-                  WaveIconButton(
-                    tooltip: 'View profile on ${s.name}',
-                    icon: const Icon(FluentIcons.open_in_new_window, size: 14),
-                    onPressed: () => launchUrl(s.profileUrl,
-                        mode: LaunchMode.externalApplication),
-                  ),
-                  const SizedBox(width: 4),
-                  WaveIconButton(
-                    tooltip: '${s.name} settings',
-                    icon: const Icon(FluentIcons.settings, size: 14),
-                    onPressed: () => context.go('/settings?section=lastfm'),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        if (bottomSpacing > 0) SizedBox(height: bottomSpacing),
-      ],
+        ),
+      ),
     );
   }
 }

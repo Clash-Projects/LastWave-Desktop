@@ -8,6 +8,7 @@ import '../collections/playlist_dialogs.dart'
     show showWaveDeletePlaylist, showWaveRenamePlaylist;
 import '../components/artwork.dart';
 import '../components/buttons.dart' show WaveGhostButton;
+import '../components/inputs.dart';
 import '../components/states.dart';
 import '../components/track_row.dart' show WaveDesktopTable;
 import '../theme/tokens.dart';
@@ -641,11 +642,18 @@ Future<String?> _askName(BuildContext context) {
     context: context,
     builder: (context) => ContentDialog(
       title: const Text('New playlist'),
-      content: TextBox(
-        controller: controller,
-        autofocus: true,
-        placeholder: 'Playlist name',
-        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextBox(
+            decoration: waveInputDecoration(),
+            controller: controller,
+            autofocus: true,
+            placeholder: 'Playlist name',
+            onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+          ),
+        ],
       ),
       actions: [
         Button(

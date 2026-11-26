@@ -1297,6 +1297,41 @@ void main() {
       container.invalidate(losslessApiProvider);
       expect(container.read(losslessApiProvider).isConfigured, isTrue);
     });
+
+    test('per-addon setAddonEnabled toggles individual addons via activeAddonUrls',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      final url1 = 'https://one.example.com/a/${_hex('a')}/';
+      final url2 = 'https://two.example.com/a/${_hex('b')}/';
+      await prefs.setAddonUrls([url1, url2]);
+
+      expect(prefs.isAddonEnabled(url1), isTrue);
+      expect(prefs.isAddonEnabled(url2), isTrue);
+      expect(prefs.activeAddonUrls, [url1, url2]);
+
+      await prefs.setAddonEnabled(url1, false);
+      expect(prefs.isAddonEnabled(url1), isFalse);
+      expect(prefs.isAddonEnabled(url2), isTrue);
+      expect(prefs.activeAddonUrls, [url2]);
+
+      final container = ProviderContainer(
+        overrides: [prefsProvider.overrideWithValue(prefs)],
+      );
+      addTearDown(container.dispose);
+
+      expect(container.read(losslessApiProvider).isConfigured, isTrue);
+
+      await prefs.setAddonEnabled(url2, false);
+      container.invalidate(losslessApiProvider);
+      expect(prefs.activeAddonUrls, isEmpty);
+      expect(container.read(losslessApiProvider).isConfigured, isFalse);
+
+      await prefs.setAddonEnabled(url2, true);
+      container.invalidate(losslessApiProvider);
+      expect(prefs.activeAddonUrls, [url2]);
+      expect(container.read(losslessApiProvider).isConfigured, isTrue);
+    });
   });
 }
 

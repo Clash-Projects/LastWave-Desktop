@@ -869,20 +869,28 @@ class _WaveShellState extends ConsumerState<WaveShell> {
             _goForward();
           }
         },
-        child: Column(
-          children: [
-            if (!immersive) ...[
-              _titleBarFor(_backStack.isNotEmpty, _forwardStack.isNotEmpty),
-              const WaveInfoBarHost(),
-            ],
-            // Overlay rail: the content below keeps full width and the
-            // rail floats above its left edge (60 collapsed, 200
-            // expanded). Toggling used to reflow the whole window, so
-            // every animation frame re-laid-out every page + panel.
-            // Now constraints stay constant during the animation and
-            // only the tiny rail subtree lays out per tick.
-            Expanded(
-              child: Column(
+        child: FocusTraversalGroup(
+          policy: OrderedTraversalPolicy(),
+          child: Column(
+            children: [
+              if (!immersive) ...[
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(2),
+                  child: _titleBarFor(
+                      _backStack.isNotEmpty, _forwardStack.isNotEmpty),
+                ),
+                const WaveInfoBarHost(),
+              ],
+              // Overlay rail: the content below keeps full width and the
+              // rail floats above its left edge (60 collapsed, 200
+              // expanded). Toggling used to reflow the whole window, so
+              // every animation frame re-laid-out every page + panel.
+              // Now constraints stay constant during the animation and
+              // only the tiny rail subtree lays out per tick.
+              Expanded(
+                child: FocusTraversalOrder(
+                  order: const NumericFocusOrder(1),
+                  child: Column(
                 children: [
                   Expanded(
                     child: DropTarget(
@@ -1076,8 +1084,10 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                     ),
                 ],
               ),
+                ),
             ),
           ],
+        ),
         ),
         ),
       ),

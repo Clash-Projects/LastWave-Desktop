@@ -13,7 +13,16 @@ import '../theme/wave_icons.dart';
 class WaveGenresPage extends ConsumerStatefulWidget {
   /// Drawn inside Stats. The page title and the side-rail route stay off.
   final bool embedded;
-  const WaveGenresPage({super.key, this.embedded = false});
+
+  /// When non-null, drives the period externally (e.g. from Stats header)
+  /// and hides the duplicate internal period chips.
+  final String? externalPeriod;
+
+  const WaveGenresPage({
+    super.key,
+    this.embedded = false,
+    this.externalPeriod,
+  });
 
   @override
   ConsumerState<WaveGenresPage> createState() => _WaveGenresPageState();
@@ -66,7 +75,8 @@ class _WaveGenresPageState extends ConsumerState<WaveGenresPage> {
 
   @override
   Widget build(BuildContext context) {
-    final chart = ref.watch(genreChartProvider(_period));
+    final effectivePeriod = widget.externalPeriod ?? _period;
+    final chart = ref.watch(genreChartProvider(effectivePeriod));
     final body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -80,34 +90,37 @@ class _WaveGenresPageState extends ConsumerState<WaveGenresPage> {
             const SizedBox(height: 4),
           ],
           Text(
-            'Styles from your Last.fm listening. A tap plays songs in that style, not a track named after it.',
+            'Styles inferred from your listening. A tap plays songs in that style, not a track named after it.',
             style: WaveType.meta.copyWith(
               color: waveTextSecondary(context),
             ),
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final period in _periods)
-                ToggleButton(
-                  checked: _period == period.$1,
-                  onChanged: (_) => setState(() {
-                    _period = period.$1;
-                    _error = null;
-                  }),
-                  child: Text(period.$2),
-                ),
-            ],
-          ),
+          if (widget.externalPeriod == null) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final period in _periods)
+                  ToggleButton(
+                    checked: _period == period.$1,
+                    onChanged: (_) => setState(() {
+                      _period = period.$1;
+                      _error = null;
+                    }),
+                    child: Text(period.$2),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           chart.when(
               loading: () => const WaveLoading(label: 'Loading genres…'),
               error: (e, _) => WaveError(
                 title: 'Could not load genres',
                 message: '$e',
-                onRetry: () => ref.invalidate(genreChartProvider(_period)),
+                onRetry: () =>
+                    ref.invalidate(genreChartProvider(effectivePeriod)),
               ),
               data: (data) {
                 if (data.bars.isEmpty) {

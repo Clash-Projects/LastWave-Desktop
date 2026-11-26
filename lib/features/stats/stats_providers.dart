@@ -3,8 +3,6 @@ import 'package:intl/intl.dart';
 
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/audio/artist_parser.dart';
-import '../lastfm/home_repository.dart';
-import '../scrobblers/scrobbler_session.dart';
 import '../search/shared_providers.dart';
 
 enum StatsPeriod {
@@ -64,6 +62,9 @@ class ListeningStatsData {
   final StatsPeriod period;
   final int totalPlays;
   final int totalMinutesListened;
+  final bool hasEstimatedDuration;
+  final int? prevPeriodPlays;
+  final int? prevPeriodMinutesListened;
   final int uniqueArtists;
   final int uniqueTracks;
   final int currentStreakDays;
@@ -88,6 +89,9 @@ class ListeningStatsData {
     required this.period,
     required this.totalPlays,
     required this.totalMinutesListened,
+    this.hasEstimatedDuration = false,
+    this.prevPeriodPlays,
+    this.prevPeriodMinutesListened,
     required this.uniqueArtists,
     required this.uniqueTracks,
     required this.currentStreakDays,
@@ -115,18 +119,28 @@ final statsPeriodProvider = StateProvider<StatsPeriod>((ref) => StatsPeriod.week
 final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
   final period = ref.watch(statsPeriodProvider);
   final db = ref.watch(databaseProvider);
-  final homeRepo = ref.watch(homeRepositoryProvider);
-  final session = ref.watch(activeScrobblerSessionProvider);
 
+  final now = DateTime.now();
   int? sinceMillis;
+  int? prevSinceMillis;
   if (period.days != null) {
     sinceMillis =
-        DateTime.now().subtract(Duration(days: period.days!)).millisecondsSinceEpoch;
+        now.subtract(Duration(days: period.days!)).millisecondsSinceEpoch;
+    prevSinceMillis =
+        now.subtract(Duration(days: period.days! * 2)).millisecondsSinceEpoch;
   }
 
-  // 1. Fetch Local SQLite Stats
-  final local = db.getLocalStatsSummary(sinceMillis: sinceMillis);
+  // 100% Local SQLite Stats (scrobblers are outbound-only and never reset stats).
+  final local = db.getLocalStatsSummary(
+    sinceMillis: sinceMillis,
+    prevSinceMillis: prevSinceMillis,
+  );
   final localTotalPlays = (local['totalPlays'] as int?) ?? 0;
+  final localDurationMs = (local['totalDurationMs'] as int?) ?? 0;
+  final unmeasuredPlays = (local['unmeasuredPlays'] as int?) ?? 0;
+  final prevPeriodPlays = local['prevPlays'] as int?;
+  final prevDurationMs = (local['prevDurationMs'] as int?) ?? 0;
+  final prevUnmeasuredPlays = (local['prevUnmeasuredPlays'] as int?) ?? 0;
   final localUniqueArtists = (local['uniqueArtists'] as int?) ?? 0;
   final localUniqueTracks = (local['uniqueTracks'] as int?) ?? 0;
   final localHourly = (local['hourly'] as Map<int, int>?) ?? {};
@@ -136,8 +150,13 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
   final rawLocalTopTracks =
       (local['topTracks'] as List<({String title, String artist, int count})>?) ??
           [];
+  final rawLocalTopAlbums =
+      (local['topAlbums'] as List<({String name, String artist, int count})>?) ??
+          [];
 
-  final localRecent = db.loadRecentPlays(limit: 50).map((p) {
+  final localRecent = db
+      .loadRecentPlays(limit: 200, sinceMillis: sinceMillis)
+      .map((p) {
     final peek = OfficialArtworkService.instance.peekTrack(
       title: p.title,
       artist: p.artist,
@@ -150,13 +169,8 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
     );
   }).toList();
 
-  // Streak Calculation from local plays
-  final allPlays = db.loadRecentPlays(limit: 500);
-  final activeDates = <String>{};
-  for (final p in allPlays) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(p.atMillis);
-    activeDates.add(DateFormat('yyyy-MM-dd').format(dt));
-  }
+  // Streak Calculation from all local play dates.
+  final activeDates = db.loadActivePlayDates();
 
   var streak = 0;
   var cursor = DateTime.now();
@@ -176,7 +190,7 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
 
   // Peak Listening Hour
   var peakHour = 20;
-  var maxHourCount = -1;
+  var maxHourCount = 0;
   localHourly.forEach((hr, count) {
     if (count > maxHourCount) {
       maxHourCount = count;
@@ -190,191 +204,121 @@ final listeningStatsProvider = FutureProvider<ListeningStatsData>((ref) async {
     return '$h12:00 $periodStr';
   }
 
-  // 2. Fetch Active Scrobbler Data if Connected (Last.fm / ListenBrainz / Libre.fm)
-  var isLastFm = false;
-  var lastFmUser = '';
-  var scrobblerName = '';
-  var lastFmScrobbles = 0;
-  var lastFmArtistsCount = 0;
-  var lastFmAlbumsCount = 0;
-  var lastFmTracksCount = 0;
-  var lastFmAvatar = '';
-  int? lastFmPeriodPlayCount;
-  List<HomeTrack> lastFmTopTracks = const [];
-  List<({String name, int playCount, String artworkUrl})> lastFmTopArtists =
-      const [];
-  List<({String name, String artist, int playCount, String artworkUrl})>
-  lastFmTopAlbums = const [];
+  final peakLabel = maxHourCount > 0 ? formatHour(peakHour) : '—';
 
-  if (session.connected) {
-    isLastFm = true;
-    lastFmUser = session.username;
-    scrobblerName = session.displayName;
-    try {
-      final statsFuture = homeRepo.fetchStats();
-      final topTracksFuture = homeRepo.fetchTopTracks(
-        period: period.lastFmPeriod,
-        limit: 25,
-      );
-      final topArtistsFuture = homeRepo.fetchTopArtists(
-        period: period.lastFmPeriod,
-        limit: 25,
-      );
-      final topAlbumsFuture = homeRepo.fetchTopAlbums(
-        period: period.lastFmPeriod,
-        limit: 20,
-      );
-      final periodPlayCountFuture = period.days == null
-          ? null
-          : (() async {
-              try {
-                return await homeRepo.fetchPeriodPlayCount(
-                  fromMillis: sinceMillis!,
-                  toMillis: DateTime.now().millisecondsSinceEpoch,
-                );
-              } catch (_) {
-                return null;
-              }
-            })();
-
-      final results = await Future.wait([
-        statsFuture,
-        topTracksFuture,
-        topArtistsFuture,
-        topAlbumsFuture,
-      ]);
-
-      final stats = results[0] as HomeStats;
-      lastFmScrobbles = stats.scrobbles;
-      lastFmArtistsCount = stats.artistCount;
-      lastFmAlbumsCount = stats.albumCount;
-      lastFmTracksCount = stats.trackCount;
-      lastFmAvatar = stats.avatarUrl;
-      lastFmTopTracks = results[1] as List<HomeTrack>;
-      lastFmTopArtists =
-          results[2] as List<({String name, int playCount, String artworkUrl})>;
-      lastFmTopAlbums = results[3] as List<({
-        String name,
-        String artist,
-        int playCount,
-        String artworkUrl
-      })>;
-      lastFmPeriodPlayCount = await periodPlayCountFuture;
-    } catch (_) {}
-  }
-
-  // 3. Process & Merge Top Tracks with artwork peek
-  final mergedTopTracks = <StatTrack>[];
-  if (isLastFm && lastFmTopTracks.isNotEmpty) {
-    for (final t in lastFmTopTracks) {
-      final peek = OfficialArtworkService.instance.peekTrack(
-        title: t.name,
-        artist: t.artist,
-      );
-      mergedTopTracks.add(StatTrack(
-        name: t.name,
-        artist: t.artist,
-        artworkUrl: (t.artworkUrl.isNotEmpty ? t.artworkUrl : peek?.artworkUrl) ?? '',
-        playCount: t.playCount,
-        timestampMillis: t.timestampMillis,
-      ));
-    }
-  } else {
-    for (final t in rawLocalTopTracks) {
-      final peek = OfficialArtworkService.instance.peekTrack(
-        title: t.title,
-        artist: t.artist,
-      );
-      mergedTopTracks.add(StatTrack(
+  // Top Tracks with local artwork cache peek.
+  final mergedTopTracks = <StatTrack>[
+    for (final t in rawLocalTopTracks)
+      StatTrack(
         name: t.title,
         artist: t.artist,
-        artworkUrl: peek?.artworkUrl ?? '',
+        artworkUrl: OfficialArtworkService.instance
+                .peekTrack(title: t.title, artist: t.artist)
+                ?.artworkUrl ??
+            '',
         playCount: t.count,
-      ));
-    }
-  }
+      ),
+  ];
 
-  // 4. Process & Merge Top Artists (BREAK collaborations into individual artists)
+  // Top Artists (break collaborations into individual artists).
   final artistCountMap = <String, int>{};
-  final artistArtMap = <String, String>{};
-
-  if (isLastFm && lastFmTopArtists.isNotEmpty) {
-    for (final a in lastFmTopArtists) {
-      for (final single in splitArtistCredits(a.name)) {
-        artistCountMap[single] = (artistCountMap[single] ?? 0) + a.playCount;
-        if (a.artworkUrl.isNotEmpty) {
-          artistArtMap.putIfAbsent(single, () => a.artworkUrl);
-        }
-      }
-    }
-  } else {
-    for (final a in rawLocalTopArtists) {
-      for (final single in splitArtistCredits(a.name)) {
-        artistCountMap[single] = (artistCountMap[single] ?? 0) + a.count;
-      }
+  for (final a in rawLocalTopArtists) {
+    for (final single in splitArtistCredits(a.name)) {
+      artistCountMap[single] = (artistCountMap[single] ?? 0) + a.count;
     }
   }
 
   final sortedArtists = artistCountMap.entries.toList()
     ..sort((a, b) => b.value.compareTo(a.value));
 
-  final mergedTopArtists = sortedArtists.take(25).map((e) {
+  final mergedTopArtists = sortedArtists.take(100).map((e) {
     final peek = OfficialArtworkService.instance.peekArtist(e.key);
     return StatArtist(
       name: e.key,
       playCount: e.value,
-      artworkUrl: artistArtMap[e.key] ?? peek?.artworkUrl ?? '',
+      artworkUrl: peek?.artworkUrl ?? '',
     );
   }).toList();
 
-  // 5. Process Top Albums
-  final mergedTopAlbums = <StatAlbum>[];
-  if (isLastFm && lastFmTopAlbums.isNotEmpty) {
-    for (final a in lastFmTopAlbums) {
-      final peek = OfficialArtworkService.instance.peekAlbum(
-        album: a.name,
-        artist: a.artist,
+  // Top Albums: recorded local album column, falling back to cached track
+  // metadata for older plays recorded before the album column existed.
+  final albumCounts = <String, ({String name, String artist, int count})>{};
+  for (final a in rawLocalTopAlbums) {
+    final key = '${a.name.toLowerCase()}|${a.artist.toLowerCase()}';
+    final prev = albumCounts[key];
+    albumCounts[key] = (
+      name: a.name,
+      artist: a.artist,
+      count: (prev?.count ?? 0) + a.count,
+    );
+  }
+  if (albumCounts.isEmpty) {
+    for (final t in rawLocalTopTracks) {
+      final peek = OfficialArtworkService.instance.peekTrack(
+        title: t.title,
+        artist: t.artist,
       );
-      mergedTopAlbums.add(StatAlbum(
-        name: a.name,
-        artist: a.artist,
-        artworkUrl: (a.artworkUrl.isNotEmpty ? a.artworkUrl : peek?.artworkUrl) ?? '',
-        playCount: a.playCount,
-      ));
+      final albumTitle = peek?.albumTitle.trim() ?? '';
+      if (albumTitle.isEmpty) continue;
+      final key = '${albumTitle.toLowerCase()}|${t.artist.toLowerCase()}';
+      final prev = albumCounts[key];
+      albumCounts[key] = (
+        name: albumTitle,
+        artist: t.artist,
+        count: (prev?.count ?? 0) + t.count,
+      );
     }
   }
+  final sortedAlbums = albumCounts.values.toList()
+    ..sort((a, b) => b.count.compareTo(a.count));
+  final mergedTopAlbums = sortedAlbums.take(100).map((a) {
+    final peek = OfficialArtworkService.instance.peekAlbum(
+      album: a.name,
+      artist: a.artist,
+    );
+    return StatAlbum(
+      name: a.name,
+      artist: a.artist,
+      artworkUrl: peek?.artworkUrl ?? '',
+      playCount: a.count,
+    );
+  }).toList();
 
-  // Estimate total listening minutes (~3.5 minutes per play on average)
-    final effectivePlays = isLastFm
-      ? (period.days == null
-        ? lastFmScrobbles
-        : lastFmPeriodPlayCount ?? localTotalPlays)
-      : localTotalPlays;
-  // Estimate total listening minutes (~3.5 minutes per play on average).
-  final totalMinutes = (effectivePlays * 3.5).round();
+  // Prefer actual recorded track durations; legacy rows without duration_ms
+  // fall back to 3.5 minutes per play.
+  const fallbackMsPerPlay = 210000;
+  final totalMinutes =
+      ((localDurationMs + unmeasuredPlays * fallbackMsPerPlay) / 60000).round();
+  final prevTotalMinutes = prevPeriodPlays == null
+      ? null
+      : ((prevDurationMs + prevUnmeasuredPlays * fallbackMsPerPlay) / 60000)
+          .round();
 
   return ListeningStatsData(
     period: period,
-    totalPlays: effectivePlays,
+    totalPlays: localTotalPlays,
     totalMinutesListened: totalMinutes,
-    uniqueArtists: localUniqueArtists > 0 ? localUniqueArtists : artistCountMap.length,
-    uniqueTracks: localUniqueTracks > 0 ? localUniqueTracks : mergedTopTracks.length,
+    hasEstimatedDuration: unmeasuredPlays > 0,
+    prevPeriodPlays: prevPeriodPlays,
+    prevPeriodMinutesListened: prevTotalMinutes,
+    uniqueArtists: localUniqueArtists,
+    uniqueTracks: localUniqueTracks,
     currentStreakDays: streak,
     peakListeningHour: peakHour,
-    peakListeningLabel: formatHour(peakHour),
+    peakListeningLabel: peakLabel,
     topArtists: mergedTopArtists,
     topTracks: mergedTopTracks,
     topAlbums: mergedTopAlbums,
     recentPlays: localRecent,
     hourlyDistribution: localHourly,
     dailyActivity: localDaily,
-    isLastFmConnected: isLastFm,
-    lastFmUsername: lastFmUser,
-    scrobblerName: scrobblerName,
-    lastFmScrobbles: lastFmScrobbles,
-    lastFmArtistsCount: lastFmArtistsCount,
-    lastFmAlbumsCount: lastFmAlbumsCount,
-    lastFmTracksCount: lastFmTracksCount,
-    lastFmAvatarUrl: lastFmAvatar,
+    isLastFmConnected: false,
+    lastFmUsername: '',
+    scrobblerName: '',
+    lastFmScrobbles: 0,
+    lastFmArtistsCount: 0,
+    lastFmAlbumsCount: 0,
+    lastFmTracksCount: 0,
+    lastFmAvatarUrl: '',
   );
 });

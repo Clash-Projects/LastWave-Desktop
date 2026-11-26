@@ -2896,6 +2896,8 @@ class _Sources extends ConsumerWidget {
     final prefs = ref.watch(prefsProvider);
     final urls = prefs.addonUrls;
     final addonsEnabled = prefs.addonsEnabled;
+    final disabledUrls = prefs.disabledAddonUrls;
+    final activeCount = prefs.activeAddonUrls.length;
     final src = ref.watch(losslessApiProvider);
     final quotas = src is AddonApi
         ? src.quotaByBase
@@ -2905,9 +2907,11 @@ class _Sources extends ConsumerWidget {
       title: 'Addon sources',
       subtitle: urls.isEmpty
           ? 'No addon configured — using the built-in lossless backend'
-          : (addonsEnabled
-              ? 'Addons serve the lossless tier instead of the built-in backend'
-              : 'Addons turned off — using the built-in lossless backend'),
+          : (!addonsEnabled
+              ? 'All addons turned off — using the built-in lossless backend'
+              : (activeCount == 0
+                  ? 'All addons paused individually — using the built-in lossless backend'
+                  : 'Addons serve the lossless tier instead of the built-in backend')),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -2936,11 +2940,17 @@ class _Sources extends ConsumerWidget {
             _AddonRow(
               url: u,
               quota: quotas[u],
-              enabled: addonsEnabled,
+              masterEnabled: addonsEnabled,
+              enabled: !disabledUrls.contains(u),
+              onToggle: (v) async {
+                await onUpdate((p) => p.setAddonEnabled(u, v));
+                ref.invalidate(losslessApiProvider);
+              },
               onRemove: () async {
-                await onUpdate(
-                  (p) => p.setAddonUrls(urls.where((e) => e != u).toList()),
-                );
+                await onUpdate((p) async {
+                  await p.setAddonUrls(urls.where((e) => e != u).toList());
+                  await p.setAddonEnabled(u, true);
+                });
                 ref.invalidate(losslessApiProvider);
               },
             ),
@@ -2974,11 +2984,17 @@ class _Sources extends ConsumerWidget {
       context: context,
       builder: (context) => ContentDialog(
         title: const Text('Add addon'),
-        content: TextBox(
-          decoration: waveInputDecoration(),
-          controller: controller,
-          placeholder: 'https://…/a/<token>/ or https://…',
-          maxLines: 2,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextBox(
+              decoration: waveInputDecoration(),
+              controller: controller,
+              placeholder: 'https://…/a/<token>/ or https://…',
+              maxLines: 2,
+            ),
+          ],
         ),
         actions: [
           WaveButton(
@@ -3046,6 +3062,7 @@ class _Sources extends ConsumerWidget {
     final next = [...urls.where((e) => e != root), root];
     await onUpdate((p) async {
       await p.setAddonUrls(next);
+      await p.setAddonEnabled(root, true);
       if (!p.addonsEnabled) await p.setAddonsEnabled(true);
     });
     ref.invalidate(losslessApiProvider);
@@ -3056,12 +3073,16 @@ class _Sources extends ConsumerWidget {
 class _AddonRow extends ConsumerWidget {
   final String url;
   final AddonQuota? quota;
+  final bool masterEnabled;
   final bool enabled;
+  final ValueChanged<bool> onToggle;
   final Future<void> Function() onRemove;
   const _AddonRow({
     required this.url,
     required this.quota,
+    required this.masterEnabled,
     required this.enabled,
+    required this.onToggle,
     required this.onRemove,
   });
 
@@ -3069,8 +3090,9 @@ class _AddonRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final manifest = ref.watch(addonManifestProvider(url)).valueOrNull;
     final host = Uri.tryParse(url)?.host ?? url;
+    final effectiveOn = masterEnabled && enabled;
     return Opacity(
-      opacity: enabled ? 1.0 : 0.5,
+      opacity: effectiveOn ? 1.0 : 0.55,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Row(
@@ -3089,7 +3111,7 @@ class _AddonRow extends ConsumerWidget {
                     style: WaveType.trackTitle,
                   ),
                   Text(
-                    !enabled
+                    !effectiveOn
                         ? '$host · off'
                         : (manifest == null ? '$host · unreachable' : host),
                     maxLines: 1,
@@ -3101,6 +3123,11 @@ class _AddonRow extends ConsumerWidget {
                 ],
               ),
             ),
+            ToggleSwitch(
+              checked: enabled,
+              onChanged: masterEnabled ? onToggle : null,
+            ),
+            const SizedBox(width: 10),
             WaveButton(onPressed: () => onRemove(), child: const Text('Remove')),
           ],
         ),

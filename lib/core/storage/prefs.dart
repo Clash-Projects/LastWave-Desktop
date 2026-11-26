@@ -671,6 +671,48 @@ class Prefs {
     jsonEncode(urls.map((e) => e.trim()).where((e) => e.isNotEmpty).toList()),
   );
 
+  /// Individual addon URLs toggled off while keeping them saved.
+  Set<String> get disabledAddonUrls {
+    final raw = _sp.getString('lw_disabled_addon_urls') ?? '';
+    if (raw.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toSet();
+      }
+    } catch (_) {}
+    return const {};
+  }
+
+  Future<void> setDisabledAddonUrls(Set<String> urls) => _sp.setString(
+    'lw_disabled_addon_urls',
+    jsonEncode(urls.map((e) => e.trim()).where((e) => e.isNotEmpty).toList()),
+  );
+
+  bool isAddonEnabled(String url) =>
+      addonsEnabled && !disabledAddonUrls.contains(url.trim());
+
+  Future<void> setAddonEnabled(String url, bool enabled) {
+    final next = Set<String>.from(disabledAddonUrls);
+    final clean = url.trim();
+    if (enabled) {
+      next.remove(clean);
+    } else if (clean.isNotEmpty) {
+      next.add(clean);
+    }
+    return setDisabledAddonUrls(next);
+  }
+
+  /// Configured addon URLs that are currently active (master switch AND per-row on).
+  List<String> get activeAddonUrls {
+    if (!addonsEnabled) return const [];
+    final disabled = disabledAddonUrls;
+    return addonUrls.where((u) => !disabled.contains(u)).toList();
+  }
+
   // -- Equalizer & Studio Master Clarity ------------------------------------
   bool get equalizerEnabled => _sp.getBool('lw_eq_enabled') ?? false;
   Future<void> setEqualizerEnabled(bool v) => _sp.setBool('lw_eq_enabled', v);

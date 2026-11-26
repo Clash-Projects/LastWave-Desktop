@@ -22,13 +22,19 @@ Future<void> showWaveCreatePlaylist(
     context: context,
     builder: (context) => ContentDialog(
       title: const Text('New playlist'),
-      content: TextBox(
-        decoration: waveInputDecoration(),
-        controller: controller,
-        placeholder: 'Playlist name',
-        autofocus: true,
-        onSubmitted: (v) =>
-            Navigator.of(context).pop(v.trim()),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextBox(
+            decoration: waveInputDecoration(),
+            controller: controller,
+            placeholder: 'Playlist name',
+            autofocus: true,
+            onSubmitted: (v) =>
+                Navigator.of(context).pop(v.trim()),
+          ),
+        ],
       ),
       actions: [
         WaveButton(
@@ -69,12 +75,18 @@ Future<void> showWaveAddToNewPlaylist(
     context: context,
     builder: (context) => ContentDialog(
       title: const Text('New playlist'),
-      content: TextBox(
-        decoration: waveInputDecoration(),
-        controller: controller,
-        placeholder: 'Playlist name',
-        autofocus: true,
-        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextBox(
+            decoration: waveInputDecoration(),
+            controller: controller,
+            placeholder: 'Playlist name',
+            autofocus: true,
+            onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+          ),
+        ],
       ),
       actions: [
         WaveButton(
@@ -107,12 +119,18 @@ Future<void> showWaveRenamePlaylist(
     context: context,
     builder: (context) => ContentDialog(
       title: const Text('Rename playlist'),
-      content: TextBox(
-        decoration: waveInputDecoration(),
-        controller: controller,
-        autofocus: true,
-        onSubmitted: (v) =>
-            Navigator.of(context).pop(v.trim()),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextBox(
+            decoration: waveInputDecoration(),
+            controller: controller,
+            autofocus: true,
+            onSubmitted: (v) =>
+                Navigator.of(context).pop(v.trim()),
+          ),
+        ],
       ),
       actions: [
         WaveButton(

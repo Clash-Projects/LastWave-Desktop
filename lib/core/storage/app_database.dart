@@ -21,7 +21,7 @@ import '../diagnostics/diagnostics_log.dart';
 /// Migrations are additive and never drop user data (no destructive
 /// fallback, unlike the temporary Android `fallbackToDestructiveMigration`).
 class AppDatabase {
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 11;
 
   final Database _db;
 
@@ -142,6 +142,14 @@ class AppDatabase {
     if (version < 9) {
       _createV9();
       _db.execute('PRAGMA user_version=9;');
+    }
+    if (version < 10) {
+      _createV10();
+      _db.execute('PRAGMA user_version=10;');
+    }
+    if (version < 11) {
+      _createV11();
+      _db.execute('PRAGMA user_version=11;');
     }
   }
 
@@ -606,6 +614,26 @@ class AppDatabase {
     }
   }
 
+  /// v10: album name on local plays so local Stats can rank Top Albums
+  /// without any scrobbler account.
+  void _createV10() {
+    try {
+      _db.execute(
+        "ALTER TABLE local_plays ADD COLUMN album TEXT NOT NULL DEFAULT '';",
+      );
+    } catch (_) {}
+  }
+
+  /// v11: track duration in milliseconds on local plays so Stats computes
+  /// actual listening time rather than a flat estimate.
+  void _createV11() {
+    try {
+      _db.execute(
+        'ALTER TABLE local_plays ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0;',
+      );
+    } catch (_) {}
+  }
+
   // -- snapshot cache --------------------------------------------------------
 
   /// Entries kept per group; the least recently used beyond this go on
@@ -699,9 +727,16 @@ class AppDatabase {
   /// Max rows kept; oldest pruned on insert.
   static const int localPlaysCap = 10000;
 
-  void recordLocalPlay({required String title, required String artist}) {
+  void recordLocalPlay({
+    required String title,
+    required String artist,
+    String album = '',
+    int durationMs = 0,
+  }) {
     final t = title.trim();
     final a = artist.trim();
+    final al = album.trim();
+    final dur = durationMs < 0 ? 0 : durationMs;
     if (t.isEmpty || a.isEmpty) return;
     try {
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -716,9 +751,9 @@ class AppDatabase {
         if (lt == t && la == a && now - lat < 10 * 60 * 1000) return;
       }
       _db.execute(
-        'INSERT INTO local_plays (title, artist, played_at_millis) '
-        'VALUES (?, ?, ?);',
-        [t, a, now],
+        'INSERT INTO local_plays (title, artist, album, duration_ms, played_at_millis) '
+        'VALUES (?, ?, ?, ?, ?);',
+        [t, a, al, dur, now],
       );
       _db.execute(
         'DELETE FROM local_plays WHERE id NOT IN ('
@@ -728,16 +763,68 @@ class AppDatabase {
     } catch (_) {}
   }
 
-  Map<String, dynamic> getLocalStatsSummary({int? sinceMillis}) {
+  /// Backfills [durationMs] on the most recent local play matching
+  /// [title] + [artist] when its duration was not known at track start.
+  void updateLatestLocalPlayDuration({
+    required String title,
+    required String artist,
+    required int durationMs,
+  }) {
+    final t = title.trim();
+    final a = artist.trim();
+    if (t.isEmpty || a.isEmpty || durationMs <= 0) return;
+    try {
+      final last = _db.select(
+        'SELECT id, title, artist, duration_ms FROM local_plays '
+        'ORDER BY id DESC LIMIT 1;',
+      );
+      if (last.isEmpty) return;
+      final r = last.first;
+      if ((r['title'] as String?) == t &&
+          (r['artist'] as String?) == a &&
+          ((r['duration_ms'] as int?) ?? 0) <= 0) {
+        _db.execute(
+          'UPDATE local_plays SET duration_ms = ? WHERE id = ?;',
+          [durationMs, r['id']],
+        );
+      }
+    } catch (_) {}
+  }
+
+  Map<String, dynamic> getLocalStatsSummary({
+    int? sinceMillis,
+    int? prevSinceMillis,
+  }) {
     try {
       final whereClause =
           sinceMillis != null ? 'WHERE played_at_millis >= $sinceMillis' : '';
 
-      // Total plays
+      // Total plays + measured vs unmeasured duration totals
       final totalRow = _db.select(
-        'SELECT COUNT(*) as cnt FROM local_plays $whereClause;',
+        'SELECT COUNT(*) as cnt, '
+        'COALESCE(SUM(CASE WHEN duration_ms > 0 THEN duration_ms ELSE 0 END), 0) as dur_ms, '
+        'COALESCE(SUM(CASE WHEN duration_ms <= 0 THEN 1 ELSE 0 END), 0) as est_cnt '
+        'FROM local_plays $whereClause;',
       );
       final totalPlays = (totalRow.first['cnt'] as int?) ?? 0;
+      final totalDurationMs = (totalRow.first['dur_ms'] as int?) ?? 0;
+      final unmeasuredPlays = (totalRow.first['est_cnt'] as int?) ?? 0;
+
+      int? prevPlays;
+      int? prevDurationMs;
+      int? prevUnmeasuredPlays;
+      if (sinceMillis != null && prevSinceMillis != null) {
+        final prevRow = _db.select(
+          'SELECT COUNT(*) as cnt, '
+          'COALESCE(SUM(CASE WHEN duration_ms > 0 THEN duration_ms ELSE 0 END), 0) as dur_ms, '
+          'COALESCE(SUM(CASE WHEN duration_ms <= 0 THEN 1 ELSE 0 END), 0) as est_cnt '
+          'FROM local_plays WHERE played_at_millis >= $prevSinceMillis '
+          'AND played_at_millis < $sinceMillis;',
+        );
+        prevPlays = (prevRow.first['cnt'] as int?) ?? 0;
+        prevDurationMs = (prevRow.first['dur_ms'] as int?) ?? 0;
+        prevUnmeasuredPlays = (prevRow.first['est_cnt'] as int?) ?? 0;
+      }
 
       // Unique tracks
       final uniqueRow = _db.select(
@@ -762,7 +849,7 @@ class AppDatabase {
       final sortedArtists = artistCounts.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
       final topArtists = sortedArtists
-          .take(20)
+          .take(100)
           .map((e) => (name: e.key, count: e.value))
           .toList();
 
@@ -771,7 +858,7 @@ class AppDatabase {
       // Top Tracks
       final topTracksRows = _db.select(
         'SELECT title, artist, COUNT(*) as cnt FROM local_plays $whereClause '
-        "GROUP BY lower(title || '|' || artist) ORDER BY cnt DESC LIMIT 20;",
+        "GROUP BY lower(title || '|' || artist) ORDER BY cnt DESC LIMIT 100;",
       );
       final topTracks = topTracksRows
           .map((r) => (
@@ -780,6 +867,23 @@ class AppDatabase {
                 count: (r['cnt'] as int?) ?? 0,
               ))
           .where((t) => t.title.isNotEmpty)
+          .toList();
+
+      // Top Albums (only non-empty albums; older rows without album are
+      // enriched in ListeningStatsData via cached track metadata).
+      final albumWhereClause =
+          whereClause.isEmpty ? "WHERE album != ''" : "$whereClause AND album != ''";
+      final topAlbumsRows = _db.select(
+        'SELECT album, artist, COUNT(*) as cnt FROM local_plays $albumWhereClause '
+        "GROUP BY lower(album || '|' || artist) ORDER BY cnt DESC LIMIT 100;",
+      );
+      final topAlbums = topAlbumsRows
+          .map((r) => (
+                name: (r['album'] as String?) ?? '',
+                artist: (r['artist'] as String?) ?? '',
+                count: (r['cnt'] as int?) ?? 0,
+              ))
+          .where((a) => a.name.isNotEmpty)
           .toList();
 
       // Hourly Distribution (0..23)
@@ -796,10 +900,10 @@ class AppDatabase {
         }
       }
 
-      // Daily Activity (last 30 days)
+      // Daily Activity within period (up to 90 most recent active days)
       final dailyRows = _db.select(
         "SELECT strftime('%Y-%m-%d', played_at_millis / 1000, 'unixepoch', 'localtime') as dt, "
-        'COUNT(*) as cnt FROM local_plays $whereClause GROUP BY dt ORDER BY dt DESC LIMIT 30;',
+        'COUNT(*) as cnt FROM local_plays $whereClause GROUP BY dt ORDER BY dt DESC LIMIT 90;',
       );
       final daily = dailyRows
           .map((r) => (
@@ -811,10 +915,16 @@ class AppDatabase {
 
       return {
         'totalPlays': totalPlays,
+        'totalDurationMs': totalDurationMs,
+        'unmeasuredPlays': unmeasuredPlays,
+        'prevPlays': prevPlays,
+        'prevDurationMs': prevDurationMs,
+        'prevUnmeasuredPlays': prevUnmeasuredPlays,
         'uniqueArtists': uniqueArtists,
         'uniqueTracks': uniqueTracks,
         'topArtists': topArtists,
         'topTracks': topTracks,
+        'topAlbums': topAlbums,
         'hourly': hourly,
         'daily': daily,
       };
@@ -823,14 +933,33 @@ class AppDatabase {
     }
   }
 
+  /// Distinct local YYYY-MM-DD dates with at least one recorded play.
+  Set<String> loadActivePlayDates() {
+    try {
+      final rows = _db.select(
+        "SELECT DISTINCT strftime('%Y-%m-%d', played_at_millis / 1000, 'unixepoch', 'localtime') AS dt "
+        'FROM local_plays;',
+      );
+      return rows
+          .map((r) => (r['dt'] as String?) ?? '')
+          .where((d) => d.isNotEmpty)
+          .toSet();
+    } catch (_) {
+      return const {};
+    }
+  }
+
   List<({String title, String artist, int atMillis})> loadRecentPlays({
     int limit = 100,
+    int? sinceMillis,
   }) {
     try {
+      final whereClause =
+          sinceMillis != null ? 'WHERE played_at_millis >= $sinceMillis' : '';
       return _db
           .select(
             'SELECT title, artist, played_at_millis FROM local_plays '
-            'ORDER BY id DESC LIMIT ?;',
+            '$whereClause ORDER BY id DESC LIMIT ?;',
             [limit],
           )
           .map((r) => (
@@ -838,6 +967,30 @@ class AppDatabase {
                 artist: (r['artist'] as String?) ?? '',
                 atMillis:
                     (r['played_at_millis'] as int?) ?? 0,
+              ))
+          .where((p) => p.title.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Plays recorded on one local calendar day (`YYYY-MM-DD`), newest first.
+  List<({String title, String artist, int atMillis})> loadPlaysForDate(
+    String date,
+  ) {
+    try {
+      return _db
+          .select(
+            'SELECT title, artist, played_at_millis FROM local_plays '
+            "WHERE strftime('%Y-%m-%d', played_at_millis / 1000, 'unixepoch', 'localtime') = ? "
+            'ORDER BY id DESC LIMIT 100;',
+            [date],
+          )
+          .map((r) => (
+                title: (r['title'] as String?) ?? '',
+                artist: (r['artist'] as String?) ?? '',
+                atMillis: (r['played_at_millis'] as int?) ?? 0,
               ))
           .where((p) => p.title.isNotEmpty)
           .toList();

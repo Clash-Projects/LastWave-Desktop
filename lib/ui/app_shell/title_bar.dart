@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -17,6 +17,7 @@ import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/profile_providers.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
+import '../components/avatar_crop_dialog.dart';
 import '../../app/accessibility.dart';
 import '../components/buttons.dart'
     show LWTooltip, WaveA11yButton, WaveButton, WaveFilledButton;
@@ -694,6 +695,7 @@ class _BarBtnState extends State<_BarBtn> {
     return WaveA11yButton(
       label: widget.tooltip,
       onTap: widget.onTap,
+      skipTraversal: true,
       child: LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
@@ -951,6 +953,7 @@ class _WinBtnState extends State<_WinBtn> with WidgetsBindingObserver {
     return WaveA11yButton(
       label: widget.tooltip,
       onTap: widget.onTap,
+      skipTraversal: true,
       child: LWTooltip(
       message: widget.tooltip,
       child: MouseRegion(
@@ -1003,9 +1006,14 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
         dialogTitle: 'Choose profile picture',
         type: FileType.image,
       );
-      final path = file?.path;
-      if (path == null || path.trim().isEmpty || !mounted) return;
-      final clean = path.trim();
+      if (file == null || !mounted) return;
+      final path = file.path;
+      if (path == null || path.isEmpty) return;
+      final bytes = await File(path).readAsBytes();
+      if (bytes.isEmpty || !mounted) return;
+      final croppedPath = await showAvatarCropDialog(context, bytes);
+      if (croppedPath == null || croppedPath.trim().isEmpty || !mounted) return;
+      final clean = croppedPath.trim();
       await ref.read(prefsProvider).setProfilePicturePath(clean);
       if (mounted) {
         ref.read(localProfilePictureProvider.notifier).state = clean;
@@ -1029,12 +1037,18 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
       context: context,
       builder: (dialogContext) => ContentDialog(
         title: const Text('Your name'),
-        content: TextBox(
-          controller: controller,
-          decoration: waveInputDecoration(),
-          placeholder: 'e.g. Ajisth (leave empty to use YouTube)',
-          autofocus: true,
-          onSubmitted: (v) => Navigator.of(dialogContext).pop(v.trim()),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextBox(
+              controller: controller,
+              decoration: waveInputDecoration(),
+              placeholder: 'e.g. Ajisth (leave empty to use YouTube)',
+              autofocus: true,
+              onSubmitted: (v) => Navigator.of(dialogContext).pop(v.trim()),
+            ),
+          ],
         ),
         actions: [
           if (current.isNotEmpty)

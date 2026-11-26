@@ -189,18 +189,18 @@ class DesktopKaraokeLinePainter extends CustomPainter {
           liftY = -4.0 * scaleFactor * bounce;
           break;
         case 'hyper_warp':
-          liftY = -16.0 * scaleFactor * bounce;
-          shiftX = 9.0 * math.sin(2 * math.pi * progress) * (1.0 - progress);
-          skewX = -0.42 * math.sin(2 * math.pi * progress);
-          angle = 0.16 * math.sin(3 * math.pi * progress);
-          scale = 1.0 + 0.34 * scaleFactor * bounce;
+          liftY = -5.5 * scaleFactor * bounce;
+          shiftX = 2.5 * math.sin(2 * math.pi * progress) * (1.0 - progress);
+          skewX = -0.15 * math.sin(2 * math.pi * progress);
+          angle = 0.04 * math.sin(3 * math.pi * progress);
+          scale = 1.0 + 0.09 * scaleFactor * bounce;
           break;
         case 'chaos_vortex':
-          liftY = -18.0 * scaleFactor * bounce;
-          shiftX = 10.0 * math.cos(3.5 * math.pi * progress) * (1.0 - progress);
-          angle = 0.34 * math.sin(3 * math.pi * progress);
-          skewX = 0.36 * math.cos(2.5 * math.pi * progress);
-          scale = 1.0 + 0.38 * scaleFactor * bounce;
+          liftY = -6.5 * scaleFactor * bounce;
+          shiftX = 3.0 * math.cos(3 * math.pi * progress) * (1.0 - progress);
+          angle = 0.07 * math.sin(2.5 * math.pi * progress);
+          skewX = 0.12 * math.cos(2 * math.pi * progress);
+          scale = 1.0 + 0.10 * scaleFactor * bounce;
           break;
       }
     }
