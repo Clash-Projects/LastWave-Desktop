@@ -111,9 +111,12 @@ class WaveStatsPage extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // 1. Last.fm Profile & Sync Hub
-                      _LastFmProfileHub(stats: stats),
-                      const _OtherScrobblerStrips(),
-                      const SizedBox(height: 20),
+                      if (stats.isLastFmConnected) ...[
+                        _LastFmProfileHub(stats: stats),
+                        const _OtherScrobblerStrips(),
+                        const SizedBox(height: 20),
+                      ] else
+                        const _OtherScrobblerStrips(bottomSpacing: 20),
 
                       // 2. Active Tab Content
                       switch (activeTab) {
@@ -423,84 +426,15 @@ class _LastFmProfileHub extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final dark = waveIsDark(context);
-    final isConnected = stats.isLastFmConnected;
+    if (!stats.isLastFmConnected) {
+      return const SizedBox.shrink();
+    }
+
     final formatter = NumberFormat('#,###');
     final session = ref.watch(activeScrobblerSessionProvider);
     final serviceName = stats.scrobblerName.isNotEmpty
         ? stats.scrobblerName
         : (session.displayName.isNotEmpty ? session.displayName : 'Scrobbler');
-
-    if (!isConnected) {
-      return Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: dark ? waveSurfaceRaised(context) : waveSurface(context),
-          borderRadius: WaveRadius.floatingRadius,
-          border: Border.all(
-            color: const Color(0xFFE0506A).withValues(alpha: 0.25),
-            width: 0.9,
-          ),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFFE0506A).withValues(alpha: dark ? 0.08 : 0.04),
-              Colors.transparent,
-            ],
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE0506A).withValues(alpha: 0.14),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: const Color(0xFFE0506A).withValues(alpha: 0.35),
-                  width: 1.2,
-                ),
-              ),
-              child: const Icon(
-                FluentIcons.favorite_star,
-                color: Color(0xFFE0506A),
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Connect a Scrobbler for Cross-Device Scrobbling & Global Charts',
-                    style: WaveType.trackTitle.copyWith(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Connect Last.fm, ListenBrainz, or Libre.fm to sync scrobbles, lifetime stats, and full rankings.',
-                    style: WaveType.meta.copyWith(
-                      color: waveTextSecondary(context),
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 16),
-            WaveGhostButton(
-              label: 'Connect Scrobbler',
-              icon: FluentIcons.settings,
-              onPressed: () => context.go('/settings?section=lastfm'),
-            ),
-          ],
-        ),
-      );
-    }
 
     // Connected: one quiet line. The artist/album/track totals live in the
     // metric tiles below, so the strip only carries identity + lifetime
@@ -1978,7 +1912,8 @@ class _RecentPlayItem extends ConsumerWidget {
 /// One strip per connected ListenBrainz / Libre.fm account, styled like
 /// the Last.fm strip: identity, lifetime listens, profile + settings.
 class _OtherScrobblerStrips extends ConsumerWidget {
-  const _OtherScrobblerStrips();
+  final double bottomSpacing;
+  const _OtherScrobblerStrips({this.bottomSpacing = 0});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2055,6 +1990,7 @@ class _OtherScrobblerStrips extends ConsumerWidget {
               ),
             ),
           ),
+        if (bottomSpacing > 0) SizedBox(height: bottomSpacing),
       ],
     );
   }
