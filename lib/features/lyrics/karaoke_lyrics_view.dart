@@ -1485,42 +1485,53 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
           child: MouseRegion(
             onEnter: (_) => setState(() => _isHovered = true),
             onExit: (_) => setState(() => _isHovered = false),
-            child: AnimatedContainer(
-              duration: waveMotion(
-                context,
-                switch (widget.animationStyle) {
-                  'glitch_snap' => const Duration(milliseconds: 170),
-                  'hyper_warp' => const Duration(milliseconds: 260),
-                  'kinetic_pop' || 'elastic_tilt' => const Duration(milliseconds: 340),
-                  'chaos_vortex' => const Duration(milliseconds: 420),
-                  _ => WaveMotion.normal,
+            child: Padding(
+              // Reserve breathing room before active scale/tilt transforms so
+              // expanded/italic active lines never clip at the trailing edge.
+              padding: EdgeInsets.only(
+                right: widget.line.isRtl ? 0 : (widget.compact ? 10 : 18),
+                left: widget.line.isRtl ? (widget.compact ? 10 : 18) : 0,
+              ),
+              child: AnimatedContainer(
+                duration: waveMotion(
+                  context,
+                  switch (widget.animationStyle) {
+                    'glitch_snap' => const Duration(milliseconds: 170),
+                    'hyper_warp' => const Duration(milliseconds: 260),
+                    'kinetic_pop' || 'elastic_tilt' => const Duration(milliseconds: 340),
+                    'chaos_vortex' => const Duration(milliseconds: 420),
+                    _ => WaveMotion.normal,
+                  },
+                ),
+                curve: switch (widget.animationStyle) {
+                  'kinetic_pop' || 'elastic_tilt' || 'hyper_warp' =>
+                    Curves.easeOutBack,
+                  'chaos_vortex' => Curves.elasticOut,
+                  'glitch_snap' => Curves.easeOutExpo,
+                  _ => Curves.easeOutCubic,
                 },
+                transformAlignment: widget.line.isRtl
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                transform: _activeLineTransform(
+                  widget.animationStyle,
+                  widget.isActive,
+                  widget.line.isRtl,
+                ),
+                padding: EdgeInsets.symmetric(
+                  horizontal: widget.compact ? 8 : 12,
+                  vertical: widget.karaoke ? 4 : 8,
+                ),
+                decoration: BoxDecoration(
+                  color: _isHovered && !widget.isActive
+                      ? (dark ? Colors.white : Colors.black).withValues(
+                          alpha: 0.06,
+                        )
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: reactiveBody,
               ),
-              curve: switch (widget.animationStyle) {
-                'kinetic_pop' || 'elastic_tilt' || 'hyper_warp' =>
-                  Curves.easeOutBack,
-                'chaos_vortex' => Curves.elasticOut,
-                'glitch_snap' => Curves.easeOutExpo,
-                _ => Curves.easeOutCubic,
-              },
-              transform: _activeLineTransform(
-                widget.animationStyle,
-                widget.isActive,
-                widget.line.isRtl,
-              ),
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.compact ? 8 : 12,
-                vertical: widget.karaoke ? 4 : 8,
-              ),
-              decoration: BoxDecoration(
-                color: _isHovered && !widget.isActive
-                    ? (dark ? Colors.white : Colors.black).withValues(
-                        alpha: 0.06,
-                      )
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: reactiveBody,
             ),
           ),
         ),

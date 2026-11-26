@@ -86,8 +86,13 @@ class _NowPlayingFullBleedViewState
       builder: (context, constraints) {
         final w = constraints.maxWidth;
         final h = constraints.maxHeight;
-        final artWidth = w * 0.64;
+        // Keep the Canvas/artwork pane near a natural square/portrait aspect
+        // (~44-50% on widescreen) so Canvas videos aren't stretched wide
+        // (blurry + cropped) and the lyrics pane gets comfortable width.
+        final artWidth =
+            math.min(w * 0.52, math.max(w * 0.44, h * 0.96)).clamp(240.0, w * 0.56);
         final coverEdge = math.max(artWidth, h);
+        final lyricsLeft = math.min(w * 0.44, artWidth * 0.90);
 
         return Stack(
           fit: StackFit.expand,
@@ -195,10 +200,10 @@ class _NowPlayingFullBleedViewState
             Positioned(
               top: 0,
               bottom: 0,
-              left: w * 0.51,
+              left: lyricsLeft,
               right: 0,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(28, 64, 52, 32),
+                padding: const EdgeInsets.fromLTRB(20, 56, 36, 24),
                 child: lyricsState.missing
                     ? AnimatedOpacity(
                         duration: waveMotion(
