@@ -3576,6 +3576,7 @@ class _AppleLineLyricsViewState extends State<_AppleLineLyricsView> {
         return false;
       },
       child: ScrollablePositionedList.builder(
+        physics: const ClampingScrollPhysics(),
         itemScrollController: _scroll,
         itemPositionsListener: _positions,
         initialScrollIndex: initialActive > 0 ? initialActive : 0,
