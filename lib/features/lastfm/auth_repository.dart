@@ -143,10 +143,15 @@ class AuthRepository extends StateNotifier<AuthState> {
   }
 
   /// Clear the custom API keys (Settings). Also signs out: sessions
-  /// cannot survive without keys.
+  /// cannot survive without keys. Preserves guest mode when already inside.
   Future<void> clearCustomKeys() async {
+    final wasGuest = _prefs.isGuest;
     await signOut();
     await _prefs.clearLastFmKeys();
+    if (wasGuest) {
+      await _prefs.setGuestMode(true);
+      state = const AuthState(status: AuthStatus.guest);
+    }
   }
 
   /// Step 1 of web auth: fetch a token and build the approval URL.
@@ -159,25 +164,29 @@ class AuthRepository extends StateNotifier<AuthState> {
       throw LastFmException('Last.fm API keys not set');
     }
     state = state.copyWith(status: AuthStatus.signingIn);
-    final params = {'method': 'auth.getToken', 'api_key': _apiKey};
-    final signed = {
-      ...params,
-      'api_sig': LastFmSigner.sign(params, _apiSecret),
-      'format': 'json',
-    };
-    final json = await _api.get(signed);
-    LastFmException.throwIfError(json);
-    final token = json['token']?.toString() ?? '';
-    if (token.isEmpty) {
+    try {
+      final params = {'method': 'auth.getToken', 'api_key': _apiKey};
+      final signed = {
+        ...params,
+        'api_sig': LastFmSigner.sign(params, _apiSecret),
+        'format': 'json',
+      };
+      final json = await _api.get(signed);
+      LastFmException.throwIfError(json);
+      final token = json['token']?.toString() ?? '';
+      if (token.isEmpty) {
+        throw LastFmException('Could not start Last.fm approval.');
+      }
+      final url =
+          'https://www.last.fm/api/auth/?api_key=$_apiKey&token=$token';
+      return WebAuthHandshake(token, url);
+    } catch (e) {
       state = state.copyWith(
         status: AuthStatus.error,
-        message: 'Could not start Last.fm approval.',
+        message: e.toString(),
       );
-      throw LastFmException('Empty auth token');
+      rethrow;
     }
-    final url =
-        'https://www.last.fm/api/auth/?api_key=$_apiKey&token=$token';
-    return WebAuthHandshake(token, url);
   }
 
   /// Step 2: exchange the approved token for a session key.

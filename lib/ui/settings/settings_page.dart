@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -4202,6 +4203,22 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
     }
   }
 
+  Future<bool> _launchExternalAuthUrl(String url) async {
+    final uri = Uri.parse(url);
+    try {
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        return true;
+      }
+    } catch (_) {}
+    if (Platform.isLinux) {
+      try {
+        await Process.start('xdg-open', [url]);
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
   Future<void> _beginLfmAuth() async {
     setState(() {
       _busy = true;
@@ -4212,12 +4229,13 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
           await ref.read(authRepositoryProvider.notifier).beginWebAuth();
       if (!mounted) return;
       setState(() => _lfmHandshake = handshake);
-      final uri = Uri.parse(handshake.url);
-      try {
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
-      } catch (_) {}
+      final opened = await _launchExternalAuthUrl(handshake.url);
+      if (!opened && mounted) {
+        setState(
+          () => _lfmError =
+              'Could not open browser automatically. Use Copy link below, authorize LastWave, then click Finish.',
+        );
+      }
     } catch (_) {
       if (mounted) {
         setState(
@@ -4461,6 +4479,15 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
                         ),
                         const SizedBox(width: 8),
                         if (_lfmHandshake != null) ...[
+                          WaveButton(
+                            onPressed: _busy
+                                ? null
+                                : () => Clipboard.setData(
+                                      ClipboardData(text: _lfmHandshake!.url),
+                                    ),
+                            child: const Text('Copy link'),
+                          ),
+                          const SizedBox(width: 8),
                           WaveButton(
                             onPressed: _busy ? null : _beginLfmAuth,
                             child: const Text('Restart'),
