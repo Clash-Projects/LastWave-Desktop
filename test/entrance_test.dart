@@ -98,6 +98,33 @@ void main() {
     // Same State object: the wrapper never changed shape, so no remount.
     expect(identical(tester.state(find.byType(_Probe)), first), isTrue);
   });
+
+  testWidgets('a group staggers later sections without delaying the first',
+      (tester) async {
+    double opacityOf(String label) => tester.widgetList<Opacity>(find.ancestor(
+          of: find.text(label),
+          matching: find.byType(Opacity),
+        )).first.opacity;
+
+    await tester.pumpWidget(host(
+      const WaveEntranceGroup(
+        child: Column(
+          children: [
+            WaveEntrance(child: Text('First')),
+            WaveEntrance(index: 2, child: Text('Middle')),
+            WaveEntrance(index: 4, child: Text('Last')),
+          ],
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 75));
+    expect(opacityOf('First'), greaterThan(opacityOf('Middle')));
+    expect(opacityOf('Middle'), greaterThan(0));
+    expect(opacityOf('Last'), 0);
+
+    await tester.pumpAndSettle();
+    expect(opacityOf('Last'), 1);
+  });
 }
 
 class _Probe extends StatefulWidget {

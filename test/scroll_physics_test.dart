@@ -1,4 +1,5 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/design_system/fluent/lw_scrollbar.dart';
@@ -12,24 +13,25 @@ void main() {
   });
 
   testWidgets(
-      'WaveScrollBehavior returns smooth bouncy/always scrollable physics',
-      (tester) async {
-    const behavior = WaveScrollBehavior();
-    await tester.pumpWidget(
-      Builder(
-        builder: (context) {
-          final physics = behavior.getScrollPhysics(context);
-          expect(physics, isA<BouncingScrollPhysics>());
-          expect(physics.parent, isA<AlwaysScrollableScrollPhysics>());
-          return const SizedBox.shrink();
-        },
-      ),
-    );
-  });
+    'WaveScrollBehavior returns smooth bouncy/always scrollable physics',
+    (tester) async {
+      const behavior = WaveScrollBehavior();
+      await tester.pumpWidget(
+        Builder(
+          builder: (context) {
+            final physics = behavior.getScrollPhysics(context);
+            expect(physics, isA<BouncingScrollPhysics>());
+            expect(physics.parent, isA<AlwaysScrollableScrollPhysics>());
+            return const SizedBox.shrink();
+          },
+        ),
+      );
+    },
+  );
 
-  testWidgets(
-      'WaveScrollBehavior buildScrollbar wraps scroll view in WaveSmoothScroll',
-      (tester) async {
+  testWidgets('WaveScrollBehavior keeps the thin vertical scrollbar', (
+    tester,
+  ) async {
     const behavior = WaveScrollBehavior();
     final controller = ScrollController();
     await tester.pumpWidget(
@@ -44,7 +46,7 @@ void main() {
                 controller: controller,
               ),
             );
-            expect(widget, isA<WaveSmoothScroll>());
+            expect(widget, isA<WaveThinScrollbar>());
             return widget;
           },
         ),

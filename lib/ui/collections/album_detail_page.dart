@@ -8,6 +8,7 @@ import '../../../app/track_actions.dart'
     show formatDuration, playGenerated, playableFromGenerated;
 import '../../../core/audio/stream_models.dart';
 import '../../../core/storage/prefs.dart';
+import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../../features/addons/addon_api.dart';
 import '../../../features/downloads/download_manager.dart';
 import '../../../features/feed/feed_repository.dart';
@@ -137,9 +138,16 @@ class WaveAlbumPage extends ConsumerStatefulWidget {
 }
 
 class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
+  final _scrollController = WaveScrollController();
   bool _saving = false;
   String? _saveNote;
   InfoBarSeverity _saveSeverity = InfoBarSeverity.info;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   Future<void> _saveAlbum({
     required String title,
@@ -239,8 +247,9 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
     final loading = tracks == null;
     final order = tracks ?? const <GeneratedTrack>[];
     final albumTitle = title.isNotEmpty ? title : 'Album';
-    final playingKey = ref.watch(
-      playbackServiceProvider.select((s) => s.current?.queueKey),
+    const gutters = EdgeInsets.symmetric(horizontal: 28);
+    final (playingKey, isPlaying) = ref.watch(
+      playbackServiceProvider.select((s) => (s.current?.queueKey, s.isPlaying)),
     );
     // A seedless load (command palette, deep link) has no cover to show:
     // stand a skeleton tile in rather than an empty artwork frame.
@@ -251,121 +260,129 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
             id: widget.browseId,
             enabled: art.isNotEmpty,
             child: WaveArtwork(
-                url: art,
-                size: size,
-                radius: WaveRadius.artwork,
-                title: albumTitle,
-                artist: artist,
-                label: albumTitle,
-                kind: ArtworkKind.album),
+              url: art,
+              size: size,
+              radius: WaveRadius.artwork,
+              title: albumTitle,
+              artist: artist,
+              label: albumTitle,
+              kind: ArtworkKind.album,
+            ),
           );
-    return WaveEntranceGroup(
-          child: ListView(
-          padding: waveDockPadding(context, const EdgeInsets.fromLTRB(28, 24, 28, 32)),
-          children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(
-                  maxWidth: WaveDensity.contentMax),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  WaveEntrance(
-                    index: 0,
-                    rise: 10,
-                    child: WaveAmbientBand(
-                      artworkUrl: art,
-                      child: LayoutBuilder(builder: (context, c) {
-                    final narrow = c.maxWidth < 640;
-                    final header = Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text('ALBUM',
+    Widget scrollView(double width) => WaveEntranceGroup(
+      child: CustomScrollView(
+        controller: _scrollController,
+        slivers: [
+          SliverPadding(
+            padding: gutters.copyWith(top: 24, bottom: 20),
+            sliver: SliverToBoxAdapter(
+              child: WaveEntrance(
+                index: 0,
+                rise: 10,
+                child: WaveAmbientBand(
+                  artworkUrl: art,
+                  child: LayoutBuilder(
+                    builder: (context, c) {
+                      final narrow = c.maxWidth < 640;
+                      final header = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'ALBUM',
                             style: WaveType.overline.copyWith(
-                                fontSize: 10,
-                                color: waveTextTertiary(
-                                    context))),
-                        const SizedBox(height: 6),
-                        Text(albumTitle,
+                              fontSize: 10,
+                              color: waveTextTertiary(context),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            albumTitle,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: WaveType.pageTitle
-                                .copyWith(fontSize: 28)),
-                        const SizedBox(height: 4),
-                        WaveLink(
-                          onPressed: () => context.go(
-                              '/search?q=${Uri.encodeComponent(artist)}'),
-                          child: Text(artist,
+                            style: WaveType.pageTitle.copyWith(fontSize: 28),
+                          ),
+                          const SizedBox(height: 4),
+                          WaveLink(
+                            onPressed: () => context.go(
+                              '/search?q=${Uri.encodeComponent(artist)}',
+                            ),
+                            child: Text(
+                              artist,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: WaveType.body.copyWith(
-                                  fontSize: 14,
-                                  color: waveTextSecondary(
-                                      context))),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            if (loading)
-                              const SkeletonBox(
-                                  width: 84, height: 10)
-                            else
-                              Flexible(
-                                child: Text(
+                                fontSize: 14,
+                                color: waveTextSecondary(context),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              if (loading)
+                                const SkeletonBox(width: 84, height: 10)
+                              else
+                                Flexible(
+                                  child: Text(
                                     '${order.length} tracks',
                                     maxLines: 1,
-                                    overflow:
-                                        TextOverflow.ellipsis,
+                                    overflow: TextOverflow.ellipsis,
                                     style: WaveType.meta.copyWith(
-                                        color: waveTextTertiary(
-                                            context))),
-                              ),
-                            const SizedBox(width: 8),
-                            if (!loading && order.isNotEmpty)
-                              _AlbumQualityChip(
-                                title: order.first.name,
-                                artist: artist,
-                                album: albumTitle,
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        if (loading)
-                          // Placeholder for the transport row: WaveCommandBar
-                          // drops a button whose callback is null, so without
-                          // this the header would jump when the browse lands.
-                          const SizedBox(height: 32)
-                        else
-                        WaveCommandBar(
+                                      color: waveTextTertiary(context),
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(width: 8),
+                              if (!loading && order.isNotEmpty)
+                                _AlbumQualityChip(
+                                  title: order.first.name,
+                                  artist: artist,
+                                  album: albumTitle,
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          if (loading)
+                            // Placeholder for the transport row: WaveCommandBar
+                            // drops a button whose callback is null, so without
+                            // this the header would jump when the browse lands.
+                            const SizedBox(height: 32)
+                          else
+                            WaveCommandBar(
                               onPlay: order.isEmpty
                                   ? null
                                   : () => playGenerated(
-                                      ref, context, order.first,
+                                      ref,
+                                      context,
+                                      order.first,
                                       sourceLabel: albumTitle,
-                                      queueAll: order),
+                                      queueAll: order,
+                                    ),
                               onShuffle: order.isEmpty
                                   ? null
                                   : () {
-                                      final s = List.of(order)
-                                        ..shuffle();
-                                      playGenerated(ref, context,
-                                          s.first,
-                                          sourceLabel: albumTitle,
-                                          queueAll: s);
+                                      final s = List.of(order)..shuffle();
+                                      playGenerated(
+                                        ref,
+                                        context,
+                                        s.first,
+                                        sourceLabel: albumTitle,
+                                        queueAll: s,
+                                      );
                                     },
                               onDownload: order.isEmpty
                                   ? null
                                   : () {
                                       final manager = ref.read(
-                                          downloadManagerProvider
-                                              .notifier);
+                                        downloadManagerProvider.notifier,
+                                      );
                                       for (final t in order) {
                                         manager.downloadTrack(
-                                            title: t.name,
-                                            artist: t.artist,
-                                            artworkUrl:
-                                                t.artworkUrl,
-                                            videoId: t.videoId);
+                                          title: t.name,
+                                          artist: t.artist,
+                                          artworkUrl: t.artworkUrl,
+                                          videoId: t.videoId,
+                                        );
                                       }
                                     },
                               overflowItems: order.isEmpty
@@ -375,8 +392,7 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                                       ref: ref,
                                       title: order.first.name,
                                       artist: order.first.artist,
-                                      artworkUrl:
-                                          order.first.artworkUrl,
+                                      artworkUrl: order.first.artworkUrl,
                                       videoId: order.first.videoId,
                                     ),
                               trailing: [
@@ -386,127 +402,116 @@ class _WaveAlbumPageState extends ConsumerState<WaveAlbumPage> {
                                   onPressed: order.isEmpty || _saving
                                       ? null
                                       : () => _saveAlbum(
-                                            title: albumTitle,
-                                            artist: artist,
-                                            art: art,
-                                            tracks: order,
-                                          ),
+                                          title: albumTitle,
+                                          artist: artist,
+                                          art: art,
+                                          tracks: order,
+                                        ),
                                 ),
                               ],
                             ),
-                        if (_saveNote != null) ...[
-                          const SizedBox(height: 10),
-                          InfoBar(
-                            title: Text(_saveNote!),
-                            severity: _saveSeverity,
-                          ),
-                        ],
+                          if (_saveNote != null) ...[
+                            const SizedBox(height: 10),
+                            InfoBar(
+                              title: Text(_saveNote!),
+                              severity: _saveSeverity,
+                            ),
                           ],
-                    );
-                    if (narrow) {
-                      return Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          artTile(180),
-                          const SizedBox(height: 16),
-                          header,
                         ],
                       );
-                    }
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        artTile(200),
-                        const SizedBox(width: 22),
-                        Expanded(child: header),
-                      ],
-                    );
-                      }),
-                    ),
+                      if (narrow) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            artTile(180),
+                            const SizedBox(height: 16),
+                            header,
+                          ],
+                        );
+                      }
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          artTile(200),
+                          const SizedBox(width: 22),
+                          Expanded(child: header),
+                        ],
+                      );
+                    },
                   ),
-                  const SizedBox(height: 20),
-                  // The browse answers well after the route entrance has
-                  // finished (that is the whole reason the header is seeded),
-                  // so the swap is what has to soften: the table fades in where
-                  // the skeleton stood instead of popping in after the motion.
-                  // Deliberately not a crossfade — the outgoing skeleton and
-                  // the incoming table would have to overlap, and the Stack
-                  // that needs would drop the table's full width.
-                  WaveEntrance(
-                    index: 1,
-                    rise: 10,
-                    child: TweenAnimationBuilder<double>(
-                    key: ValueKey(
-                        loading ? 'album-loading' : 'album-tracks'),
-                    tween: Tween(begin: 0, end: 1),
-                    duration: waveMotion(context, WaveMotion.normal),
-                    curve: WaveMotion.standard,
-                    builder: (context, t, child) =>
-                        Opacity(opacity: t, child: child),
-                    child: loading
-                        ? const SkeletonRow(count: 8)
-                        : Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                            children: [
-                              WaveDesktopTable<GeneratedTrack>(
-                                items: order,
-                                keyOf: (t) => t.key,
-                                titleOf: (t) => t.name,
-                                subtitleOf: (t) => t.artist,
-                                albumOf: (_) => albumTitle,
-                                artworkOf: (_) => art,
-                                artworkKind: ArtworkKind.album,
-                                artworkTitleOf: (_) => albumTitle,
-                                artworkArtistOf: (_) => artist,
-                                playableOf: playableFromGenerated,
-                                durationOf: (t) =>
-                                    t.durationSeconds > 0
-                                        ? formatDuration(Duration(
-                                            seconds:
-                                                t.durationSeconds))
-                                        : '',
-                                titleSortOf: (t) =>
-                                    t.name.toLowerCase(),
-                                artistSortOf: (t) =>
-                                    t.artist.toLowerCase(),
-                                durationSortOf: (t) =>
-                                    t.durationSeconds,
-                                isCurrent: (t) =>
-                                    playingKey == t.key,
-                                isPlaying: (t) {
-                                  final s = ref.watch(
-                                    playbackServiceProvider.select(
-                                        (p) => p.isPlaying),
-                                  );
-                                  return playingKey == t.key && s;
-                                },
-                                showArtistColumn: true,
-                                shrinkWrap: true,
-                                onPlay: (i) => playGenerated(
-                                    ref, context, order[i],
-                                    sourceLabel: albumTitle,
-                                    queueAll: order,
-                                    startIndex: i),
-                              ),
-                              const SizedBox(height: 18),
-                              Text(
-                                '${order.length} tracks',
-                                style: WaveType.meta.copyWith(
-                                    color:
-                                        waveTextTertiary(context)),
-                              ),
-                            ],
-                          ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
-          ],
           ),
-        );
+          SliverPadding(
+            padding: gutters,
+            // Keep the cover, table and footer on one viewport. The table's
+            // sliver only builds the rows near the visible area.
+            sliver: TweenAnimationBuilder<double>(
+              key: ValueKey(loading ? 'album-loading' : 'album-tracks'),
+              tween: Tween(begin: 0, end: 1),
+              duration: waveMotion(context, WaveMotion.slow),
+              curve: WaveMotion.reveal,
+              builder: (context, t, child) =>
+                  SliverOpacity(opacity: t, sliver: child),
+              child: loading
+                  ? const SliverToBoxAdapter(child: SkeletonRow(count: 8))
+                  : WaveDesktopTable<GeneratedTrack>(
+                      items: order,
+                      keyOf: (t) => t.key,
+                      titleOf: (t) => t.name,
+                      subtitleOf: (t) => t.artist,
+                      albumOf: (_) => albumTitle,
+                      artworkOf: (_) => art,
+                      artworkKind: ArtworkKind.album,
+                      artworkTitleOf: (_) => albumTitle,
+                      artworkArtistOf: (_) => artist,
+                      playableOf: playableFromGenerated,
+                      durationOf: (t) => t.durationSeconds > 0
+                          ? formatDuration(Duration(seconds: t.durationSeconds))
+                          : '',
+                      titleSortOf: (t) => t.name.toLowerCase(),
+                      artistSortOf: (t) => t.artist.toLowerCase(),
+                      durationSortOf: (t) => t.durationSeconds,
+                      isCurrent: (t) => playingKey == t.key,
+                      isPlaying: (t) => playingKey == t.key && isPlaying,
+                      showArtistColumn: true,
+                      sliver: true,
+                      sliverContentWidth: width,
+                      scrollController: _scrollController,
+                      onPlay: (i) => playGenerated(
+                        ref,
+                        context,
+                        order[i],
+                        sourceLabel: albumTitle,
+                        queueAll: order,
+                        startIndex: i,
+                      ),
+                    ),
+            ),
+          ),
+          SliverPadding(
+            padding: waveDockPadding(
+              context,
+              gutters.copyWith(top: loading ? 0 : 18, bottom: 32),
+            ),
+            sliver: SliverToBoxAdapter(
+              child: loading
+                  ? const SizedBox.shrink()
+                  : Text(
+                      '${order.length} tracks',
+                      style: WaveType.meta.copyWith(
+                        color: waveTextTertiary(context),
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return LayoutBuilder(
+      builder: (_, constraints) => scrollView(constraints.maxWidth - gutters.horizontal),
+    );
   }
 }
 

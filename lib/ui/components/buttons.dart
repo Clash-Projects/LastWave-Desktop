@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/accessibility.dart';
@@ -39,6 +40,7 @@ class _WaveIconButtonState extends State<WaveIconButton> {
     final accent = waveAccent(context);
     final dark = waveIsDark(context);
     final disabled = widget.onPressed == null;
+    final reduced = waveReduceMotion(context);
 
     final style = ButtonStyle(
       padding: const WidgetStatePropertyAll(
@@ -89,14 +91,24 @@ class _WaveIconButtonState extends State<WaveIconButton> {
           _pressed = false;
         }),
         child: Listener(
-          onPointerDown: disabled ? null : (_) => setState(() => _pressed = true),
+          onPointerDown: disabled
+              ? null
+              : (event) {
+                  if (event.buttons & kPrimaryButton != 0) {
+                    setState(() => _pressed = true);
+                  }
+                },
           onPointerUp: disabled ? null : (_) => setState(() => _pressed = false),
           onPointerCancel: disabled ? null : (_) => setState(() => _pressed = false),
           child: IconButton(
             icon: AnimatedScale(
-              scale: disabled ? 1.0 : (_pressed ? 0.93 : (_hover ? 1.05 : 1.0)),
+              scale: disabled || reduced
+                  ? 1
+                  : _pressed
+                      ? WaveMotion.pressScale
+                      : (_hover ? WaveMotion.hoverScale : 1),
               duration: waveMotion(context, WaveMotion.fast),
-              curve: Curves.easeOutCubic,
+              curve: WaveMotion.standard,
               child: widget.icon,
             ),
             onPressed: widget.onPressed,

@@ -8,6 +8,7 @@ import 'package:super_sliver_list/super_sliver_list.dart';
 import '../../app/track_actions.dart'
     show playGenerated, playableFromGenerated;
 import '../../core/storage/prefs.dart';
+import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/spotify/spotify_auth.dart';
 import '../../core/artwork/official_artwork_service.dart';
 import '../../core/network/network_monitor.dart';
@@ -45,8 +46,21 @@ import 'spotify_home.dart';
 /// editorial cards · Charts = ranked numeral rows · New releases = dense
 /// 124px grid. Real feed data only; skeletons while loading, actions on
 /// empty — never a blank "Loading music…" or a giant spinner.
-class WaveHomePage extends ConsumerWidget {
+class WaveHomePage extends ConsumerStatefulWidget {
   const WaveHomePage({super.key});
+
+  @override
+  ConsumerState<WaveHomePage> createState() => _WaveHomePageState();
+}
+
+class _WaveHomePageState extends ConsumerState<WaveHomePage> {
+  final _scrollController = WaveScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -57,7 +71,7 @@ class WaveHomePage extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final feed = ref.watch(feedProvider);
     // Watched at build top (never inside the `when` branches): the
     // empty-state copy is honest about connectivity only when the
@@ -89,6 +103,7 @@ class WaveHomePage extends ConsumerWidget {
     return WaveEntranceGroup(
       start: spotifyHome || feed.hasValue,
       child: CustomScrollView(
+        controller: _scrollController,
         slivers: [
         SliverPadding(
           padding: EdgeInsets.fromLTRB(side, 22, side, 0),

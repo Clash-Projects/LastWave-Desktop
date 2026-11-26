@@ -13,6 +13,7 @@ import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artwork.dart';
 import '../lyrics/lyrics_panel.dart' show waveLyricsProvider;
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'immersive.dart';
 import 'now_playing_overflow_menu.dart';
@@ -121,185 +122,185 @@ class _NowPlayingMinimalViewState extends ConsumerState<NowPlayingMinimalView> {
               builder: (context, constraints) {
                 final availW = constraints.maxWidth;
                 final availH = constraints.maxHeight;
-                final targetLeftW = showLyrics
-                    ? math.min(
-                        availW,
-                        math.max(0.0, (availW - 48.0) * 0.42).clamp(0.0, 440.0),
-                      )
-                    : math.min(
-                        availW,
-                        math.max(0.0, math.min(availH - 80.0, 460.0)),
-                      );
-                final gapW =
-                    showLyrics && availW > targetLeftW + 48.0 ? 48.0 : 0.0;
-                final targetLyricsW = showLyrics
-                    ? math.max(0.0, availW - targetLeftW - gapW)
-                    : 0.0;
+                final splitLeft = math.min(
+                  availW,
+                  ((availW - 48.0) * 0.42).clamp(0.0, 440.0),
+                );
+                final centeredLeft = math.min(
+                  availW,
+                  (availH - 80.0).clamp(0.0, 460.0),
+                );
+                final splitGap = availW > splitLeft + 48 ? 48.0 : 0.0;
+                final splitLyrics = availW - splitLeft - splitGap;
                 final coverMax = showLyrics ? 420.0 : 440.0;
                 final animDuration = waveMotion(
                   context,
                   const Duration(milliseconds: 420),
                 );
 
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Cover + Centered Track Info (smoothly centers when lyrics are off/missing)
-                    AnimatedContainer(
-                      duration: animDuration,
-                      curve: Curves.easeInOutCubic,
-                      width: targetLeftW,
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: coverMax,
-                            maxHeight: coverMax + 100,
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              // Sharp square album cover with motion art & Hi-Res Official Art
-                              ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxWidth: coverMax,
-                                  maxHeight: coverMax,
-                                ),
-                                child: AspectRatio(
-                                  aspectRatio: 1,
-                                  child: LayoutBuilder(
-                                    builder: (context, box) {
-                                      final side = box.maxWidth;
-                                      return RepaintBoundary(
-                                        child: ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(2.0),
-                                          child: Stack(
-                                            fit: StackFit.expand,
-                                            children: [
-                                              if (activeUrl.isNotEmpty)
-                                                AnimatedArtworkVideo(
-                                                  url: activeUrl,
-                                                  fallbackUrl:
-                                                      activeFallbackUrl,
-                                                  size: side,
-                                                ),
-                                              if (showSleeve)
-                                                AnimatedOpacity(
-                                                  opacity:
-                                                      videoReady ? 0.0 : 1.0,
-                                                  duration: const Duration(
-                                                    milliseconds: 320,
-                                                  ),
-                                                  curve: Curves.easeOut,
-                                                  onEnd: () {
-                                                    if (videoReady &&
-                                                        !_sleeveGone &&
-                                                        mounted) {
-                                                      setState(
-                                                        () =>
-                                                            _sleeveGone = true,
-                                                      );
-                                                    }
-                                                  },
-                                                  child: WaveArtwork(
-                                                    url: track.artworkUrl,
-                                                    videoId: track.videoId,
+                final target = showLyrics ? 1.0 : 0.0;
+                // Interpolate the pane split against the current viewport.
+                // A native resize can shrink the viewport in a single frame.
+                return TweenAnimationBuilder<double>(
+                  tween: Tween(begin: target, end: target),
+                  duration: animDuration,
+                  curve: WaveMotion.move,
+                  builder: (context, split, _) => Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Cover + Centered Track Info (smoothly centers when lyrics are off/missing)
+                      SizedBox(
+                        width:
+                            centeredLeft + (splitLeft - centeredLeft) * split,
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: coverMax,
+                              maxHeight: coverMax + 100,
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                // Sharp square album cover with motion art & Hi-Res Official Art
+                                ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: coverMax,
+                                    maxHeight: coverMax,
+                                  ),
+                                  child: AspectRatio(
+                                    aspectRatio: 1,
+                                    child: LayoutBuilder(
+                                      builder: (context, box) {
+                                        final side = box.maxWidth;
+                                        return RepaintBoundary(
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              2.0,
+                                            ),
+                                            child: Stack(
+                                              fit: StackFit.expand,
+                                              children: [
+                                                if (activeUrl.isNotEmpty)
+                                                  AnimatedArtworkVideo(
+                                                    url: activeUrl,
+                                                    fallbackUrl:
+                                                        activeFallbackUrl,
                                                     size: side,
-                                                    decodeExtent: 1024,
-                                                    radius: 2.0,
-                                                    label: track.title,
-                                                    title: track.title,
-                                                    artist: track.artist,
                                                   ),
-                                                ),
-                                            ],
+                                                if (showSleeve)
+                                                  AnimatedOpacity(
+                                                    opacity: videoReady
+                                                        ? 0.0
+                                                        : 1.0,
+                                                    duration: const Duration(
+                                                      milliseconds: 320,
+                                                    ),
+                                                    curve: Curves.easeOut,
+                                                    onEnd: () {
+                                                      if (videoReady &&
+                                                          !_sleeveGone &&
+                                                          mounted) {
+                                                        setState(
+                                                          () => _sleeveGone =
+                                                              true,
+                                                        );
+                                                      }
+                                                    },
+                                                    child: WaveArtwork(
+                                                      url: track.artworkUrl,
+                                                      videoId: track.videoId,
+                                                      size: side,
+                                                      decodeExtent: 1024,
+                                                      radius: 2.0,
+                                                      label: track.title,
+                                                      title: track.title,
+                                                      artist: track.artist,
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
                                           ),
-                                        ),
-                                      );
-                                    },
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(height: 18),
+                                const SizedBox(height: 18),
 
-                              // Centered Track Title
-                              Text(
-                                track.title,
-                                textAlign: TextAlign.center,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: ink,
-                                  letterSpacing: -0.2,
+                                WaveTrackSwap(
+                                  child: Column(
+                                    key: ValueKey(track.queueKey),
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        track.title,
+                                        textAlign: TextAlign.center,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                          color: ink,
+                                          letterSpacing: -0.2,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        track.artist,
+                                        textAlign: TextAlign.center,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w400,
+                                          color: ink.withValues(alpha: 0.65),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-
-                              // Centered Artist Name
-                              Text(
-                                track.artist,
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w400,
-                                  color: ink.withValues(alpha: 0.65),
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
 
-                    AnimatedContainer(
-                      duration: animDuration,
-                      curve: Curves.easeInOutCubic,
-                      width: gapW,
-                    ),
+                      SizedBox(width: splitGap * split),
 
-                    // Right Column: Synced Lyrics (collapses smoothly when hidden or not found)
-                    AnimatedContainer(
-                      duration: animDuration,
-                      curve: Curves.easeInOutCubic,
-                      width: targetLyricsW,
-                      child: ClipRect(
-                        child: AnimatedOpacity(
-                          duration: waveMotion(
-                            context,
-                            const Duration(milliseconds: 260),
-                          ),
-                          opacity: showLyrics ? 1.0 : 0.0,
-                          child: ExcludeFocus(
-                            excluding: !showLyrics,
-                            child: IgnorePointer(
-                              ignoring: !showLyrics,
-                              child: OverflowBox(
-                                alignment: Alignment.centerLeft,
-                                minWidth: showLyrics
-                                    ? targetLyricsW
-                                    : math.max(320.0, (availW - 48.0) * 0.58),
-                                maxWidth: showLyrics
-                                    ? targetLyricsW
-                                    : math.max(320.0, (availW - 48.0) * 0.58),
-                                child: WaveKaraokeLyricsView(
-                                  track: track,
-                                  compact: false,
-                                  showHeaderControls: false,
-                                  fontSize: 34.0,
-                                  isActive: showLyrics,
+                      // Right Column: Synced Lyrics (collapses smoothly when hidden or not found)
+                      SizedBox(
+                        width: splitLyrics * split,
+                        child: ClipRect(
+                          child: AnimatedOpacity(
+                            duration: waveMotion(
+                              context,
+                              const Duration(milliseconds: 260),
+                            ),
+                            opacity: showLyrics ? 1.0 : 0.0,
+                            child: ExcludeFocus(
+                              excluding: !showLyrics,
+                              child: IgnorePointer(
+                                ignoring: !showLyrics,
+                                child: OverflowBox(
+                                  alignment: Alignment.centerLeft,
+                                  minWidth: splitLyrics,
+                                  maxWidth: splitLyrics,
+                                  child: WaveKaraokeLyricsView(
+                                    track: track,
+                                    compact: false,
+                                    showHeaderControls: false,
+                                    fontSize: 34.0,
+                                    isActive: showLyrics,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 );
               },
             ),

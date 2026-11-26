@@ -20,6 +20,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, LWVolumeSlider, WaveA11yButton, WaveLink;
 import '../components/menus.dart';
 import '../theme/haze.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -169,14 +170,7 @@ class WavePlayerDock extends ConsumerWidget {
                   // LEFT — identity (290px, placeholder when idle).
                   SizedBox(
                     width: narrow ? 200 : 290,
-                    child: AnimatedSwitcher(
-                      duration: waveMotion(context, WaveMotion.normal),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      transitionBuilder: (child, anim) => FadeTransition(
-                        opacity: anim,
-                        child: child,
-                      ),
+                    child: WaveTrackSwap(
                       child: current == null
                           ? _IdleIdentity(
                               key: const ValueKey('idle'),
@@ -596,9 +590,10 @@ class _QualityFlyoutState extends ConsumerState<_QualityFlyout> {
               _flyout.showFlyout(
                 barrierColor: Colors.transparent,
                 placementMode: FlyoutPlacementMode.topCenter,
-                transitionDuration:
-                    const Duration(milliseconds: 90),
-                transitionBuilder: fastFlyoutTransition,
+                transitionDuration: waveMotion(context, WaveMotion.flyout),
+                reverseTransitionDuration:
+                    waveMotion(context, WaveMotion.flyoutExit),
+                transitionBuilder: waveFlyoutTransition,
                 builder: (context) => WaveFlyoutPanel.items(
                   entries: [
                     WaveMenuAction(
@@ -778,6 +773,12 @@ class _GlyphState extends State<_Glyph> {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
     final disabled = widget.onTap == null && widget.menuItems == null;
+    final reduced = waveReduceMotion(context);
+    final feedbackScale = disabled || reduced
+        ? 1.0
+        : _pressed
+            ? WaveMotion.pressScale
+            : (_hover ? WaveMotion.hoverScale : 1.0);
     final color = widget.active
         ? accent
         : disabled
@@ -808,9 +809,9 @@ class _GlyphState extends State<_Glyph> {
           height: 34,
           child: Center(
             child: AnimatedScale(
-              scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
+              scale: feedbackScale,
               duration: waveMotion(context, WaveMotion.fast),
-              curve: Curves.easeOutCubic,
+              curve: WaveMotion.standard,
               child: Icon(widget.icon,
                   size: widget.large ? 18 : 15, color: color),
             ),
@@ -843,9 +844,9 @@ class _GlyphState extends State<_Glyph> {
                 height: 34,
                 child: Center(
                   child: AnimatedScale(
-                    scale: _pressed ? 0.90 : (_hover ? 1.10 : 1.0),
+                    scale: feedbackScale,
                     duration: waveMotion(context, WaveMotion.fast),
-                    curve: Curves.easeOutCubic,
+                    curve: WaveMotion.standard,
                     child: Icon(widget.icon, size: 15, color: color),
                   ),
                 ),
@@ -869,8 +870,7 @@ class _GlyphState extends State<_Glyph> {
 /// Fluent media transport button — 36px accent disc, NOT a giant FAB.
 ///
 /// Uses the active [waveAccent] (LastWave / System / Artwork accent) with
-/// contrast glyph, 1px tonal ring + restrained shadow. Hover 92%,
-/// pressed 85%, focus ring 2px, tooltip with shortcut. Both themes.
+/// contrast glyph, 1px tonal ring, restrained shadow, and 2px focus ring.
 class _PlayGlyph extends StatefulWidget {
   final bool playing;
   final bool buffering;
@@ -901,6 +901,7 @@ class _PlayGlyphState extends State<_PlayGlyph> {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
     final onAccent = onAccentFor(accent);
+    final reduced = waveReduceMotion(context);
     Color bg;
     if (!widget.enabled) {
       bg = accent.withValues(alpha: 0.35);
@@ -961,11 +962,16 @@ class _PlayGlyphState extends State<_PlayGlyph> {
               height: 36,
               child: Center(
                 child: AnimatedScale(
-                  scale: _pressed ? 0.92 : (_hover ? 1.06 : 1.0),
+                  scale: !widget.enabled || reduced
+                      ? 1
+                      : _pressed
+                          ? WaveMotion.pressScale
+                          : (_hover ? WaveMotion.hoverScale : 1),
                   duration: waveMotion(context, WaveMotion.fast),
-                  curve: Curves.easeOutCubic,
+                  curve: WaveMotion.standard,
                   child: AnimatedContainer(
                     duration: waveMotion(context, WaveMotion.fast),
+                    curve: WaveMotion.standard,
                     width: 36,
                     height: 36,
                     decoration: BoxDecoration(
@@ -996,16 +1002,15 @@ class _PlayGlyphState extends State<_PlayGlyph> {
                               ),
                             )
                           : AnimatedSwitcher(
-                              duration: waveMotion(
-                                  context, const Duration(milliseconds: 180)),
+                              duration: waveMotion(context, WaveMotion.fast),
+                              switchInCurve: WaveMotion.standard,
+                              switchOutCurve: WaveMotion.standard.flipped,
                               transitionBuilder: (child, animation) =>
-                                  ScaleTransition(
-                                scale: CurvedAnimation(
-                                  parent: animation,
-                                  curve: Curves.easeOutBack,
-                                ),
-                                child: FadeTransition(
-                                  opacity: animation,
+                                  FadeTransition(
+                                opacity: animation,
+                                child: ScaleTransition(
+                                  scale: Tween<double>(begin: 0.96, end: 1)
+                                      .animate(animation),
                                   child: child,
                                 ),
                               ),
@@ -1460,9 +1465,8 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
     super.initState();
     _anim = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 220),
-      lowerBound: 0.8,
-      upperBound: 1.25,
+      lowerBound: 1,
+      upperBound: 1.12,
       value: 1.0,
     );
   }
@@ -1478,21 +1482,21 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
         .read(playlistRepositoryProvider.notifier)
         .likedKeys()
         .contains(widget.track.queueKey);
-    // Pop only on like: 1.0 → 1.25 eased out, then settle to 1.0 with a
-    // slight overshoot bounce. (Previously `forward(from: 0.8)` ran the
-    // grow phase linear to the 1.25 bound — a visible jump — and the pop
-    // fired on unlike too.) Settle is mounted-guarded so a track change
-    // mid-pop can't drive a disposed controller. Reduce motion keeps the
-    // glyph at rest: the fill change still lands on the same frame.
-    if (!liked && !waveReduceMotion(context)) {
+    if (waveReduceMotion(context)) {
+      _anim.value = 1;
+    } else if (liked) {
+      _anim.animateTo(
+        1,
+        duration: WaveMotion.fast,
+        curve: WaveMotion.standard,
+      );
+    } else {
       _anim
-          .animateTo(1.25,
-              duration: const Duration(milliseconds: 110),
-              curve: Curves.easeOut)
+          .animateTo(1.12,
+              duration: WaveMotion.fast, curve: WaveMotion.standard)
           .then((_) => mounted
-              ? _anim.animateTo(1.0,
-                  duration: const Duration(milliseconds: 130),
-                  curve: Curves.easeOutBack)
+              ? _anim.animateTo(1,
+                  duration: WaveMotion.fast, curve: WaveMotion.standard)
               : null);
     }
     ref.read(playlistRepositoryProvider.notifier).toggleLiked(
@@ -1518,7 +1522,9 @@ class _LikeGlyphState extends ConsumerState<_LikeGlyph>
         .map((t) => '${t.name.toLowerCase()}|${t.artist.toLowerCase()}')
         .contains(widget.track.queueKey);
     return ScaleTransition(
-      scale: _anim,
+      scale: waveReduceMotion(context)
+          ? const AlwaysStoppedAnimation<double>(1)
+          : _anim,
       child: _Glyph(
         tooltip: liked ? 'Unlike' : 'Like',
         icon: liked ? WaveIcons.likedFill : WaveIcons.liked,
@@ -1639,8 +1645,10 @@ class _VolumeFlyoutGlyphState extends ConsumerState<_VolumeFlyoutGlyph> {
             _controller.showFlyout(
               barrierColor: Colors.transparent,
               placementMode: FlyoutPlacementMode.topCenter,
-              transitionDuration: const Duration(milliseconds: 90),
-              transitionBuilder: fastFlyoutTransition,
+              transitionDuration: waveMotion(context, WaveMotion.flyout),
+              reverseTransitionDuration:
+                  waveMotion(context, WaveMotion.flyoutExit),
+              transitionBuilder: waveFlyoutTransition,
               builder: (context) => WaveFlyoutPanel.child(
                 maxWidth: 240,
                 child: Padding(

@@ -153,8 +153,9 @@ class _NowPlayingOverflowMenuButtonState
             autoModeConfiguration: FlyoutAutoConfiguration(
               preferredMode: FlyoutPlacementMode.bottomRight,
             ),
-            transitionDuration: const Duration(milliseconds: 90),
-            transitionBuilder: fastFlyoutTransition,
+            transitionDuration: waveMotion(context, WaveMotion.flyout),
+            reverseTransitionDuration: waveMotion(context, WaveMotion.flyoutExit),
+            transitionBuilder: waveFlyoutTransition,
             builder: (context) => WaveFlyoutPanel.child(
               maxWidth: 300,
               maxHeight: 540,
@@ -822,10 +823,13 @@ class _CascadingSubmenuRowState extends State<_CascadingSubmenuRow> {
                   right: _flipLeft ? 6 : 0,
                   left: _flipLeft ? 0 : 6,
                 ),
-                child: WaveFlyoutPanel.items(
-                  entries: widget.items(),
-                  maxHeight: _maxHeight,
-                  closeOnAction: false,
+                child: WaveSubmenuReveal(
+                  opensLeft: _flipLeft,
+                  child: WaveFlyoutPanel.items(
+                    entries: widget.items(),
+                    maxHeight: _maxHeight,
+                    closeOnAction: false,
+                  ),
                 ),
               ),
             ),

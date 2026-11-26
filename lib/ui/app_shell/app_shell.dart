@@ -63,16 +63,13 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   bool _railExpanded = false;
   bool _queueOpen = false;
   bool _equalizerOpen = false;
-  // True once a panel has finished sliding shut. Offstage waits for it so
-  // the slide-out is painted instead of vanishing on the first frame.
-  bool _queueSettled = true;
-  bool _equalizerSettled = true;
   bool _miniOpen = false;
 
   /// F11 pressed away from Now Playing: go fullscreen once the route
   /// arrives. Stamped so a navigation that never lands can't turn a later,
   /// unrelated visit into a fullscreen one.
   DateTime? _pendingImmersiveAt;
+  Future<void> _fullscreenWindowChange = Future<void>.value();
   bool _draggingFiles = false;
 
   Size? _savedWindowSize;
@@ -209,11 +206,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
   // Memoized dock (glyphs + cover art): same instance across
   // navigations so the element skips it. The cache key covers everything
   // behaviorally relevant.
-  Widget? _dockCache;
-  bool _dockLyricsActive = false;
-  bool _dockQueueActive = false;
-  bool _dockEqualizerActive = false;
-  bool _dockCompact = false;
+  final _dockCache = <bool, WavePlayerDock>{};
 
   void _closeQueue() => setState(() => _queueOpen = false);
   void _closeEqualizer() => setState(() => _equalizerOpen = false);
@@ -227,38 +220,31 @@ class _WaveShellState extends ConsumerState<WaveShell> {
     required bool equalizerActive,
     bool compact = false,
   }) {
-    if (_dockCache == null ||
-        _dockLyricsActive != lyricsActive ||
-        _dockQueueActive != queueActive ||
-        _dockEqualizerActive != equalizerActive ||
-        _dockCompact != compact) {
-      _dockLyricsActive = lyricsActive;
-      _dockQueueActive = queueActive;
-      _dockEqualizerActive = equalizerActive;
-      _dockCompact = compact;
-      // The dock is structural: reserves 80px on every view, including
-      // Now Playing — its in-page transport was removed so this dock is
-      // the single control surface.
-      _dockCache = WavePlayerDock(
-        compact: compact,
-        onExpand: _expandNowPlaying,
-        lyricsActive: lyricsActive,
-        queueActive: queueActive,
-        equalizerActive: equalizerActive,
-        onToggleMini: _toggleMiniPlayer,
-        // Lyrics live on Now Playing (focus mode is its top-bar toggle).
-        onToggleLyrics: _openNowPlaying,
-        onToggleQueue: () => setState(() {
-          _queueOpen = !_queueOpen;
-          if (_queueOpen) _equalizerOpen = false;
-        }),
-        onToggleEqualizer: () => setState(() {
-          _equalizerOpen = !_equalizerOpen;
-          if (_equalizerOpen) _queueOpen = false;
-        }),
-      );
+    final cached = _dockCache[compact];
+    if (cached != null &&
+        cached.lyricsActive == lyricsActive &&
+        cached.queueActive == queueActive &&
+        cached.equalizerActive == equalizerActive) {
+      return cached;
     }
-    return _dockCache!;
+    return _dockCache[compact] = WavePlayerDock(
+      compact: compact,
+      onExpand: _expandNowPlaying,
+      lyricsActive: lyricsActive,
+      queueActive: queueActive,
+      equalizerActive: equalizerActive,
+      onToggleMini: _toggleMiniPlayer,
+      // Lyrics live on Now Playing (focus mode is its top-bar toggle).
+      onToggleLyrics: _openNowPlaying,
+      onToggleQueue: () => setState(() {
+        _queueOpen = !_queueOpen;
+        if (_queueOpen) _equalizerOpen = false;
+      }),
+      onToggleEqualizer: () => setState(() {
+        _equalizerOpen = !_equalizerOpen;
+        if (_equalizerOpen) _queueOpen = false;
+      }),
+    );
   }
 
   /// Cached title bar: same instance across navigations so the element
@@ -775,6 +761,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
       }
     }
     ref.listen<bool>(nowPlayingImmersiveProvider, (prev, next) {
+      Tooltip.dismissAllToolTips();
       if (next) {
         setState(() {
           _queueOpen = false;
@@ -782,11 +769,13 @@ class _WaveShellState extends ConsumerState<WaveShell> {
           _railExpanded = false;
         });
       }
-      () async {
+      _fullscreenWindowChange = _fullscreenWindowChange.then((_) async {
+        // Native window changes must finish in order during a rapid toggle.
+        if (!mounted || ref.read(nowPlayingImmersiveProvider) != next) return;
         try {
           await windowManager.setFullScreen(next);
         } catch (_) {}
-      }();
+      });
     });
 
     // Snapshot for the focus-independent Esc chain (the global
@@ -873,14 +862,22 @@ class _WaveShellState extends ConsumerState<WaveShell> {
           policy: OrderedTraversalPolicy(),
           child: Column(
             children: [
-              if (!immersive) ...[
-                FocusTraversalOrder(
-                  order: const NumericFocusOrder(2),
-                  child: _titleBarFor(
-                      _backStack.isNotEmpty, _forwardStack.isNotEmpty),
+              _ModeChrome(
+                visible: !immersive,
+                collapseHeight: true,
+                hiddenOffset: const Offset(0, -0.3),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FocusTraversalOrder(
+                      order: const NumericFocusOrder(2),
+                      child: _titleBarFor(
+                          _backStack.isNotEmpty, _forwardStack.isNotEmpty),
+                    ),
+                    const WaveInfoBarHost(),
+                  ],
                 ),
-                const WaveInfoBarHost(),
-              ],
+              ),
               // Overlay rail: the content below keeps full width and the
               // rail floats above its left edge (60 collapsed, 200
               // expanded). Toggling used to reflow the whole window, so
@@ -926,6 +923,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                 right: 0,
                                 child: _SlideToInset(
                                   left: railW,
+                                  immersive: immersive,
                                   child: RepaintBoundary(
                                     child: floatDock
                                         ? MediaQuery(
@@ -943,17 +941,20 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               ),
                               // Rail: one solid strip, 60px collapsed /
                               // 200px expanded.
-                              if (!immersive)
-                                Positioned(
-                                  left: 0,
-                                  top: 0,
-                                  bottom: floatDock ? floatDockH : 0,
+                              Positioned(
+                                left: 0,
+                                top: 0,
+                                bottom: floatDock ? floatDockH : 0,
+                                child: _ModeChrome(
+                                  visible: !immersive,
+                                  hiddenOffset: const Offset(-0.7, 0),
                                   child: WaveSideRail(
                                     expanded: !collapsed,
                                     active: active,
                                     onGo: _go,
                                   ),
                                 ),
+                              ),
                               if (_draggingFiles)
                                 Positioned.fill(
                                   child: Container(
@@ -966,76 +967,26 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     ),
                                   ),
                                 ),
-                              // Contextual queue — slides smoothly from right.
-                              AnimatedPositioned(
-                                duration: waveMotion(
-                                  context,
-                                  WaveMotion.normal,
-                                ),
-                                curve: Curves.easeOutCubic,
+                              Positioned(
                                 top: 0,
                                 bottom: floatDock ? floatDockH : 0,
-                                right: _queueOpen ? 0 : -(qw + 12),
-                                onEnd: () {
-                                  if (_queueSettled == _queueOpen) {
-                                    setState(
-                                        () => _queueSettled = !_queueOpen);
-                                  }
-                                },
+                                right: 0,
                                 width: qw,
-                                child: ExcludeFocus(
-                                  excluding: !_queueOpen,
-                                  child: IgnorePointer(
-                                    ignoring: !_queueOpen,
-                                    // Offstage when slid shut: the 8-row
-                                    // list (images, menus, tooltips)
-                                    // skips paint/raster entirely, so
-                                    // every page navigation no longer
-                                    // rasterizes a hidden panel.
-                                    // Layout still runs (cheap box
-                                    // math); scroll offset is kept.
-                                    child: Offstage(
-                                      offstage: !_queueOpen && _queueSettled,
-                                      child: RepaintBoundary(
-                                        child: _queuePanelCache ??=
-                                            WaveQueuePanel(
-                                                onClose: _closeQueue),
-                                      ),
-                                    ),
-                                  ),
+                                child: _RightDrawer(
+                                  open: _queueOpen,
+                                  child: _queuePanelCache ??=
+                                      WaveQueuePanel(onClose: _closeQueue),
                                 ),
                               ),
-                              // Contextual Equalizer & Studio Master Clarity drawer — slides smoothly from right.
-                              AnimatedPositioned(
-                                duration: waveMotion(
-                                  context,
-                                  WaveMotion.normal,
-                                ),
-                                curve: Curves.easeOutCubic,
+                              Positioned(
                                 top: 0,
                                 bottom: floatDock ? floatDockH : 0,
-                                right: _equalizerOpen ? 0 : -(ew + 12),
-                                onEnd: () {
-                                  if (_equalizerSettled == _equalizerOpen) {
-                                    setState(() =>
-                                        _equalizerSettled = !_equalizerOpen);
-                                  }
-                                },
+                                right: 0,
                                 width: ew,
-                                child: ExcludeFocus(
-                                  excluding: !_equalizerOpen,
-                                  child: IgnorePointer(
-                                    ignoring: !_equalizerOpen,
-                                    child: Offstage(
-                                      offstage: !_equalizerOpen && _equalizerSettled,
-                                      child: RepaintBoundary(
-                                        child: _equalizerPanelCache ??=
-                                            WaveEqualizerPanel(
-                                              onClose: _closeEqualizer,
-                                            ),
-                                      ),
-                                    ),
-                                  ),
+                                child: _RightDrawer(
+                                  open: _equalizerOpen,
+                                  child: _equalizerPanelCache ??=
+                                      WaveEqualizerPanel(onClose: _closeEqualizer),
                                 ),
                               ),
                               // Immersive: the dock floats over the stage
@@ -1043,11 +994,13 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                               // (it is not in the Column below then).
                               // Painted last so the queue / equalizer
                               // panels never cover its toggles.
-                              if (immersive)
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                child: _ModeChrome(
+                                  visible: immersive,
+                                  hiddenOffset: const Offset(0, 0.35),
                                   child: WaveImmersiveDockOverlay(
                                     child: _dockFor(
                                       lyricsActive: isNowPlaying,
@@ -1057,6 +1010,7 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                                     ),
                                   ),
                                 ),
+                              ),
                               // Glassmorphism: the dock over the page,
                               // content scrolling on under the glass.
                               if (floatDock)
@@ -1076,11 +1030,16 @@ class _WaveShellState extends ConsumerState<WaveShell> {
                       ),
                     ),
                   ),
-                  if (!immersive && !floatDock)
-                    _dockFor(
-                      lyricsActive: isNowPlaying,
-                      queueActive: _queueOpen,
-                      equalizerActive: _equalizerOpen,
+                  if (!floatDock)
+                    _ModeChrome(
+                      visible: !immersive,
+                      collapseHeight: true,
+                      hiddenOffset: const Offset(0, 0.3),
+                      child: _dockFor(
+                        lyricsActive: isNowPlaying,
+                        queueActive: _queueOpen,
+                        equalizerActive: _equalizerOpen,
+                      ),
                     ),
                 ],
               ),
@@ -1103,11 +1062,61 @@ class _WaveShellState extends ConsumerState<WaveShell> {
 /// painted above, or falls outside the window.
 class _SlideToInset extends StatefulWidget {
   final double left;
+  final bool immersive;
   final Widget child;
-  const _SlideToInset({required this.left, required this.child});
+  const _SlideToInset({
+    required this.left,
+    required this.immersive,
+    required this.child,
+  });
 
   @override
   State<_SlideToInset> createState() => _SlideToInsetState();
+}
+
+/// Keeps the drawer mounted for scroll and control state. Only its paint
+/// position changes, and an interrupted toggle continues from that position.
+class _RightDrawer extends StatelessWidget {
+  const _RightDrawer({required this.open, required this.child});
+
+  final bool open;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduced = waveReduceMotion(context);
+    final target = open ? 0.0 : 1.0;
+    return ExcludeFocus(
+      excluding: !open,
+      child: IgnorePointer(
+        ignoring: !open,
+        child: ExcludeSemantics(
+          excluding: !open,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: target, end: target),
+            duration: reduced
+                ? Duration.zero
+                : (open ? WaveMotion.drawer : WaveMotion.slow),
+            curve: WaveMotion.move,
+            child: TickerMode(
+              enabled: open,
+              child: RepaintBoundary(child: child),
+            ),
+            builder: (context, value, child) {
+              final offset = reduced ? target : value;
+              return Offstage(
+                offstage: !open && offset >= 1,
+                child: FractionalTranslation(
+                  translation: Offset(offset, 0),
+                  child: child,
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SlideToInsetState extends State<_SlideToInset>
@@ -1116,7 +1125,7 @@ class _SlideToInsetState extends State<_SlideToInset>
       AnimationController(vsync: this, value: 1);
   double _from = 0;
 
-  double get _offset => _from * (1 - WaveMotion.standard.transform(_c.value));
+  double get _offset => _from * (1 - WaveMotion.move.transform(_c.value));
 
   @override
   void didUpdateWidget(covariant _SlideToInset old) {
@@ -1125,7 +1134,10 @@ class _SlideToInsetState extends State<_SlideToInset>
     // Start from wherever the page is painted now, so a re-toggle
     // mid-flight continues without a jump.
     _from = _offset + (old.left - widget.left);
-    _c.duration = waveMotion(context, WaveMotion.normal);
+    _c.duration = waveMotion(
+      context,
+      old.immersive == widget.immersive ? WaveMotion.drawer : WaveMotion.stage,
+    );
     _c.forward(from: 0);
   }
 
@@ -1144,4 +1156,58 @@ class _SlideToInsetState extends State<_SlideToInset>
         builder: (context, child) =>
             Transform.translate(offset: Offset(_offset, 0), child: child),
       );
+}
+
+/// Reveals the window controls around the existing Now Playing subtree.
+class _ModeChrome extends StatelessWidget {
+  const _ModeChrome({
+    required this.visible,
+    required this.hiddenOffset,
+    required this.child,
+    this.collapseHeight = false,
+  });
+
+  final bool visible;
+  final Offset hiddenOffset;
+  final bool collapseHeight;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduced = waveReduceMotion(context);
+    final target = visible ? 1.0 : 0.0;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: target, end: target),
+      duration: reduced ? Duration.zero : WaveMotion.stage,
+      curve: WaveMotion.move,
+      child: ExcludeFocus(
+        excluding: !visible,
+        child: IgnorePointer(
+          ignoring: !visible,
+          child: ExcludeSemantics(
+            excluding: !visible,
+            child: RepaintBoundary(child: child),
+          ),
+        ),
+      ),
+      builder: (context, value, child) {
+        final progress = reduced ? target : value;
+        if (!visible && progress == 0) return const SizedBox.shrink();
+        final chrome = FractionalTranslation(
+          translation: hiddenOffset * (1 - progress),
+          child: Opacity(opacity: progress, child: child),
+        );
+        if (!collapseHeight) return chrome;
+        return ClipRect(
+          child: Align(
+            alignment: hiddenOffset.dy < 0
+                ? Alignment.topCenter
+                : Alignment.bottomCenter,
+            heightFactor: progress,
+            child: chrome,
+          ),
+        );
+      },
+    );
+  }
 }

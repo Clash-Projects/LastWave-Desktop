@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../core/audio/stream_models.dart';
+import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/player/playback_service.dart';
 import '../app_shell/wave_hotkeys.dart';
 import '../theme/motion.dart';
@@ -116,6 +117,7 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
   /// Place directly in `slivers:` (wrap in [SliverPadding] for
   /// gutters). Mutually exclusive with [shrinkWrap].
   final bool sliver;
+  final double? sliverContentWidth;
 
   const WaveDesktopTable({
     super.key,
@@ -157,6 +159,7 @@ class WaveDesktopTable<T extends Object> extends ConsumerStatefulWidget {
     this.scrollController,
     this.empty,
     this.sliver = false,
+    this.sliverContentWidth,
   }) : assert(!(sliver && shrinkWrap),
             'sliver and shrinkWrap are mutually exclusive');
 
@@ -169,7 +172,6 @@ class _WaveDesktopTableState<T extends Object>
     extends ConsumerState<WaveDesktopTable<T>> {
   final FocusNode _focus = FocusNode();
   final ListController _listController = ListController();
-  int _hover = -1;
   int _focusIndex = -1;
   int _anchor = -1;
   Set<String> _internalSelected = {};
@@ -270,13 +272,21 @@ class _WaveDesktopTableState<T extends Object>
         (widget.sliver
             ? PrimaryScrollController.maybeOf(context)
             : null);
-    if (!widget.shrinkWrap && sc != null) {
-      _listController.animateToItem(
-        index: widget.showHeader ? next + 1 : next,
+    if (widget.shrinkWrap || sc == null || !sc.hasClients || !_listController.isAttached) {
+      return;
+    }
+    if (waveReduceMotion(context)) {
+      _listController.jumpToItem(
+        index: pos,
         scrollController: sc,
         alignment: 0.5,
-        duration: (_) =>
-            waveMotion(context, const Duration(milliseconds: 140)),
+      );
+    } else {
+      _listController.animateToItem(
+        index: pos,
+        scrollController: sc,
+        alignment: 0.5,
+        duration: (_) => const Duration(milliseconds: 140),
         curve: (_) => Curves.easeOutCubic,
       );
     }
@@ -366,7 +376,7 @@ class _WaveDesktopTableState<T extends Object>
     // visibility reads the viewport width (no LayoutBuilder — boxes
     // are illegal in `slivers:`).
     if (widget.sliver) {
-      final w = MediaQuery.sizeOf(context).width;
+      final w = widget.sliverContentWidth ?? MediaQuery.sizeOf(context).width;
       final showAlbum = w >= 1000;
       final showQuality = widget.qualityOf != null && w >= 800;
       final showAdded = widget.dateAddedOf != null && w >= 1100;
@@ -565,57 +575,56 @@ class _WaveDesktopTableState<T extends Object>
     return WaveEntrance(
       index: index,
       rise: 10,
-      child: _TableRow<T>(
-      index: index,
-      hovered: _hover == index,
-      focused: _focusIndex == index,
-      selected: _selected.contains(widget.keyOf(item)),
-      current: current,
-      playing: playing,
-      title: widget.titleOf(item),
-      subtitle: widget.subtitleOf(item),
-      artist: showArtist ? widget.subtitleOf(item) : '',
-      showArtistColumn: showArtist,
-      album: showAlbum ? widget.albumOf(item) : '',
-      showAlbum: showAlbum,
-      quality: showQuality ? widget.qualityOf!(item) : '',
-      showQuality: showQuality,
-      dateAdded: showAdded ? widget.dateAddedOf!(item) : '',
-      showAdded: showAdded,
-      duration: widget.durationOf?.call(item) ?? '',
-      artworkUrl: widget.artworkOf(item),
-      artworkKind: widget.artworkKind,
-      artworkTitle: widget.artworkTitleOf?.call(item) ??
-          widget.titleOf(item),
-      artworkArtist: widget.artworkArtistOf?.call(item) ??
-          widget.subtitleOf(item),
-      videoId: widget.videoIdOf?.call(item) ?? '',
-      showLike: widget.showLike,
-      liked: widget.isLiked?.call(item) ?? false,
-      onHover: (v) => setState(
-        () => _hover = v ? index : -1,
-      ),
-      onTap: ({required bool ctrl, required bool shift}) =>
-          _onRowTap(index, ctrl: ctrl, shift: shift),
-      onDoubleTap: () => widget.onPlay(index),
-      onPlayOverlay: () => widget.onPlay(index),
-      onToggleLike: widget.onToggleLike == null
-          ? null
-          : () => widget.onToggleLike!(item),
-      menuItems: () =>
-          widget.menuBuilder?.call(ref, item) ??
-          waveTrackMenuItems(
-            context: context,
-            ref: ref,
-            playable: widget.playableOf(item),
-            title: widget.titleOf(item),
-            artist: widget.subtitleOf(item),
-            artworkUrl: widget.artworkOf(item),
-            removeLabel: widget.removeLabel,
-            onRemove: widget.onRemove == null
-                ? null
-                : () => widget.onRemove!(index),
-          ),
+      child: WaveScrollHover(
+        builder: (context, hovered) => _TableRow<T>(
+          index: index,
+          hovered: hovered,
+          focused: _focusIndex == index,
+          selected: _selected.contains(widget.keyOf(item)),
+          current: current,
+          playing: playing,
+          title: widget.titleOf(item),
+          subtitle: widget.subtitleOf(item),
+          artist: showArtist ? widget.subtitleOf(item) : '',
+          showArtistColumn: showArtist,
+          album: showAlbum ? widget.albumOf(item) : '',
+          showAlbum: showAlbum,
+          quality: showQuality ? widget.qualityOf!(item) : '',
+          showQuality: showQuality,
+          dateAdded: showAdded ? widget.dateAddedOf!(item) : '',
+          showAdded: showAdded,
+          duration: widget.durationOf?.call(item) ?? '',
+          artworkUrl: widget.artworkOf(item),
+          artworkKind: widget.artworkKind,
+          artworkTitle:
+              widget.artworkTitleOf?.call(item) ?? widget.titleOf(item),
+          artworkArtist:
+              widget.artworkArtistOf?.call(item) ?? widget.subtitleOf(item),
+          videoId: widget.videoIdOf?.call(item) ?? '',
+          showLike: widget.showLike,
+          liked: widget.isLiked?.call(item) ?? false,
+          onTap: ({required bool ctrl, required bool shift}) =>
+              _onRowTap(index, ctrl: ctrl, shift: shift),
+          onDoubleTap: () => widget.onPlay(index),
+          onPlayOverlay: () => widget.onPlay(index),
+          onToggleLike: widget.onToggleLike == null
+              ? null
+              : () => widget.onToggleLike!(item),
+          menuItems: () =>
+              widget.menuBuilder?.call(ref, item) ??
+              waveTrackMenuItems(
+                context: context,
+                ref: ref,
+                playable: widget.playableOf(item),
+                title: widget.titleOf(item),
+                artist: widget.subtitleOf(item),
+                artworkUrl: widget.artworkOf(item),
+                removeLabel: widget.removeLabel,
+                onRemove: widget.onRemove == null
+                    ? null
+                    : () => widget.onRemove!(index),
+              ),
+        ),
       ),
     );
   }
@@ -782,7 +791,6 @@ class _TableRow<T extends Object> extends StatelessWidget {
   final String videoId;
   final bool showLike;
   final bool liked;
-  final void Function(bool) onHover;
   final void Function({required bool ctrl, required bool shift}) onTap;
   final VoidCallback onDoubleTap;
   final VoidCallback onPlayOverlay;
@@ -813,7 +821,6 @@ class _TableRow<T extends Object> extends StatelessWidget {
     this.videoId = '',
     required this.showLike,
     required this.liked,
-    required this.onHover,
     required this.onTap,
     required this.onDoubleTap,
     required this.onPlayOverlay,
@@ -825,218 +832,209 @@ class _TableRow<T extends Object> extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
-    final tertiary =
-        dark ? WaveColors.textTertiary : WaveColors.lightTextTertiary;
+    final tertiary = dark
+        ? WaveColors.textTertiary
+        : WaveColors.lightTextTertiary;
 
     Color bg;
     if (selected) {
       bg = accent.withValues(alpha: 0.10);
     } else if (hovered || focused) {
-      bg = (dark ? Colors.white : Colors.black)
-          .withValues(alpha: 0.05);
+      bg = (dark ? Colors.white : Colors.black).withValues(alpha: 0.05);
     } else {
       bg = Colors.transparent;
     }
 
-    final row = MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => onHover(true),
-      onExit: (_) => onHover(false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (d) {
-          final keys = HardwareKeyboard.instance.logicalKeysPressed;
-          final ctrl = keys.contains(LogicalKeyboardKey.controlLeft) ||
-              keys.contains(LogicalKeyboardKey.controlRight) ||
-              keys.contains(LogicalKeyboardKey.metaLeft) ||
-              keys.contains(LogicalKeyboardKey.metaRight);
-          final shift = keys.contains(LogicalKeyboardKey.shiftLeft) ||
-              keys.contains(LogicalKeyboardKey.shiftRight);
-          onTap(ctrl: ctrl, shift: shift);
-        },
-        onDoubleTap: onDoubleTap,
-        child: AnimatedContainer(
-          duration: waveMotion(context, WaveMotion.fast),
-            height: WaveDensity.trackRow,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: WaveRadius.artworkRadius,
-              border: focused
-                  ? Border.all(
-                      color: waveFocusRing(context), width: WaveState.focusRing)
-                  : selected
-                      ? Border.all(
-                          color: accent.withValues(alpha: 0.35), width: 1)
-                      : Border.all(color: Colors.transparent),
-            ),
-            child: Row(
-              children: [
-                // 30px gutter: number → play on hover → animated EQ when playing.
-                SizedBox(
-                  width: 30,
-                  child: Center(
-                    child: Text(
-                                (index + 1).toString().padLeft(2, '0'),
-                                style: WaveType.meta.copyWith(
-                                  fontSize: 12,
-                                  fontFeatures: const [
-                                    FontFeature.tabularFigures()
-                                  ],
-                                  color: current ? accent : tertiary,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
+    final row = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (d) {
+        final keys = HardwareKeyboard.instance.logicalKeysPressed;
+        final ctrl =
+            keys.contains(LogicalKeyboardKey.controlLeft) ||
+            keys.contains(LogicalKeyboardKey.controlRight) ||
+            keys.contains(LogicalKeyboardKey.metaLeft) ||
+            keys.contains(LogicalKeyboardKey.metaRight);
+        final shift =
+            keys.contains(LogicalKeyboardKey.shiftLeft) ||
+            keys.contains(LogicalKeyboardKey.shiftRight);
+        onTap(ctrl: ctrl, shift: shift);
+      },
+      onDoubleTap: onDoubleTap,
+      child: AnimatedContainer(
+        duration: waveMotion(context, WaveMotion.fast),
+        height: WaveDensity.trackRow,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: WaveRadius.artworkRadius,
+          border: focused
+              ? Border.all(
+                  color: waveFocusRing(context),
+                  width: WaveState.focusRing,
+                )
+              : selected
+              ? Border.all(color: accent.withValues(alpha: 0.35), width: 1)
+              : Border.all(color: Colors.transparent),
+        ),
+        child: Row(
+          children: [
+            // 30px gutter: number → play on hover → animated EQ when playing.
+            SizedBox(
+              width: 30,
+              child: Center(
+                child: Text(
+                  (index + 1).toString().padLeft(2, '0'),
+                  style: WaveType.meta.copyWith(
+                    fontSize: 12,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: current ? accent : tertiary,
                   ),
+                  textAlign: TextAlign.center,
                 ),
-                // 40px art, radius 4, hover play overlay.
-                _ArtPlay(
-                  url: artworkUrl,
-                  title: artworkTitle.isNotEmpty ? artworkTitle : title,
-                  artist: artworkArtist.isNotEmpty ? artworkArtist : artist,
-                  kind: artworkKind,
-                  videoId: videoId,
-                  hovered: hovered,
-                  playing: playing,
-                  onPlay: onPlayOverlay,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 5,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: WaveType.trackTitle.copyWith(
-                          color: current
-                              ? accent
-                              : (dark
-                                  ? WaveColors.textPrimary
-                                  : WaveColors.lightTextPrimary),
-                        ),
+              ),
+            ),
+            // 40px art, radius 4, hover play overlay.
+            _ArtPlay(
+              url: artworkUrl,
+              title: artworkTitle.isNotEmpty ? artworkTitle : title,
+              artist: artworkArtist.isNotEmpty ? artworkArtist : artist,
+              kind: artworkKind,
+              videoId: videoId,
+              hovered: hovered,
+              playing: playing,
+              onPlay: onPlayOverlay,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 5,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.trackTitle.copyWith(
+                      color: current
+                          ? accent
+                          : (dark
+                                ? WaveColors.textPrimary
+                                : WaveColors.lightTextPrimary),
+                    ),
+                  ),
+                  if (subtitle.isNotEmpty)
+                    WaveArtistLine(
+                      artist: subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WaveType.meta.copyWith(
+                        color: dark
+                            ? WaveColors.textSecondary
+                            : WaveColors.lightTextSecondary,
                       ),
-                      if (subtitle.isNotEmpty)
-                        WaveArtistLine(
-                          artist: subtitle,
+                    ),
+                ],
+              ),
+            ),
+            if (showArtistColumn)
+              Expanded(
+                flex: 3,
+                child: WaveArtistLine(
+                  artist: artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WaveType.meta.copyWith(color: tertiary),
+                ),
+              ),
+            if (showAlbum)
+              Expanded(
+                flex: 3,
+                child: Text(
+                  album,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WaveType.meta.copyWith(color: tertiary),
+                ),
+              ),
+            if (showQuality)
+              SizedBox(
+                width: 64,
+                child: quality.isEmpty
+                    ? const SizedBox.shrink()
+                    : Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: waveOutline(context)),
+                          borderRadius: WaveRadius.controlsRadius,
+                        ),
+                        child: Text(
+                          quality,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
                           style: WaveType.meta.copyWith(
+                            fontSize: 10.5,
                             color: dark
                                 ? WaveColors.textSecondary
                                 : WaveColors.lightTextSecondary,
                           ),
                         ),
-                    ],
-                  ),
-                ),
-                if (showArtistColumn)
-                  Expanded(
-                    flex: 3,
-                    child: WaveArtistLine(
-                      artist: artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.meta.copyWith(color: tertiary),
-                    ),
-                  ),
-                if (showAlbum)
-                  Expanded(
-                    flex: 3,
-                    child: Text(
-                      album,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.meta.copyWith(color: tertiary),
-                    ),
-                  ),
-                if (showQuality)
-                  SizedBox(
-                    width: 64,
-                    child: quality.isEmpty
-                        ? const SizedBox.shrink()
-                        : Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: waveOutline(context),
-                              ),
-                              borderRadius: WaveRadius.controlsRadius,
-                            ),
-                            child: Text(
-                              quality,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: WaveType.meta.copyWith(
-                                fontSize: 10.5,
-                                color: dark
-                                    ? WaveColors.textSecondary
-                                    : WaveColors
-                                        .lightTextSecondary,
-                              ),
-                            ),
-                          ),
-                  ),
-                if (showAdded)
-                  SizedBox(
-                    width: 92,
-                    child: Text(
-                      dateAdded,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WaveType.meta.copyWith(color: tertiary),
-                    ),
-                  ),
-                // Hover-only like + more.
-                SizedBox(
-                  width: _kRowActions,
-                  child: AnimatedOpacity(
-                  duration: waveMotion(context, WaveMotion.fast),
-                  opacity: (hovered || current || liked) ? 1 : 0,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      if (showLike && onToggleLike != null)
-                        _HoverGlyph(
-                          tooltip: liked ? 'Unlike' : 'Like',
-                          icon: liked ? WaveIcons.likedFill : WaveIcons.liked,
-                          active: liked,
-                          onTap: onToggleLike!,
-                        ),
-                      _HoverGlyph(
-                        tooltip: 'More',
-                        icon: WaveIcons.more,
-                        menuItems: menuItems(),
                       ),
-                    ],
-                  ),
+              ),
+            if (showAdded)
+              SizedBox(
+                width: 92,
+                child: Text(
+                  dateAdded,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WaveType.meta.copyWith(color: tertiary),
                 ),
-                ),
-                SizedBox(
-                  width: _kDurationCol,
-                  child: Text(
-                    duration,
-                    maxLines: 1,
-                    overflow: TextOverflow.clip,
-                    textAlign: TextAlign.right,
-                    style: WaveType.meta.copyWith(
-                      fontFeatures: const [
-                        FontFeature.tabularFigures()
-                      ],
-                      color: tertiary,
+              ),
+            // Hover-only like + more.
+            SizedBox(
+              width: _kRowActions,
+              child: AnimatedOpacity(
+                duration: waveMotion(context, WaveMotion.fast),
+                opacity: (hovered || current || liked) ? 1 : 0,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (showLike && onToggleLike != null)
+                      _HoverGlyph(
+                        tooltip: liked ? 'Unlike' : 'Like',
+                        icon: liked ? WaveIcons.likedFill : WaveIcons.liked,
+                        active: liked,
+                        onTap: onToggleLike!,
+                      ),
+                    _HoverGlyph(
+                      tooltip: 'More',
+                      icon: WaveIcons.more,
+                      menuItems: menuItems,
                     ),
-                  ),
+                  ],
                 ),
-              ],
-          ),
+              ),
+            ),
+            SizedBox(
+              width: _kDurationCol,
+              child: Text(
+                duration,
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                textAlign: TextAlign.right,
+                style: WaveType.meta.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: tertiary,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1209,7 +1207,7 @@ class _HoverGlyph extends StatefulWidget {
   final IconData icon;
   final bool active;
   final VoidCallback? onTap;
-  final List<WaveMenuEntry>? menuItems;
+  final List<WaveMenuEntry> Function()? menuItems;
   const _HoverGlyph({
     required this.tooltip,
     required this.icon,
@@ -1257,8 +1255,8 @@ class _HoverGlyphState extends State<_HoverGlyph> {
     if (widget.menuItems != null) {
       return LWTooltip(
         message: widget.tooltip,
-        child: WaveMenuButton(
-          entries: widget.menuItems!,
+        child: WaveMenuButton.lazy(
+          buildEntries: widget.menuItems!,
           buttonBuilder: (context, onOpen) => GestureDetector(
             onTap: onOpen,
             child: hovered,

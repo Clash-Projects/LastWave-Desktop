@@ -2,10 +2,10 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/scheduler.dart';
 
-import '../../../ui/theme/tokens.dart';
+import '../../ui/theme/tokens.dart';
 
 /// ONE reusable Fluent scrollbar treatment.
 ///
@@ -51,12 +51,12 @@ class WaveScrollBehavior extends FluentScrollBehavior {
 
   @override
   Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-        PointerDeviceKind.stylus,
-        PointerDeviceKind.invertedStylus,
-      };
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+    PointerDeviceKind.invertedStylus,
+  };
 
   @override
   ScrollPhysics getScrollPhysics(BuildContext context) {
@@ -67,170 +67,176 @@ class WaveScrollBehavior extends FluentScrollBehavior {
     if (context.findAncestorWidgetOfExactType<EditableText>() != null) {
       return const NeverScrollableScrollPhysics();
     }
-    return const BouncingScrollPhysics(
-      parent: AlwaysScrollableScrollPhysics(),
-    );
+    return const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
   }
 
   @override
   Widget buildScrollbar(
-      BuildContext context, Widget child, ScrollableDetails details) {
-    Widget scrollbar;
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
     // Horizontal carousels: no bar. Even a fading one drew a line across
     // the artwork row; wheel, trackpad and drag scroll them.
     if (details.direction == AxisDirection.left ||
         details.direction == AxisDirection.right) {
-      scrollbar = child;
-    } else {
-      scrollbar = RawScrollbar(
-        controller: details.controller,
-        thumbVisibility: false,
-        thickness: 6,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        radius: const Radius.circular(WaveRadius.tiny),
-        minThumbLength: 40,
-        fadeDuration: WaveMotion.normal,
-        timeToFade: const Duration(milliseconds: 800),
-        child: child,
-      );
+      return child;
     }
-    return WaveSmoothScroll(
-      controller: details.controller,
-      direction: details.direction,
-      child: scrollbar,
-    );
+    return WaveThinScrollbar(controller: details.controller, child: child);
   }
 }
 
-/// Desktop mouse-wheel smoothing that feels native.
-///
-/// Each wheel notch moves a target; one [_GlideActivity] chases it every
-/// frame with exponential easing. Notches that arrive mid-glide just move
-/// the target, so a fast spin is one continuous motion. The previous
-/// version restarted a 200ms ease-out per notch, dropping to zero speed at
-/// every notch: the surge-and-stall that read as jitter. The activity also
-/// reports its real velocity, so image providers defer decoding while the
-/// list moves fast instead of hitching mid-scroll.
-class WaveSmoothScroll extends StatefulWidget {
-  final Widget child;
-  final ScrollController? controller;
-  final AxisDirection direction;
-
-  const WaveSmoothScroll({
-    super.key,
-    required this.child,
-    this.controller,
-    this.direction = AxisDirection.down,
+/// Smooths wheel notches at the scroll position, after Flutter resolves the
+/// event to the correct viewport. Works independently of scrollbar visibility.
+class WaveScrollController extends ScrollController {
+  WaveScrollController({
+    super.initialScrollOffset,
+    super.keepScrollOffset,
+    super.debugLabel,
   });
 
   @override
-  State<WaveSmoothScroll> createState() => _WaveSmoothScrollState();
+  ScrollPosition createScrollPosition(
+    ScrollPhysics physics,
+    ScrollContext context,
+    ScrollPosition? oldPosition,
+  ) => _WaveScrollPosition(
+    physics: physics,
+    context: context,
+    initialPixels: initialScrollOffset,
+    keepScrollOffset: keepScrollOffset,
+    oldPosition: oldPosition,
+    debugLabel: debugLabel,
+  );
 }
 
-class _WaveSmoothScrollState extends State<WaveSmoothScroll>
-    with TickerProviderStateMixin {
-  /// The running glide, if any. Kept here because
-  /// [ScrollPosition.activity] is protected; the activity flags itself
-  /// [_GlideActivity.done] once the position replaces or drops it.
-  _GlideActivity? _glide;
+/// Keeps hover feedback local and avoids replaying it on every row that
+/// passes under a stationary pointer during a scroll.
+class WaveScrollHover extends StatefulWidget {
+  const WaveScrollHover({super.key, required this.builder});
 
-  bool get _gliding => _glide != null && !_glide!.done;
-  void _onPointerSignal(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent) return;
-    final isVertical = widget.direction == AxisDirection.down ||
-        widget.direction == AxisDirection.up;
-    final delta = isVertical ? event.scrollDelta.dy : event.scrollDelta.dx;
-    if (delta == 0) return;
+  final Widget Function(BuildContext context, bool hovered) builder;
 
-    // Notched mouse wheel only (|delta| >= 20 per notch on Windows);
-    // trackpads already deliver fine-grained deltas.
-    if (event.kind != PointerDeviceKind.mouse || delta.abs() < 20.0) return;
+  @override
+  State<WaveScrollHover> createState() => _WaveScrollHoverState();
+}
 
-    // Claim the wheel only when THIS scrollable can move that way, so an
-    // edge-pinned inner list lets the page behind it scroll.
-    final controller = widget.controller;
-    if (controller == null || controller.positions.length != 1) return;
-    final position = controller.position;
-    if (position is! ScrollPositionWithSingleContext || !position.hasPixels) {
-      return;
-    }
-    if (position.maxScrollExtent <= position.minScrollExtent) return;
-    final gliding = _gliding;
-    final atStart = position.pixels <= position.minScrollExtent;
-    final atEnd = position.pixels >= position.maxScrollExtent;
-    if (!gliding && ((delta < 0 && atStart) || (delta > 0 && atEnd))) return;
+class _WaveScrollHoverState extends State<WaveScrollHover> {
+  ValueNotifier<bool>? _scrolling;
+  bool _inside = false;
+  bool _hovered = false;
 
-    GestureBinding.instance.pointerSignalResolver.register(event, (resolved) {
-      if (!mounted) return;
-      final e = resolved as PointerScrollEvent;
-      final d = isVertical ? e.scrollDelta.dy : e.scrollDelta.dx;
-      if (d == 0) return;
-      final current = _glide;
-      if (_gliding && identical(current!.position, position)) {
-        current.retarget(current.target + d);
-      } else {
-        final glide = _GlideActivity(position, this, position.pixels + d);
-        _glide = glide;
-        position.beginActivity(glide);
-      }
-    });
+  bool get _showHover => _inside && !(_scrolling?.value ?? false);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scrolling = Scrollable.maybeOf(context)?.position.isScrollingNotifier;
+    if (identical(scrolling, _scrolling)) return;
+    _scrolling?.removeListener(_updateHover);
+    _scrolling = scrolling;
+    _scrolling?.addListener(_updateHover);
+    _hovered = _showHover;
   }
 
-  void _onPointerDown(PointerDownEvent _) {
-    // A click or drag stops the glide where it is.
-    final controller = widget.controller;
-    if (controller == null || controller.positions.length != 1) return;
-    final position = controller.position;
-    if (_gliding && position is ScrollPositionWithSingleContext) {
-      position.goIdle();
-    }
+  void _updateHover() {
+    final hovered = _showHover;
+    if (_hovered != hovered) setState(() => _hovered = hovered);
+  }
+
+  @override
+  void dispose() {
+    _scrolling?.removeListener(_updateHover);
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Listener(
-      onPointerSignal: _onPointerSignal,
-      onPointerDown: _onPointerDown,
-      child: widget.child,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        _inside = true;
+        _updateHover();
+      },
+      onExit: (_) {
+        _inside = false;
+        _updateHover();
+      },
+      child: widget.builder(context, _hovered),
     );
   }
 }
 
-/// Moves the position toward [target] each frame: a fixed fraction of the
+class _WaveScrollPosition extends ScrollPositionWithSingleContext {
+  _WaveScrollPosition({
+    required super.physics,
+    required super.context,
+    required super.initialPixels,
+    required super.keepScrollOffset,
+    super.oldPosition,
+    super.debugLabel,
+  });
+
+  @override
+  void pointerScroll(double delta) {
+    final viewport = context.notificationContext;
+    // Precision-wheel deltas and inertia-cancel signals are handled directly.
+    // Trackpad pan/zoom and touch drags use Flutter's separate drag activity.
+    if (delta.abs() < 20 || (viewport != null && waveReduceMotion(viewport))) {
+      super.pointerScroll(delta);
+      return;
+    }
+
+    final target = (pixels + delta).clamp(minScrollExtent, maxScrollExtent);
+    if (target == pixels) return;
+    updateUserScrollDirection(
+      delta > 0 ? ScrollDirection.reverse : ScrollDirection.forward,
+    );
+    final current = activity;
+    if (current is _GlideActivity) {
+      current.addDelta(delta);
+    } else {
+      beginActivity(_GlideActivity(this, target.toDouble()));
+    }
+  }
+}
+
+/// Moves the position toward its target each frame: a fixed fraction of the
 /// remaining distance per unit time (time constant [_tau]), so speed
 /// carries smoothly between notches and eases out at the end.
 class _GlideActivity extends ScrollActivity {
-  _GlideActivity(this._position, TickerProvider vsync, double target)
-      : _target = _clamp(_position, target),
-        super(_position) {
-    _ticker = vsync.createTicker(_tick)..start();
+  _GlideActivity(_WaveScrollPosition position, this._target) : super(position) {
+    _ticker = position.context.vsync.createTicker(_tick)..start();
   }
 
-  static const double _tau = 0.085; // seconds
+  static const double _tau = 0.052; // seconds
 
-  final ScrollPositionWithSingleContext _position;
   late final Ticker _ticker;
   double _target;
-  Duration _last = Duration.zero;
+  Duration? _last;
   double _velocity = 0;
 
-  double get target => _target;
-  ScrollPosition get position => _position;
+  ScrollPositionWithSingleContext get _position =>
+      delegate as ScrollPositionWithSingleContext;
 
-  /// Set when the position replaced or dropped this activity.
-  bool done = false;
+  double _clamp(double value) =>
+      value.clamp(_position.minScrollExtent, _position.maxScrollExtent);
 
-  static double _clamp(ScrollPosition p, double v) =>
-      v.clamp(p.minScrollExtent, p.maxScrollExtent).toDouble();
-
-  void retarget(double target) => _target = _clamp(_position, target);
+  void addDelta(double delta) {
+    final pixels = _position.pixels;
+    final reversing = (_target - pixels) * delta < 0;
+    _target = _clamp((reversing ? pixels : _target) + delta);
+  }
 
   void _tick(Duration elapsed) {
-    final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
+    final last = _last;
+    final dt = last == null
+        ? 1 / 120
+        : ((elapsed - last).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _last = elapsed;
     if (dt == 0) return;
     // Extents can change mid-glide (lazy lists growing).
-    _target = _clamp(_position, _target);
+    _target = _clamp(_target);
     final from = _position.pixels;
     final remaining = _target - from;
     if (remaining.abs() < 0.5) {
@@ -259,7 +265,6 @@ class _GlideActivity extends ScrollActivity {
 
   @override
   void dispose() {
-    done = true;
     _ticker.dispose();
     super.dispose();
   }

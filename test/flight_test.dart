@@ -65,6 +65,7 @@ void main() {
 
   testWidgets('destination claims its own id and flies exactly once',
       (tester) async {
+    const coverKey = ValueKey('destination cover');
     late BuildContext source;
     await tester.pumpWidget(app(
       Center(
@@ -94,16 +95,27 @@ void main() {
         key: ValueKey('right'),
         kind: 'album',
         id: 'right',
-        child: SizedBox(width: 200, height: 200),
+        child: SizedBox(key: coverKey, width: 200, height: 200),
       ),
     ));
     await tester.pump();
     expect(WaveFlight.isArmed, isFalse);
 
-    // The overlay carries the flight while it runs, then hands back to the
-    // header's own cover.
-    expect(find.byType(WaveFlightTarget), findsOneWidget);
+    final header = find.byType(WaveFlightTarget);
+    final headerCover = find.descendant(of: header, matching: find.byKey(coverKey));
+    final headerOpacity = find.descendant(of: header, matching: find.byType(Opacity));
+    final initialCover = tester.element(headerCover);
+    await tester.pump(const Duration(milliseconds: 180));
+    expect(find.byKey(coverKey), findsNWidgets(2));
+    expect(tester.widget<Opacity>(headerOpacity).opacity, 0);
+
+    await tester.pump(const Duration(milliseconds: 140));
+    expect(find.byKey(coverKey), findsNWidgets(2));
+    expect(tester.widget<Opacity>(headerOpacity).opacity, 1);
+    expect(tester.element(headerCover), same(initialCover));
+
     await tester.pumpAndSettle();
+    expect(find.byKey(coverKey), findsOneWidget);
     await tester.pumpWidget(app(
       const WaveFlightTarget(
         kind: 'album',

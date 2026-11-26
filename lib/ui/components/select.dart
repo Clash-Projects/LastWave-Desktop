@@ -145,8 +145,9 @@ class _WaveSelectState<T> extends State<WaveSelect<T>> {
         preferredMode: FlyoutPlacementMode.bottomLeft,
       ),
       additionalOffset: 4,
-      transitionDuration: const Duration(milliseconds: 90),
-      transitionBuilder: fastFlyoutTransition,
+      transitionDuration: waveMotion(context, WaveMotion.flyout),
+      reverseTransitionDuration: waveMotion(context, WaveMotion.flyoutExit),
+      transitionBuilder: waveFlyoutTransition,
       builder: (context) => WaveFlyoutPanel.items(
         maxWidth: width,
         entries: [

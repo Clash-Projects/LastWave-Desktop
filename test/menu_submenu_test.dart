@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lastwave_desktop/core/storage/app_database.dart';
@@ -136,5 +137,23 @@ void main() {
 
     // The row itself is still there; nothing else is.
     expect(find.text('Add to playlist'), findsOneWidget);
+  });
+
+  testWidgets('long menus lazy-load rows and keep keyboard wrap usable', (
+    tester,
+  ) async {
+    var chosen = -1;
+    await _pumpPanel(tester, [
+      for (var i = 0; i < 100; i++)
+        WaveMenuAction(label: 'Option $i', onPressed: () => chosen = i),
+    ]);
+
+    expect(find.text('Option 0').hitTestable(), findsOneWidget);
+    expect(find.text('Option 99'), findsNothing);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(find.text('Option 99').hitTestable(), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(chosen, 99);
   });
 }

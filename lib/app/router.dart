@@ -40,33 +40,29 @@ Page<void> _page(Widget child) => _fadePage(
       curve: Curves.easeOutCubic,
     );
 
-/// The one crossfade builder. Both directions are always explicit: go_router
-/// defaults `reverseTransitionDuration` to **300 ms regardless of**
-/// `transitionDuration`, so every route used to push in 110 ms and pop out
-/// 300 ms — the exit (a stage has no incoming animation to mask it) read as a
-/// long slow dissolve while the entrance was instant.
-///
-/// [curve] is applied in both directions by `CurvedAnimation` when no
-/// `reverseCurve` is given, so an asymmetric curve (easeOut) also reads
-/// backwards: the exit holds near-full opacity and then drops, instead of
-/// mirroring the entrance. Pass a symmetric curve wherever the two have to
-/// look the same.
+/// Both durations are explicit because go_router defaults the reverse to 300ms.
 Page<void> _fadePage(
   Widget child, {
   required Duration duration,
   required Curve curve,
+  Duration? reverseDuration,
+  LocalKey? key,
 }) {
   return CustomTransitionPage(
+    key: key,
     child: child,
     transitionsBuilder:
         (context, animation, secondaryAnimation, child) {
+      final reduced = waveReduceMotion(context);
       return FadeTransition(
-        opacity: CurvedAnimation(parent: animation, curve: curve),
+        opacity: reduced
+            ? const AlwaysStoppedAnimation<double>(1)
+            : animation.drive(CurveTween(curve: curve)),
         child: child,
       );
     },
     transitionDuration: duration,
-    reverseTransitionDuration: duration,
+    reverseTransitionDuration: reverseDuration ?? duration,
   );
 }
 
@@ -91,62 +87,60 @@ Page<void> _fadePage(
 /// a stage cannot linger in [WaveRouteOrigin] and be inherited by the next
 /// route.
 ///
-/// 180 ms with a symmetric curve, deliberately: the old 110 ms in / 300 ms out
-/// pair was neither even nor mirror-able, and this stage has no incoming
-/// animation on the way out to hide it — the closing dissolve is the whole
-/// gesture. `easeInOutCubic` makes the exit the exact reverse of the entrance.
-Page<void> _stagePage(Widget child) {
+/// The window-sized stage gets its own slower dissolve with a quicker return.
+Page<void> _stagePage(BuildContext context, Widget child) {
   WaveRouteOrigin.consume();
   return _fadePage(
     child,
-    duration: WaveMotion.normal,
-    curve: Curves.easeInOutCubic,
+    duration: waveMotion(context, WaveMotion.stage),
+    reverseDuration: waveMotion(context, WaveMotion.slow),
+    curve: WaveMotion.move,
   );
 }
 
 /// Pointer-anchored entrance for routes opened from a surface the user pressed
 /// (a card, a cover).
 ///
-/// The destination grows out of the recorded press point — a 0.96 → 1 scale
+/// The destination grows out of the recorded press point — a 0.985 → 1 scale
 /// anchored at the pressed *height* (see [WaveRouteOrigin.alignmentIn] for why
 /// it is not anchored horizontally), under the same crossfade — so a tap reads
 /// as the page expanding out of what was tapped instead of a hard cut.
 /// Reversing the route plays the same curve backwards, shrinking back toward
 /// the origin.
 ///
-/// Falls back to [_page] whenever no fresh origin exists (deep link, hotkey,
-/// command palette, session restore) and drops to a plain fade when the OS
-/// reduce-motion switch is on.
-Page<void> _anchoredPage(Widget child) {
+/// With a cover flight or no pointer anchor, the detail page simply dissolves.
+Page<void> _anchoredPage(BuildContext context, Widget child, {LocalKey? key}) {
   final origin = WaveRouteOrigin.consume();
-  if (origin == null) return _page(child);
+  final duration = waveMotion(context, WaveMotion.slow);
   // A cover flight is already the motion (see flight.dart): scaling the page
   // underneath it would move the landing spot out from under the cover.
-  if (WaveFlight.isArmed) return _page(child);
+  if (origin == null || WaveFlight.isArmed) {
+    return _fadePage(
+      child,
+      duration: duration,
+      curve: WaveMotion.move,
+      key: key,
+    );
+  }
   return CustomTransitionPage(
+    key: key,
     child: child,
     transitionsBuilder:
         (context, animation, secondaryAnimation, child) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: WaveMotion.standard,
-      );
-      if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
-        return FadeTransition(opacity: curved, child: child);
-      }
+      final curved = waveReduceMotion(context)
+          ? const AlwaysStoppedAnimation<double>(1)
+          : animation.drive(CurveTween(curve: WaveMotion.move));
       return FadeTransition(
         opacity: curved,
         child: ScaleTransition(
-          scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
+          scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
           alignment: origin.alignmentIn(MediaQuery.sizeOf(context)),
           child: child,
         ),
       );
     },
-    transitionDuration: WaveMotion.normal,
-    // Same bug as [_page]: go_router would otherwise pop this in 300 ms while
-    // it entered in 180.
-    reverseTransitionDuration: WaveMotion.normal,
+    transitionDuration: duration,
+    reverseTransitionDuration: duration,
   );
 }
 
@@ -248,6 +242,7 @@ GoRouter buildRouter({required AuthGate gate}) {
               GoRoute(
                 path: '/album/:id',
                 pageBuilder: (c, s) => _anchoredPage(
+                  c,
                   WaveAlbumPage(
                     browseId: s.pathParameters['id'] ?? '',
                     // What the pressed card already knew. The selection
@@ -258,6 +253,7 @@ GoRouter buildRouter({required AuthGate gate}) {
                     fallbackArtist: s.uri.queryParameters['artist'] ?? '',
                     fallbackArt: s.uri.queryParameters['art'] ?? '',
                   ),
+                  key: s.pageKey,
                 ),
               ),
             ],
@@ -272,6 +268,7 @@ GoRouter buildRouter({required AuthGate gate}) {
               GoRoute(
                 path: '/artist/:name',
                 pageBuilder: (c, s) => _anchoredPage(
+                  c,
                   WaveArtistPage(
                     name: s.pathParameters['name'] ?? '',
                   ),
@@ -289,6 +286,7 @@ GoRouter buildRouter({required AuthGate gate}) {
                   GoRoute(
                     path: ':id',
                     pageBuilder: (c, s) => _anchoredPage(
+                      c,
                       WavePlaylistDetailPage(
                         id: int.tryParse(
                                 s.pathParameters['id'] ?? '') ??
@@ -301,6 +299,7 @@ GoRouter buildRouter({required AuthGate gate}) {
               GoRoute(
                 path: '/ytplaylist/:id',
                 pageBuilder: (c, s) => _anchoredPage(
+                  c,
                   WaveYtPlaylistDetailPage(
                     playlistId:
                         s.pathParameters['id'] ?? '',
@@ -314,6 +313,7 @@ GoRouter buildRouter({required AuthGate gate}) {
               GoRoute(
                 path: '/genre/:query',
                 pageBuilder: (c, s) => _anchoredPage(
+                  c,
                   WaveGenreDetailPage(
                     query: s.pathParameters['query'] ?? '',
                     title: s.uri.queryParameters['name'] ?? '',
@@ -323,6 +323,7 @@ GoRouter buildRouter({required AuthGate gate}) {
               GoRoute(
                 path: '/spotifyplaylist/:id',
                 pageBuilder: (c, s) => _anchoredPage(
+                  c,
                   WaveSpotifyPlaylistDetailPage(
                     playlistId: s.pathParameters['id'] ?? '',
                     title: s.uri.queryParameters['title'] ?? '',
@@ -350,6 +351,7 @@ GoRouter buildRouter({required AuthGate gate}) {
                   GoRoute(
                     path: ':id',
                     pageBuilder: (c, s) => _anchoredPage(
+                      c,
                       WavePodcastShowPage(
                         showId: s.pathParameters['id'] ?? '',
                         fallbackTitle:
@@ -386,7 +388,7 @@ GoRouter buildRouter({required AuthGate gate}) {
               GoRoute(
                 path: '/now',
                 pageBuilder: (c, s) =>
-                    _stagePage(const WaveNowPlayingPage()),
+                    _stagePage(c, const WaveNowPlayingPage()),
               ),
               GoRoute(
                 path: '/jam',

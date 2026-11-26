@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
+import '../../design_system/fluent/lw_scrollbar.dart';
 import '../components/buttons.dart' show LWTooltip;
 import '../theme/haze.dart';
 import '../theme/motion.dart';
@@ -28,6 +29,8 @@ class WaveSideRail extends StatefulWidget {
 }
 
 class _WaveSideRailState extends State<WaveSideRail> {
+  final _scrollController = WaveScrollController();
+
   bool get expanded => widget.expanded;
   String get active => widget.active;
   void Function(String) get onGo => widget.onGo;
@@ -43,6 +46,12 @@ class _WaveSideRailState extends State<WaveSideRail> {
   void didUpdateWidget(covariant WaveSideRail oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.expanded != widget.expanded) _rowCache.clear();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Widget _row(WaveDestination destination, int index, {double rise = 6}) {
@@ -90,8 +99,8 @@ class _WaveSideRailState extends State<WaveSideRail> {
         right: BorderSide(color: waveDivider(context)),
       ),
       child: AnimatedContainer(
-        duration: waveMotion(context, WaveMotion.normal),
-        curve: WaveMotion.standard,
+        duration: waveMotion(context, WaveMotion.drawer),
+        curve: WaveMotion.move,
         width: width,
       // The rail persists across navigation, so this group's timeline
       // runs exactly once — a startup cascade for the destinations.
@@ -101,6 +110,7 @@ class _WaveSideRailState extends State<WaveSideRail> {
           const SizedBox(height: 6),
           Expanded(
             child: ListView(
+              controller: _scrollController,
               padding: const EdgeInsets.symmetric(horizontal: 6),
               children: [
                 // One-shot startup cascade — standalone entrances run once
@@ -209,6 +219,7 @@ class _RailItemState extends State<_RailItem> {
     final label = widget.destination.localizedLabel(context);
     final dark = waveIsDark(context);
     final accent = waveAccent(context);
+    final reduced = waveReduceMotion(context);
     final bg = widget.selected
         ? (dark ? Colors.white : Colors.black).withValues(alpha: 0.08)
         : _hover
@@ -245,6 +256,7 @@ class _RailItemState extends State<_RailItem> {
           },
           child: AnimatedContainer(
             duration: waveMotion(context, WaveMotion.fast),
+            curve: WaveMotion.standard,
             height: itemHeight,
             margin: const EdgeInsets.symmetric(vertical: 1.5),
             padding: EdgeInsets.zero,
@@ -259,20 +271,26 @@ class _RailItemState extends State<_RailItem> {
             child: Stack(
               alignment: Alignment.centerLeft,
               children: [
-                AnimatedPositioned(
-                  duration: waveMotion(context, WaveMotion.fast),
-                  curve: Curves.easeOutCubic,
-                  left: widget.selected ? 0 : -4,
+                Positioned(
+                  left: 0,
                   top: (itemHeight - 16) / 2,
                   height: 16,
-                  child: AnimatedOpacity(
+                  child: AnimatedSlide(
+                    offset: widget.selected || reduced
+                        ? Offset.zero
+                        : const Offset(-1, 0),
                     duration: waveMotion(context, WaveMotion.fast),
-                    opacity: widget.selected ? 1.0 : 0.0,
-                    child: Container(
-                      width: 3,
-                      decoration: BoxDecoration(
-                        color: accent,
-                        borderRadius: WaveRadius.tinyRadius,
+                    curve: WaveMotion.standard,
+                    child: AnimatedOpacity(
+                      duration: waveMotion(context, WaveMotion.fast),
+                      curve: WaveMotion.standard,
+                      opacity: widget.selected ? 1.0 : 0.0,
+                      child: Container(
+                        width: 3,
+                        decoration: BoxDecoration(
+                          color: accent,
+                          borderRadius: WaveRadius.tinyRadius,
+                        ),
                       ),
                     ),
                   ),
@@ -292,12 +310,14 @@ class _RailItemState extends State<_RailItem> {
                             width: _iconBox,
                             child: Center(
                               child: AnimatedScale(
-                                scale: widget.selected
-                                    ? 1.06
-                                    : (_hover ? 1.03 : 1.0),
+                                scale: reduced
+                                    ? 1
+                                    : widget.selected
+                                        ? 1.06
+                                        : (_hover ? WaveMotion.hoverScale : 1),
                                 duration:
                                     waveMotion(context, WaveMotion.fast),
-                                curve: Curves.easeOutCubic,
+                                curve: WaveMotion.standard,
                                 child: Icon(
                                   widget.destination.icon,
                                   size: 18,
