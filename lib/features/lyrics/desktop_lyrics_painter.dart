@@ -154,6 +154,8 @@ class DesktopKaraokeLinePainter extends CustomPainter {
     double liftY = 0.0;
     double shiftX = 0.0;
     double skewX = 0.0;
+    double angle = 0.0;
+    double scale = 1.0;
 
     void applyMotion(double progress, double scaleFactor) {
       if (!springLift || progress <= 0.0 || progress >= 1.0) return;
@@ -185,6 +187,20 @@ class DesktopKaraokeLinePainter extends CustomPainter {
           break;
         case 'elastic_tilt':
           liftY = -4.0 * scaleFactor * bounce;
+          break;
+        case 'hyper_warp':
+          liftY = -16.0 * scaleFactor * bounce;
+          shiftX = 9.0 * math.sin(2 * math.pi * progress) * (1.0 - progress);
+          skewX = -0.42 * math.sin(2 * math.pi * progress);
+          angle = 0.16 * math.sin(3 * math.pi * progress);
+          scale = 1.0 + 0.34 * scaleFactor * bounce;
+          break;
+        case 'chaos_vortex':
+          liftY = -18.0 * scaleFactor * bounce;
+          shiftX = 10.0 * math.cos(3.5 * math.pi * progress) * (1.0 - progress);
+          angle = 0.34 * math.sin(3 * math.pi * progress);
+          skewX = 0.36 * math.cos(2.5 * math.pi * progress);
+          scale = 1.0 + 0.38 * scaleFactor * bounce;
           break;
       }
     }
@@ -220,16 +236,22 @@ class DesktopKaraokeLinePainter extends CustomPainter {
     // 3. Draw active text clipped by sweepX
     canvas.save();
     if (isRtl) {
-      canvas.clipRect(Rect.fromLTWH(layout.width - sweepX, -14, sweepX, layout.height + 28));
+      canvas.clipRect(Rect.fromLTWH(layout.width - sweepX, -20, sweepX, layout.height + 40));
     } else {
-      canvas.clipRect(Rect.fromLTWH(0, -14, sweepX, layout.height + 28));
+      canvas.clipRect(Rect.fromLTWH(0, -20, sweepX, layout.height + 40));
     }
 
     if (shiftX != 0.0 || liftY != 0.0) {
       canvas.translate(shiftX, liftY);
     }
-    if (skewX != 0.0) {
-      canvas.skew(skewX, 0.0);
+    if (skewX != 0.0 || angle != 0.0 || scale != 1.0) {
+      final cx = layout.width * 0.5;
+      final cy = layout.height * 0.5;
+      canvas.translate(cx, cy);
+      if (angle != 0.0) canvas.rotate(angle);
+      if (skewX != 0.0) canvas.skew(skewX, 0.0);
+      if (scale != 1.0) canvas.scale(scale, scale);
+      canvas.translate(-cx, -cy);
     }
 
     canvas.drawParagraph(layout.activeParagraph, Offset.zero);

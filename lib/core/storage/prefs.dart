@@ -273,14 +273,14 @@ class Prefs {
 
   static const lyricsAnimationOptions = <String, String>{
     'apple_fluid': 'Apple Fluid',
-    'glow_pulse': 'Luminous Glow',
     'karaoke_bounce': 'Rhythm Bounce',
     'kinetic_pop': 'Kinetic Pop',
     'neon_cyber': 'Neon Cyber',
     'italic_wave': 'Silk Italic',
     'glitch_snap': 'Chromatic Glitch',
     'elastic_tilt': '3D Stage Tilt',
-    'smooth_fade': 'Classic Fade',
+    'hyper_warp': 'Hyperdrive Warp',
+    'chaos_vortex': 'Chaos Vortex',
   };
 
   String get lyricsAnimation {

@@ -1125,12 +1125,14 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
     // Style-specific typography shared identically across idle, active-unsung,
     // and active styles so font metrics never snap or re-wrap lines on switch.
     final FontWeight lineWeight = switch (widget.animationStyle) {
+      'hyper_warp' || 'chaos_vortex' => FontWeight.w900,
       'kinetic_pop' || 'glitch_snap' || 'elastic_tilt' => FontWeight.w800,
       _ => FontWeight.w700,
     };
-    final FontStyle lineFontStyle = widget.animationStyle == 'italic_wave'
-        ? FontStyle.italic
-        : FontStyle.normal;
+    final FontStyle lineFontStyle = switch (widget.animationStyle) {
+      'italic_wave' || 'chaos_vortex' => FontStyle.italic,
+      _ => FontStyle.normal,
+    };
     final double lineTracking = joined
         ? 0.0
         : switch (widget.animationStyle) {
@@ -1139,27 +1141,14 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
             'italic_wave' => 0.35,
             'glitch_snap' => 0.25,
             'elastic_tilt' => -0.4,
+            'hyper_warp' => -0.8,
+            'chaos_vortex' => 0.6,
             _ => baseTracking,
           };
 
     List<Shadow>? activeShadows;
     if (widget.isActive) {
       switch (widget.animationStyle) {
-        case 'glow_pulse':
-          // Rich, perfectly centered multi-stop omnidirectional glow bloom:
-          activeShadows = [
-            Shadow(
-              color: activeTextColor.withValues(alpha: dark ? 0.65 : 0.40),
-              blurRadius: 8,
-              offset: Offset.zero,
-            ),
-            Shadow(
-              color: activeTextColor.withValues(alpha: dark ? 0.35 : 0.20),
-              blurRadius: 18,
-              offset: Offset.zero,
-            ),
-          ];
-          break;
         case 'apple_fluid':
           // Clean, subtle centered ambient aura:
           activeShadows = [
@@ -1250,7 +1239,46 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
             ),
           ];
           break;
-        case 'smooth_fade':
+        case 'hyper_warp':
+          // Supersonic plasma bloom: electric cyan + hyper-violet + bright core:
+          activeShadows = [
+            Shadow(
+              color: const Color(0xFF00F5FF).withValues(alpha: dark ? 0.92 : 0.70),
+              blurRadius: 8,
+              offset: const Offset(-3, 0),
+            ),
+            Shadow(
+              color: const Color(0xFF7B2FFF).withValues(alpha: dark ? 0.85 : 0.55),
+              blurRadius: 22,
+              offset: const Offset(3, 2),
+            ),
+            Shadow(
+              color: activeTextColor.withValues(alpha: dark ? 0.50 : 0.28),
+              blurRadius: 14,
+              offset: Offset.zero,
+            ),
+          ];
+          break;
+        case 'chaos_vortex':
+          // Prism concert flare: neon magenta + electric gold + deep punch:
+          activeShadows = [
+            Shadow(
+              color: const Color(0xFFFF1E6E).withValues(alpha: dark ? 0.90 : 0.68),
+              blurRadius: 6,
+              offset: const Offset(-3.5, -1.5),
+            ),
+            Shadow(
+              color: const Color(0xFFFFD000).withValues(alpha: dark ? 0.82 : 0.60),
+              blurRadius: 12,
+              offset: const Offset(3.5, 2.0),
+            ),
+            Shadow(
+              color: Colors.black.withValues(alpha: dark ? 0.65 : 0.28),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ];
+          break;
         default:
           activeShadows = null;
           break;
@@ -1436,6 +1464,27 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
             child: body,
           );
 
+    final Widget reactiveBody = (widget.isActive &&
+            widget.positionListenable != null &&
+            (widget.animationStyle == 'hyper_warp' ||
+                widget.animationStyle == 'chaos_vortex'))
+        ? AnimatedBuilder(
+            animation: widget.positionListenable!,
+            child: blurredBody,
+            builder: (context, child) => Transform(
+              alignment: widget.line.isRtl
+                  ? Alignment.centerRight
+                  : Alignment.centerLeft,
+              transform: _crazyReactorMatrix(
+                widget.animationStyle,
+                widget.positionListenable!.value,
+                widget.line.isRtl,
+              ),
+              child: child,
+            ),
+          )
+        : blurredBody;
+
     return IgnorePointer(
       ignoring: widget.lineOpacity < 0.05,
       child: AnimatedOpacity(
@@ -1451,12 +1500,16 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
                 context,
                 switch (widget.animationStyle) {
                   'glitch_snap' => const Duration(milliseconds: 170),
+                  'hyper_warp' => const Duration(milliseconds: 260),
                   'kinetic_pop' || 'elastic_tilt' => const Duration(milliseconds: 340),
+                  'chaos_vortex' => const Duration(milliseconds: 420),
                   _ => WaveMotion.normal,
                 },
               ),
               curve: switch (widget.animationStyle) {
-                'kinetic_pop' || 'elastic_tilt' => Curves.easeOutBack,
+                'kinetic_pop' || 'elastic_tilt' || 'hyper_warp' =>
+                  Curves.easeOutBack,
+                'chaos_vortex' => Curves.elasticOut,
                 'glitch_snap' => Curves.easeOutExpo,
                 _ => Curves.easeOutCubic,
               },
@@ -1477,13 +1530,44 @@ class _WaveKaraokeLyricLineState extends State<WaveKaraokeLyricLine> {
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: blurredBody,
+              child: reactiveBody,
             ),
           ),
         ),
       ),
     );
   }
+}
+
+/// Continuous beat-paced 3D reactor transform for the craziest lyric modes.
+Matrix4 _crazyReactorMatrix(String style, int posMs, bool isRtl) {
+  final dir = isRtl ? -1.0 : 1.0;
+  if (style == 'hyper_warp') {
+    final t = ((posMs % 3200) / 3200.0) * 2 * math.pi;
+    final pulse = 1.04 + 0.045 * math.sin(t * 2);
+    final m = Matrix4.identity()
+      ..setEntry(3, 2, 0.0028)
+      ..setEntry(0, 3, (6.0 + 7.0 * math.sin(t)) * dir)
+      ..setEntry(1, 3, -3.5 * math.cos(t * 2))
+      ..rotateX(-0.10 + 0.08 * math.cos(t))
+      ..rotateY(0.11 * math.sin(t) * dir)
+      ..rotateZ(0.032 * math.sin(t * 2) * dir);
+    m.multiply(Matrix4.diagonal3Values(pulse, pulse, 1.0));
+    return m;
+  }
+  final t = ((posMs % 2400) / 2400.0) * 2 * math.pi;
+  final sx = 1.03 + 0.065 * math.sin(t * 2);
+  final sy = 1.03 + 0.065 * math.cos(t * 2);
+  final m = Matrix4.identity()
+    ..setEntry(3, 2, 0.003)
+    ..setEntry(0, 3, 9.0 * math.sin(t * 2) * dir)
+    ..setEntry(1, 3, -6.0 * math.sin(t * 3).abs())
+    ..setEntry(0, 1, 0.085 * math.cos(t * 2) * dir)
+    ..rotateY(0.22 * math.sin(t) * dir)
+    ..rotateX(0.14 * math.cos(t))
+    ..rotateZ(0.068 * math.sin(t * 2) * dir);
+  m.multiply(Matrix4.diagonal3Values(sx, sy, 1.0));
+  return m;
 }
 
 /// GPU-only Matrix4 transform for the active lyric line (zero extra layers/CPU).
@@ -1510,6 +1594,24 @@ Matrix4 _activeLineTransform(String style, bool isActive, bool isRtl) {
         ..setEntry(3, 2, 0.0012)
         ..rotateY(-0.075 * dir);
       m.multiply(Matrix4.diagonal3Values(1.05, 1.05, 1.0));
+      return m;
+    case 'hyper_warp':
+      final m = Matrix4.identity()
+        ..setEntry(3, 2, 0.0022)
+        ..setEntry(0, 3, 10.0 * dir)
+        ..setEntry(1, 3, -3.0)
+        ..rotateX(-0.14)
+        ..rotateZ(-0.025 * dir);
+      m.multiply(Matrix4.diagonal3Values(1.095, 1.095, 1.0));
+      return m;
+    case 'chaos_vortex':
+      final m = Matrix4.identity()
+        ..setEntry(3, 2, 0.0025)
+        ..setEntry(0, 3, 8.0 * dir)
+        ..setEntry(1, 3, -4.0)
+        ..rotateY(0.14 * dir)
+        ..rotateZ(0.032 * dir);
+      m.multiply(Matrix4.diagonal3Values(1.08, 1.08, 1.0));
       return m;
     default:
       return Matrix4.diagonal3Values(1.025, 1.025, 1.0);
@@ -1619,6 +1721,8 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
 
   TextPainter? _idlePainter;
   TextPainter? _activePainter;
+  TextPainter? _ghostPainterA;
+  TextPainter? _ghostPainterB;
   List<TextPainter> _featherPainters = const [];
   String? _cachedText;
   String? _cachedActiveText;
@@ -1626,6 +1730,47 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
   TextStyle? _cachedActiveStyle;
   TextScaler? _cachedScaler;
   TextScaler? _cachedActiveScaler;
+  String? _cachedAnimStyle;
+
+  bool get _usesGhostPainters =>
+      widget.animationStyle == 'hyper_warp' ||
+      widget.animationStyle == 'chaos_vortex';
+
+  void _rebuildGhostPainters(
+    String text,
+    TextScaler scaler,
+    TextDirection textDirection,
+  ) {
+    _ghostPainterA?.dispose();
+    _ghostPainterB?.dispose();
+    _ghostPainterA = null;
+    _ghostPainterB = null;
+    if (!_usesGhostPainters) return;
+
+    final colorA = widget.animationStyle == 'hyper_warp'
+        ? const Color(0xFF00F5FF).withValues(alpha: 0.72)
+        : const Color(0xFFFF1E6E).withValues(alpha: 0.75);
+    final colorB = widget.animationStyle == 'hyper_warp'
+        ? const Color(0xFFB829FF).withValues(alpha: 0.72)
+        : const Color(0xFFFFD000).withValues(alpha: 0.75);
+
+    _ghostPainterA = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: widget.activeStyle.copyWith(color: colorA, shadows: const []),
+      ),
+      textDirection: textDirection,
+      textScaler: scaler,
+    )..layout();
+    _ghostPainterB = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: widget.activeStyle.copyWith(color: colorB, shadows: const []),
+      ),
+      textDirection: textDirection,
+      textScaler: scaler,
+    )..layout();
+  }
 
   /// Copy of the active style at `cover` opacity — used for the feather
   /// bands so glyphs and their glow both fade toward the unsung state.
@@ -1703,10 +1848,12 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
     if (_activePainter == null ||
         _cachedActiveText != text ||
         _cachedActiveStyle != widget.activeStyle ||
-        _cachedActiveScaler != scaler) {
+        _cachedActiveScaler != scaler ||
+        _cachedAnimStyle != widget.animationStyle) {
       _cachedActiveText = text;
       _cachedActiveStyle = widget.activeStyle;
       _cachedActiveScaler = scaler;
+      _cachedAnimStyle = widget.animationStyle;
       _activePainter?.dispose();
       _activePainter = TextPainter(
         text: TextSpan(text: text, style: widget.activeStyle),
@@ -1714,6 +1861,7 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
         textScaler: scaler,
       )..layout();
       _rebuildFeatherPainters(text, scaler, textDirection);
+      _rebuildGhostPainters(text, scaler, textDirection);
     }
   }
 
@@ -1722,6 +1870,8 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
     _stopListening();
     _idlePainter?.dispose();
     _activePainter?.dispose();
+    _ghostPainterA?.dispose();
+    _ghostPainterB?.dispose();
     for (final p in _featherPainters) {
       p.dispose();
     }
@@ -1782,6 +1932,8 @@ class _KaraokeSyllableWidgetState extends State<_KaraokeSyllableWidget> {
             initialPosMs: widget.initialPosMs,
             idlePainter: _idlePainter!,
             activePainter: _activePainter!,
+            ghostPainterA: _ghostPainterA,
+            ghostPainterB: _ghostPainterB,
             featherPainters: _featherPainters,
             isRtl: widget.isRtl,
             animationStyle: widget.animationStyle,
@@ -1802,6 +1954,8 @@ class _KaraokeSyllablePainter extends CustomPainter {
   final int initialPosMs;
   final TextPainter idlePainter;
   final TextPainter activePainter;
+  final TextPainter? ghostPainterA;
+  final TextPainter? ghostPainterB;
   final List<TextPainter> featherPainters;
   final bool isRtl;
   final String animationStyle;
@@ -1812,6 +1966,8 @@ class _KaraokeSyllablePainter extends CustomPainter {
     required this.initialPosMs,
     required this.idlePainter,
     required this.activePainter,
+    this.ghostPainterA,
+    this.ghostPainterB,
     required this.featherPainters,
     required this.isRtl,
     this.animationStyle = 'apple_fluid',
@@ -1837,15 +1993,17 @@ class _KaraokeSyllablePainter extends CustomPainter {
     Rect dirRect(double s0, double s1) {
       if (s1 - s0 < 0.05) return Rect.zero;
       return isRtl
-          ? Rect.fromLTRB(width - s1, -20, width - s0, size.height + 20)
-          : Rect.fromLTRB(s0, -20, s1, size.height + 20);
+          ? Rect.fromLTRB(width - s1, -80, width - s0, size.height + 80)
+          : Rect.fromLTRB(s0, -80, s1, size.height + 80);
     }
 
     double liftY = 0.0;
     double shiftX = 0.0;
-    double scale = 1.0;
+    double scaleX = 1.0;
+    double scaleY = 1.0;
     double angle = 0.0;
     double skewX = 0.0;
+
     if (progress > 0.0 && progress < 1.0) {
       final bounce = math.sin(math.pi * progress);
       switch (animationStyle) {
@@ -1858,13 +2016,13 @@ class _KaraokeSyllablePainter extends CustomPainter {
         case 'kinetic_pop':
           // Bold spring pop around syllable center + punchy upward leap.
           liftY = -5.2 * bounce;
-          scale = 1.0 + 0.13 * bounce;
+          scaleX = scaleY = 1.0 + 0.13 * bounce;
           break;
         case 'neon_cyber':
           // Forward speed slant + electric surge lift on syllable ignition.
           liftY = -3.4 * bounce;
           skewX = -0.11 * bounce;
-          scale = 1.0 + 0.05 * bounce;
+          scaleX = scaleY = 1.0 + 0.05 * bounce;
           break;
         case 'italic_wave':
           // Liquid silk tilt wave rippling across each syllable.
@@ -1883,24 +2041,164 @@ class _KaraokeSyllablePainter extends CustomPainter {
         case 'elastic_tilt':
           // Overshoot spring scale + playful twist arc.
           liftY = -4.2 * bounce;
-          scale = 1.0 + 0.10 * bounce;
+          scaleX = scaleY = 1.0 + 0.10 * bounce;
           angle = 0.032 * math.sin(2 * math.pi * progress);
+          break;
+        case 'hyper_warp':
+          // Supersonic 1.55x shockwave explosion + hyperspace whip.
+          final surge = bounce * math.exp(-1.1 * progress);
+          liftY = -22.0 * bounce;
+          shiftX = 12.0 * math.sin(2 * math.pi * progress) * (1.0 - progress);
+          scaleX = 1.0 + 0.55 * surge;
+          scaleY = 1.0 + 0.42 * surge;
+          skewX = -0.52 * math.sin(2 * math.pi * progress);
+          angle = 0.22 * math.sin(3 * math.pi * progress);
+          break;
+        case 'chaos_vortex':
+          // Unhinged rubber trampoline + 27deg pendulum spin + squash & stretch.
+          final decay = 1.0 - progress * 0.25;
+          liftY = -24.0 * bounce - 8.0 * math.sin(4 * math.pi * progress) * (1.0 - progress);
+          shiftX = 13.0 * math.cos(3.5 * math.pi * progress) * (1.0 - progress);
+          scaleX = 1.0 + 0.55 * bounce - 0.18 * math.cos(4 * math.pi * progress);
+          scaleY = 1.0 + 0.58 * math.sin(2 * math.pi * progress).abs();
+          angle = 0.48 * math.sin(3 * math.pi * progress) * decay;
+          skewX = 0.48 * math.cos(2.5 * math.pi * progress);
           break;
       }
     }
 
-    void applySyllableTransform() {
+    void applySyllableTransform([
+      double extraDx = 0.0,
+      double extraDy = 0.0,
+      double extraAngle = 0.0,
+      double extraScale = 1.0,
+    ]) {
       final cx = width * 0.5;
       final cy = size.height * 0.5;
-      if (shiftX != 0.0 || liftY != 0.0) {
-        canvas.translate(shiftX, liftY);
+      if (shiftX != 0.0 || liftY != 0.0 || extraDx != 0.0 || extraDy != 0.0) {
+        canvas.translate(shiftX + extraDx, liftY + extraDy);
       }
-      if (scale != 1.0 || angle != 0.0 || skewX != 0.0) {
+      if (scaleX != 1.0 ||
+          scaleY != 1.0 ||
+          angle != 0.0 ||
+          skewX != 0.0 ||
+          extraAngle != 0.0 ||
+          extraScale != 1.0) {
         canvas.translate(cx, cy);
-        if (angle != 0.0) canvas.rotate(angle);
+        if (angle != 0.0 || extraAngle != 0.0) canvas.rotate(angle + extraAngle);
         if (skewX != 0.0) canvas.skew(skewX, 0.0);
-        if (scale != 1.0) canvas.scale(scale, scale);
+        if (scaleX != 1.0 || scaleY != 1.0 || extraScale != 1.0) {
+          canvas.scale(scaleX * extraScale, scaleY * extraScale);
+        }
         canvas.translate(-cx, -cy);
+      }
+    }
+
+    // Crazy Canvas VFX (shockwave rings, warp lasers, orbiting RGB ghosts, confetti shards)
+    if (progress > 0.0 && progress < 1.0) {
+      final cx = width * 0.5 + shiftX;
+      final cy = size.height * 0.5 + liftY;
+      final baseRadius = math.max(width, size.height) * 0.55;
+
+      if (animationStyle == 'hyper_warp') {
+        final fadeOut = (1.0 - progress).clamp(0.0, 1.0);
+        // Expanding cyan + violet shockwave rings
+        final ringRadius = baseRadius * (0.3 + 1.45 * progress);
+        final ringPaint = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = (3.5 * fadeOut).clamp(0.5, 4.0)
+          ..color = const Color(0xFF00F5FF).withValues(alpha: 0.72 * fadeOut);
+        canvas.drawCircle(Offset(cx, cy), ringRadius, ringPaint);
+        ringPaint
+          ..color = const Color(0xFFB829FF).withValues(alpha: 0.55 * fadeOut)
+          ..strokeWidth = (2.2 * fadeOut).clamp(0.5, 3.0);
+        canvas.drawCircle(Offset(cx, cy), ringRadius * 0.72, ringPaint);
+
+        // 10 radial supersonic warp speed streaks
+        final streakPaint = Paint()
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = 2.0 * fadeOut
+          ..color = const Color(0xFF00F5FF).withValues(alpha: 0.85 * fadeOut);
+        for (var k = 0; k < 10; k++) {
+          final theta = (k / 10.0) * 2 * math.pi + progress * 1.4;
+          final r0 = baseRadius * (0.45 + 0.65 * progress);
+          final r1 = r0 + 18.0 * (0.4 + progress);
+          canvas.drawLine(
+            Offset(cx + math.cos(theta) * r0, cy + math.sin(theta) * r0),
+            Offset(cx + math.cos(theta) * r1, cy + math.sin(theta) * r1),
+            streakPaint,
+          );
+        }
+
+        // Flying cyan + violet afterimage text ghosts
+        if (ghostPainterA != null && ghostPainterB != null) {
+          final trail = 1.0 - progress;
+          for (final (painter, dx, dy, ds) in [
+            (ghostPainterB!, -18.0 * trail, 6.0 * trail, 1.08),
+            (ghostPainterA!, -9.0 * trail, 3.0 * trail, 1.04),
+            (ghostPainterA!, 10.0 * trail, -4.0 * trail, 0.98),
+          ]) {
+            canvas.save();
+            applySyllableTransform(dx, dy, 0.0, ds);
+            painter.paint(canvas, Offset.zero);
+            canvas.restore();
+          }
+        }
+      } else if (animationStyle == 'chaos_vortex') {
+        final fadeOut = (1.0 - progress * 0.85).clamp(0.0, 1.0);
+        final orbitR = 20.0 * math.sin(math.pi * progress);
+        final spin = progress * 6.0 * math.pi;
+
+        // 4 orbiting kaleidoscope magenta + gold text echoes
+        if (ghostPainterA != null && ghostPainterB != null) {
+          for (var k = 0; k < 4; k++) {
+            final theta = spin + k * (math.pi * 0.5);
+            final painter = k.isEven ? ghostPainterA! : ghostPainterB!;
+            canvas.save();
+            applySyllableTransform(
+              math.cos(theta) * orbitR,
+              math.sin(theta) * orbitR,
+              0.15 * math.sin(theta),
+              0.94,
+            );
+            painter.paint(canvas, Offset.zero);
+            canvas.restore();
+          }
+        }
+
+        // Exploding neon confetti diamond shards + double vortex rings
+        final ringPaint = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5 * fadeOut
+          ..color = const Color(0xFFFF1E6E).withValues(alpha: 0.72 * fadeOut);
+        canvas.drawCircle(
+          Offset(cx, cy),
+          baseRadius * (0.4 + 1.2 * progress),
+          ringPaint,
+        );
+        ringPaint.color = const Color(0xFFFFD000).withValues(alpha: 0.65 * fadeOut);
+        canvas.drawCircle(
+          Offset(cx, cy),
+          baseRadius * (0.25 + 0.9 * progress),
+          ringPaint,
+        );
+
+        final shardPaint = Paint()..style = PaintingStyle.fill;
+        for (var k = 0; k < 12; k++) {
+          final theta = (k / 12.0) * 2 * math.pi + progress * 4.5;
+          final dist = baseRadius * (0.35 + 1.35 * progress);
+          final sx = cx + math.cos(theta) * dist;
+          final sy = cy + math.sin(theta) * dist;
+          shardPaint.color = (k.isEven
+                  ? const Color(0xFFFF1E6E)
+                  : const Color(0xFFFFD000))
+              .withValues(alpha: 0.9 * fadeOut);
+          canvas.save();
+          canvas.translate(sx, sy);
+          canvas.rotate(theta + progress * 8.0);
+          canvas.drawRect(const Rect.fromLTWH(-3.5, -2.0, 7.0, 4.0), shardPaint);
+          canvas.restore();
+        }
       }
     }
 
@@ -1934,6 +2232,8 @@ class _KaraokeSyllablePainter extends CustomPainter {
         oldDelegate.syllable != syllable ||
         oldDelegate.idlePainter != idlePainter ||
         oldDelegate.activePainter != activePainter ||
+        oldDelegate.ghostPainterA != ghostPainterA ||
+        oldDelegate.ghostPainterB != ghostPainterB ||
         oldDelegate.featherPainters != featherPainters ||
         oldDelegate.isRtl != isRtl ||
         oldDelegate.animationStyle != animationStyle;

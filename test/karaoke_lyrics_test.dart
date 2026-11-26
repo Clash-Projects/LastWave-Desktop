@@ -427,6 +427,24 @@ void main() {
       await prefs.setCdMode(false);
       expect(prefs.cdMode, isFalse);
     });
+
+    test('lyrics animation options exclude basic glow/fade and include hyper_warp & chaos_vortex',
+        () async {
+      expect(Prefs.lyricsAnimationOptions.containsKey('glow_pulse'), isFalse);
+      expect(Prefs.lyricsAnimationOptions.containsKey('smooth_fade'), isFalse);
+      expect(Prefs.lyricsAnimationOptions['hyper_warp'], equals('Hyperdrive Warp'));
+      expect(Prefs.lyricsAnimationOptions['chaos_vortex'], equals('Chaos Vortex'));
+
+      await prefs.setLyricsAnimation('hyper_warp');
+      expect(prefs.lyricsAnimation, equals('hyper_warp'));
+
+      await prefs.setLyricsAnimation('chaos_vortex');
+      expect(prefs.lyricsAnimation, equals('chaos_vortex'));
+
+      // Removed legacy styles fall back cleanly to apple_fluid.
+      await prefs.setLyricsAnimation('smooth_fade');
+      expect(prefs.lyricsAnimation, equals('apple_fluid'));
+    });
   });
 
   group('Lyrics Provider Racing & Candidate Ranking', () {

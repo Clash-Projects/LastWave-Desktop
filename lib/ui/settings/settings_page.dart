@@ -1396,8 +1396,6 @@ class _Lyrics extends ConsumerWidget {
           child: _BehaviourSelectRow(
             title: 'Animation style',
             subtitle: switch (prefs.lyricsAnimation) {
-              'glow_pulse' =>
-                'Rich centered radial glow bloom with steady alignment',
               'karaoke_bounce' => 'Energetic rhythmic syllable bounce',
               'kinetic_pop' =>
                 'Ultra-bold punchy type with spring-popping syllables',
@@ -1409,7 +1407,10 @@ class _Lyrics extends ConsumerWidget {
                 'RGB chromatic split with crisp digital snap-in pulses',
               'elastic_tilt' =>
                 '3D perspective stage lean with elastic overshoot motion',
-              'smooth_fade' => 'Minimalist clean highlight without motion',
+              'hyper_warp' =>
+                'Continuous 3D warp surge with shockwave rings, laser streaks, and cyan/violet afterimages',
+              'chaos_vortex' =>
+                'Unhinged 3D stage sway with rubber squash-and-stretch spin, orbiting prism echoes, and confetti shards',
               _ => 'Smooth fluid syllable wipe with gentle micro-float',
             },
             value: prefs.lyricsAnimation,
