@@ -65,9 +65,7 @@ class WaveStatsPage extends ConsumerWidget {
     final viewport = MediaQuery.sizeOf(context).width;
 
     final pad = viewport < 900 ? 16.0 : viewport < 1300 ? 24.0 : 28.0;
-    final side =
-        ((viewport - WaveDensity.contentMax) / 2).clamp(0, double.infinity) +
-            pad;
+    final side = pad;
 
     return WaveEntranceGroup(
       start: stats != null,

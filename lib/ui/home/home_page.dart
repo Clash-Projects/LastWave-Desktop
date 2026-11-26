@@ -71,11 +71,9 @@ class WaveHomePage extends ConsumerWidget {
             ref.watch(spotifyAuthProvider).connected;
 
     // Responsive shell: <900 single col, 900–1300 two col, 1300+ three col,
-    // content capped at 1280 and centered.
+    // edge-to-edge with responsive side gutters at all DPI scales.
     final pad = viewport < 900 ? 16.0 : viewport < 1300 ? 24.0 : 28.0;
-    final side =
-        ((viewport - WaveDensity.contentMax) / 2).clamp(0, double.infinity) +
-            pad;
+    final side = pad;
     final quickCols = viewport < 900 ? 1 : viewport < 1300 ? 2 : 3;
 
     final showPerfBanner = ref.watch(isModestHardwareProvider) &&
