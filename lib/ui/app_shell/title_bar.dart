@@ -18,7 +18,8 @@ import '../../features/lastfm/profile_providers.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../../app/accessibility.dart';
-import '../components/buttons.dart' show LWTooltip, WaveA11yButton;
+import '../components/buttons.dart'
+    show LWTooltip, WaveA11yButton, WaveButton, WaveFilledButton;
 import '../components/inputs.dart';
 import '../components/menus.dart'
     show
@@ -1021,26 +1022,71 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
     } catch (_) {}
   }
 
+  Future<void> _editDisplayName() async {
+    final current = ref.read(localDisplayNameProvider);
+    final controller = TextEditingController(text: current);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => ContentDialog(
+        title: const Text('Your name'),
+        content: TextBox(
+          controller: controller,
+          decoration: waveInputDecoration(),
+          placeholder: 'e.g. Ajisth (leave empty to use YouTube)',
+          autofocus: true,
+          onSubmitted: (v) => Navigator.of(dialogContext).pop(v.trim()),
+        ),
+        actions: [
+          if (current.isNotEmpty)
+            WaveButton(
+              onPressed: () => Navigator.of(dialogContext).pop(''),
+              child: const Text('Clear'),
+            ),
+          WaveButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          WaveFilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted) return;
+    await ref.read(prefsProvider).setDisplayName(result);
+    if (mounted) {
+      ref.read(localDisplayNameProvider.notifier).state = result;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     final ytConn = ref.watch(ytConnectionProvider);
     final ytAccount = ref.watch(ytAccountProvider).valueOrNull;
     final localPic = ref.watch(localProfilePictureProvider).trim();
+    final customName = ref.watch(localDisplayNameProvider).trim();
+    final displayName = ref.watch(titleBarDisplayNameProvider);
     final avatarUrl = ref.watch(titleBarAvatarUrlProvider);
     final isYtConnected = ytConn.connected;
     final ytName = (ytAccount?.name.isNotEmpty == true)
         ? ytAccount!.name
         : ytConn.profileEmail;
+    final labelName = displayName.isNotEmpty ? displayName : ytName;
 
-    final tooltip = isYtConnected
-        ? (ytName.isNotEmpty ? 'YouTube: $ytName' : 'YouTube Music connected')
-        : (localPic.isNotEmpty
-            ? 'Profile picture'
-            : 'YouTube & profile picture');
-    final a11yLabel = isYtConnected && ytName.isNotEmpty
-        ? 'YouTube profile, $ytName'
-        : 'YouTube & profile picture';
+    final tooltip = labelName.isNotEmpty
+        ? labelName
+        : (isYtConnected
+            ? 'YouTube Music connected'
+            : (localPic.isNotEmpty
+                ? 'Profile picture'
+                : 'YouTube & profile'));
+    final a11yLabel = labelName.isNotEmpty
+        ? 'Profile, $labelName'
+        : 'YouTube & profile';
 
     Widget avatar;
     if (avatarUrl.isNotEmpty) {
@@ -1055,9 +1101,9 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
         child: WaveArtwork.circle(
           url: avatarUrl,
           size: 26,
-          label: ytName,
-          title: ytName,
-          artist: ytName,
+          label: labelName,
+          title: labelName,
+          artist: labelName,
           upgrade: false,
         ),
       );
@@ -1073,9 +1119,9 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
           border: Border.all(color: waveDivider(context)),
         ),
         child: Center(
-          child: isYtConnected && ytName.isNotEmpty
+          child: labelName.isNotEmpty
               ? Text(
-                  ytName[0].toUpperCase(),
+                  labelName[0].toUpperCase(),
                   style: WaveType.label.copyWith(fontSize: 11),
                 )
               : Icon(
@@ -1090,13 +1136,12 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
     return WaveMenuButton(
       entries: [
         WaveMenuAction(
-          leading: const Icon(FluentIcons.video, size: 15),
-          label: isYtConnected
-              ? (ytName.isNotEmpty ? 'YouTube: $ytName' : 'YouTube Music connected')
-              : 'Connect YouTube Music',
-          onPressed: () => context.go('/settings?section=integrations'),
+          leading: const Icon(FluentIcons.edit, size: 15),
+          label: customName.isNotEmpty
+              ? 'Name: $customName'
+              : 'Set your name…',
+          onPressed: _editDisplayName,
         ),
-        const WaveMenuSeparator(),
         WaveMenuAction(
           leading: const Icon(FluentIcons.photo2, size: 15),
           label: localPic.isNotEmpty
@@ -1110,6 +1155,14 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
             label: 'Remove local picture',
             onPressed: _clearLocalPicture,
           ),
+        const WaveMenuSeparator(),
+        WaveMenuAction(
+          leading: const Icon(FluentIcons.video, size: 15),
+          label: isYtConnected
+              ? (ytName.isNotEmpty ? 'YouTube: $ytName' : 'YouTube Music connected')
+              : 'Connect YouTube Music',
+          onPressed: () => context.go('/settings?section=integrations'),
+        ),
       ],
       buttonBuilder: (context, onOpen) => WaveA11yButton(
         label: a11yLabel,

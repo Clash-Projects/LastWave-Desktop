@@ -65,6 +65,11 @@ final localProfilePictureProvider = StateProvider<String>((ref) {
   return ref.watch(prefsProvider).profilePicturePath;
 });
 
+/// User-configured local display name (e.g. for Home greeting and avatar).
+final localDisplayNameProvider = StateProvider<String>((ref) {
+  return ref.watch(prefsProvider).displayName;
+});
+
 /// Title-bar avatar source: local picture first, then connected YouTube
 /// channel photo. Never tied to Last.fm or other scrobblers.
 final titleBarAvatarUrlProvider = Provider.autoDispose<String>((ref) {
@@ -77,4 +82,28 @@ final titleBarAvatarUrlProvider = Provider.autoDispose<String>((ref) {
   }
 
   return '';
+});
+
+/// Title-bar display name: local display name first, then connected YouTube
+/// channel name. Never tied to Last.fm or other scrobblers.
+final titleBarDisplayNameProvider = Provider.autoDispose<String>((ref) {
+  final custom = ref.watch(localDisplayNameProvider).trim();
+  if (custom.isNotEmpty) return custom;
+
+  final ytAccount = ref.watch(ytAccountProvider).valueOrNull;
+  if (ytAccount != null && ytAccount.name.isNotEmpty) {
+    return ytAccount.name;
+  }
+
+  return '';
+});
+
+/// Greeting name on Home: custom display name first, then YouTube channel
+/// name, then active scrobbler username.
+final homeDisplayNameProvider = Provider.autoDispose<String>((ref) {
+  final titleBarName = ref.watch(titleBarDisplayNameProvider);
+  if (titleBarName.isNotEmpty) return titleBarName;
+
+  final session = ref.watch(activeScrobblerSessionProvider);
+  return session.connected ? session.username : '';
 });

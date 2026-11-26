@@ -693,12 +693,17 @@ class Prefs {
   Future<void> setStudioClarityPreset(String v) =>
       _sp.setString('lw_studio_clarity_preset', v);
 
-  // -- Profile picture (local file override) --------------------------------
+  // -- Profile picture & display name (local overrides) ---------------------
   String get profilePicturePath =>
       _sp.getString('lw_profile_picture_path') ?? '';
 
   Future<void> setProfilePicturePath(String path) =>
       _sp.setString('lw_profile_picture_path', path.trim());
+
+  String get displayName => _sp.getString('lw_display_name') ?? '';
+
+  Future<void> setDisplayName(String name) =>
+      _sp.setString('lw_display_name', name.trim());
 
   // -- App Updates ------------------------------------------------------------
   /// GitHub release version the user opted to suppress automatic startup popups for.

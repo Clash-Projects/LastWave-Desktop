@@ -234,6 +234,35 @@ void main() {
         equals('https://example.com/youtube_avatar.png'),
       );
     });
+
+    test('display name prefers custom name, then YouTube, and ignores Last.fm on title bar',
+        () async {
+      final prefs = await Prefs.load();
+      final container = ProviderContainer(
+        overrides: [
+          prefsProvider.overrideWithValue(prefs),
+          authRepositoryProvider.overrideWith(
+            (ref) => _MockAuth(const AuthState(
+              status: AuthStatus.signedIn,
+              username: 'lastfm_user',
+            )),
+          ),
+          ytAccountProvider.overrideWith(
+            (ref) => Future.value(const YtAccount(name: 'YouTube Name')),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(ytAccountProvider.future);
+      expect(container.read(titleBarDisplayNameProvider), equals('YouTube Name'));
+      expect(container.read(homeDisplayNameProvider), equals('YouTube Name'));
+
+      await prefs.setDisplayName('Ajisth');
+      container.read(localDisplayNameProvider.notifier).state = 'Ajisth';
+      expect(container.read(titleBarDisplayNameProvider), equals('Ajisth'));
+      expect(container.read(homeDisplayNameProvider), equals('Ajisth'));
+    });
   });
 }
 

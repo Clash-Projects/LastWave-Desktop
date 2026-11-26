@@ -18,8 +18,8 @@ import '../../features/performance/performance_controller.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/innertube/innertube_api.dart';
 import '../../features/innertube/yt_library_providers.dart';
+import '../../features/lastfm/profile_providers.dart';
 import '../../features/podcasts/podcast_models.dart';
-import '../../features/scrobblers/scrobbler_session.dart';
 import '../../features/search/shared_providers.dart';
 import '../../features/podcasts/podcast_repository.dart';
 import '../../features/player/playback_service.dart';
@@ -59,7 +59,6 @@ class WaveHomePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final feed = ref.watch(feedProvider);
-    final scrobbler = ref.watch(activeScrobblerSessionProvider);
     // Watched at build top (never inside the `when` branches): the
     // empty-state copy is honest about connectivity only when the
     // device state is actually observed.
@@ -83,7 +82,7 @@ class WaveHomePage extends ConsumerWidget {
         !ref.watch(performanceModeProvider) &&
         !ref.watch(performancePromptDismissedProvider);
 
-    final username = scrobbler.connected ? scrobbler.username : '';
+    final username = ref.watch(homeDisplayNameProvider);
     final date = DateFormat('EEEE, MMM d').format(DateTime.now());
 
     // One shared WinUI entrance timeline for the whole page: it starts
