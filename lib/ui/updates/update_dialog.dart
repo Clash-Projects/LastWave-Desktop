@@ -263,13 +263,11 @@ class _UpdateDialogState extends ConsumerState<UpdateDialog> {
                   color: waveOutline(context),
                 ),
               ),
-              child: Scrollbar(
-                child: SingleChildScrollView(
-                  child: _ChangelogRenderer(
-                    markdown: widget.update.changelog.isNotEmpty
-                        ? widget.update.changelog
-                        : 'No detailed release notes provided.',
-                  ),
+              child: SingleChildScrollView(
+                child: _ChangelogRenderer(
+                  markdown: widget.update.changelog.isNotEmpty
+                      ? widget.update.changelog
+                      : 'No detailed release notes provided.',
                 ),
               ),
             ),
