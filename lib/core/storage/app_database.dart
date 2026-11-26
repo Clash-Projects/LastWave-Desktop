@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import '../audio/artist_parser.dart';
+import '../diagnostics/diagnostics_log.dart';
 
 /// Desktop persistent storage. Schema mirrors LastWave-native
 /// `AppDatabase` (Room, v12) tables plus desktop additions:
@@ -28,10 +30,62 @@ class AppDatabase {
   static Future<AppDatabase> open() async {
     final dir = await getApplicationSupportDirectory();
     final file = p.join(dir.path, 'lastwave.db');
+    try {
+      return _openAndMigrate(file);
+    } catch (firstErr) {
+      DiagnosticsLog.info('AppDatabase.open failed ($firstErr); clearing WAL sidecars');
+      _deleteSidecars(file);
+      try {
+        return _openAndMigrate(file);
+      } catch (secondErr) {
+        DiagnosticsLog.info('AppDatabase.open retry failed ($secondErr); quarantining DB');
+        _quarantineDb(file);
+        try {
+          return _openAndMigrate(file);
+        } catch (thirdErr) {
+          DiagnosticsLog.info('AppDatabase.open fallback to in-memory ($thirdErr)');
+          return AppDatabase.inMemory();
+        }
+      }
+    }
+  }
+
+  static AppDatabase _openAndMigrate(String file) {
     final db = sqlite3.open(file);
-    final instance = AppDatabase._(db);
-    instance._migrate();
-    return instance;
+    try {
+      final instance = AppDatabase._(db);
+      instance._migrate();
+      return instance;
+    } catch (_) {
+      try {
+        db.close();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  static void _deleteSidecars(String file) {
+    for (final suffix in const ['-wal', '-shm', '-journal']) {
+      try {
+        final f = File('$file$suffix');
+        if (f.existsSync()) f.deleteSync();
+      } catch (_) {}
+    }
+  }
+
+  static void _quarantineDb(String file) {
+    _deleteSidecars(file);
+    try {
+      final f = File(file);
+      if (!f.existsSync()) return;
+      final backup = File('$file.corrupt');
+      if (backup.existsSync()) backup.deleteSync();
+      f.renameSync(backup.path);
+    } catch (_) {
+      try {
+        File(file).deleteSync();
+      } catch (_) {}
+    }
   }
 
   /// In-memory instance for tests.
@@ -45,6 +99,7 @@ class AppDatabase {
   Database get raw => _db;
 
   void _migrate() {
+    _db.execute('PRAGMA busy_timeout=5000;');
     _db.execute('PRAGMA journal_mode=WAL;');
     _db.execute('PRAGMA synchronous=NORMAL;');
     _db.execute('PRAGMA cache_size=-2000;');

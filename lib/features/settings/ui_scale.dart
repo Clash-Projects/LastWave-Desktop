@@ -32,6 +32,7 @@ class UiScaleNotifier extends StateNotifier<double> {
   UiScaleNotifier(this._prefs) : super(_clampScale(_prefs.uiScale));
 
   static double _clampScale(double val) {
+    if (!val.isFinite) return UiScalePresets.standard;
     if (val < UiScalePresets.min) return UiScalePresets.min;
     if (val > UiScalePresets.max) return UiScalePresets.max;
     return (val * 100).round() / 100.0;

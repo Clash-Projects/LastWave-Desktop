@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lastwave_desktop/core/storage/prefs.dart';
 import 'package:lastwave_desktop/features/innertube/innertube_api.dart';
 import 'package:lastwave_desktop/features/innertube/yt_library_providers.dart';
 import 'package:lastwave_desktop/features/lastfm/auth_repository.dart';
@@ -163,6 +164,75 @@ void main() {
       );
 
       expect(find.byType(WaveArtwork), findsOneWidget);
+    });
+  });
+
+  group('titleBarAvatarUrlProvider', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('ignores Last.fm avatar and uses YouTube photoUrl when connected',
+        () async {
+      final prefs = await Prefs.load();
+      final container = ProviderContainer(
+        overrides: [
+          prefsProvider.overrideWithValue(prefs),
+          authRepositoryProvider.overrideWith(
+            (ref) => _MockAuth(const AuthState(
+              status: AuthStatus.signedIn,
+              username: 'test_user',
+            )),
+          ),
+          userProfileStatsProvider.overrideWith(
+            (ref, viewing) => Future.value(const HomeStats(
+              avatarUrl: 'https://example.com/lastfm_avatar.png',
+            )),
+          ),
+          ytAccountProvider.overrideWith(
+            (ref) => Future.value(const YtAccount(
+              photoUrl: 'https://example.com/youtube_avatar.png',
+            )),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(ytAccountProvider.future);
+      expect(
+        container.read(titleBarAvatarUrlProvider),
+        equals('https://example.com/youtube_avatar.png'),
+      );
+    });
+
+    test('prefers local picture path over YouTube and works when signed out',
+        () async {
+      final prefs = await Prefs.load();
+      await prefs.setProfilePicturePath('C:\\Pictures\\avatar.png');
+      final container = ProviderContainer(
+        overrides: [
+          prefsProvider.overrideWithValue(prefs),
+          ytAccountProvider.overrideWith(
+            (ref) => Future.value(const YtAccount(
+              photoUrl: 'https://example.com/youtube_avatar.png',
+            )),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(ytAccountProvider.future);
+      expect(
+        container.read(titleBarAvatarUrlProvider),
+        equals('C:\\Pictures\\avatar.png'),
+      );
+
+      await prefs.setProfilePicturePath('');
+      container.read(localProfilePictureProvider.notifier).state = '';
+      expect(
+        container.read(titleBarAvatarUrlProvider),
+        equals('https://example.com/youtube_avatar.png'),
+      );
     });
   });
 }

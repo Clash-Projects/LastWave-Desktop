@@ -102,7 +102,6 @@ class WaveHomePage extends ConsumerWidget {
                 greeting: _greeting,
                 username: username,
                 date: date,
-                signedIn: scrobbler.connected,
               ),
             ),
           ),
@@ -849,12 +848,10 @@ class _Header extends StatelessWidget {
   final String greeting;
   final String username;
   final String date;
-  final bool signedIn;
   const _Header({
     required this.greeting,
     required this.username,
     required this.date,
-    required this.signedIn,
   });
 
   @override
@@ -875,7 +872,7 @@ class _Header extends StatelessWidget {
               Text(
                 username.isNotEmpty
                     ? 'For $username · $date · picked from your taste'
-                    : '$date · picked for you · connect Last.fm for more',
+                    : '$date · picked for you',
                 style: WaveType.meta.copyWith(
                   color: dark
                       ? WaveColors.textSecondary
@@ -890,30 +887,6 @@ class _Header extends StatelessWidget {
           icon: WaveIcons.edit,
           onPressed: () => context.go('/home-layout'),
         ),
-        if (!signedIn) ...[
-          const SizedBox(width: 8),
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-            onTap: () => context.go('/settings?section=lastfm'),
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: dark ? Colors.white : Colors.black,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                'Connect',
-                style: WaveType.label.copyWith(
-                  color: dark ? Colors.black : Colors.white,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ),
-          ),
-        ],
       ],
     );
   }

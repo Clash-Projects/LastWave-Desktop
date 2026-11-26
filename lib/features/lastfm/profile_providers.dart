@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/storage/prefs.dart';
 import '../home/home_snapshot.dart';
 import '../innertube/yt_library_providers.dart';
 import '../scrobblers/scrobbler_session.dart';
@@ -51,6 +52,25 @@ final userAvatarUrlProvider = Provider.autoDispose<String>((ref) {
   }
 
   // Fallback: YouTube connected profile photo if available
+  final ytAccount = ref.watch(ytAccountProvider).valueOrNull;
+  if (ytAccount != null && ytAccount.photoUrl.isNotEmpty) {
+    return ytAccount.photoUrl;
+  }
+
+  return '';
+});
+
+/// User-selected local image path for the title-bar avatar.
+final localProfilePictureProvider = StateProvider<String>((ref) {
+  return ref.watch(prefsProvider).profilePicturePath;
+});
+
+/// Title-bar avatar source: local picture first, then connected YouTube
+/// channel photo. Never tied to Last.fm or other scrobblers.
+final titleBarAvatarUrlProvider = Provider.autoDispose<String>((ref) {
+  final localPath = ref.watch(localProfilePictureProvider).trim();
+  if (localPath.isNotEmpty) return localPath;
+
   final ytAccount = ref.watch(ytAccountProvider).valueOrNull;
   if (ytAccount != null && ytAccount.photoUrl.isNotEmpty) {
     return ytAccount.photoUrl;

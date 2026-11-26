@@ -2892,7 +2892,9 @@ class _Sources extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final urls = ref.watch(prefsProvider).addonUrls;
+    final prefs = ref.watch(prefsProvider);
+    final urls = prefs.addonUrls;
+    final addonsEnabled = prefs.addonsEnabled;
     final src = ref.watch(losslessApiProvider);
     final quotas = src is AddonApi
         ? src.quotaByBase
@@ -2902,10 +2904,23 @@ class _Sources extends ConsumerWidget {
       title: 'Addon sources',
       subtitle: urls.isEmpty
           ? 'No addon configured — using the built-in lossless backend'
-          : 'Addons serve the lossless tier instead of the built-in backend',
+          : (addonsEnabled
+              ? 'Addons serve the lossless tier instead of the built-in backend'
+              : 'Addons turned off — using the built-in lossless backend'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          _SwitchRow(
+            value: addonsEnabled,
+            onChanged: (v) async {
+              await onUpdate((p) => p.setAddonsEnabled(v));
+              ref.invalidate(losslessApiProvider);
+            },
+            title: 'Enable addons',
+            subtitle:
+                'Turn off to pause all configured addons without removing their URLs.',
+          ),
+          const SizedBox(height: 12),
           if (AppEnv.addonClientSecret.isEmpty &&
               urls.any((u) => AddonApi.tokenOfRoot(u).isNotEmpty))
             const Padding(
@@ -2920,6 +2935,7 @@ class _Sources extends ConsumerWidget {
             _AddonRow(
               url: u,
               quota: quotas[u],
+              enabled: addonsEnabled,
               onRemove: () async {
                 await onUpdate(
                   (p) => p.setAddonUrls(urls.where((e) => e != u).toList()),
@@ -3027,7 +3043,10 @@ class _Sources extends ConsumerWidget {
     }
     final root = parsed.root;
     final next = [...urls.where((e) => e != root), root];
-    await onUpdate((p) => p.setAddonUrls(next));
+    await onUpdate((p) async {
+      await p.setAddonUrls(next);
+      if (!p.addonsEnabled) await p.setAddonsEnabled(true);
+    });
     ref.invalidate(losslessApiProvider);
     ref.invalidate(addonManifestProvider);
   }
@@ -3036,10 +3055,12 @@ class _Sources extends ConsumerWidget {
 class _AddonRow extends ConsumerWidget {
   final String url;
   final AddonQuota? quota;
+  final bool enabled;
   final Future<void> Function() onRemove;
   const _AddonRow({
     required this.url,
     required this.quota,
+    required this.enabled,
     required this.onRemove,
   });
 
@@ -3047,36 +3068,41 @@ class _AddonRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final manifest = ref.watch(addonManifestProvider(url)).valueOrNull;
     final host = Uri.tryParse(url)?.host ?? url;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          const Icon(FluentIcons.cloud, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  manifest?.name ?? host,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WaveType.trackTitle,
-                ),
-                Text(
-                  manifest == null ? '$host · unreachable' : host,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WaveType.meta.copyWith(
-                    color: waveTextSecondary(context),
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.5,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          children: [
+            const Icon(FluentIcons.cloud, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    manifest?.name ?? host,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.trackTitle,
                   ),
-                ),
-              ],
+                  Text(
+                    !enabled
+                        ? '$host · off'
+                        : (manifest == null ? '$host · unreachable' : host),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.meta.copyWith(
+                      color: waveTextSecondary(context),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          WaveButton(onPressed: () => onRemove(), child: const Text('Remove')),
-        ],
+            WaveButton(onPressed: () => onRemove(), child: const Text('Remove')),
+          ],
+        ),
       ),
     );
   }

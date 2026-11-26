@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -47,6 +48,10 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     } catch (_) {}
     try {
       windowManager.addListener(this);
+      // Arm prevent-close only once WindowLifecycle is mounted and listening
+      // for onWindowClose(), so a startup crash can never trap an unclosable
+      // blank window.
+      windowManager.setPreventClose(true).catchError((_) {});
       windowManager.isMaximized().then((m) {
         if (mounted) ref.read(windowMaximizedProvider.notifier).state = m;
       }).catchError((_) {});
@@ -94,7 +99,10 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
       trayManager.removeListener(this);
     } catch (_) {}
     try {
-      await trayManager.destroy();
+      await trayManager.destroy().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {},
+      );
     } catch (_) {}
     try {
       windowManager.removeListener(this);
@@ -102,14 +110,22 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
     try {
       // Let the native WM_CLOSE path run exactly once. Calling close()
       // with prevent-close still armed would re-fire onWindowClose.
-      await windowManager.setPreventClose(false);
+      await windowManager.setPreventClose(false).timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {},
+      );
     } catch (_) {}
     // Deliberate shutdown: the next boot then reports `previous_exit:
     // clean` instead of flagging this run as a crash in the log export.
     DiagnosticsLog.markCleanExit();
     try {
-      await windowManager.close();
-    } catch (_) {}
+      await windowManager.close().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => exit(0),
+      );
+    } catch (_) {
+      exit(0);
+    }
   }
 
   @override

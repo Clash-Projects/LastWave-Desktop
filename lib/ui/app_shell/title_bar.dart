@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,9 +10,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/track_actions.dart' show playGenerated;
+import '../../core/storage/prefs.dart';
 import '../../features/feed/feed_repository.dart' show GeneratedTrack;
+import '../../features/innertube/innertube_api.dart' show ytConnectionProvider;
+import '../../features/innertube/yt_library_providers.dart';
 import '../../features/lastfm/profile_providers.dart';
-import '../../features/scrobblers/scrobbler_session.dart';
 import '../../features/search/search_repository.dart';
 import '../components/artwork.dart';
 import '../../app/accessibility.dart';
@@ -993,20 +996,51 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
   bool _hover = false;
   bool _pressed = false;
 
+  Future<void> _pickLocalPicture() async {
+    try {
+      final file = await FilePicker.pickFile(
+        dialogTitle: 'Choose profile picture',
+        type: FileType.image,
+      );
+      final path = file?.path;
+      if (path == null || path.trim().isEmpty || !mounted) return;
+      final clean = path.trim();
+      await ref.read(prefsProvider).setProfilePicturePath(clean);
+      if (mounted) {
+        ref.read(localProfilePictureProvider.notifier).state = clean;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _clearLocalPicture() async {
+    try {
+      await ref.read(prefsProvider).setProfilePicturePath('');
+      if (mounted) {
+        ref.read(localProfilePictureProvider.notifier).state = '';
+      }
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
-    final session = ref.watch(activeScrobblerSessionProvider);
-    final avatarUrl = ref.watch(userAvatarUrlProvider);
-    final isSignedIn = session.connected;
-    final username = session.username;
+    final ytConn = ref.watch(ytConnectionProvider);
+    final ytAccount = ref.watch(ytAccountProvider).valueOrNull;
+    final localPic = ref.watch(localProfilePictureProvider).trim();
+    final avatarUrl = ref.watch(titleBarAvatarUrlProvider);
+    final isYtConnected = ytConn.connected;
+    final ytName = (ytAccount?.name.isNotEmpty == true)
+        ? ytAccount!.name
+        : ytConn.profileEmail;
 
-    final tooltip = isSignedIn
-        ? '$username (${session.displayName})'
-        : 'Connect a scrobbler';
-    final a11yLabel = isSignedIn
-        ? 'Profile, $username'
-        : 'Connect a scrobbler';
+    final tooltip = isYtConnected
+        ? (ytName.isNotEmpty ? 'YouTube: $ytName' : 'YouTube Music connected')
+        : (localPic.isNotEmpty
+            ? 'Profile picture'
+            : 'YouTube & profile picture');
+    final a11yLabel = isYtConnected && ytName.isNotEmpty
+        ? 'YouTube profile, $ytName'
+        : 'YouTube & profile picture';
 
     Widget avatar;
     if (avatarUrl.isNotEmpty) {
@@ -1021,9 +1055,9 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
         child: WaveArtwork.circle(
           url: avatarUrl,
           size: 26,
-          label: username,
-          title: username,
-          artist: username,
+          label: ytName,
+          title: ytName,
+          artist: ytName,
           upgrade: false,
         ),
       );
@@ -1039,50 +1073,79 @@ class _ProfileBtnState extends ConsumerState<_ProfileBtn> {
           border: Border.all(color: waveDivider(context)),
         ),
         child: Center(
-          child: Text(
-            isSignedIn && username.isNotEmpty
-                ? username[0].toUpperCase()
-                : '?',
-            style: WaveType.label.copyWith(fontSize: 11),
-          ),
+          child: isYtConnected && ytName.isNotEmpty
+              ? Text(
+                  ytName[0].toUpperCase(),
+                  style: WaveType.label.copyWith(fontSize: 11),
+                )
+              : Icon(
+                  FluentIcons.contact,
+                  size: 13,
+                  color: waveTextSecondary(context),
+                ),
         ),
       );
     }
 
-    return WaveA11yButton(
-      label: a11yLabel,
-      onTap: () => context.go(isSignedIn ? '/profile' : '/settings'),
-      child: LWTooltip(
-        message: tooltip,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hover = true),
-          onExit: (_) => setState(() {
-            _hover = false;
-            _pressed = false;
-          }),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => context.go(isSignedIn ? '/profile' : '/settings'),
-            onTapDown: (_) => setState(() => _pressed = true),
-            onTapUp: (_) => setState(() => _pressed = false),
-            onTapCancel: () => setState(() => _pressed = false),
-            child: AnimatedScale(
-              scale: _pressed ? 0.92 : (_hover ? 1.05 : 1.0),
-              duration: waveMotion(context, WaveMotion.fast),
-              curve: Curves.easeOutCubic,
-              child: AnimatedContainer(
+    return WaveMenuButton(
+      entries: [
+        WaveMenuAction(
+          leading: const Icon(FluentIcons.video, size: 15),
+          label: isYtConnected
+              ? (ytName.isNotEmpty ? 'YouTube: $ytName' : 'YouTube Music connected')
+              : 'Connect YouTube Music',
+          onPressed: () => context.go('/settings?section=integrations'),
+        ),
+        const WaveMenuSeparator(),
+        WaveMenuAction(
+          leading: const Icon(FluentIcons.photo2, size: 15),
+          label: localPic.isNotEmpty
+              ? 'Change local picture…'
+              : 'Choose local picture…',
+          onPressed: _pickLocalPicture,
+        ),
+        if (localPic.isNotEmpty)
+          WaveMenuAction(
+            leading: const Icon(FluentIcons.delete, size: 15),
+            label: 'Remove local picture',
+            onPressed: _clearLocalPicture,
+          ),
+      ],
+      buttonBuilder: (context, onOpen) => WaveA11yButton(
+        label: a11yLabel,
+        onTap: onOpen,
+        child: LWTooltip(
+          message: tooltip,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hover = true),
+            onExit: (_) => setState(() {
+              _hover = false;
+              _pressed = false;
+            }),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onOpen,
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapUp: (_) => setState(() => _pressed = false),
+              onTapCancel: () => setState(() => _pressed = false),
+              child: AnimatedScale(
+                scale: _pressed ? 0.92 : (_hover ? 1.05 : 1.0),
                 duration: waveMotion(context, WaveMotion.fast),
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _pressed
-                      ? wavePressedWash(context)
-                      : _hover
-                          ? waveHoverWash(context)
-                          : Colors.transparent,
+                curve: Curves.easeOutCubic,
+                child: AnimatedContainer(
+                  duration: waveMotion(context, WaveMotion.fast),
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _pressed
+                        ? wavePressedWash(context)
+                        : _hover
+                            ? waveHoverWash(context)
+                            : Colors.transparent,
+                  ),
+                  child: avatar,
                 ),
-                child: avatar,
               ),
             ),
           ),

@@ -96,6 +96,7 @@ Future<String> buildDiagnosticsReport(WidgetRef ref) async {
   b.writeln('  youtube_connected: ${yt.connected}');
   b.writeln('  spotify_connected: ${ref.read(spotifyAuthProvider).connected}');
   b.writeln('  addon_hosts: ${prefs.addonUrls.length}');
+  b.writeln('  addons_enabled: ${prefs.addonsEnabled}');
   b.writeln('  lyrics_provider: ${prefs.lyricsProviderId}');
   b.writeln();
 

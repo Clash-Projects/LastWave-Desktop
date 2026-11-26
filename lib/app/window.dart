@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui' show Color;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -19,29 +18,46 @@ Future<void> setupWindow() async {
   await _setupAcrylic();
   try {
     await windowManager.ensureInitialized();
-    // Route every close request (× button, Alt+F4) through Dart
-    // instead of raw GTK destroy: the shell decides hide-to-tray vs
-    // ordered quit. Without this, Alt+F4 tears the engine down while
-    // libmpv's thread is still calling into Dart (startup crash).
-    await windowManager.setPreventClose(true);
-    const options = WindowOptions(
-      // No size/center: the runner opens maximized (win32_window.cpp)
-      // and owns the restore size. Small enough for half / quarter snaps
-      // on a 1080p screen at 150%.
-      minimumSize: Size(600, 330),
-      title: 'LastWave',
-      titleBarStyle: TitleBarStyle.hidden,
-      // Neutral graphite — the Wave token, so first frame never flashes
-      // a different base in either theme.
-      backgroundColor: WaveColors.background,
-    );
-    await windowManager.waitUntilReadyToShow(options, () async {
-      await windowManager.show();
-      await windowManager.focus();
-    });
+    if (Platform.isWindows) {
+      // Configure window chrome before the first Flutter frame fires
+      // FlutterWindow::SetNextFrameCallback (which shows maximized).
+      // Do NOT call show() or setPreventClose(true) here — if startup
+      // fails before WindowLifecycle mounts, the window must stay hidden
+      // or closable rather than trapping an empty grey frame on screen.
+      await windowManager.setTitleBarStyle(
+        TitleBarStyle.hidden,
+        windowButtonVisibility: true,
+      );
+      await windowManager.setMinimumSize(const Size(600, 330));
+      await windowManager.setTitle('LastWave');
+      await windowManager.setBackgroundColor(WaveColors.background);
+    } else {
+      const options = WindowOptions(
+        minimumSize: Size(600, 330),
+        title: 'LastWave',
+        titleBarStyle: TitleBarStyle.hidden,
+        backgroundColor: WaveColors.background,
+      );
+      await windowManager.waitUntilReadyToShow(options, () async {
+        await windowManager.show();
+        await windowManager.focus();
+      });
+    }
   } catch (_) {}
   await _setupTray();
   await _setupHotkeys();
+}
+
+/// Ensures the native window is shown and focused after the first Flutter
+/// frame has painted.
+Future<void> revealWindow() async {
+  if (!Platform.isWindows) return;
+  try {
+    if (!await windowManager.isVisible()) {
+      await windowManager.show();
+    }
+    await windowManager.focus();
+  } catch (_) {}
 }
 
 Future<void> _setupAcrylic() async {

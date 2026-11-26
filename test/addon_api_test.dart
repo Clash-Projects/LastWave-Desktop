@@ -3,9 +3,12 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/core/env/app_env.dart';
+import 'package:lastwave_desktop/core/storage/prefs.dart';
 import 'package:lastwave_desktop/features/addons/addon_api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 String _hex(String c) => List.filled(64, c).join();
 
@@ -1269,6 +1272,30 @@ void main() {
       final queries = AddonApi.searchQueries(
           'Chuttamalle', 'Shilpa Rao', 'Devara Part 1 (Telugu)');
       expect(queries.first, contains('telugu'));
+    });
+  });
+
+  group('addonsEnabled toggle', () {
+    test('losslessApiProvider respects prefs.addonsEnabled', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await Prefs.load();
+      await prefs.setAddonUrls(['https://addons.example.com/a/${_hex('a')}/']);
+      expect(prefs.addonsEnabled, isTrue);
+
+      final container = ProviderContainer(
+        overrides: [prefsProvider.overrideWithValue(prefs)],
+      );
+      addTearDown(container.dispose);
+
+      expect(container.read(losslessApiProvider).isConfigured, isTrue);
+
+      await prefs.setAddonsEnabled(false);
+      container.invalidate(losslessApiProvider);
+      expect(container.read(losslessApiProvider).isConfigured, isFalse);
+
+      await prefs.setAddonsEnabled(true);
+      container.invalidate(losslessApiProvider);
+      expect(container.read(losslessApiProvider).isConfigured, isTrue);
     });
   });
 }

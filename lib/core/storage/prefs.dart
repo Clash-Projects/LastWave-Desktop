@@ -1,7 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../diagnostics/diagnostics_log.dart';
 
 /// Settings + session persistence.
 ///
@@ -11,8 +16,37 @@ class Prefs {
   final SharedPreferences _sp;
   Prefs(this._sp);
 
-  static Future<Prefs> load() async =>
-      Prefs(await SharedPreferences.getInstance());
+  static Future<Prefs> load() async {
+    try {
+      return Prefs(await SharedPreferences.getInstance());
+    } catch (e) {
+      DiagnosticsLog.info('Prefs.load failed ($e); recovering preferences');
+      await _quarantineCorruptPrefsFile();
+      try {
+        return Prefs(await SharedPreferences.getInstance());
+      } catch (retryError) {
+        DiagnosticsLog.info('Prefs.load retry failed ($retryError); using memory fallback');
+        return Prefs(_MemorySharedPreferences());
+      }
+    }
+  }
+
+  static Future<void> _quarantineCorruptPrefsFile() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final file = File(p.join(dir.path, 'shared_preferences.json'));
+      if (!file.existsSync()) return;
+      final backup = File(p.join(dir.path, 'shared_preferences.json.corrupt'));
+      try {
+        if (backup.existsSync()) backup.deleteSync();
+        file.renameSync(backup.path);
+      } catch (_) {
+        try {
+          file.deleteSync();
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
 
   // -- Last.fm BYOK (bring your own keys) ---------------------------------
   // No bundled API keys ship with the app: the user enters their own
@@ -608,6 +642,14 @@ class Prefs {
   Future<void> setVerboseLogs(bool v) => _sp.setBool('lw_verbose_logs', v);
 
   // -- Addon sources (personal addon URLs) ----------------------------------
+  /// Master switch for personal addon sources. Default on so configured
+  /// addons work without extra setup; toggling off pauses addons without
+  /// deleting saved URLs.
+  bool get addonsEnabled => _sp.getBool('lw_addons_enabled') ?? true;
+
+  Future<void> setAddonsEnabled(bool v) =>
+      _sp.setBool('lw_addons_enabled', v);
+
   /// User-pasted addon roots (`{base}/a/<token>/`), JSON-encoded.
   List<String> get addonUrls {
     final raw = _sp.getString('lw_addon_urls') ?? '';
@@ -650,6 +692,13 @@ class Prefs {
       _sp.getString('lw_studio_clarity_preset') ?? 'reference';
   Future<void> setStudioClarityPreset(String v) =>
       _sp.setString('lw_studio_clarity_preset', v);
+
+  // -- Profile picture (local file override) --------------------------------
+  String get profilePicturePath =>
+      _sp.getString('lw_profile_picture_path') ?? '';
+
+  Future<void> setProfilePicturePath(String path) =>
+      _sp.setString('lw_profile_picture_path', path.trim());
 
   // -- App Updates ------------------------------------------------------------
   /// GitHub release version the user opted to suppress automatic startup popups for.
@@ -779,6 +828,7 @@ class Prefs {
         'lw_download_dir',
         'lw_audio_device_id',
         'lw_username',
+        'lw_profile_picture_path',
       }.contains(key.toLowerCase());
 
   static bool _isPortable(String key) =>
@@ -812,3 +862,81 @@ class Prefs {
 final prefsProvider = Provider<Prefs>((_) {
   throw UnimplementedError('Prefs not initialised — override in main()');
 });
+
+class _MemorySharedPreferences implements SharedPreferences {
+  final Map<String, Object> _data = {};
+
+  @override
+  Set<String> getKeys() => Set<String>.from(_data.keys);
+
+  @override
+  Object? get(String key) => _data[key];
+
+  @override
+  bool? getBool(String key) => _data[key] as bool?;
+
+  @override
+  int? getInt(String key) => _data[key] as int?;
+
+  @override
+  double? getDouble(String key) => _data[key] as double?;
+
+  @override
+  String? getString(String key) => _data[key] as String?;
+
+  @override
+  bool containsKey(String key) => _data.containsKey(key);
+
+  @override
+  List<String>? getStringList(String key) =>
+      (_data[key] as List<dynamic>?)?.cast<String>().toList();
+
+  @override
+  Future<bool> setBool(String key, bool value) async {
+    _data[key] = value;
+    return true;
+  }
+
+  @override
+  Future<bool> setInt(String key, int value) async {
+    _data[key] = value;
+    return true;
+  }
+
+  @override
+  Future<bool> setDouble(String key, double value) async {
+    _data[key] = value;
+    return true;
+  }
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    _data[key] = value;
+    return true;
+  }
+
+  @override
+  Future<bool> setStringList(String key, List<String> value) async {
+    _data[key] = value.toList();
+    return true;
+  }
+
+  @override
+  Future<bool> remove(String key) async {
+    _data.remove(key);
+    return true;
+  }
+
+  @override
+  Future<bool> clear() async {
+    _data.clear();
+    return true;
+  }
+
+  @override
+  Future<void> reload() async {}
+
+  @override
+  // ignore: must_call_super
+  Future<bool> commit() async => true;
+}

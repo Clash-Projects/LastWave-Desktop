@@ -136,10 +136,14 @@ class DownloadManager extends StateNotifier<List<DownloadEntry>> {
       );
     } catch (_) {
       // Pre-v7 databases without the tag_status column.
-      rows = _db.raw.select(
-        'SELECT track_key, title, artist, file_path, format_badge FROM downloaded_tracks '
-        'ORDER BY downloaded_at_millis DESC;',
-      );
+      try {
+        rows = _db.raw.select(
+          'SELECT track_key, title, artist, file_path, format_badge FROM downloaded_tracks '
+          'ORDER BY downloaded_at_millis DESC;',
+        );
+      } catch (_) {
+        rows = const [];
+      }
     }
     state = rows
         .map((r) => DownloadEntry(

@@ -94,6 +94,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
     // so the window opens immediately responsive without a launch stall.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      unawaited(revealWindow());
       // Artist tiles whose Deezer lookup fails (rate limit, no press
       // photo) fall back to the YouTube Music portrait, same as the
       // artist detail page.
