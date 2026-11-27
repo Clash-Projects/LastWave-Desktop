@@ -19,6 +19,7 @@ import '../../core/audio/stream_models.dart';
 import '../../core/diagnostics/diagnostics_log.dart';
 import '../../core/env/app_env.dart';
 import '../../core/storage/prefs.dart';
+import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../core/platform/renderer_mode.dart';
 import '../../core/l10n/app_language.dart';
 import '../../core/l10n/app_localizations.dart';
@@ -180,9 +181,9 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
   @override
   void initState() {
     super.initState();
-    _contentScrollController = ScrollController();
-    _narrowScrollController = ScrollController();
-    _railScrollController = ScrollController();
+    _contentScrollController = WaveScrollController();
+    _narrowScrollController = WaveScrollController();
+    _railScrollController = WaveScrollController();
     final initial = widget.initialSection;
     _section =
         initial != null && waveSettingsSections.any((s) => s.$1 == initial)
@@ -201,7 +202,6 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
 
   /// Opens the card's section, scrolls to it and outlines it for a moment.
   void _jump(SettingsSearchEntry entry) {
-    final switching = _section != entry.section;
     setState(() {
       _section = entry.section;
       _highlightId = entry.id;
@@ -210,18 +210,29 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
     _highlightTimer = Timer(const Duration(milliseconds: 2200), () {
       if (mounted) setState(() => _highlightId = null);
     });
-    // A section change cross-fades and resizes first; wait for it so the
-    // scroll lands on the card's final position.
-    Future<void>.delayed(Duration(milliseconds: switching ? 320 : 30), () {
-      if (!mounted) return;
+    // The new section owns layout from its first frame, even as it fades in.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _section != entry.section || _highlightId != entry.id) {
+        return;
+      }
       final target = SettingsTarget.keys[entry.id]?.currentContext;
       if (target == null || !target.mounted) return;
       Scrollable.ensureVisible(
         target,
         alignment: 0.08,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
+        duration: waveMotion(context, WaveMotion.slow),
+        curve: WaveMotion.reveal,
       );
+    });
+  }
+
+  void _selectSection(String section) {
+    if (_section == section) return;
+    if (_contentScrollController.hasClients) _contentScrollController.jumpTo(0);
+    _highlightTimer?.cancel();
+    setState(() {
+      _section = section;
+      _highlightId = null;
     });
   }
 
@@ -279,7 +290,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                     for (final s in waveSettingsSections)
                       ToggleButton(
                         checked: _section == s.$1,
-                        onChanged: (_) => setState(() => _section = s.$1),
+                        onChanged: (_) => _selectSection(s.$1),
                         child: Text(_sectionTitle(context, s.$1, s.$2)),
                       ),
                   ],
@@ -323,7 +334,7 @@ class _WaveSettingsPageState extends ConsumerState<WaveSettingsPage> {
                         selectionMode: ListTileSelectionMode.single,
                         leading: Icon(s.$3, size: 15),
                         title: Text(_sectionTitle(context, s.$1, s.$2)),
-                        onPressed: () => setState(() => _section = s.$1),
+                        onPressed: () => _selectSection(s.$1),
                       ),
                   ],
                 ),
@@ -399,41 +410,56 @@ class _SectionBody extends ConsumerWidget {
   }
 }
 
-/// Section swap: fade only, size from the incoming pane, outgoing overlaid
-/// at the top so it cannot re-center or relayout the list mid-transition.
+/// Keeps the settings rail steady and lays out the new section immediately.
+/// The previous section can fade in place without affecting the scroll extent.
 class _SectionSwap extends StatelessWidget {
   final Widget child;
   const _SectionSwap({required this.child});
 
+  static Widget _pane(Widget child, {required bool current}) {
+    return Positioned(
+      key: child.key,
+      left: current ? null : 0,
+      right: current ? null : 0,
+      top: current ? null : 0,
+      child: ExcludeFocus(
+        excluding: !current,
+        child: IgnorePointer(
+          ignoring: !current,
+          child: ExcludeSemantics(excluding: !current, child: child),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AnimatedSize(
-      duration: waveMotion(context, WaveMotion.normal),
-      curve: Curves.easeOutCubic,
-      alignment: Alignment.topLeft,
-      child: AnimatedSwitcher(
-        duration: waveMotion(context, WaveMotion.fast),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeOutCubic,
-        layoutBuilder: (currentChild, previousChildren) {
-          return Stack(
-            alignment: Alignment.topLeft,
-            children: [
-              for (final previous in previousChildren)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  child: IgnorePointer(
-                    child: ExcludeSemantics(child: previous),
-                  ),
-                ),
-              ?currentChild,
-            ],
-          );
-        },
-        transitionBuilder: (child, animation) =>
-            FadeTransition(opacity: animation, child: child),
+    final reduced = waveReduceMotion(context);
+    return AnimatedSwitcher(
+      duration: waveMotion(context, WaveMotion.slow),
+      reverseDuration: waveMotion(context, WaveMotion.normal),
+      switchInCurve: WaveMotion.reveal,
+      switchOutCurve: WaveMotion.reveal.flipped,
+      layoutBuilder: (current, previous) => Stack(
+        alignment: Alignment.topLeft,
+        children: [
+          if (!reduced && previous.isNotEmpty)
+            _pane(previous.last, current: false),
+          if (current != null) _pane(current, current: true),
+        ],
+      ),
+      transitionBuilder: _sectionTransition,
+      child: child,
+    );
+  }
+
+  static Widget _sectionTransition(Widget child, Animation<double> progress) {
+    return AnimatedBuilder(
+      animation: progress,
+      child: FadeTransition(opacity: progress, child: child),
+      builder: (context, child) => Transform.translate(
+        offset: Offset(0, 8 * (1 - progress.value)),
+        transformHitTests: false,
         child: child,
       ),
     );
@@ -4345,24 +4371,23 @@ class _OtherScrobblersState extends ConsumerState<_OtherScrobblers> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                ComboBox<String>(
+                WaveSelect<String>(
                   value: prefs.primaryScrobbler.isEmpty ||
                           !connected.any((k) => k.id == prefs.primaryScrobbler)
                       ? ''
                       : prefs.primaryScrobbler,
-                  items: [
-                    ComboBoxItem(
+                  options: [
+                    WaveSelectOption(
                       value: '',
-                      child: Text('Auto (${active.displayName})'),
+                      label: 'Auto (${active.displayName})',
                     ),
                     for (final k in connected)
-                      ComboBoxItem(
+                      WaveSelectOption(
                         value: k.id,
-                        child: Text(k.displayName),
+                        label: k.displayName,
                       ),
                   ],
                   onChanged: (v) async {
-                    if (v == null) return;
                     await prefs.setPrimaryScrobbler(v);
                     ref.read(extraScrobblersRevisionProvider.notifier).state++;
                     if (mounted) setState(() {});

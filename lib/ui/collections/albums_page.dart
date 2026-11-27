@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/track_actions.dart' show playGenerated;
+import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/feed/feed_repository.dart';
 import '../../features/innertube/album_match.dart';
 import '../../features/innertube/innertube_api.dart';
@@ -60,10 +61,24 @@ final _waveAlbumsProvider =
 
 /// Albums — premium responsive grid (max180/extent218, 160px art radius 6,
 /// hover quick-play 44px + more + playing indicator).
-class WaveAlbumsPage extends ConsumerWidget {
+class WaveAlbumsPage extends ConsumerStatefulWidget {
   const WaveAlbumsPage({super.key});
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WaveAlbumsPage> createState() => _WaveAlbumsPageState();
+}
+
+class _WaveAlbumsPageState extends ConsumerState<WaveAlbumsPage> {
+  final _scrollController = WaveScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final albums = ref.watch(_waveAlbumsProvider);
     return albums.when(
       loading: () => const WaveLoading(label: 'Loading albums…'),
@@ -83,6 +98,7 @@ class WaveAlbumsPage extends ConsumerWidget {
         }
         return WaveEntranceGroup(
           child: CustomScrollView(
+            controller: _scrollController,
             slivers: [
             SliverToBoxAdapter(
               child: Padding(
@@ -147,7 +163,6 @@ class _AlbumCard extends ConsumerStatefulWidget {
 }
 
 class _AlbumCardState extends ConsumerState<_AlbumCard> {
-  bool _hover = false;
   bool _pressed = false;
 
   Future<String> _resolveBrowseId() async {
@@ -225,33 +240,27 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
     
     void play() => _open();
     void quickPlay() => _quickPlay();
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() {
-        _hover = false;
-        _pressed = false;
-      }),
-      child: GestureDetector(
+    return WaveScrollHover(
+      builder: (context, hovered) => GestureDetector(
         onTapDown: (_) => setState(() => _pressed = true),
         onTapUp: (_) => setState(() => _pressed = false),
         onTapCancel: () => setState(() => _pressed = false),
         onTap: play,
         child: AnimatedScale(
-          scale: _pressed ? 0.97 : (_hover ? 1.03 : 1.0),
+          scale: _pressed ? 0.97 : (hovered ? 1.03 : 1.0),
           duration: waveMotion(context, WaveMotion.fast),
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
             duration: waveMotion(context, WaveMotion.normal),
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
-              color: _hover
+              color: hovered
                   ? (waveIsDark(context) ? Colors.white : Colors.black)
                       .withValues(alpha: 0.05)
                   : Colors.transparent,
               borderRadius: WaveRadius.artworkRadius,
               boxShadow: [
-                if (_hover) ...WaveElevation.lift(dark),
+                if (hovered) ...WaveElevation.lift(dark),
               ],
             ),
             padding: const EdgeInsets.all(4),
@@ -270,7 +279,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                         kind: ArtworkKind.album),
                     Positioned.fill(
                       child: AnimatedOpacity(
-                        opacity: _hover ? 1 : 0,
+                        opacity: hovered ? 1 : 0,
                         duration: waveMotion(context, WaveMotion.fast),
                         child: Container(
                           decoration: BoxDecoration(
@@ -286,7 +295,7 @@ class _AlbumCardState extends ConsumerState<_AlbumCard> {
                           ),
                           child: Center(
                             child: AnimatedScale(
-                              scale: _hover ? 1.0 : 0.70,
+                              scale: hovered ? 1.0 : 0.70,
                               duration: waveMotion(context, WaveMotion.fast),
                               curve: Curves.easeOutBack,
                               child: Row(

@@ -9,10 +9,8 @@ import '../theme/tokens.dart';
 /// tab scroll offset and page state survive a destination change — but swaps
 /// the visible branch with no motion at all, so the side rail cut between
 /// pages. This container keeps that exact keep-alive contract and layers the
-/// app's one motion language on top: the incoming branch fades in and rises
-/// 6px over [WaveMotion.normal], while the outgoing branch fades out beneath
-/// it. Only content moves — the rail, title bar and dock are outside the
-/// branch and stay put.
+/// app's motion language on top: content dissolves between branches over
+/// [WaveMotion.slow]. The rail, title bar and dock stay in place.
 ///
 /// Each branch keeps one stable wrapper shape (ignore · offstage · ticker ·
 /// fade) so an index change only flips *properties*, never widget types.
@@ -24,7 +22,7 @@ import '../theme/tokens.dart';
 /// hidden page neither paints nor animates in the background.
 ///
 /// Honours the OS reduce-motion switch (`MediaQuery.disableAnimations`):
-/// the switch then applies instantly, with no fade or rise.
+/// the switch then applies instantly.
 class WaveBranchSwitcher extends StatefulWidget {
   const WaveBranchSwitcher({
     super.key,
@@ -47,15 +45,14 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
   /// 0 → the incoming branch is fully transparent, 1 → settled.
   late final AnimationController _fade = AnimationController(
     vsync: this,
-    duration: waveMotion(context, WaveMotion.normal),
+    duration: WaveMotion.slow,
     value: 1,
   );
 
-  /// Branch fading out, or null when the switch has settled.
-  int? _leaving;
+  /// The opacity each visible branch had when the current switch began.
+  Map<int, double> _startingOpacities = const {};
 
-  /// Mirrored from [build] so [didUpdateWidget] can honour the OS switch
-  /// without reaching for an inherited widget outside a build.
+  /// Updated with MediaQuery so widget changes can honour the OS switch.
   bool _reducedMotion = false;
 
   /// Inactivity timers for non-home branches.
@@ -63,6 +60,24 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
 
   /// Set of branches currently evicted due to prolonged inactivity (> 45s).
   final Set<int> _evicted = <int>{};
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reducedMotion = waveReduceMotion(context);
+    if (_reducedMotion) {
+      _startingOpacities = const {};
+      _fade.value = 1;
+    }
+  }
+
+  double _opacity(int branch, int current) {
+    final progress = WaveMotion.move.transform(_fade.value);
+    final start = _startingOpacities[branch] ?? 0;
+    return branch == current
+        ? start + (1 - start) * progress
+        : start * (1 - progress);
+  }
 
   @override
   void didUpdateWidget(covariant WaveBranchSwitcher oldWidget) {
@@ -88,15 +103,17 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
       });
     }
 
-    if (_reducedMotion) {
-      setState(() => _leaving = null);
-      _fade.value = 1;
-      return;
+    if (_reducedMotion) return;
+    // A second selection continues from the visible blend instead of
+    // bringing the barely visible departing tab back to full opacity.
+    final opacities = <int, double>{};
+    for (final i in {..._startingOpacities.keys, departed}) {
+      final opacity = _opacity(i, departed);
+      if (opacity > 0) opacities[i] = opacity;
     }
-    setState(() => _leaving = oldWidget.currentIndex);
-    _fade.value = 0;
-    _fade.forward().whenComplete(() {
-      if (mounted) setState(() => _leaving = null);
+    _startingOpacities = opacities;
+    _fade.forward(from: 0).whenComplete(() {
+      if (mounted) setState(() => _startingOpacities = const {});
     });
   }
 
@@ -110,37 +127,29 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
     super.dispose();
   }
 
-  Widget _branch(int i, double rise) {
+  Widget _branch(int i) {
     final active = i == widget.currentIndex;
-    final visible = active || _leaving == i;
+    final visible = active || _startingOpacities.containsKey(i);
     final isEvicted = _evicted.contains(i) && !visible;
-    return IgnorePointer(
-      ignoring: !active,
-      child: Offstage(
-        offstage: !visible,
-        child: TickerMode(
-          enabled: active,
-          child: AnimatedBuilder(
-            animation: _fade,
-            child: isEvicted ? const SizedBox.shrink() : widget.children[i],
-            builder: (context, child) {
-              final t = _reducedMotion
-                  ? 1.0
-                  : Curves.easeOutCubic.transform(_fade.value);
-              // Opacity + FractionalTranslation are always present, for every
-              // branch, at every value: a stable wrapper shape is what keeps
-              // the branch element (and its scroll offset, its state) alive.
-              // Both are free at rest — opacity 1 paints straight through and
-              // a zero fractional translation is a plain offset. The rise
-              // belongs to the incoming branch only.
-              return Opacity(
-                opacity: active ? t : 1 - t,
-                child: FractionalTranslation(
-                  translation: Offset(0, active ? rise * (1 - t) : 0),
+    return ExcludeFocus(
+      excluding: !active,
+      child: IgnorePointer(
+        ignoring: !active,
+        child: Offstage(
+          offstage: !visible,
+          child: TickerMode(
+            enabled: active,
+            child: ExcludeSemantics(
+              excluding: !active,
+              child: AnimatedBuilder(
+                animation: visible ? _fade : const AlwaysStoppedAnimation(0),
+                child: isEvicted ? const SizedBox.shrink() : widget.children[i],
+                builder: (context, child) => Opacity(
+                  opacity: _opacity(i, widget.currentIndex),
                   child: child,
                 ),
-              );
-            },
+              ),
+            ),
           ),
         ),
       ),
@@ -149,15 +158,10 @@ class _WaveBranchSwitcherState extends State<WaveBranchSwitcher>
 
   @override
   Widget build(BuildContext context) {
-    _reducedMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    // 6 logical pixels of rise, expressed as a fraction of the branch height
-    // (FractionalTranslation offsets the paint without spending a layer).
-    final height = MediaQuery.sizeOf(context).height;
-    final rise = height <= 0 ? 0.0 : 6 / height;
     return Stack(
       fit: StackFit.expand,
       children: [
-        for (var i = 0; i < widget.children.length; i++) _branch(i, rise),
+        for (var i = 0; i < widget.children.length; i++) _branch(i),
       ],
     );
   }

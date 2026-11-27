@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/library/library_index.dart';
 import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
@@ -95,6 +96,13 @@ class LibrarySongsView extends ConsumerStatefulWidget {
 }
 
 class _LibrarySongsViewState extends ConsumerState<LibrarySongsView> {
+  final _scrollController = WaveScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
   String _query = '';
 
   @override
@@ -107,6 +115,7 @@ class _LibrarySongsViewState extends ConsumerState<LibrarySongsView> {
         playbackServiceProvider.select((s) => s.current?.playbackUrl ?? ''));
     final playing = ref.watch(playbackServiceProvider.select((s) => s.isPlaying));
     return CustomScrollView(
+      controller: _scrollController,
       slivers: [
         if (widget.header != null) SliverToBoxAdapter(child: widget.header),
         SliverToBoxAdapter(
@@ -348,8 +357,15 @@ class _GridBrowser<T> extends StatefulWidget {
 }
 
 class _GridBrowserState<T> extends State<_GridBrowser<T>> {
+  final _scrollController = WaveScrollController();
   String _query = '';
   String? _openTitle;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -382,6 +398,7 @@ class _GridBrowserState<T> extends State<_GridBrowser<T>> {
           i,
     ];
     return CustomScrollView(
+      controller: _scrollController,
       slivers: [
         SliverToBoxAdapter(
           child: _Toolbar(

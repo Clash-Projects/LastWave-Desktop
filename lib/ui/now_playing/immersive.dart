@@ -66,7 +66,8 @@ class WaveImmersiveDockOverlay extends ConsumerWidget {
       onPointerDown: (_) =>
           ref.read(nowPlayingActivityProvider.notifier).state++,
       child: AnimatedOpacity(
-        duration: waveMotion(context, const Duration(milliseconds: 350)),
+        duration: waveMotion(context, WaveMotion.stage),
+        curve: WaveMotion.reveal,
         opacity: idle ? 0.0 : 1.0,
         child: ExcludeFocus(
           excluding: idle,

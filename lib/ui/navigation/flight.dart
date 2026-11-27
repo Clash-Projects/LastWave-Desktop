@@ -147,11 +147,15 @@ class WaveFlightTarget extends StatefulWidget {
 
 class _WaveFlightTargetState extends State<WaveFlightTarget>
     with SingleTickerProviderStateMixin {
+  static const _handoff = 0.82;
+  static const _travel = Interval(0, _handoff, curve: WaveMotion.move);
+  static const _dissolve = Interval(_handoff, 1);
+
   final GlobalKey _slot = GlobalKey();
 
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: WaveMotion.normal,
+    duration: WaveMotion.coverFlight,
   );
 
   _FlightSource? _source;
@@ -171,25 +175,29 @@ class _WaveFlightTargetState extends State<WaveFlightTarget>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (waveReduceMotion(context)) {
+      if (_entry != null) _finish();
+      _source = null;
+    }
     if (_started) return;
     _started = true;
     if (_source == null) return;
-    // "Arrive, don't travel": under reduce motion the header simply is there.
-    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
-      _source = null;
-      return;
-    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _play());
+  }
+
+  Rect? _landingRect() {
+    final box = _slot.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    final to = box.localToGlobal(Offset.zero) & box.size;
+    return to.isFinite && to.width >= 8 && to.height >= 8 ? to : null;
   }
 
   void _play() {
     if (!mounted || _source == null) return;
-    final box = _slot.currentContext?.findRenderObject();
-    if (box is! RenderBox || !box.hasSize) return;
-    final to = box.localToGlobal(Offset.zero) & box.size;
+    final to = _landingRect();
     // A header that has not been laid out (or is offstage) has no landing
     // spot — leave the cover where it is rather than flying to nowhere.
-    if (to.width < 8 || to.height < 8) return;
+    if (to == null) return;
     final overlay = Overlay.of(context, rootOverlay: true);
     _to = to;
     _entry = OverlayEntry(builder: _buildFlight);
@@ -209,16 +217,25 @@ class _WaveFlightTargetState extends State<WaveFlightTarget>
   /// last stretch fades the flight *out of* the real artwork rather than
   /// leaving an empty frame for a tick.
   void _onTick() {
-    if (_hideChild && _controller.value >= 0.82) {
+    // Read the last laid-out position before building the overlay's frame.
+    // The header may still be settling or resizing while the cover moves.
+    _to = _landingRect() ?? _to;
+    if (_hideChild && _controller.value >= _handoff) {
       setState(() => _hideChild = false);
     }
   }
 
   void _finish() {
-    _entry?.remove();
+    _controller.stop();
+    _removeOverlay();
+    if (_hideChild) setState(() => _hideChild = false);
+  }
+
+  void _removeOverlay() {
+    _entry
+      ?..remove()
+      ..dispose();
     _entry = null;
-    if (!mounted) return;
-    setState(() => _hideChild = false);
   }
 
   @override
@@ -227,34 +244,35 @@ class _WaveFlightTargetState extends State<WaveFlightTarget>
       ..removeStatusListener(_onStatus)
       ..removeListener(_onTick)
       ..dispose();
-    _entry?.remove();
-    _entry = null;
+    _removeOverlay();
     super.dispose();
   }
 
   Widget _buildFlight(BuildContext overlayContext) {
     final source = _source!;
-    final to = _to!;
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
-        final t = Curves.easeOutCubic.transform(_controller.value);
+        final progress = _controller.value;
+        final t = _travel.transform(progress);
+        final to = _to!;
         final rect = Rect.lerp(source.from, to, t)!;
         final radius = lerpDouble(source.fromRadius, widget.radius, t)!;
         // The last stretch dissolves the copy into the cover already in the
         // header, so the hand-off has no double image and no snap.
-        final opacity = t < 0.82 ? 1.0 : (1 - (t - 0.82) / 0.18);
         return Positioned.fromRect(
           rect: rect,
-          child: IgnorePointer(
+          child: ExcludeSemantics(
             child: Opacity(
-              opacity: opacity.clamp(0.0, 1.0),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(radius),
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  clipBehavior: Clip.hardEdge,
-                  child: SizedBox.fromSize(size: to.size, child: child),
+              opacity: 1 - _dissolve.transform(progress),
+              child: IgnorePointer(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(radius),
+                  child: FittedBox(
+                    fit: BoxFit.cover,
+                    clipBehavior: Clip.hardEdge,
+                    child: SizedBox.fromSize(size: to.size, child: child),
+                  ),
                 ),
               ),
             ),
@@ -269,9 +287,7 @@ class _WaveFlightTargetState extends State<WaveFlightTarget>
   Widget build(BuildContext context) {
     return KeyedSubtree(
       key: _slot,
-      child: _hideChild
-          ? Opacity(opacity: 0, child: widget.child)
-          : widget.child,
+      child: Opacity(opacity: _hideChild ? 0 : 1, child: widget.child),
     );
   }
 }

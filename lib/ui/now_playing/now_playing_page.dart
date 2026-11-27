@@ -33,6 +33,7 @@ import '../components/states.dart';
 import '../lyrics/lyrics_panel.dart' show waveLyricsProvider;
 import '../theme/fluent_theme.dart';
 import '../theme/haze.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../theme/wave_icons.dart';
 
@@ -674,169 +675,162 @@ class _DesktopDualPane extends StatelessWidget {
         );
         final fullHeight = maxHeight + topInset;
 
-        // Symmetrical desktop dual pane layout:
-        // When lyrics are visible, media column and lyrics column have harmonious, balanced
-        // widths, leaving identical horizontal margins (emptiness) on both sides.
-        final colWidth = lyricsVisible
-            ? math.min(maxWidth * 0.36, maxHeight * 0.48).clamp(340.0, 420.0)
-            : math.min(maxWidth * 0.55, maxHeight * 0.52).clamp(360.0, 480.0);
+        final splitCover = math
+            .min(maxWidth * 0.36, maxHeight * 0.48)
+            .clamp(340.0, 420.0)
+            .toDouble();
+        final centeredCover = math
+            .min(maxWidth * 0.55, maxHeight * 0.52)
+            .clamp(360.0, 480.0)
+            .toDouble();
+        final splitGap = (maxWidth * 0.04).clamp(40.0, 64.0).toDouble();
+        final splitLyrics = math
+            .min(
+              (splitCover * 1.35).clamp(460.0, 580.0),
+              maxWidth - splitCover - splitGap - 48,
+            )
+            .toDouble();
+        final focusedLyrics = math.min(760.0, maxWidth - 48);
+        final target = Offset(lyricsVisible ? 1 : 0, focusMode ? 1 : 0);
 
-        final gap = lyricsVisible && !focusMode
-            ? (maxWidth * 0.04).clamp(40.0, 64.0)
-            : 0.0;
+        return TweenAnimationBuilder<Offset>(
+          tween: Tween(begin: target, end: target),
+          duration: waveMotion(context, const Duration(milliseconds: 500)),
+          curve: WaveMotion.move,
+          builder: (context, progress, _) {
+            // Keep all intermediate widths within the current window, even
+            // when native fullscreen changes its bounds during a transition.
+            final unfocused = 1 - progress.dy;
+            final colWidth =
+                centeredCover + (splitCover - centeredCover) * progress.dx;
+            final coverWidth = colWidth * unfocused;
+            final gap = splitGap * progress.dx * unfocused;
+            final lyricsWidth =
+                splitLyrics * progress.dx * unfocused +
+                focusedLyrics * progress.dy;
+            final lyricsRight = (maxWidth + coverWidth + gap + lyricsWidth) / 2;
+            final toolbarInset = math.max(
+              0.0,
+              math.min(
+                lyricsRight - (maxWidth - 24 - 250),
+                math.max(0.0, lyricsWidth - 300),
+              ),
+            );
 
-        // Harmonized lyrics column width, balancing the visual weight of the left column
-        final targetLyricsWidth = (colWidth * 1.35).clamp(460.0, 580.0);
-        final maxAllowedLyricsWidth = math.max(
-          320.0,
-          maxWidth - colWidth - gap - 48.0,
-        );
-        final lyricsWidth = focusMode
-            ? math.min(760.0, math.max(320.0, maxWidth - 48.0))
-            : lyricsVisible
-            ? math.min(targetLyricsWidth, maxAllowedLyricsWidth)
-            : 0.0;
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 24),
+                child: SizedBox(
+                  height: fullHeight,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.max,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Left Column (Media Player) — the metadata keeps its
+                      // intrinsic height; artwork takes whatever remains.
+                      Padding(
+                        padding: EdgeInsets.only(top: topInset),
+                        child: SizedBox(
+                          width: coverWidth,
+                          height: maxHeight,
+                          // Children keep their full width while the column
+                          // collapses (focus mode), so nothing overflows mid-anim.
+                          // Clip is outset (except in focus mode, where the column
+                          // collapses) so the cover's drop shadow isn't cut off at
+                          // the column edges.
+                          child: ClipRect(
+                            clipper: _OutsetClipper(focusMode ? 0 : 56),
+                            child: OverflowBox(
+                              alignment: Alignment.centerLeft,
+                              minWidth: colWidth,
+                              maxWidth: colWidth,
+                              child: ExcludeFocus(
+                                excluding: focusMode,
+                                child: RepaintBoundary(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.max,
+                                    crossAxisAlignment: lyricsVisible
+                                        ? CrossAxisAlignment.start
+                                        : CrossAxisAlignment.center,
+                                    children: [
+                                      Expanded(
+                                        child: LayoutBuilder(
+                                          builder: (context, artConstraints) {
+                                            final artSize = math.max(
+                                              0.0,
+                                              math.min(
+                                                artConstraints.maxWidth,
+                                                artConstraints.maxHeight,
+                                              ),
+                                            );
+                                            if (artSize <= 0) {
+                                              return const SizedBox.shrink();
+                                            }
+                                            return Center(
+                                              child: _HeroArtworkCard(
+                                                track: track,
+                                                size: artSize,
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
 
-        // Keep the lyrics toolbar clear of the top bar's action group.
-        final total = (focusMode ? 0.0 : colWidth) + gap + lyricsWidth;
-        final lyricsRight = (maxWidth + total) / 2;
-        final toolbarInset = math.max(
-          0.0,
-          math.min(
-            lyricsRight - (maxWidth - 24 - 250),
-            math.max(0.0, lyricsWidth - 300),
-          ),
-        );
-
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 24),
-            child: SizedBox(
-              height: fullHeight,
-              child: Row(
-                mainAxisSize: MainAxisSize.max,
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Left Column (Media Player) — the metadata keeps its
-                  // intrinsic height; artwork takes whatever remains.
-                  Padding(
-                    padding: EdgeInsets.only(top: topInset),
-                    child: AnimatedContainer(
-                      duration: waveMotion(
-                        context,
-                        const Duration(milliseconds: 500),
-                      ),
-                      curve: Curves.easeInOutCubic,
-                      width: focusMode ? 0.0 : colWidth,
-                      height: maxHeight,
-                      // Children keep their full width while the column
-                      // collapses (focus mode), so nothing overflows mid-anim.
-                      // Clip is outset (except in focus mode, where the column
-                      // collapses) so the cover's drop shadow isn't cut off at
-                      // the column edges.
-                      child: ClipRect(
-                        clipper: _OutsetClipper(focusMode ? 0 : 56),
-                        child: OverflowBox(
-                          alignment: Alignment.centerLeft,
-                          minWidth: colWidth,
-                          maxWidth: colWidth,
-                          child: ExcludeFocus(
-                            excluding: focusMode,
-                            child: RepaintBoundary(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.max,
-                                crossAxisAlignment: lyricsVisible
-                                    ? CrossAxisAlignment.start
-                                    : CrossAxisAlignment.center,
-                                children: [
-                                  Expanded(
-                                    child: LayoutBuilder(
-                                      builder: (context, artConstraints) {
-                                        final artSize = math.max(
-                                          0.0,
-                                          math.min(
-                                            artConstraints.maxWidth,
-                                            artConstraints.maxHeight,
-                                          ),
-                                        );
-                                        if (artSize <= 0) {
-                                          return const SizedBox.shrink();
-                                        }
-                                        return Center(
-                                          child: _HeroArtworkCard(
-                                            track: track,
-                                            size: artSize,
-                                          ),
-                                        );
-                                      },
-                                    ),
+                                      // Track Info & Badges — crossfades on track change.
+                                      WaveTrackSwap(
+                                        child: _TrackMetadataSection(
+                                          key: ValueKey(track.queueKey),
+                                          track: track,
+                                          alignCenter: !lyricsVisible,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 16),
-
-                                  // Track Info & Badges — crossfades on track change.
-                                  _TrackSwap(
-                                    child: _TrackMetadataSection(
-                                      key: ValueKey(track.queueKey),
-                                      track: track,
-                                      alignCenter: !lyricsVisible,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
 
-                  // Gap
-                  AnimatedContainer(
-                    duration: waveMotion(
-                      context,
-                      const Duration(milliseconds: 500),
-                    ),
-                    curve: Curves.easeInOutCubic,
-                    width: gap,
-                  ),
+                      // Gap
+                      SizedBox(width: gap),
 
-                  // Right Column (Apple Music Karaoke Lyrics Pane)
-                  AnimatedContainer(
-                    duration: waveMotion(
-                      context,
-                      const Duration(milliseconds: 500),
-                    ),
-                    curve: Curves.easeInOutCubic,
-                    width: lyricsWidth,
-                    height: fullHeight,
-                    child: ClipRect(
-                      child: AnimatedOpacity(
-                        duration: waveMotion(
-                          context,
-                          const Duration(milliseconds: 350),
-                        ),
-                        curve: Curves.easeInOutCubic,
-                        opacity: lyricsVisible ? 1.0 : 0.0,
-                        child: ExcludeFocus(
-                          excluding: !lyricsVisible,
-                          child: IgnorePointer(
-                            ignoring: !lyricsVisible,
-                            child: SizedBox(
-                              height: fullHeight,
-                              width: lyricsWidth,
-                              child: Offstage(
-                                offstage: !lyricsVisible,
-                                child: _VisibleTicker(
-                                  enabled: lyricsVisible,
-                                  child: RepaintBoundary(
-                                    child: WaveKaraokeLyricsView(
-                                      track: track,
-                                      compact: false,
-                                      showHeaderControls: false,
-                                      fontSize: 36.0,
-                                      isActive: lyricsVisible,
-                                      toolbarRightInset: toolbarInset,
+                      // Right Column (Apple Music Karaoke Lyrics Pane)
+                      SizedBox(
+                        width: lyricsWidth,
+                        height: fullHeight,
+                        child: ClipRect(
+                          child: AnimatedOpacity(
+                            duration: waveMotion(
+                              context,
+                              const Duration(milliseconds: 350),
+                            ),
+                            curve: Curves.easeInOutCubic,
+                            opacity: lyricsVisible ? 1.0 : 0.0,
+                            child: ExcludeFocus(
+                              excluding: !lyricsVisible,
+                              child: IgnorePointer(
+                                ignoring: !lyricsVisible,
+                                child: SizedBox(
+                                  height: fullHeight,
+                                  width: lyricsWidth,
+                                  child: Offstage(
+                                    offstage: !lyricsVisible,
+                                    child: _VisibleTicker(
+                                      enabled: lyricsVisible,
+                                      child: RepaintBoundary(
+                                        child: WaveKaraokeLyricsView(
+                                          track: track,
+                                          compact: false,
+                                          showHeaderControls: false,
+                                          fontSize: 36.0,
+                                          isActive: lyricsVisible,
+                                          toolbarRightInset: toolbarInset,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -845,12 +839,12 @@ class _DesktopDualPane extends StatelessWidget {
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -895,7 +889,7 @@ class _NarrowCenteredPane extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              _TrackSwap(
+              WaveTrackSwap(
                 child: _TrackMetadataSection(
                   key: ValueKey(track.queueKey),
                   track: track,
@@ -1142,34 +1136,6 @@ class _HeroArtworkCardState extends ConsumerState<_HeroArtworkCard> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Track-change crossfade: the new child fades in with a slight rise
-/// while the old fades out — WinUI connected-motion feel. The child must
-/// carry a [ValueKey] that changes with the track.
-class _TrackSwap extends StatelessWidget {
-  final Widget child;
-  const _TrackSwap({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: waveMotion(context, WaveMotion.normal),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) => FadeTransition(
-        opacity: animation,
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.03),
-            end: Offset.zero,
-          ).animate(animation),
-          child: child,
-        ),
-      ),
-      child: child,
     );
   }
 }

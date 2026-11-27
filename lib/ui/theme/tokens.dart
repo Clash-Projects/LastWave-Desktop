@@ -504,9 +504,19 @@ class WaveMotion {
   static const fast = Duration(milliseconds: 110);
   static const normal = Duration(milliseconds: 180);
   static const slow = Duration(milliseconds: 260);
+  static const flyout = Duration(milliseconds: 220);
+  static const flyoutExit = Duration(milliseconds: 160);
+  static const drawer = Duration(milliseconds: 360);
+  static const coverFlight = Duration(milliseconds: 360);
+  static const stage = Duration(milliseconds: 380);
+
+  static const double hoverScale = 1.03;
+  static const double pressScale = 0.97;
 
   /// Standard easing for all hover / reveal / layout animation.
   static const Curve standard = Curves.easeOutCubic;
+  static const Curve reveal = Curves.easeOutQuad;
+  static const Curve move = Curves.easeInOutCubic;
 }
 
 /// The OS "reduce motion" switch — KDE's animation speed, GNOME's

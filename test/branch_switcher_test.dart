@@ -87,4 +87,44 @@ void main() {
     expect(find.text('b:0'), findsOneWidget);
     expect(find.text('a:0'), findsNothing);
   });
+
+  testWidgets('rapid navigation continues from the visible crossfade', (
+    tester,
+  ) async {
+    Widget host(int current) => FluentApp(
+      home: WaveBranchSwitcher(
+        currentIndex: current,
+        children: const [Text('Home'), Text('Albums'), Text('Settings')],
+      ),
+    );
+
+    double opacityOf(String label) => tester
+        .widgetList<Opacity>(
+          find.ancestor(of: find.text(label), matching: find.byType(Opacity)),
+        )
+        .first
+        .opacity;
+
+    await tester.pumpWidget(host(0));
+    final home = tester.element(find.text('Home'));
+    await tester.pumpWidget(host(1));
+    await tester.pump(const Duration(milliseconds: 90));
+    final albumsOpacity = opacityOf('Albums');
+    final homeOpacity = opacityOf('Home');
+    expect(albumsOpacity, inExclusiveRange(0, 1));
+    expect(homeOpacity, inExclusiveRange(0, 1));
+
+    await tester.pumpWidget(host(2));
+    expect(opacityOf('Albums'), closeTo(albumsOpacity, 0.001));
+    expect(opacityOf('Home'), closeTo(homeOpacity, 0.001));
+    expect(opacityOf('Settings'), 0);
+    expect(tester.element(find.text('Home')), same(home));
+
+    await tester.pumpAndSettle();
+    expect(opacityOf('Settings'), 1);
+    expect(find.text('Home'), findsNothing);
+    expect(find.text('Albums'), findsNothing);
+    expect(tester.element(find.text('Home', skipOffstage: false)), same(home));
+    await tester.pumpWidget(const SizedBox());
+  });
 }

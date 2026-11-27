@@ -7,10 +7,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../app/track_actions.dart';
 import '../../core/audio/artist_parser.dart';
 import '../../core/audio/stream_models.dart';
+import '../../design_system/fluent/lw_scrollbar.dart';
 import '../../features/downloads/download_manager.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/library/playlists.dart';
@@ -24,43 +26,67 @@ import '../theme/tokens.dart';
 import 'buttons.dart' show LWTooltip, WaveButton, WaveFilledButton;
 import '../theme/wave_icons.dart';
 
-/// Snappy flyout entrance shared by every DropDownButton/menu in the
-/// app. Same slide-from-edge language as fluent's default, compressed
-/// into the first ~55% of the 167ms controller (≈90ms) plus a fast
-/// fade — the full-length slide reads as lag on click. Pass as
-/// `transitionBuilder:` on DropDownButton, or mirror with an explicit
-/// 90ms `transitionDuration` on direct `showFlyout` calls.
-Widget fastFlyoutTransition(
+/// Menu and select surfaces travel a few pixels from their resolved anchor.
+/// Driving both directions from one animation keeps the position continuous.
+Widget waveFlyoutTransition(
   BuildContext context,
   Animation<double> animation,
   FlyoutPlacementMode placementMode,
   Widget flyout,
 ) {
-  if (animation.isCompleted || animation.isDismissed) return flyout;
-  if (animation.status == AnimationStatus.reverse) {
-    return FadeTransition(opacity: animation, child: flyout);
-  }
-  final textDirection = Directionality.of(context);
-  final begin = switch (placementMode) {
+  final origin = switch (placementMode) {
     FlyoutPlacementMode.topCenter ||
     FlyoutPlacementMode.topLeft ||
-    FlyoutPlacementMode.topRight =>
-      const Offset(0, 1),
-    _ => const Offset(0, -1),
+    FlyoutPlacementMode.topRight => const Offset(0, 8),
+    FlyoutPlacementMode.leftTop ||
+    FlyoutPlacementMode.leftCenter ||
+    FlyoutPlacementMode.leftBottom => const Offset(8, 0),
+    FlyoutPlacementMode.rightTop ||
+    FlyoutPlacementMode.rightCenter ||
+    FlyoutPlacementMode.rightBottom => const Offset(-8, 0),
+    FlyoutPlacementMode.full => Offset.zero,
+    _ => const Offset(0, -8),
   };
-  const fast = Interval(0.0, 0.55, curve: Curves.easeOutCubic);
-  return ClipRect(
+  final reduced = waveReduceMotion(context);
+  final progress = animation.drive(CurveTween(curve: WaveMotion.reveal));
+  return AnimatedBuilder(
+    animation: progress,
     child: FadeTransition(
-      opacity: CurvedAnimation(parent: animation, curve: fast),
-      child: SlideTransition(
-        textDirection: textDirection,
-        position: Tween<Offset>(begin: begin, end: Offset.zero).animate(
-          CurvedAnimation(parent: animation, curve: fast),
-        ),
-        child: flyout,
-      ),
+      opacity: progress,
+      child: flyout,
+    ),
+    builder: (context, child) => Transform.translate(
+      offset: reduced ? Offset.zero : origin * (1 - progress.value),
+      child: child,
     ),
   );
+}
+
+/// The pointer bridge stays fixed while the submenu panel settles beside it.
+class WaveSubmenuReveal extends StatelessWidget {
+  const WaveSubmenuReveal({super.key, required this.opensLeft, required this.child});
+
+  final bool opensLeft;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (waveReduceMotion(context)) return child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: WaveMotion.normal,
+      curve: WaveMotion.reveal,
+      child: child,
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset((opensLeft ? 6 : -6) * (1 - value), 0),
+          transformHitTests: false,
+          child: child,
+        ),
+      ),
+    );
+  }
 }
 
 /// Menu data model for [WaveFlyoutPanel].
@@ -510,22 +536,19 @@ class WaveFlyoutPanel extends StatefulWidget {
 }
 
 class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
+  static final _blur = ImageFilter.blur(sigmaX: 30, sigmaY: 30);
+
   int _highlight = -1;
   _WaveSubmenuRowState? _openSubmenu;
   Timer? _submenuCloseTimer;
   final Map<int, GlobalKey<_WaveSubmenuRowState>> _subKeys = {};
-  final Map<int, GlobalKey> _rowKeys = {};
-  late final ScrollController _scrollController;
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController = ScrollController();
-  }
+  final _scrollController = WaveScrollController();
+  final _listController = ListController();
 
   @override
   void dispose() {
     _submenuCloseTimer?.cancel();
+    _listController.dispose();
     _scrollController.dispose();
     // The cascaded submenu is an OverlayPortal child of its row, so it
     // goes away with the parent; nothing to close here.
@@ -534,11 +557,11 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
 
   /// Indices of keyboard-focusable rows (actions + submenus, no dividers).
   List<int> get _actionable => [
-        for (var i = 0; i < (widget.entries?.length ?? 0); i++)
-          if (widget.entries![i] is WaveMenuAction ||
-              widget.entries![i] is WaveMenuSubmenu)
-            i,
-      ];
+    for (var i = 0; i < (widget.entries?.length ?? 0); i++)
+      if (widget.entries![i] is WaveMenuAction ||
+          widget.entries![i] is WaveMenuSubmenu)
+        i,
+  ];
 
   void _moveHighlight(int dir) {
     final stops = _actionable;
@@ -550,17 +573,16 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
           : stops[(at + dir) % stops.length];
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final key = _rowKeys[_highlight];
-      final ctx = key?.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
-          ctx,
-          alignment: 0.5,
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOutCubic,
-        );
+      if (!mounted || !_listController.isAttached) return;
+      if (_listController.visibleRange case (final first, final last)
+          when _highlight > first && _highlight < last) {
+        return;
       }
+      _listController.jumpToItem(
+        index: _highlight,
+        scrollController: _scrollController,
+        alignment: 0.5,
+      );
     });
   }
 
@@ -587,14 +609,23 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
     final sub = _openSubmenu;
     if (sub == null) return;
     _openSubmenu = null;
-    sub.close();
+    if (sub.mounted) sub.close();
   }
 
   void _activate(BuildContext context, int index) {
     final entry = widget.entries![index];
     if (entry is WaveMenuSubmenu) {
       _cancelCloseSubmenu();
-      _subKeys[index]?.currentState?.openNow();
+      final submenu = _subKeys[index]?.currentState;
+      if (submenu != null) {
+        submenu.openNow();
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _highlight == index) {
+            _subKeys[index]?.currentState?.openNow();
+          }
+        });
+      }
     } else if (entry is WaveMenuAction) {
       final onPressed = entry.onPressed;
       if (onPressed == null) return;
@@ -625,99 +656,89 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
     return KeyEventResult.ignored;
   }
 
+  Widget _buildRow(BuildContext context, int i) {
+    final entry = widget.entries![i];
+    switch (entry) {
+      case WaveMenuSeparator():
+        // Same spec as the plugin separator: 5px bottom pad, zero-margin
+        // divider. Built inline — the plugin's is not a Widget.
+        return const Padding(
+          padding: EdgeInsetsDirectional.only(bottom: 5, top: 5),
+          child: Divider(
+            style: DividerThemeData(
+              horizontalMargin: EdgeInsetsDirectional.zero,
+            ),
+          ),
+        );
+      case WaveMenuSubmenu():
+        return _WaveSubmenuRow(
+          key: _subKeys.putIfAbsent(i, () => GlobalKey<_WaveSubmenuRowState>()),
+          entry: entry,
+          highlighted: i == _highlight,
+          hasOtherOpenSubmenu: () =>
+              _openSubmenu?.mounted == true &&
+              _openSubmenu != _subKeys[i]?.currentState,
+          onSubmenuActivity: _cancelCloseSubmenu,
+          onOpened: (c) {
+            _cancelCloseSubmenu();
+            if (_openSubmenu?.mounted == true && _openSubmenu != c) {
+              _openSubmenu!.close();
+            }
+            _openSubmenu = c;
+          },
+        );
+      case WaveMenuAction():
+        final onPressed = entry.onPressed;
+        return MouseRegion(
+          opaque: false,
+          onEnter: (_) => _scheduleCloseSubmenu(),
+          child: WaveMenuRow(
+            selected: i == _highlight,
+            icon: entry.leading,
+            text: Text(
+              entry.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: entry.fontFamily == null
+                  ? null
+                  : TextStyle(fontFamily: entry.fontFamily),
+            ),
+            trailing: entry.hint == null
+                ? null
+                : Text(entry.hint!, style: const TextStyle(fontSize: 11)),
+            onPressed: onPressed == null
+                ? null
+                : () {
+                    if (widget.closeOnAction && entry.closeOnTap) {
+                      Navigator.of(context).maybePop();
+                    }
+                    onPressed();
+                  },
+          ),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    Widget body;
-    if (widget.child != null) {
-      body = widget.child!;
-    } else {
-      final rows = <Widget>[];
-      for (var i = 0; i < widget.entries!.length; i++) {
-        final entry = widget.entries![i];
-        final rowKey = _rowKeys.putIfAbsent(i, () => GlobalKey());
-        if (entry is WaveMenuSeparator) {
-          // Same spec as the plugin separator: 5px bottom pad, zero-margin
-          // divider. Built inline — the plugin's is not a Widget.
-          rows.add(KeyedSubtree(
-            key: rowKey,
-            child: const Padding(
-              padding: EdgeInsetsDirectional.only(bottom: 5, top: 5),
-              child: Divider(
-                style: DividerThemeData(
-                    horizontalMargin: EdgeInsetsDirectional.zero),
-              ),
-            ),
-          ));
-        } else if (entry is WaveMenuSubmenu) {
-          rows.add(_WaveSubmenuRow(
-            key: _subKeys.putIfAbsent(
-                i, () => GlobalKey<_WaveSubmenuRowState>()),
-            entry: entry,
-            highlighted: i == _highlight,
-            hasOtherOpenSubmenu: () =>
-                _openSubmenu != null &&
-                _openSubmenu != _subKeys[i]?.currentState,
-            onSubmenuActivity: _cancelCloseSubmenu,
-            onOpened: (c) {
-              _cancelCloseSubmenu();
-              if (_openSubmenu != null && _openSubmenu != c) {
-                _openSubmenu!.close();
-              }
-              _openSubmenu = c;
-            },
-          ));
-        } else if (entry is WaveMenuAction) {
-          final onPressed = entry.onPressed;
-          rows.add(MouseRegion(
-            key: rowKey,
-            opaque: false,
-            onEnter: (_) => _scheduleCloseSubmenu(),
-            child: WaveMenuRow(
-              selected: i == _highlight,
-              icon: entry.leading,
-              text: Text(
-                entry.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: entry.fontFamily == null
-                    ? null
-                    : TextStyle(fontFamily: entry.fontFamily),
-              ),
-              trailing: entry.hint == null
-                  ? null
-                  : Text(entry.hint!,
-                      style: const TextStyle(fontSize: 11)),
-              onPressed: onPressed == null
-                  ? null
-                  : () {
-                      if (widget.closeOnAction && entry.closeOnTap) {
-                        Navigator.of(context).maybePop();
-                      }
-                      onPressed();
-                    },
-            ),
-          ));
-        }
-      }
-      // Scrolls by wheel and keyboard with no bar: a scrollbar line read as
-      // a stray stroke down the menu's edge.
-      body = ScrollConfiguration(
-        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-        child: SingleChildScrollView(
-          controller: _scrollController,
-          physics: const ClampingScrollPhysics(),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: rows,
+    final body =
+        widget.child ??
+        ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: SuperListView.builder(
+            controller: _scrollController,
+            listController: _listController,
+            physics: const ClampingScrollPhysics(),
+            shrinkWrap: true,
+            itemCount: widget.entries!.length,
+            itemBuilder: _buildRow,
           ),
-        ),
-      );
-    }
+        );
 
     final screenH = MediaQuery.maybeSizeOf(context)?.height ?? 600;
-    final effectiveMaxHeight = widget.maxHeight ?? math.min(screenH * 0.65, 380.0);
+    final effectiveMaxHeight =
+        widget.maxHeight ?? math.min(screenH * 0.65, 380.0);
 
     final dark = theme.brightness == Brightness.dark;
     // Glassmorphism: frosted glass, the page blurred through a thin film,
@@ -751,26 +772,31 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
           ? BoxDecoration(
               borderRadius: WaveRadius.menuRadius,
               border: Border.all(
-                color: (dark ? Colors.white : Colors.black)
-                    .withValues(alpha: dark ? 0.14 : 0.10),
+                color: (dark ? Colors.white : Colors.black).withValues(
+                  alpha: dark ? 0.14 : 0.10,
+                ),
               ),
             )
           : null,
       child: ClipRRect(
         borderRadius: WaveRadius.menuRadius,
         child: frosted
-            ? BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-                child: ColoredBox(
-                  // Neutral smoked glass film rather than waveSurfaceRaised so
-                  // Artwork/Custom themes never tint glassmorphism menus into
-                  // colorful translucent blocks.
-                  color: (dark
-                          ? const Color(0xFF141418)
-                          : const Color(0xFFF5F5F7))
-                      .withValues(alpha: dark ? 0.56 : 0.74),
-                  child: content,
-                ),
+            ? Stack(
+                children: [
+                  Positioned.fill(
+                    child: BackdropFilter(
+                      filter: _blur,
+                      child: ColoredBox(
+                        color:
+                            (dark
+                                    ? const Color(0xFF141418)
+                                    : const Color(0xFFF5F5F7))
+                                .withValues(alpha: dark ? 0.56 : 0.74),
+                      ),
+                    ),
+                  ),
+                  RepaintBoundary(child: content),
+                ],
               )
             : content,
       ),
@@ -782,11 +808,7 @@ class _WaveFlyoutPanelState extends State<WaveFlyoutPanel> {
     // (Space stays global: it toggles playback even with a menu open.)
     return WaveKeyNavScope(
       consumeUpDown: true,
-      child: Focus(
-        autofocus: true,
-        onKeyEvent: _onKey,
-        child: panel,
-      ),
+      child: Focus(autofocus: true, onKeyEvent: _onKey, child: panel),
     );
   }
 }
@@ -1003,9 +1025,12 @@ class _WaveSubmenuRowState extends State<_WaveSubmenuRow> {
                   right: _flipLeft ? 6 : 0,
                   left: _flipLeft ? 0 : 6,
                 ),
-                child: WaveFlyoutPanel.items(
-                  entries: widget.entry.items(),
-                  maxHeight: _maxHeight,
+                child: WaveSubmenuReveal(
+                  opensLeft: _flipLeft,
+                  child: WaveFlyoutPanel.items(
+                    entries: widget.entry.items(),
+                    maxHeight: _maxHeight,
+                  ),
                 ),
               ),
             ),
@@ -1092,8 +1117,9 @@ class _WaveContextMenuState extends State<WaveContextMenu> {
         placementMode: widget.openToSide
             ? FlyoutPlacementMode.bottomLeft
             : widget.placement,
-        transitionDuration: const Duration(milliseconds: 90),
-        transitionBuilder: fastFlyoutTransition,
+        transitionDuration: waveMotion(context, WaveMotion.flyout),
+        reverseTransitionDuration: waveMotion(context, WaveMotion.flyoutExit),
+        transitionBuilder: waveFlyoutTransition,
         builder: (context) => WaveFlyoutPanel.items(
           entries: entries,
         ),
@@ -1135,6 +1161,7 @@ class LWContextMenu extends WaveContextMenu {
 /// IntrinsicWidth measurement on every open).
 class WaveMenuButton extends StatefulWidget {
   final List<WaveMenuEntry> entries;
+  final List<WaveMenuEntry> Function()? buildEntries;
   final FlyoutPlacementMode placement;
   final Widget Function(BuildContext context, VoidCallback onOpen)
       buttonBuilder;
@@ -1143,7 +1170,14 @@ class WaveMenuButton extends StatefulWidget {
     required this.entries,
     required this.buttonBuilder,
     this.placement = FlyoutPlacementMode.auto,
-  });
+  }) : buildEntries = null;
+
+  const WaveMenuButton.lazy({
+    super.key,
+    required this.buildEntries,
+    required this.buttonBuilder,
+    this.placement = FlyoutPlacementMode.auto,
+  }) : entries = const [];
   @override
   State<WaveMenuButton> createState() => _WaveMenuButtonState();
 }
@@ -1157,7 +1191,8 @@ class _WaveMenuButtonState extends State<WaveMenuButton> {
   }
 
   void _open() {
-    if (widget.entries.isEmpty) return;
+    final entries = widget.buildEntries?.call() ?? widget.entries;
+    if (entries.isEmpty) return;
     _controller.showFlyout(
       barrierColor: Colors.transparent,
       placementMode: widget.placement,
@@ -1165,10 +1200,11 @@ class _WaveMenuButtonState extends State<WaveMenuButton> {
       autoModeConfiguration: widget.placement == FlyoutPlacementMode.auto
           ? null
           : FlyoutAutoConfiguration(preferredMode: widget.placement),
-      transitionDuration: const Duration(milliseconds: 90),
-      transitionBuilder: fastFlyoutTransition,
+      transitionDuration: waveMotion(context, WaveMotion.flyout),
+      reverseTransitionDuration: waveMotion(context, WaveMotion.flyoutExit),
+      transitionBuilder: waveFlyoutTransition,
       builder: (context) => WaveFlyoutPanel.items(
-        entries: widget.entries,
+        entries: entries,
       ),
     );
   }

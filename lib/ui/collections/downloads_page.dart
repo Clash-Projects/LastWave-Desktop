@@ -13,6 +13,7 @@ import '../components/artwork.dart';
 import '../components/buttons.dart';
 import '../components/hero.dart';
 import '../components/menus.dart';
+import '../components/select.dart';
 import '../components/states.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/motion.dart';
@@ -135,25 +136,23 @@ class _WaveDownloadsPageState extends ConsumerState<WaveDownloadsPage> {
                         ),
                       ),
                       const SizedBox(width: 10),
-                      ComboBox<_DownloadSort>(
+                      WaveSelect<_DownloadSort>(
                         value: _sort,
-                        items: const [
-                          ComboBoxItem(
+                        options: const [
+                          WaveSelectOption(
                             value: _DownloadSort.recent,
-                            child: Text('Recently downloaded'),
+                            label: 'Recently downloaded',
                           ),
-                          ComboBoxItem(
+                          WaveSelectOption(
                             value: _DownloadSort.title,
-                            child: Text('Title A–Z'),
+                            label: 'Title A–Z',
                           ),
-                          ComboBoxItem(
+                          WaveSelectOption(
                             value: _DownloadSort.artist,
-                            child: Text('Artist A–Z'),
+                            label: 'Artist A–Z',
                           ),
                         ],
-                        onChanged: (v) {
-                          if (v != null) setState(() => _sort = v);
-                        },
+                        onChanged: (v) => setState(() => _sort = v),
                       ),
                     ],
                   ),
