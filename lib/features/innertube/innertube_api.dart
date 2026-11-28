@@ -569,17 +569,6 @@ class InnerTubeMusicApi {
       deviceModel: 'RealityDevice14,1',
     ),
     PlayerClient(
-      'ANDROID_VR',
-      '1.65.10',
-      'AIzaSyD-p045F_WzU-vA_YgX20SCx4KAo',
-      'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
-      osName: 'Android',
-      osVersion: '12L',
-      deviceMake: 'Oculus',
-      deviceModel: 'Quest 3',
-      androidSdkVersion: '32',
-    ),
-    PlayerClient(
       'IOS',
       '21.26.4',
       'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
@@ -588,33 +577,6 @@ class InnerTubeMusicApi {
       osVersion: '18.3.2.22D82',
       deviceMake: 'Apple',
       deviceModel: 'iPhone16,2',
-    ),
-    PlayerClient(
-      'ANDROID',
-      '21.26.364',
-      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
-      osName: 'Android',
-      osVersion: '11',
-    ),
-    PlayerClient(
-      'ANDROID_TESTSUITE',
-      '1.9',
-      'AIzaSyD-p045F_WzU-vA_YgX20SCx4KAo',
-      'com.google.android.youtube/1.9 (Linux; U; Android 12) gzip',
-      osName: 'Android',
-      osVersion: '12',
-    ),
-    PlayerClient(
-      'ANDROID_MUSIC',
-      '7.27.52',
-      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-      'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; en_US; Pixel 8; Build/UD1A.230803.041) gzip',
-      osName: 'Android',
-      osVersion: '14',
-      deviceMake: 'Google',
-      deviceModel: 'Pixel 8',
-      androidSdkVersion: '34',
     ),
     PlayerClient(
       'IOS_MUSIC',
@@ -639,22 +601,6 @@ class InnerTubeMusicApi {
       'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/4.0 Chrome/76.0.3809.146 TV Safari/537.36',
     ),
     PlayerClient(
-      'ANDROID_CREATOR',
-      '24.32.100',
-      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-      'com.google.android.apps.youtube.creator/24.32.100 (Linux; U; Android 13; en_US) gzip',
-      osName: 'Android',
-      osVersion: '13',
-    ),
-    PlayerClient(
-      'IOS_CREATOR',
-      '24.32.100',
-      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
-      'com.google.ios.creator/24.32.100 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
-      osName: 'iOS',
-      osVersion: '17.5.1.21F90',
-    ),
-    PlayerClient(
       'WEB_REMIX',
       fallbackWebVersion,
       'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30',
@@ -671,6 +617,60 @@ class InnerTubeMusicApi {
       '2.20260707.01.00',
       'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30',
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    ),
+    PlayerClient(
+      'ANDROID',
+      '21.26.364',
+      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+      osName: 'Android',
+      osVersion: '11',
+    ),
+    PlayerClient(
+      'ANDROID_MUSIC',
+      '7.27.52',
+      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; en_US; Pixel 8; Build/UD1A.230803.041) gzip',
+      osName: 'Android',
+      osVersion: '14',
+      deviceMake: 'Google',
+      deviceModel: 'Pixel 8',
+      androidSdkVersion: '34',
+    ),
+    PlayerClient(
+      'ANDROID_TESTSUITE',
+      '1.9',
+      'AIzaSyD-p045F_WzU-vA_YgX20SCx4KAo',
+      'com.google.android.youtube/1.9 (Linux; U; Android 12) gzip',
+      osName: 'Android',
+      osVersion: '12',
+    ),
+    PlayerClient(
+      'ANDROID_CREATOR',
+      '24.32.100',
+      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      'com.google.android.apps.youtube.creator/24.32.100 (Linux; U; Android 13; en_US) gzip',
+      osName: 'Android',
+      osVersion: '13',
+    ),
+    PlayerClient(
+      'IOS_CREATOR',
+      '24.32.100',
+      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
+      'com.google.ios.creator/24.32.100 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+      osName: 'iOS',
+      osVersion: '17.5.1.21F90',
+    ),
+    PlayerClient(
+      'ANDROID_VR',
+      '1.65.10',
+      'AIzaSyD-p045F_WzU-vA_YgX20SCx4KAo',
+      'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
+      osName: 'Android',
+      osVersion: '12L',
+      deviceMake: 'Oculus',
+      deviceModel: 'Quest 3',
+      androidSdkVersion: '32',
     ),
   ];
 
@@ -6021,7 +6021,10 @@ class InnerTubeMusicApi {
     }
   }
 
-  void reportPlaybackFailure(String videoId) {
+  void reportPlaybackFailure(
+    String videoId, {
+    String? failedClientProfile,
+  }) {
     _streamCache.removeWhere((k, _) => k.startsWith('$videoId|'));
     try {
       _disk?.deleteStreamEntries(videoId);
@@ -6030,6 +6033,9 @@ class InnerTubeMusicApi {
     if (ref != null) {
       _coolClient(videoId, ref.clientProfile, ref.authScope);
       _logStream('report-failure', videoId: videoId, client: ref.clientProfile);
+    } else if (failedClientProfile != null && failedClientProfile.isNotEmpty) {
+      _coolClient(videoId, failedClientProfile);
+      _logStream('report-failure', videoId: videoId, client: failedClientProfile);
     } else {
       for (final c in playerClients.take(_maxStreamClients)) {
         _coolClient(videoId, c.key);

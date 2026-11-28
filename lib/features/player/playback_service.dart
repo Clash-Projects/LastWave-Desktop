@@ -3710,7 +3710,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       return;
     }
     if (track.videoId.isNotEmpty) {
-      _tube.reportPlaybackFailure(track.videoId);
+      String? failedClientProfile;
+      final parts = streamKey.split(':');
+      if (parts.length >= 3 &&
+          (parts[0] == 'youtube' || parts[0] == 'youtube-min') &&
+          parts[2].isNotEmpty) {
+        failedClientProfile = parts[2];
+      }
+      _tube.reportPlaybackFailure(
+        track.videoId,
+        failedClientProfile: failedClientProfile,
+      );
     }
     if (streamKey.startsWith('addon:') && _playbackAttempt == 0) {
       // Addon streams fail transiently (slow mint, segment blip) and
@@ -3722,10 +3732,11 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           forceRefresh: true, attempt: 1);
       return;
     }
-    if (_playbackAttempt <= 1) {
-      _crumb('retry youtube key=${track.queueKey}');
+    if (_playbackAttempt < 4) {
+      final nextAttempt = _playbackAttempt + 1;
+      _crumb('retry youtube attempt=$nextAttempt key=${track.queueKey}');
       await _resolveAndOpen(state.currentIndex,
-          forceYoutube: true, forceRefresh: true, attempt: 2);
+          forceYoutube: true, forceRefresh: true, attempt: nextAttempt);
       return;
     }
     _unavailable.add(track.queueKey);
