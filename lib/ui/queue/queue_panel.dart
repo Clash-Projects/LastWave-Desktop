@@ -8,7 +8,6 @@ import '../theme/wave_icons.dart';
 import '../../app/track_actions.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
-import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, WaveButton, WaveFilledButton, WaveLink;
@@ -23,7 +22,7 @@ final queueLockedProvider = StateProvider<bool>((_) => false);
 
 /// Contextual queue — slides from right, 360px, disappears fully.
 ///
-/// Header: Queue 18px + Save playlist + UP NEXT count + Lock + Clear + filter.
+/// Header: Queue 18px + Add to playlist + inline Close + UP NEXT + Lock + Clear + filter.
 /// NOW PLAYING 44px accent row. Reorderable 48px rows: drag handle visible on
 /// hover (locked while filtered), hover X remove, right-click menu.
 class WaveQueuePanel extends ConsumerStatefulWidget {
@@ -38,8 +37,7 @@ class WaveQueuePanel extends ConsumerStatefulWidget {
 class _WaveQueuePanelState extends ConsumerState<WaveQueuePanel> {
   final TextEditingController _filterController = TextEditingController();
   String _filterQuery = '';
-  SavedPlaylist? _savedPlaylist;
-  int _savedCount = 0;
+  QueueSaveResult? _savedResult;
   Timer? _savedBannerTimer;
 
   @override
@@ -58,12 +56,9 @@ class _WaveQueuePanelState extends ConsumerState<WaveQueuePanel> {
     final res = await showWaveSaveQueuePlaylist(context, ref, visibleTracks);
     if (!mounted || res == null) return;
     _savedBannerTimer?.cancel();
-    setState(() {
-      _savedPlaylist = res.playlist;
-      _savedCount = res.savedCount;
-    });
+    setState(() => _savedResult = res);
     _savedBannerTimer = Timer(const Duration(seconds: 6), () {
-      if (mounted) setState(() => _savedPlaylist = null);
+      if (mounted) setState(() => _savedResult = null);
     });
   }
 
@@ -91,21 +86,88 @@ class _WaveQueuePanelState extends ConsumerState<WaveQueuePanel> {
         );
   }
 
-  Widget _buildUndoBar(QueueClearUndoState undo) {
-    final count = undo.tracks.length;
+  Widget _buildHeader(BuildContext context, List<PlayableTrack> visibleTracks) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-      child: InfoBar(
-        title: Text('Cleared $count track${count == 1 ? '' : 's'}'),
-        content: const Text('Up next was cleared.'),
-        severity: InfoBarSeverity.info,
-        isLong: false,
-        action: WaveLink(
-          onPressed: _undoClear,
-          child: Text('Undo (${undo.secondsLeft}s)'),
-        ),
-        onClose: () => ref.read(queueClearUndoProvider.notifier).dismiss(),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        widget.embedded ? 12 : 8,
+        widget.embedded ? 16 : 8,
+        2,
       ),
+      child: Row(
+        children: [
+          Text('Queue', style: WaveType.pageTitle.copyWith(fontSize: 18)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: LWTooltip(
+                message: 'Save queue to a new or existing playlist',
+                child: WaveLink(
+                  onPressed: visibleTracks.isEmpty
+                      ? null
+                      : () => _saveQueue(visibleTracks),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(WaveIcons.addTo, size: 12),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          'Add to playlist',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WaveType.label.copyWith(fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (!widget.embedded) ...[
+            const SizedBox(width: 4),
+            _CloseGlyph(onTap: widget.onClose ?? () {}),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSavedBanner(BuildContext context, QueueSaveResult res) {
+    final dark = waveIsDark(context);
+    final green = dark ? WaveColors.success : const Color(0xFF1E7E45);
+    final unit = res.addedCount == 1 ? 'track' : 'tracks';
+    final msg = res.createdNew
+        ? 'Saved "${res.playlist.title}" · ${res.addedCount} $unit'
+        : res.addedCount > 0
+            ? 'Added ${res.addedCount} to "${res.playlist.title}"'
+            : 'Already in "${res.playlist.title}"';
+
+    return _QueueBanner(
+      icon: WaveIcons.check,
+      iconColor: green,
+      backgroundColor: WaveColors.success.withValues(alpha: dark ? 0.13 : 0.12),
+      borderColor: WaveColors.success.withValues(alpha: dark ? 0.32 : 0.42),
+      message: msg,
+      actionLabel: 'Open',
+      onAction: () => context.go('/playlists/${res.playlist.id}'),
+      onDismiss: () => setState(() => _savedResult = null),
+    );
+  }
+
+  Widget _buildUndoBar(BuildContext context, QueueClearUndoState undo) {
+    final count = undo.tracks.length;
+    return _QueueBanner(
+      icon: WaveIcons.history,
+      iconColor: waveAccent(context),
+      backgroundColor: waveSurfaceOverlay(context),
+      borderColor: waveOutline(context),
+      message: 'Cleared $count track${count == 1 ? '' : 's'}',
+      actionLabel: 'Undo (${undo.secondsLeft}s)',
+      onAction: _undoClear,
+      onDismiss: () => ref.read(queueClearUndoProvider.notifier).dismiss(),
     );
   }
 
@@ -133,12 +195,14 @@ class _WaveQueuePanelState extends ConsumerState<WaveQueuePanel> {
 
     if (queue.isEmpty) {
       return _Shell(
-        onClose: widget.onClose,
         embedded: widget.embedded,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (undo != null) _buildUndoBar(undo),
+            _buildHeader(context, const []),
+            if (_savedResult != null)
+              _buildSavedBanner(context, _savedResult!),
+            if (undo != null) _buildUndoBar(context, undo),
             Expanded(
               child: WaveQueueEmpty(onBrowse: () => context.go('/home')),
             ),
@@ -157,60 +221,14 @@ class _WaveQueuePanelState extends ConsumerState<WaveQueuePanel> {
     final filtered = filterUpcomingTracks(queue, index, _filterQuery);
 
     return _Shell(
-      onClose: widget.onClose,
       embedded: widget.embedded,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
-            child: Row(
-              children: [
-                Text('Queue',
-                    style: WaveType.pageTitle.copyWith(fontSize: 18)),
-                const Spacer(),
-                LWTooltip(
-                  message: 'Save queue as a new playlist',
-                  child: WaveLink(
-                    onPressed: visibleTracks.isEmpty
-                        ? null
-                        : () => _saveQueue(visibleTracks),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(WaveIcons.addTo, size: 12),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Save playlist',
-                          style: WaveType.label.copyWith(fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (_savedPlaylist != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
-              child: InfoBar(
-                title: Text('Saved "${_savedPlaylist!.title}"'),
-                content: Text(
-                  '$_savedCount track${_savedCount == 1 ? '' : 's'} added.',
-                ),
-                severity: InfoBarSeverity.success,
-                isLong: false,
-                action: WaveLink(
-                  onPressed: () =>
-                      context.go('/playlists/${_savedPlaylist!.id}'),
-                  child: const Text('Open'),
-                ),
-                onClose: () => setState(() => _savedPlaylist = null),
-              ),
-            ),
+          _buildHeader(context, visibleTracks),
+          if (_savedResult != null) _buildSavedBanner(context, _savedResult!),
           if (current != null) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
@@ -223,11 +241,11 @@ class _WaveQueuePanelState extends ConsumerState<WaveQueuePanel> {
                 ),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 5),
             _NowRow(track: current, queueIndex: index),
             Padding(
               padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 10),
+                  horizontal: 16, vertical: 7),
               child: Container(height: 1, color: waveDivider(context)),
             ),
           ],
@@ -295,41 +313,49 @@ class _WaveQueuePanelState extends ConsumerState<WaveQueuePanel> {
               ],
             ),
           ),
-          if (undo != null) _buildUndoBar(undo),
+          if (undo != null) _buildUndoBar(context, undo),
           if (upcoming.isNotEmpty || isFiltering)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextBox(
-                      decoration: waveInputDecoration(),
-                      controller: _filterController,
-                      placeholder: 'Filter up next…',
-                      prefix: Padding(
-                        padding: const EdgeInsets.only(left: 8),
-                        child: Icon(
-                          WaveIcons.search,
-                          size: 13,
-                          color: dark
-                              ? WaveColors.textTertiary
-                              : WaveColors.lightTextTertiary,
-                        ),
-                      ),
-                      onChanged: (v) => setState(() => _filterQuery = v),
-                    ),
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+              child: TextBox(
+                decoration: waveInputDecoration(),
+                controller: _filterController,
+                placeholder: 'Filter up next…',
+                padding: const EdgeInsets.fromLTRB(8, 5, 6, 5),
+                style: WaveType.meta,
+                placeholderStyle: WaveType.meta.copyWith(
+                  color: dark
+                      ? WaveColors.textTertiary
+                      : WaveColors.lightTextTertiary,
+                ),
+                prefix: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Icon(
+                    WaveIcons.search,
+                    size: 12,
+                    color: dark
+                        ? WaveColors.textTertiary
+                        : WaveColors.lightTextTertiary,
                   ),
-                  if (_filterQuery.isNotEmpty) ...[
-                    const SizedBox(width: 6),
-                    LWTooltip(
-                      message: 'Clear filter',
-                      child: IconButton(
-                        icon: const Icon(FluentIcons.chrome_close, size: 11),
-                        onPressed: _clearFilter,
-                      ),
-                    ),
-                  ],
-                ],
+                ),
+                suffix: _filterQuery.isNotEmpty
+                    ? LWTooltip(
+                        message: 'Clear filter',
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _clearFilter,
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 8),
+                              child: Icon(WaveIcons.close, size: 10),
+                            ),
+                          ),
+                        ),
+                      )
+                    : null,
+                suffixMode: OverlayVisibilityMode.always,
+                onChanged: (v) => setState(() => _filterQuery = v),
               ),
             ),
           const SizedBox(height: 4),
@@ -419,6 +445,109 @@ class _WaveQueuePanelState extends ConsumerState<WaveQueuePanel> {
   }
 }
 
+class _QueueBanner extends StatefulWidget {
+  final IconData icon;
+  final Color iconColor;
+  final Color backgroundColor;
+  final Color borderColor;
+  final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+  final VoidCallback onDismiss;
+
+  const _QueueBanner({
+    required this.icon,
+    required this.iconColor,
+    required this.backgroundColor,
+    required this.borderColor,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_QueueBanner> createState() => _QueueBannerState();
+}
+
+class _QueueBannerState extends State<_QueueBanner> {
+  bool _closeHover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 32),
+        padding: const EdgeInsets.fromLTRB(10, 4, 6, 4),
+        decoration: BoxDecoration(
+          color: widget.backgroundColor,
+          borderRadius: WaveRadius.controlsRadius,
+          border: Border.all(color: widget.borderColor),
+        ),
+        child: Row(
+          children: [
+            Icon(widget.icon, size: 13, color: widget.iconColor),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                widget.message,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WaveType.meta.copyWith(
+                  fontSize: 11.5,
+                  color: waveTextPrimary(context),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            WaveLink(
+              style: const ButtonStyle(
+                padding: WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                ),
+              ),
+              onPressed: widget.onAction,
+              child: Text(
+                widget.actionLabel,
+                style: WaveType.label.copyWith(fontSize: 11.5),
+              ),
+            ),
+            const SizedBox(width: 2),
+            LWTooltip(
+              message: 'Dismiss',
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                onEnter: (_) => setState(() => _closeHover = true),
+                onExit: (_) => setState(() => _closeHover = false),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.onDismiss,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: _closeHover
+                          ? waveHoverWash(context)
+                          : Colors.transparent,
+                      borderRadius: WaveRadius.tinyRadius,
+                    ),
+                    child: Icon(
+                      WaveIcons.close,
+                      size: 9,
+                      color: waveTextSecondary(context),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class WaveQueueEmpty extends StatelessWidget {
   final VoidCallback onBrowse;
   const WaveQueueEmpty({super.key, required this.onBrowse});
@@ -426,8 +555,8 @@ class WaveQueueEmpty extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = waveIsDark(context);
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -477,28 +606,12 @@ class WaveQueueEmpty extends StatelessWidget {
 }
 
 class _Shell extends StatelessWidget {
-  final VoidCallback? onClose;
   final Widget child;
   final bool embedded;
-  const _Shell({required this.onClose, required this.child, this.embedded = false});
+  const _Shell({required this.child, this.embedded = false});
   @override
   Widget build(BuildContext context) {
-    // Haze Level 2 — contextual panel translucency; rows stay crisp
-    // (no per-row blur, bounded 360px region only).
-    final body = Column(
-      children: [
-        if (!embedded)
-          Align(
-            alignment: Alignment.topRight,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8, right: 8),
-              child: _CloseGlyph(onTap: onClose ?? () {}),
-            ),
-          ),
-        Expanded(child: child),
-      ],
-    );
-    if (embedded) return body;
+    if (embedded) return child;
     // Haze Level 2 tonality WITHOUT the live backdrop readback. The
     // panel is a full-height overlay: a live BackdropFilter on it
     // re-samples the whole 360px×window-height region every time the
@@ -514,7 +627,7 @@ class _Shell extends StatelessWidget {
       ),
       child: SizedBox(
         width: WaveDensity.contextPanel,
-        child: body,
+        child: child,
       ),
     );
   }
@@ -540,8 +653,8 @@ class _CloseGlyphState extends State<_CloseGlyph> {
         child: GestureDetector(
           onTap: widget.onTap,
           child: Container(
-            width: 32,
-            height: 32,
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
               color: _hover
                   ? waveHoverWash(context)
@@ -551,7 +664,7 @@ class _CloseGlyphState extends State<_CloseGlyph> {
             ),
             child: Icon(
               FluentIcons.chrome_close,
-              size: 12,
+              size: 11,
               color: _hover
                   ? waveTextPrimary(context)
                   : waveTextTertiary(context),
@@ -714,7 +827,7 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
             children: [
               // Drag handle: low-opacity idle (still visible/keyboard
               // reachable) → full opacity on hover. Hidden while locked
-              // so the row cannot start a reorder.
+              // or filtered so the row cannot start an invalid reorder.
               if (widget.locked || widget.reorderDisabledReason != null)
                 LWTooltip(
                   message: widget.reorderDisabledReason ?? 'Queue is locked',
@@ -851,5 +964,3 @@ class QueueBodyPublic extends ConsumerWidget {
     return WaveQueuePanel(onClose: null, embedded: embedded);
   }
 }
-
-

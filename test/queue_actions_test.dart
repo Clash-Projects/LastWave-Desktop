@@ -80,12 +80,14 @@ void main() {
     });
   });
 
-  group('uniqueQueuePlaylistTitle & PlaylistRepository save', () {
-    test('avoids collisions with existing and reserved playlist names', () {
+  group('uniqueQueuePlaylistTitle, new playlist, & existing playlist add', () {
+    test('avoids collisions and filters editable target playlists', () {
       const existing = [
         SavedPlaylist(id: 1, title: 'Liked Songs', mode: SavedPlaylist.likedMode),
-        SavedPlaylist(id: 2, title: 'Queue Mix', mode: 'custom'),
-        SavedPlaylist(id: 3, title: 'Queue Mix (2)', mode: 'custom'),
+        SavedPlaylist(id: 2, title: 'Local songs', mode: SavedPlaylist.localMode),
+        SavedPlaylist(id: 3, title: 'Queue Mix', mode: 'custom'),
+        SavedPlaylist(id: 4, title: 'Queue Mix (2)', mode: 'custom'),
+        SavedPlaylist(id: 5, title: 'On PC', mode: SavedPlaylist.libraryMode),
       ];
 
       expect(uniqueQueuePlaylistTitle('Queue Mix', existing), 'Queue Mix (3)');
@@ -93,24 +95,64 @@ void main() {
       expect(uniqueQueuePlaylistTitle('Local songs', existing), 'Local songs (2)');
       expect(uniqueQueuePlaylistTitle('   ', existing), 'Queue Mix (3)');
       expect(uniqueQueuePlaylistTitle('Road Trip', existing), 'Road Trip');
+
+      final targets = editableQueuePlaylists(existing);
+      expect(targets.map((p) => p.title).toList(), [
+        'Queue Mix',
+        'Queue Mix (2)',
+        'On PC',
+      ]);
     });
 
-    test('saves full queue atomically into a new SavedPlaylist', () async {
+    test('saves queue into a new playlist and merges without duplicates into existing playlist', () async {
       final db = AppDatabase.inMemory();
       final repo = PlaylistRepository(db);
       final q = [
         track('Song One', 'Artist A', album: 'Alb 1', videoId: 'v1', seconds: 200),
         track('Song Two', 'Artist B', album: 'Alb 2', videoId: 'v2', seconds: 215),
       ];
-      final title = uniqueQueuePlaylistTitle('Late Night Queue', repo.all);
-      final created = await repo.createCustom(title);
-      repo.applyBatch(created.id, add: queueTracksToStored(q));
+      final stored = queueTracksToStored(q);
 
-      final saved = repo.state.firstWhere((p) => p.id == created.id);
-      expect(saved.title, 'Late Night Queue');
-      expect(saved.tracks, hasLength(2));
-      expect(saved.tracks.first.album, 'Alb 1');
-      expect(saved.tracks.last.durationSeconds, 215);
+      final createdRes = await saveQueueToNewPlaylist(
+        repo,
+        () => repo.all,
+        title: 'Late Night Queue',
+        tracks: stored,
+      );
+      expect(createdRes.createdNew, isTrue);
+      expect(createdRes.addedCount, 2);
+      expect(createdRes.playlist.tracks, hasLength(2));
+      expect(createdRes.playlist.tracks.first.album, 'Alb 1');
+
+      final extra = queueTracksToStored([
+        track('song one', 'artist a', videoId: 'v1', seconds: 200),
+        track('Song Three', 'Artist C', album: 'Alb 3', videoId: 'v3', seconds: 240),
+      ]);
+      expect(countNewTracksForPlaylist(createdRes.playlist, extra), 1);
+
+      final mergedRes = addQueueToExistingPlaylist(
+        repo,
+        () => repo.all,
+        target: createdRes.playlist,
+        tracks: extra,
+      );
+      expect(mergedRes.createdNew, isFalse);
+      expect(mergedRes.addedCount, 1);
+      expect(mergedRes.totalCount, 2);
+      expect(mergedRes.playlist.tracks.map((t) => t.name).toList(), [
+        'Song One',
+        'Song Two',
+        'Song Three',
+      ]);
+
+      final noopRes = addQueueToExistingPlaylist(
+        repo,
+        () => repo.all,
+        target: mergedRes.playlist,
+        tracks: extra,
+      );
+      expect(noopRes.addedCount, 0);
+      expect(noopRes.playlist.tracks, hasLength(3));
     });
   });
 

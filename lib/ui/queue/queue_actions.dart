@@ -7,9 +7,30 @@ import '../../core/audio/stream_models.dart';
 import '../../features/library/playlists.dart';
 import '../components/buttons.dart';
 import '../components/inputs.dart';
+import '../theme/tokens.dart';
+import '../theme/wave_icons.dart';
 
 /// One upcoming queue entry paired with its exact index inside `state.queue`.
 typedef IndexedQueueTrack = ({int queueIndex, PlayableTrack track});
+
+/// Normalized dedupe key shared with [PlaylistRepository].
+String storedTrackKey(StoredTrack track) =>
+    '${track.name.toLowerCase()}|${track.artist.toLowerCase()}';
+
+/// Result returned after saving/adding queued tracks to a new or existing playlist.
+class QueueSaveResult {
+  final SavedPlaylist playlist;
+  final int addedCount;
+  final int totalCount;
+  final bool createdNew;
+
+  const QueueSaveResult({
+    required this.playlist,
+    required this.addedCount,
+    required this.totalCount,
+    required this.createdNew,
+  });
+}
 
 /// Visible queue tracks starting from the currently playing track onward.
 List<PlayableTrack> visibleQueueTracks(
@@ -75,8 +96,29 @@ List<IndexedQueueTrack> filterUpcomingTracks(
   return List<IndexedQueueTrack>.unmodifiable(out);
 }
 
-/// Generates a non-colliding playlist title so saving the queue always creates
-/// a new custom playlist instead of merging into an existing or reserved one.
+/// Filters [playlists] to editable user targets (excludes Liked Songs & auto Local scan).
+List<SavedPlaylist> editableQueuePlaylists(Iterable<SavedPlaylist> playlists) =>
+    playlists
+        .where((p) => !p.isLikedSongs && !p.isLocal)
+        .toList(growable: false);
+
+/// Counts how many unique tracks in [tracks] are not already present in [playlist].
+int countNewTracksForPlaylist(
+  SavedPlaylist playlist,
+  Iterable<StoredTrack> tracks,
+) {
+  final seen = playlist.tracks.map(storedTrackKey).toSet();
+  var added = 0;
+  for (final t in tracks) {
+    if (seen.add(storedTrackKey(t))) {
+      added++;
+    }
+  }
+  return added;
+}
+
+/// Generates a non-colliding playlist title so creating a new playlist never
+/// merges into an existing or reserved one.
 String uniqueQueuePlaylistTitle(
   String desired,
   Iterable<SavedPlaylist> existing,
@@ -98,6 +140,47 @@ String uniqueQueuePlaylistTitle(
     n++;
   }
   return '$base ($n)';
+}
+
+/// Creates a brand-new custom playlist with [tracks] atomically.
+Future<QueueSaveResult> saveQueueToNewPlaylist(
+  PlaylistRepository repo,
+  List<SavedPlaylist> Function() readPlaylists, {
+  required String title,
+  required List<StoredTrack> tracks,
+}) async {
+  final finalTitle = uniqueQueuePlaylistTitle(title, readPlaylists());
+  final created = await repo.createCustom(finalTitle);
+  repo.applyBatch(created.id, add: tracks);
+  final updated = readPlaylists()
+      .firstWhere((p) => p.id == created.id, orElse: () => created);
+  return QueueSaveResult(
+    playlist: updated,
+    addedCount: tracks.length,
+    totalCount: tracks.length,
+    createdNew: true,
+  );
+}
+
+/// Appends only non-duplicate [tracks] from queue into an existing [target] playlist.
+QueueSaveResult addQueueToExistingPlaylist(
+  PlaylistRepository repo,
+  List<SavedPlaylist> Function() readPlaylists, {
+  required SavedPlaylist target,
+  required List<StoredTrack> tracks,
+}) {
+  final added = countNewTracksForPlaylist(target, tracks);
+  if (added > 0) {
+    repo.applyBatch(target.id, add: tracks);
+  }
+  final updated = readPlaylists()
+      .firstWhere((p) => p.id == target.id, orElse: () => target);
+  return QueueSaveResult(
+    playlist: updated,
+    addedCount: added,
+    totalCount: tracks.length,
+    createdNew: false,
+  );
 }
 
 /// Snapshot of recently cleared upcoming tracks held for the 5-second Undo bar.
@@ -189,8 +272,22 @@ final queueClearUndoProvider =
   (_) => QueueClearUndoNotifier(),
 );
 
-/// Prompts for a playlist name and saves all [tracks] into a new playlist.
-Future<({SavedPlaylist playlist, int savedCount})?> showWaveSaveQueuePlaylist(
+sealed class _QueuePlaylistChoice {
+  const _QueuePlaylistChoice();
+}
+
+class _CreateNewQueuePlaylist extends _QueuePlaylistChoice {
+  final String title;
+  const _CreateNewQueuePlaylist(this.title);
+}
+
+class _PickExistingQueuePlaylist extends _QueuePlaylistChoice {
+  final SavedPlaylist playlist;
+  const _PickExistingQueuePlaylist(this.playlist);
+}
+
+/// Prompts to save [tracks] into a new playlist or add them to an existing one.
+Future<QueueSaveResult?> showWaveSaveQueuePlaylist(
   BuildContext context,
   WidgetRef ref,
   List<PlayableTrack> tracks,
@@ -199,56 +296,159 @@ Future<({SavedPlaylist playlist, int savedCount})?> showWaveSaveQueuePlaylist(
   final stored = queueTracksToStored(tracks);
   if (stored.isEmpty) return null;
 
-  final existing = ref.read(playlistRepositoryProvider);
-  final suggested = uniqueQueuePlaylistTitle('Queue Mix', existing);
+  final allPlaylists = ref.read(playlistRepositoryProvider);
+  final existingTargets = editableQueuePlaylists(allPlaylists);
+  final suggested = uniqueQueuePlaylistTitle('Queue Mix', allPlaylists);
   final controller = TextEditingController(text: suggested);
 
-  final chosen = await showDialog<String>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Save queue as playlist'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Save ${stored.length} track${stored.length == 1 ? '' : 's'} into a new playlist.',
-            style: const TextStyle(fontSize: 12),
+  _QueuePlaylistChoice? choice;
+  try {
+    choice = await showDialog<_QueuePlaylistChoice>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text('Add queue to playlist'),
+        constraints: const BoxConstraints(maxWidth: 420),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+            Text(
+              'Save ${stored.length} track${stored.length == 1 ? '' : 's'} into a new playlist or add to an existing one.',
+              style: WaveType.meta.copyWith(
+                color: waveTextSecondary(context),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'NEW PLAYLIST',
+              style: WaveType.overline.copyWith(
+                fontSize: 9.5,
+                color: waveTextTertiary(context),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: TextBox(
+                    decoration: waveInputDecoration(),
+                    controller: controller,
+                    placeholder: 'Playlist name',
+                    autofocus: true,
+                    onSubmitted: (v) {
+                      final clean = v.trim();
+                      if (clean.isNotEmpty) {
+                        Navigator.of(context)
+                            .pop(_CreateNewQueuePlaylist(clean));
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: controller,
+                  builder: (context, value, _) {
+                    final clean = value.text.trim();
+                    return WaveFilledButton(
+                      onPressed: clean.isEmpty
+                          ? null
+                          : () => Navigator.of(context)
+                              .pop(_CreateNewQueuePlaylist(clean)),
+                      child: const Text('Create'),
+                    );
+                  },
+                ),
+              ],
+            ),
+            if (existingTargets.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text(
+                'ADD TO EXISTING (${existingTargets.length})',
+                style: WaveType.overline.copyWith(
+                  fontSize: 9.5,
+                  color: waveTextTertiary(context),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                decoration: BoxDecoration(
+                  color: waveSurfaceOverlay(context).withValues(alpha: 0.45),
+                  borderRadius: WaveRadius.controlsRadius,
+                  border: Border.all(color: waveOutlineSoft(context)),
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 210),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    itemCount: existingTargets.length,
+                    itemBuilder: (context, i) {
+                      final p = existingTargets[i];
+                      final newCount = countNewTracksForPlaylist(p, stored);
+                      final trackWord =
+                          p.tracks.length == 1 ? 'track' : 'tracks';
+                      final status =
+                          newCount == 0 ? 'already added' : '+$newCount new';
+                      return MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: ListTile.selectable(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: WaveRadius.controlsRadius,
+                          ),
+                          leading: const Icon(WaveIcons.playlists, size: 15),
+                          title: Text(
+                            p.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '${p.tracks.length} $trackWord · $status',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          selectionMode: ListTileSelectionMode.single,
+                          selected: false,
+                          onPressed: () => Navigator.of(context)
+                              .pop(_PickExistingQueuePlaylist(p)),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+            ],
           ),
-          const SizedBox(height: 10),
-          TextBox(
-            decoration: waveInputDecoration(),
-            controller: controller,
-            placeholder: 'Playlist name',
-            autofocus: true,
-            onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+        ),
+        actions: [
+          WaveButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
           ),
         ],
       ),
-      actions: [
-        WaveButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        WaveFilledButton(
-          onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-          child: const Text('Save'),
-        ),
-      ],
-    ),
-  );
-  controller.dispose();
+    );
+  } finally {
+    controller.dispose();
+  }
 
-  if (chosen == null || chosen.isEmpty) return null;
+  if (choice == null) return null;
   final repo = ref.read(playlistRepositoryProvider.notifier);
-  final finalTitle = uniqueQueuePlaylistTitle(
-    chosen,
-    ref.read(playlistRepositoryProvider),
-  );
-  final created = await repo.createCustom(finalTitle);
-  repo.applyBatch(created.id, add: stored);
-  final updated = ref
-      .read(playlistRepositoryProvider)
-      .firstWhere((p) => p.id == created.id, orElse: () => created);
-  return (playlist: updated, savedCount: stored.length);
+  List<SavedPlaylist> readPlaylists() => ref.read(playlistRepositoryProvider);
+
+  return switch (choice) {
+    _CreateNewQueuePlaylist(:final title) => saveQueueToNewPlaylist(
+        repo,
+        readPlaylists,
+        title: title,
+        tracks: stored,
+      ),
+    _PickExistingQueuePlaylist(:final playlist) => addQueueToExistingPlaylist(
+        repo,
+        readPlaylists,
+        target: playlist,
+        tracks: stored,
+      ),
+  };
 }
