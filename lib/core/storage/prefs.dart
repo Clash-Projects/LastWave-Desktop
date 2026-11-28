@@ -735,6 +735,16 @@ class Prefs {
   Future<void> setStudioClarityPreset(String v) =>
       _sp.setString('lw_studio_clarity_preset', v);
 
+  String get customEqProfilesJson =>
+      _sp.getString('lw_custom_eq_profiles') ?? '[]';
+  Future<void> setCustomEqProfilesJson(String v) =>
+      _sp.setString('lw_custom_eq_profiles', v);
+
+  String get activeEarProfileId =>
+      _sp.getString('lw_active_ear_profile_id') ?? '';
+  Future<void> setActiveEarProfileId(String v) =>
+      _sp.setString('lw_active_ear_profile_id', v);
+
   // -- Profile picture & display name (local overrides) ---------------------
   String get profilePicturePath =>
       _sp.getString('lw_profile_picture_path') ?? '';

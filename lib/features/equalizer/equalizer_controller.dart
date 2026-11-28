@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/prefs.dart';
 import '../player/playback_service.dart';
+import 'ear_calibration.dart';
 import 'equalizer_models.dart';
 
 /// Provider for the 10-band Equalizer and Studio Master Clarity controller.
@@ -14,10 +15,21 @@ final equalizerProvider =
 
 class EqualizerNotifier extends StateNotifier<EqualizerState> {
   final Prefs _prefs;
-  final PlaybackService _playback;
+  final Future<void> Function(String af) _setAudioFilter;
 
-  EqualizerNotifier(this._prefs, this._playback)
-      : super(const EqualizerState()) {
+  EqualizerNotifier(this._prefs, PlaybackService playback)
+      : _setAudioFilter = playback.setAudioFilter,
+        super(const EqualizerState()) {
+    _loadFromPrefs();
+  }
+
+  /// Lightweight constructor for unit tests that verifies `Prefs` persistence
+  /// and emitted `libmpv` filter graphs without spawning a live player.
+  EqualizerNotifier.forTesting(
+    this._prefs, {
+    Future<void> Function(String af)? onAudioFilter,
+  })  : _setAudioFilter = onAudioFilter ?? ((_) async {}),
+        super(const EqualizerState()) {
     _loadFromPrefs();
   }
 
@@ -45,12 +57,22 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
       }
     }
 
+    final savedEarProfiles =
+        SavedEarProfile.decodeList(_prefs.customEqProfilesJson);
+    final storedProfileId = _prefs.activeEarProfileId;
+    final activeEarProfileId =
+        savedEarProfiles.any((p) => p.id == storedProfileId)
+            ? storedProfileId
+            : null;
+
     state = EqualizerState(
       enabled: enabled,
       presetName: presetName,
       gainsDb: gains,
       studioClarityEnabled: studioClarityEnabled,
       clarityPresetKey: clarityPresetKey,
+      savedEarProfiles: savedEarProfiles,
+      activeEarProfileId: activeEarProfileId,
     );
 
     _applyToPlayer();
@@ -71,11 +93,84 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
       enabled: true,
       presetName: preset.name,
       gainsDb: List.of(preset.gainsDb),
+      clearActiveEarProfile: true,
     );
     await _prefs.setEqualizerEnabled(true);
     await _prefs.setEqualizerPreset(preset.name);
     await _prefs.setEqualizerGains(state.gainsDb.join(','));
+    await _prefs.setActiveEarProfileId('');
     await _applyToPlayer();
+  }
+
+  /// Saves a calibrated listener ear profile and applies its 10-band curve.
+  Future<void> saveAndApplyEarProfile(SavedEarProfile profile) async {
+    final nextProfiles = [
+      profile,
+      for (final existing in state.savedEarProfiles)
+        if (existing.id != profile.id) existing,
+    ];
+    final clampedGains = profile.gainsDb
+        .map((g) => double.parse(
+            g.clamp(-eqMaxGainDb, eqMaxGainDb).toStringAsFixed(1)))
+        .toList(growable: false);
+
+    state = state.copyWith(
+      enabled: true,
+      presetName: profile.name,
+      gainsDb: clampedGains,
+      savedEarProfiles: List<SavedEarProfile>.unmodifiable(nextProfiles),
+      activeEarProfileId: profile.id,
+    );
+
+    await _prefs.setCustomEqProfilesJson(
+      SavedEarProfile.encodeList(nextProfiles),
+    );
+    await _prefs.setEqualizerEnabled(true);
+    await _prefs.setEqualizerPreset(profile.name);
+    await _prefs.setEqualizerGains(clampedGains.join(','));
+    await _prefs.setActiveEarProfileId(profile.id);
+    await _applyToPlayer();
+  }
+
+  /// Applies an already saved listener ear profile.
+  Future<void> applyEarProfile(SavedEarProfile profile) async {
+    final clampedGains = profile.gainsDb
+        .map((g) => double.parse(
+            g.clamp(-eqMaxGainDb, eqMaxGainDb).toStringAsFixed(1)))
+        .toList(growable: false);
+    state = state.copyWith(
+      enabled: true,
+      presetName: profile.name,
+      gainsDb: clampedGains,
+      activeEarProfileId: profile.id,
+    );
+    await _prefs.setEqualizerEnabled(true);
+    await _prefs.setEqualizerPreset(profile.name);
+    await _prefs.setEqualizerGains(clampedGains.join(','));
+    await _prefs.setActiveEarProfileId(profile.id);
+    await _applyToPlayer();
+  }
+
+  /// Removes a saved ear profile. If currently active, keeps the curve as
+  /// `Custom` without interrupting playback.
+  Future<void> deleteEarProfile(String id) async {
+    final nextProfiles = [
+      for (final existing in state.savedEarProfiles)
+        if (existing.id != id) existing,
+    ];
+    final wasActive = state.activeEarProfileId == id;
+    state = state.copyWith(
+      savedEarProfiles: List<SavedEarProfile>.unmodifiable(nextProfiles),
+      presetName: wasActive ? EqualizerPresets.customName : state.presetName,
+      clearActiveEarProfile: wasActive,
+    );
+    await _prefs.setCustomEqProfilesJson(
+      SavedEarProfile.encodeList(nextProfiles),
+    );
+    if (wasActive) {
+      await _prefs.setEqualizerPreset(EqualizerPresets.customName);
+      await _prefs.setActiveEarProfileId('');
+    }
   }
 
   Future<void> setBandGain(int bandIndex, double gainDb) async {
@@ -88,11 +183,13 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
       enabled: true,
       presetName: EqualizerPresets.customName,
       gainsDb: nextGains,
+      clearActiveEarProfile: true,
     );
 
     await _prefs.setEqualizerEnabled(true);
     await _prefs.setEqualizerPreset(EqualizerPresets.customName);
     await _prefs.setEqualizerGains(nextGains.join(','));
+    await _prefs.setActiveEarProfileId('');
     await _applyToPlayer();
   }
 
@@ -133,7 +230,7 @@ class EqualizerNotifier extends StateNotifier<EqualizerState> {
 
   Future<void> _applyToPlayer() async {
     final af = _formatMpvFilter(state);
-    await _playback.setAudioFilter(af);
+    await _setAudioFilter(af);
   }
 
   static String _formatMpvFilter(EqualizerState s) {
