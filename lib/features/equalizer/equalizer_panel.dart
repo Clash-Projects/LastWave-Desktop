@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../ui/components/buttons.dart' show LWTooltip;
 import '../../ui/theme/tokens.dart';
+import 'ear_calibration_tab.dart';
 import 'equalizer_controller.dart';
 import 'equalizer_models.dart';
 
@@ -23,21 +24,24 @@ class WaveEqualizerPanel extends ConsumerStatefulWidget {
 }
 
 class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
-  int _selectedTab = 0; // 0 = 10-Band EQ, 1 = Studio Master Clarity
+  int _selectedTab = 0; // 0 = 10-Band EQ, 1 = Studio Clarity, 2 = Ear Profile
   late final ScrollController _eqScrollController;
   late final ScrollController _clarityScrollController;
+  late final ScrollController _earScrollController;
 
   @override
   void initState() {
     super.initState();
     _eqScrollController = ScrollController();
     _clarityScrollController = ScrollController();
+    _earScrollController = ScrollController();
   }
 
   @override
   void dispose() {
     _eqScrollController.dispose();
     _clarityScrollController.dispose();
+    _earScrollController.dispose();
     super.dispose();
   }
 
@@ -73,14 +77,19 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           // Header
           _buildHeader(context, dark, eq, notifier),
 
-          // Tab Selector: 10-Band EQ vs Studio Master Clarity
+          // Tab Selector: 10-Band EQ / Studio Clarity / Ear Profile
           _buildTabSelector(context, dark, eq),
 
           // Content body
           Expanded(
-            child: _selectedTab == 0
-                ? _build10BandView(context, dark, eq, notifier)
-                : _buildStudioClarityView(context, dark, eq, notifier),
+            child: switch (_selectedTab) {
+              0 => _build10BandView(context, dark, eq, notifier),
+              1 => _buildStudioClarityView(context, dark, eq, notifier),
+              _ => EarCalibrationTab(
+                  scrollController: _earScrollController,
+                  dark: dark,
+                ),
+            },
           ),
         ],
       ),
@@ -100,6 +109,8 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
       statusSubtitle = 'Studio Clarity + ${eq.presetName}';
     } else if (eq.studioClarityEnabled) {
       statusSubtitle = 'Studio Master Clarity (${eq.clarityPreset.displayName})';
+    } else if (eq.activeEarProfileId != null) {
+      statusSubtitle = 'Ear Profile: ${eq.presetName}';
     } else {
       statusSubtitle = '${eq.presetName} preset active';
     }
@@ -209,7 +220,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
               onTap: () => setState(() => _selectedTab = 0),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           Expanded(
             child: _TabButton(
               title: 'Studio Clarity',
@@ -218,6 +229,17 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
               badgeActive: eq.studioClarityEnabled,
               dark: dark,
               onTap: () => setState(() => _selectedTab = 1),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: _TabButton(
+              title: 'Ear Profile',
+              icon: FluentIcons.headset,
+              selected: _selectedTab == 2,
+              badgeActive: eq.enabled && eq.activeEarProfileId != null,
+              dark: dark,
+              onTap: () => setState(() => _selectedTab = 2),
             ),
           ),
         ],
@@ -382,7 +404,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(WaveRadius.menu - 2),
             child: CustomPaint(
-              painter: _EqCurvePainter(
+              painter: EqCurvePainter(
                 gainsDb: eq.combinedGainsDb,
                 active: eq.studioClarityEnabled,
                 dark: dark,
@@ -494,7 +516,7 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(WaveRadius.menu - 2),
         child: CustomPaint(
-          painter: _EqCurvePainter(
+          painter: EqCurvePainter(
             gainsDb: eq.combinedGainsDb,
             active: eq.isProcessingActive,
             dark: dark,
@@ -511,15 +533,73 @@ class _WaveEqualizerPanelState extends ConsumerState<WaveEqualizerPanel> {
     EqualizerState eq,
     EqualizerNotifier notifier,
   ) {
+    final earProfiles = eq.savedEarProfiles;
+    final totalCount = earProfiles.length + EqualizerPresets.all.length;
     return SizedBox(
       height: 30,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: EqualizerPresets.all.length,
+        itemCount: totalCount,
         separatorBuilder: (_, _) => const SizedBox(width: 6),
         itemBuilder: (context, index) {
-          final preset = EqualizerPresets.all[index];
-          final isSelected =
+          if (index < earProfiles.length) {
+            final ear = earProfiles[index];
+            final isSelected = eq.activeEarProfileId == ear.id;
+            return GestureDetector(
+              onTap: () => notifier.applyEarProfile(ear),
+              child: AnimatedContainer(
+                duration:
+                    waveMotion(context, const Duration(milliseconds: 140)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(15),
+                  color: isSelected
+                      ? (dark
+                          ? const Color(0xFF8A6D3B)
+                          : const Color(0xFFE5B760))
+                      : (dark
+                          ? waveSurfaceRaised(context)
+                          : waveSurfaceOverlay(context)),
+                  border: Border.all(
+                    color: isSelected
+                        ? Colors.transparent
+                        : waveDivider(context)
+                            .withValues(alpha: dark ? 0.3 : 0.5),
+                  ),
+                ),
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        FluentIcons.headset,
+                        size: 10,
+                        color: isSelected
+                            ? (dark ? Colors.white : Colors.black)
+                            : const Color(0xFFF5A623),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        ear.name,
+                        style: WaveType.label.copyWith(
+                          fontSize: 11,
+                          fontWeight:
+                              isSelected ? FontWeight.w600 : FontWeight.normal,
+                          color: isSelected
+                              ? (dark ? Colors.white : Colors.black)
+                              : waveTextSecondary(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+
+          final preset = EqualizerPresets.all[index - earProfiles.length];
+          final isSelected = eq.activeEarProfileId == null &&
               eq.presetName.toLowerCase() == preset.name.toLowerCase();
           final isStudioMaster =
               preset.name == EqualizerPresets.studioMaster.name;
@@ -959,7 +1039,7 @@ class _TabButton extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: waveMotion(context, const Duration(milliseconds: 140)),
-        padding: const EdgeInsets.symmetric(vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(WaveRadius.menu),
           color: selected
@@ -992,15 +1072,19 @@ class _TabButton extends StatelessWidget {
                   ? (badgeActive ? const Color(0xFFF5A623) : waveTextPrimary(context))
                   : waveTextSecondary(context),
             ),
-            const SizedBox(width: 6),
-            Text(
-              title,
-              style: WaveType.body.copyWith(
-                fontSize: 11.5,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                color: selected
-                    ? waveTextPrimary(context)
-                    : waveTextSecondary(context),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WaveType.body.copyWith(
+                  fontSize: 11.5,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                  color: selected
+                      ? waveTextPrimary(context)
+                      : waveTextSecondary(context),
+                ),
               ),
             ),
             if (badgeActive) ...[
@@ -1061,12 +1145,12 @@ class _QuickActionPill extends StatelessWidget {
 }
 
 /// Custom painter for smooth frequency response curve with subtle glow fill.
-class _EqCurvePainter extends CustomPainter {
+class EqCurvePainter extends CustomPainter {
   final List<double> gainsDb;
   final bool active;
   final bool dark;
 
-  _EqCurvePainter({
+  EqCurvePainter({
     required this.gainsDb,
     required this.active,
     required this.dark,
@@ -1147,7 +1231,7 @@ class _EqCurvePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _EqCurvePainter oldDelegate) {
+  bool shouldRepaint(covariant EqCurvePainter oldDelegate) {
     return oldDelegate.active != active ||
         oldDelegate.dark != dark ||
         oldDelegate.gainsDb != gainsDb;

@@ -4,6 +4,8 @@
 /// ±8 dB to guarantee clean, unclipped, audiophile-grade output.
 library;
 
+import 'ear_calibration.dart';
+
 const List<int> eqBandFreqsHz = [
   31,
   63,
@@ -226,6 +228,8 @@ class EqualizerState {
   final List<double> gainsDb;
   final bool studioClarityEnabled;
   final String clarityPresetKey;
+  final List<SavedEarProfile> savedEarProfiles;
+  final String? activeEarProfileId;
 
   const EqualizerState({
     this.enabled = false,
@@ -233,6 +237,8 @@ class EqualizerState {
     this.gainsDb = const [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     this.studioClarityEnabled = false,
     this.clarityPresetKey = 'reference',
+    this.savedEarProfiles = const [],
+    this.activeEarProfileId,
   });
 
   EqualizerState copyWith({
@@ -241,6 +247,9 @@ class EqualizerState {
     List<double>? gainsDb,
     bool? studioClarityEnabled,
     String? clarityPresetKey,
+    List<SavedEarProfile>? savedEarProfiles,
+    String? activeEarProfileId,
+    bool clearActiveEarProfile = false,
   }) {
     return EqualizerState(
       enabled: enabled ?? this.enabled,
@@ -248,6 +257,10 @@ class EqualizerState {
       gainsDb: gainsDb ?? this.gainsDb,
       studioClarityEnabled: studioClarityEnabled ?? this.studioClarityEnabled,
       clarityPresetKey: clarityPresetKey ?? this.clarityPresetKey,
+      savedEarProfiles: savedEarProfiles ?? this.savedEarProfiles,
+      activeEarProfileId: clearActiveEarProfile
+          ? null
+          : (activeEarProfileId ?? this.activeEarProfileId),
     );
   }
 
