@@ -1,3 +1,6 @@
+//! QuickJS cipher & n-challenge resolver adapted from ytm-rs
+//! (https://github.com/grapedjuice/ytm-rs).
+
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use rquickjs::{Context, Runtime, qjs};
