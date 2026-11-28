@@ -137,6 +137,9 @@ class SmtcChannel::Impl {
     if (smtc_ && token_.value != 0) {
       smtc_->remove_ButtonPressed(token_);
     }
+    if (smtc_ && seek_token_.value != 0) {
+      smtc_->remove_SeekRequested(seek_token_);
+    }
     smtc_.Reset();
   }
 
@@ -145,6 +148,10 @@ class SmtcChannel::Impl {
   // in the Foundation namespace; the unqualified name is a macro).
   using ButtonPressedHandler = ABI::Windows::Foundation::
       __FITypedEventHandler_2_Windows__CMedia__CSystemMediaTransportControls_Windows__CMedia__CSystemMediaTransportControlsButtonPressedEventArgs_t;
+
+  // Exact MIDL specialization for the SeekRequested delegate.
+  using SeekRequestedHandler = ABI::Windows::Foundation::
+      __FITypedEventHandler_2_Windows__CMedia__CSystemMediaTransportControls_Windows__CMedia__CSeekRequestedEventArgs_t;
 
   void InitSystemMedia() {
     if (hwnd_ == nullptr) return;
@@ -201,6 +208,31 @@ class SmtcChannel::Impl {
     hr = smtc->add_ButtonPressed(handler.Get(), &token);
     if (FAILED(hr)) return;
     token_ = token;
+
+    // Seek: the shell's scrubber asks here; forward the position to Dart
+    // the same way buttons are forwarded (thread-pool -> window thread).
+    // IsSeekEnabled itself is set per update in ApplyUpdate (hasTrack).
+    auto seekHandler = Callback<SeekRequestedHandler>(
+        [this](ABI::Windows::Media::ISystemMediaTransportControls*,
+               ABI::Windows::Media::ISeekRequestedEventArgs* args)
+            -> HRESULT {
+          if (args == nullptr) return S_OK;
+          ABI::Windows::Foundation::TimeSpan position{};
+          if (FAILED(args->get_RequestedPosition(&position))) return S_OK;
+          const int64_t ms = position.Duration / kMsTo100ns;
+          if (hwnd_ != nullptr && ms >= 0) {
+            PostMessage(hwnd_, SmtcChannel::kSeekMessage,
+                        static_cast<WPARAM>(ms), 0);
+          }
+          return S_OK;
+        });
+    if (seekHandler) {
+      EventRegistrationToken seekToken{};
+      if (SUCCEEDED(smtc->add_SeekRequested(seekHandler.Get(), &seekToken))) {
+        seek_token_ = seekToken;
+      }
+    }
+
     smtc_ = smtc;
   }
 
@@ -235,6 +267,16 @@ class SmtcChannel::Impl {
       channel_->InvokeMethod(
           "onButton",
           std::make_unique<EncodableValue>(std::string(name)));
+    }
+  }
+
+  // Platform thread (window procedure): forward the seek to Dart.
+  void DispatchSeek(WPARAM positionMs) {
+    if (channel_) {
+      channel_->InvokeMethod(
+          "onSeek",
+          std::make_unique<EncodableValue>(
+              static_cast<int64_t>(positionMs)));
     }
   }
 
@@ -341,6 +383,7 @@ class SmtcChannel::Impl {
     smtc_->put_IsPlayEnabled(hasTrack);
     smtc_->put_IsPauseEnabled(hasTrack);
     smtc_->put_IsStopEnabled(hasTrack);
+    smtc_->put_IsSeekEnabled(hasTrack);
     smtc_->put_IsNextEnabled(canNext);
     smtc_->put_IsPreviousEnabled(canPrev);
 
@@ -411,6 +454,7 @@ class SmtcChannel::Impl {
   std::unique_ptr<flutter::MethodChannel<EncodableValue>> channel_;
   ComPtr<ABI::Windows::Media::ISystemMediaTransportControls> smtc_;
   EventRegistrationToken token_{};
+  EventRegistrationToken seek_token_{};
   std::string lastArtUrl_;
 };
 
@@ -421,6 +465,10 @@ SmtcChannel::~SmtcChannel() = default;
 
 void SmtcChannel::OnButtonMessage(WPARAM button) {
   impl_->DispatchButton(button);
+}
+
+void SmtcChannel::OnSeekMessage(WPARAM positionMs) {
+  impl_->DispatchSeek(positionMs);
 }
 
 }  // namespace lastwave

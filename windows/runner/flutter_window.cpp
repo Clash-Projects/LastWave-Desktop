@@ -226,6 +226,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     return 0;
   }
 
+  // SMTC seek request marshalled from the thread-pool callback.
+  if (message == lastwave::SmtcChannel::kSeekMessage) {
+    if (smtc_channel_ && !destroying_) smtc_channel_->OnSeekMessage(wparam);
+    return 0;
+  }
+
   // Snap Layouts: ahead of the plugins, which answer WM_NCHITTEST for the
   // frameless resize borders.
   if (!destroying_) {
