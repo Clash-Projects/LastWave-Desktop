@@ -8,6 +8,7 @@ import '../../core/artwork/animated_artwork_session.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/lyrics/karaoke_lyrics_view.dart';
 import '../../features/spotify/canvas_clip.dart';
+import '../../features/spotify/spotify_api.dart' show canvasEnabledProvider;
 import '../components/ambient.dart';
 import '../components/animated_artwork_video.dart';
 import '../components/artwork.dart';
@@ -41,6 +42,7 @@ class _NowPlayingFullBleedViewState
   Widget build(BuildContext context) {
     final track = widget.track;
     final isImmersive = ref.watch(nowPlayingImmersiveProvider);
+    final canvasEnabled = ref.watch(canvasEnabledProvider);
     final controlsIdle = ref.watch(nowPlayingControlsIdleProvider);
     final ambientStyle = ref.watch(ambientStyleProvider);
     final lyricsAsync = ref.watch(waveLyricsProvider(track));
@@ -62,19 +64,28 @@ class _NowPlayingFullBleedViewState
         durationMs: track.duration.inMilliseconds,
       )),
     );
-    final clip = canvasAsync.valueOrNull?.clip;
+    final clip = canvasEnabled ? canvasAsync.valueOrNull?.clip : null;
     final clipUrl = clip?.url ?? '';
     final clipFallbackUrl = clip?.fallbackUrl ?? '';
-    if (!canvasAsync.isLoading || clipUrl.isNotEmpty) {
+    if (!canvasEnabled) {
+      _lastClipUrl = '';
+      _lastClipFallbackUrl = '';
+    } else if (!canvasAsync.isLoading || clipUrl.isNotEmpty) {
       _lastClipUrl = clipUrl;
       _lastClipFallbackUrl = clipFallbackUrl;
     }
-    final activeUrl =
-        clipUrl.isNotEmpty ? clipUrl : (canvasAsync.isLoading ? _lastClipUrl : '');
-    final activeFallbackUrl = clipUrl.isNotEmpty
-        ? clipFallbackUrl
-        : (canvasAsync.isLoading ? _lastClipFallbackUrl : '');
+    final activeUrl = !canvasEnabled
+        ? ''
+        : (clipUrl.isNotEmpty
+            ? clipUrl
+            : (canvasAsync.isLoading ? _lastClipUrl : ''));
+    final activeFallbackUrl = !canvasEnabled
+        ? ''
+        : (clipUrl.isNotEmpty
+            ? clipFallbackUrl
+            : (canvasAsync.isLoading ? _lastClipFallbackUrl : ''));
     final videoReady =
+        canvasEnabled &&
         clipUrl.isNotEmpty &&
         ref.watch(
           animatedArtworkSessionProvider.select((s) => s.isReadyFor(clipUrl)),

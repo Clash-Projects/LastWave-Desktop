@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:media_kit/media_kit.dart' show AudioDevice;
 
 import '../../core/audio/stream_models.dart';
 import '../../core/storage/prefs.dart';
@@ -38,7 +39,7 @@ class AudioOutputState {
       for (final d in devices) {
         if (d.isDefault) return d;
       }
-      return devices.first;
+      return null;
     }
     for (final d in devices) {
       if (d.id == selectedId) return d;
@@ -74,6 +75,8 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
   final FormatNegotiator _negotiator;
   StreamSubscription<Map<String, dynamic>>? _hotplug;
   Timer? _hotplugDebounce;
+  StreamSubscription<List<AudioDevice>>? _mpvDevicesSub;
+  Timer? _mpvDevicesDebounce;
   bool _attached = false;
   String? _lastLogged;
   // Fingerprint of every input _rebuildPath consumes, so position-only
@@ -106,8 +109,10 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
   @override
   void dispose() {
     _hotplugDebounce?.cancel();
+    _mpvDevicesDebounce?.cancel();
     _pendingHotplugEvents.clear();
     _hotplug?.cancel();
+    _mpvDevicesSub?.cancel();
     super.dispose();
   }
 
@@ -115,9 +120,25 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
     if (_attached) return;
     _attached = true;
     await refreshDevices();
-    _hotplug = _engine.deviceEvents.listen((event) {
-      unawaited(_onHotplug(event));
-    });
+    if (_engine.isSupported) {
+      _hotplug = _engine.deviceEvents.listen((event) {
+        unawaited(_onHotplug(event));
+      });
+    } else {
+      final playback = _ref.read(playbackServiceProvider.notifier);
+      _mpvDevicesSub = playback.audioDevicesStream.listen((_) {
+        _mpvDevicesDebounce?.cancel();
+        _mpvDevicesDebounce = Timer(const Duration(milliseconds: 250), () {
+          unawaited(_onMpvDevicesChanged());
+        });
+      });
+    }
+    await applyToPlayer();
+    _rebuildPath();
+  }
+
+  Future<void> _onMpvDevicesChanged() async {
+    await refreshDevices();
     await applyToPlayer();
     _rebuildPath();
   }
@@ -129,7 +150,20 @@ class AudioOutputController extends StateNotifier<AudioOutputState> {
 
   Future<void> refreshDevices() async {
     state = state.copyWith(probing: true);
-    final devices = await _engine.enumerateDevices();
+    final List<DacDevice> devices;
+    if (_engine.isSupported) {
+      devices = await _engine.enumerateDevices();
+    } else {
+      devices = _ref
+          .read(playbackServiceProvider.notifier)
+          .availableAudioDevices
+          .where((d) => d.name.isNotEmpty && d.name != 'auto')
+          .map((d) => DacDevice(
+                id: d.name,
+                name: d.description.isNotEmpty ? d.description : d.name,
+              ))
+          .toList(growable: false);
+    }
     var selected = state.selectedId;
     if (selected.isNotEmpty &&
         devices.every((d) => d.id != selected) &&

@@ -569,17 +569,6 @@ class InnerTubeMusicApi {
       deviceModel: 'RealityDevice14,1',
     ),
     PlayerClient(
-      'ANDROID_VR',
-      '1.65.10',
-      'AIzaSyD-p045F_WzU-vA_YgX20SCx4KAo',
-      'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
-      osName: 'Android',
-      osVersion: '12L',
-      deviceMake: 'Oculus',
-      deviceModel: 'Quest 3',
-      androidSdkVersion: '32',
-    ),
-    PlayerClient(
       'IOS',
       '21.26.4',
       'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
@@ -588,33 +577,6 @@ class InnerTubeMusicApi {
       osVersion: '18.3.2.22D82',
       deviceMake: 'Apple',
       deviceModel: 'iPhone16,2',
-    ),
-    PlayerClient(
-      'ANDROID',
-      '21.26.364',
-      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
-      osName: 'Android',
-      osVersion: '11',
-    ),
-    PlayerClient(
-      'ANDROID_TESTSUITE',
-      '1.9',
-      'AIzaSyD-p045F_WzU-vA_YgX20SCx4KAo',
-      'com.google.android.youtube/1.9 (Linux; U; Android 12) gzip',
-      osName: 'Android',
-      osVersion: '12',
-    ),
-    PlayerClient(
-      'ANDROID_MUSIC',
-      '7.27.52',
-      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-      'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; en_US; Pixel 8; Build/UD1A.230803.041) gzip',
-      osName: 'Android',
-      osVersion: '14',
-      deviceMake: 'Google',
-      deviceModel: 'Pixel 8',
-      androidSdkVersion: '34',
     ),
     PlayerClient(
       'IOS_MUSIC',
@@ -639,22 +601,6 @@ class InnerTubeMusicApi {
       'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/4.0 Chrome/76.0.3809.146 TV Safari/537.36',
     ),
     PlayerClient(
-      'ANDROID_CREATOR',
-      '24.32.100',
-      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-      'com.google.android.apps.youtube.creator/24.32.100 (Linux; U; Android 13; en_US) gzip',
-      osName: 'Android',
-      osVersion: '13',
-    ),
-    PlayerClient(
-      'IOS_CREATOR',
-      '24.32.100',
-      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
-      'com.google.ios.creator/24.32.100 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
-      osName: 'iOS',
-      osVersion: '17.5.1.21F90',
-    ),
-    PlayerClient(
       'WEB_REMIX',
       fallbackWebVersion,
       'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30',
@@ -671,6 +617,60 @@ class InnerTubeMusicApi {
       '2.20260707.01.00',
       'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30',
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    ),
+    PlayerClient(
+      'ANDROID',
+      '21.26.364',
+      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+      osName: 'Android',
+      osVersion: '11',
+    ),
+    PlayerClient(
+      'ANDROID_MUSIC',
+      '7.27.52',
+      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; en_US; Pixel 8; Build/UD1A.230803.041) gzip',
+      osName: 'Android',
+      osVersion: '14',
+      deviceMake: 'Google',
+      deviceModel: 'Pixel 8',
+      androidSdkVersion: '34',
+    ),
+    PlayerClient(
+      'ANDROID_TESTSUITE',
+      '1.9',
+      'AIzaSyD-p045F_WzU-vA_YgX20SCx4KAo',
+      'com.google.android.youtube/1.9 (Linux; U; Android 12) gzip',
+      osName: 'Android',
+      osVersion: '12',
+    ),
+    PlayerClient(
+      'ANDROID_CREATOR',
+      '24.32.100',
+      'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      'com.google.android.apps.youtube.creator/24.32.100 (Linux; U; Android 13; en_US) gzip',
+      osName: 'Android',
+      osVersion: '13',
+    ),
+    PlayerClient(
+      'IOS_CREATOR',
+      '24.32.100',
+      'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
+      'com.google.ios.creator/24.32.100 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+      osName: 'iOS',
+      osVersion: '17.5.1.21F90',
+    ),
+    PlayerClient(
+      'ANDROID_VR',
+      '1.65.10',
+      'AIzaSyD-p045F_WzU-vA_YgX20SCx4KAo',
+      'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
+      osName: 'Android',
+      osVersion: '12L',
+      deviceMake: 'Oculus',
+      deviceModel: 'Quest 3',
+      androidSdkVersion: '32',
     ),
   ];
 
@@ -944,52 +944,162 @@ class InnerTubeMusicApi {
       if (sent is! String || sent != current) return;
       final setCookies = response.headers.map['set-cookie'];
       if (setCookies == null || setCookies.isEmpty) return;
-      final next = mergeRotatedCookies(
-        current,
+      _applyRotatedSetCookies(
         setCookies,
         host: response.requestOptions.uri.host,
+        expectedJar: current,
       );
-      if (next == null || next == current) return;
-      final c = _connection;
-      _connection = YtConnection(
-        connected: c.connected,
-        cookies: next,
-        accountName: c.accountName,
-        channelHandle: c.channelHandle,
-        photoUrl: c.photoUrl,
-        connectedAtMillis: c.connectedAtMillis,
-        profileEmail: c.profileEmail,
-        activePageId: c.activePageId,
-      );
-      _persistedCookies = next;
-      if (kDebugMode) {
-        debugPrint('InnerTube: absorbed rotated session cookies');
-      }
-      _rotationWrite = _rotationWrite.then((_) async {
-        try {
-          await _secure.writeYtCookies(next);
-          await authStore.updateCookies(next);
-        } catch (_) {}
-        try {
-          onCookiesRotated?.call(current, next);
-        } catch (_) {}
-      });
     } catch (_) {
       // Never let bookkeeping break a request.
     }
+  }
+
+  void _applyRotatedSetCookies(
+    Iterable<String> setCookies, {
+    required String host,
+    String? expectedJar,
+  }) {
+    final current = _connection.cookies;
+    if (!_connection.connected || current.isEmpty) return;
+    if (expectedJar != null && current != expectedJar) return;
+    final next = mergeRotatedCookies(
+      current,
+      setCookies,
+      host: host,
+    );
+    if (next == null || next == current) return;
+    final c = _connection;
+    _connection = YtConnection(
+      connected: c.connected,
+      cookies: next,
+      accountName: c.accountName,
+      channelHandle: c.channelHandle,
+      photoUrl: c.photoUrl,
+      connectedAtMillis: c.connectedAtMillis,
+      profileEmail: c.profileEmail,
+      activePageId: c.activePageId,
+    );
+    _persistedCookies = next;
+    if (kDebugMode) {
+      debugPrint('InnerTube: absorbed rotated session cookies');
+    }
+    _rotationWrite = _rotationWrite.then((_) async {
+      try {
+        await _secure.writeYtCookies(next);
+        await authStore.updateCookies(next);
+      } catch (_) {}
+      try {
+        onCookiesRotated?.call(current, next);
+      } catch (_) {}
+    });
+  }
+
+  Future<bool>? _rotateInflight;
+
+  /// Pure-HTTP rotation for short-lived `__Secure-*PSIDTS` / `SIDCC` cookies
+  /// via `accounts.youtube.com/RotateCookiesPage` + `/RotateCookies` (falling back
+  /// to an authenticated GET on `music.youtube.com/`). Works across all desktop
+  /// OSes and for pasted cookie jars without spawning a WebView.
+  Future<bool> rotateSessionCookies() {
+    return _rotateInflight ??= _rotateSessionCookiesInternal().whenComplete(
+      () => _rotateInflight = null,
+    );
+  }
+
+  Future<bool> _rotateSessionCookiesInternal() async {
+    final initial = _connection.cookies;
+    if (!_connection.connected || initial.isEmpty) return false;
+
+    void absorbFromResponse(Response<dynamic> res) {
+      final list = res.headers.map['set-cookie'];
+      if (list == null || list.isEmpty) return;
+      _applyRotatedSetCookies(list, host: res.realUri.host);
+    }
+
+    try {
+      final pageRes = await _dio
+          .get<String>(
+            'https://accounts.youtube.com/RotateCookiesPage?origin=$musicOrigin&yt_pid=1',
+            options: Options(
+              headers: {
+                'User-Agent': webUserAgent,
+                'Referer': '$musicOrigin/',
+                'Cookie': _connection.cookies,
+              },
+              responseType: ResponseType.plain,
+              validateStatus: (_) => true,
+            ),
+          )
+          .timeout(const Duration(seconds: 8));
+      absorbFromResponse(pageRes);
+
+      final html = pageRes.data ?? '';
+      final tokenMatch = RegExp(r"\(\s*'(\d{6,})'\s*,").firstMatch(html) ??
+          RegExp(r'"(\d{10,})"').firstMatch(html);
+      final token = tokenMatch?.group(1);
+
+      if (token != null && token.isNotEmpty) {
+        final rotRes = await _dio
+            .post<String>(
+              'https://accounts.youtube.com/RotateCookies',
+              data: jsonEncode([null, token, 1]),
+              options: Options(
+                headers: {
+                  'User-Agent': webUserAgent,
+                  'Origin': musicOrigin,
+                  'Referer': 'https://accounts.youtube.com/',
+                  'Content-Type': 'application/json; charset=utf-8',
+                  'Cookie': _connection.cookies,
+                },
+                responseType: ResponseType.plain,
+                validateStatus: (_) => true,
+              ),
+            )
+            .timeout(const Duration(seconds: 8));
+        absorbFromResponse(rotRes);
+      }
+
+      if (_connection.cookies == initial) {
+        final homeRes = await _dio
+            .get<String>(
+              '$musicOrigin/',
+              options: Options(
+                headers: {
+                  'User-Agent': webUserAgent,
+                  'Cookie': _connection.cookies,
+                },
+                responseType: ResponseType.plain,
+                validateStatus: (_) => true,
+              ),
+            )
+            .timeout(const Duration(seconds: 8));
+        absorbFromResponse(homeRes);
+      }
+      await _rotationWrite;
+    } catch (_) {}
+    return _connection.cookies != initial;
   }
 
   /// Waits for pending rotation writes (call before a hard exit, e.g.
   /// handing over to an update installer).
   Future<void> flushPendingWrites() => _rotationWrite;
 
+  static const Set<String> _rotationCookieNames = {
+    '__Secure-1PSIDTS',
+    '__Secure-3PSIDTS',
+    '__Secure-1PSIDCC',
+    '__Secure-3PSIDCC',
+    'SIDCC',
+  };
+
   /// Merges `Set-Cookie` header lines into a `Cookie` header [jar].
   ///
-  /// Only names already present in the jar are updated (the jar is a
-  /// curated session set — tracking cookies are not adopted), only for
-  /// youtube.com / google.com scopes, and deletions (expired, Max-Age
-  /// <= 0, empty value) are ignored so a rotation can never shrink the
-  /// session. Returns null when nothing changed.
+  /// Existing jar names and Google's short-lived rotation cookies
+  /// (`__Secure-*PSIDTS`, `__Secure-*PSIDCC`, `SIDCC`) are updated or
+  /// adopted (tracking cookies are ignored), only for youtube.com /
+  /// google.com scopes, and deletions (expired, Max-Age <= 0, empty
+  /// value) are ignored so a rotation can never shrink the session.
+  /// Returns null when nothing changed.
   @visibleForTesting
   static String? mergeRotatedCookies(
     String jar,
@@ -1013,7 +1123,9 @@ class InnerTubeMusicApi {
       if (eq <= 0) continue;
       final name = first.substring(0, eq).trim();
       final value = first.substring(eq + 1).trim();
-      if (!pairs.containsKey(name)) continue;
+      if (!pairs.containsKey(name) && !_rotationCookieNames.contains(name)) {
+        continue;
+      }
       if (value.isEmpty || value == 'EXPIRED' || value == 'deleted') continue;
       var domain = host.toLowerCase();
       var deleted = false;
@@ -1083,19 +1195,17 @@ class InnerTubeMusicApi {
       return false;
     }
     try {
-      await verifyConnection();
+      await verifyConnection(markStale: false);
       _authRetries = 0;
+      _setAuthStale(false);
       return true;
     } on FormatException {
-      _authRetries = 0;
-      return false;
+      return _tryRotateThenVerify();
     } on InnerTubeHttpException catch (e) {
-      // 401 is YouTube saying "these credentials are not valid" — as
-      // definitive as an anonymous page.
+      // 401 is YouTube saying "these credentials are not valid" — try pure-HTTP
+      // rotation first before declaring the session dead.
       if (e.responseCode == 401) {
-        _authRetries = 0;
-        _setAuthStale(true);
-        return false;
+        return _tryRotateThenVerify();
       }
       _scheduleAuthRetry();
       return !_authStale;
@@ -1103,6 +1213,28 @@ class InnerTubeMusicApi {
       _scheduleAuthRetry();
       return !_authStale;
     }
+  }
+
+  Future<bool> _tryRotateThenVerify() async {
+    _authRetries = 0;
+    try {
+      if (await rotateSessionCookies()) {
+        await verifyConnection();
+        return true;
+      }
+    } on FormatException {
+      _setAuthStale(true);
+      return false;
+    } on InnerTubeHttpException catch (e) {
+      if (e.responseCode == 401) {
+        _setAuthStale(true);
+        return false;
+      }
+      _scheduleAuthRetry();
+      return !_authStale;
+    } catch (_) {}
+    _setAuthStale(true);
+    return false;
   }
 
   /// Inconclusive checks (startup races the network, transient 5xx)
@@ -5889,7 +6021,10 @@ class InnerTubeMusicApi {
     }
   }
 
-  void reportPlaybackFailure(String videoId) {
+  void reportPlaybackFailure(
+    String videoId, {
+    String? failedClientProfile,
+  }) {
     _streamCache.removeWhere((k, _) => k.startsWith('$videoId|'));
     try {
       _disk?.deleteStreamEntries(videoId);
@@ -5898,6 +6033,9 @@ class InnerTubeMusicApi {
     if (ref != null) {
       _coolClient(videoId, ref.clientProfile, ref.authScope);
       _logStream('report-failure', videoId: videoId, client: ref.clientProfile);
+    } else if (failedClientProfile != null && failedClientProfile.isNotEmpty) {
+      _coolClient(videoId, failedClientProfile);
+      _logStream('report-failure', videoId: videoId, client: failedClientProfile);
     } else {
       for (final c in playerClients.take(_maxStreamClients)) {
         _coolClient(videoId, c.key);

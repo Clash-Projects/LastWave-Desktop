@@ -64,10 +64,24 @@ class YtSessionKeeper {
     final api = ref.read(innerTubeProvider);
     final conn = api.connection;
     if (!conn.connected) return false;
-    if (!allowCreateWindow && YtWebLogin.cachedWindow == null) return false;
-
     _running = true;
     try {
+      // First try pure-HTTP cookie rotation (`RotateCookies` / top-level refresh):
+      // works across Windows, Linux, and macOS (including pasted cookies) with zero UI.
+      try {
+        if (await api.rotateSessionCookies()) {
+          await api.verifyConnection();
+          ref.read(ytConnectionProvider.notifier).state = api.connection;
+          try {
+            ref.invalidate(ytAccountProvider);
+            ref.invalidate(ytLikedSongsProvider);
+            ref.invalidate(ytHistoryProvider);
+            ref.invalidate(ytAccountPlaylistsProvider);
+          } catch (_) {}
+          return true;
+        }
+      } catch (_) {}
+      if (!allowCreateWindow && YtWebLogin.cachedWindow == null) return false;
       final header = await YtWebLogin.refreshSilently(
         allowCreate: allowCreateWindow,
       );

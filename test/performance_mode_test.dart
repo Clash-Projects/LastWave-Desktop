@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lastwave_desktop/core/artwork/animated_artwork_session.dart';
 import 'package:lastwave_desktop/core/storage/prefs.dart';
 import 'package:lastwave_desktop/features/performance/performance_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -66,5 +67,29 @@ void main() {
 
     final isModest = container.read(isModestHardwareProvider);
     expect(isModest, isA<bool>());
+  });
+
+  test('Performance Mode gates AnimatedArtworkSession without touching libmpv',
+      () async {
+    await prefs.setPerformanceMode(true);
+    final container = ProviderContainer(
+      overrides: [
+        prefsProvider.overrideWithValue(prefs),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final session = container.read(animatedArtworkSessionProvider);
+    // Attaching or opening while Performance Mode is active must not allocate
+    // a native player or mark a clip ready.
+    session.attach('https://example.com/canvas.mp4');
+    await session.open('https://example.com/canvas.mp4');
+    expect(session.controller, isNull);
+    expect(session.ready, isFalse);
+
+    // Turning Performance Mode ON mid-session clears readiness without throwing.
+    container.read(performanceModeProvider.notifier).setPerformanceMode(false);
+    container.read(performanceModeProvider.notifier).setPerformanceMode(true);
+    expect(session.ready, isFalse);
   });
 }

@@ -226,6 +226,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     return 0;
   }
 
+  // SMTC seek request marshalled from the thread-pool callback.
+  if (message == lastwave::SmtcChannel::kSeekMessage) {
+    if (smtc_channel_ && !destroying_) smtc_channel_->OnSeekMessage(wparam);
+    return 0;
+  }
+
   // Snap Layouts: ahead of the plugins, which answer WM_NCHITTEST for the
   // frameless resize borders.
   if (!destroying_) {
@@ -265,6 +271,33 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     std::optional<LRESULT> result =
         flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
                                                       lparam);
+    if (message == WM_GETMINMAXINFO &&
+        (::GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_THICKFRAME) != 0) {
+      HMONITOR monitor = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      MONITORINFO mi{};
+      mi.cbSize = sizeof(mi);
+      if (monitor != nullptr && ::GetMonitorInfoW(monitor, &mi)) {
+        auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+        info->ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
+        info->ptMaxPosition.y = mi.rcWork.top - mi.rcMonitor.top;
+        info->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+        info->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+      }
+    } else if (message == WM_NCCALCSIZE && wparam == TRUE && result &&
+               ::IsZoomed(hwnd) &&
+               (::GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_THICKFRAME) != 0) {
+      // Keep TitleBarStyle.hidden maximized bounds strictly inside rcWork so
+      // the window leaves the Windows taskbar visible instead of entering
+      // fullscreen over it (F11 fullscreen clears WS_THICKFRAME, so untouched).
+      auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+      HMONITOR monitor =
+          ::MonitorFromRect(&params->rgrc[0], MONITOR_DEFAULTTONEAREST);
+      MONITORINFO mi{};
+      mi.cbSize = sizeof(mi);
+      if (monitor != nullptr && ::GetMonitorInfoW(monitor, &mi)) {
+        params->rgrc[0] = mi.rcWork;
+      }
+    }
     if (result) {
       return *result;
     }

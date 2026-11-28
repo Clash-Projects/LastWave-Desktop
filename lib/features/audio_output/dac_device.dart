@@ -29,8 +29,11 @@ class DacDevice {
     return name;
   }
 
-  String get mpvDeviceName =>
-      id.isEmpty ? 'auto' : (id.startsWith('wasapi/') ? id : 'wasapi/$id');
+  String get mpvDeviceName {
+    if (id.isEmpty || id == 'auto') return 'auto';
+    if (id.contains('/')) return id;
+    return 'wasapi/$id';
+  }
 
   bool supports(PcmFormat format) =>
       formats.any((f) => f.matches(format));

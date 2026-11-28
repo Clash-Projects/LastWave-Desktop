@@ -9,6 +9,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'animated_artwork_service.dart';
 import '../diagnostics/trace_crumb.dart';
 import '../platform/allocator_tuning.dart';
+import '../../features/performance/performance_controller.dart';
 
 /// App-scoped muted motion-art player.
 ///
@@ -90,7 +91,10 @@ class AnimatedArtworkSession extends ChangeNotifier {
   // True while audio playback is paused: freezes Canvas on the current crisp
   // frame so mpv stops decoding & uploading textures while music is paused.
   bool _pausedForPlayback = false;
-  bool get _shouldPause => _pausedForBackground || _pausedForPlayback;
+  // True while Performance Mode is active: stops opening/decoding Canvas clips.
+  bool _pausedForPerformance = false;
+  bool get _shouldPause =>
+      _pausedForBackground || _pausedForPlayback || _pausedForPerformance;
   // Serializes native ops (open/stop/dispose): each waits for the previous.
   Future<void> _tail = Future.value();
 
@@ -132,6 +136,11 @@ class AnimatedArtworkSession extends ChangeNotifier {
   void attach(String url, {String fallbackUrl = ''}) {
     _pauseTimer?.cancel();
     _refs++;
+    if (_pausedForPerformance) {
+      _url = url;
+      _fallbackUrl = fallbackUrl;
+      return;
+    }
     unawaited(open(url, fallbackUrl: fallbackUrl));
   }
 
@@ -167,7 +176,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
     if (!backgrounded) {
       if (!_pausedForBackground) return;
       _pausedForBackground = false;
-      if (_pausedForPlayback) return;
+      if (_pausedForPlayback || _pausedForPerformance) return;
       unawaited(
         _serialized(() async {
           try {
@@ -196,6 +205,48 @@ class AnimatedArtworkSession extends ChangeNotifier {
     );
   }
 
+  /// Freezes/pauses Canvas decoding immediately when Performance Mode is toggled
+  /// on, and prevents new opens until Performance Mode is turned off.
+  void setPerformanceMode(bool enabled) {
+    if (_disposed || _pausedForPerformance == enabled) return;
+    _pausedForPerformance = enabled;
+    if (enabled) {
+      _generation++;
+      _ready = false;
+      _visible = false;
+      _pauseTimer?.cancel();
+      _cancelReadyWatchers();
+      _notify();
+      final p = _player;
+      if (p != null) {
+        unawaited(
+          _serialized(() async {
+            try {
+              await p.pause();
+            } catch (_) {}
+          }),
+        );
+      }
+      return;
+    }
+    if (_pausedForBackground || _pausedForPlayback || _refs == 0 || _player == null) {
+      return;
+    }
+    unawaited(
+      _serialized(() async {
+        try {
+          if (_refs > 0 && _player != null && !_shouldPause) {
+            await _ensureLoopProperties(_player!);
+            if (_player!.state.completed) {
+              await _player!.seek(Duration.zero);
+            }
+            await _player!.play();
+          }
+        } catch (_) {}
+      }),
+    );
+  }
+
   /// Syncs Canvas decoding with audio playback play/pause. Freezes on the
   /// current decoded frame while paused so CPU/GPU decode drops to zero.
   void setPlaybackPaused(bool paused) {
@@ -213,7 +264,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
       );
       return;
     }
-    if (_pausedForBackground || _refs == 0 || _player == null) return;
+    if (_pausedForBackground || _pausedForPerformance || _refs == 0 || _player == null) return;
     unawaited(
       _serialized(() async {
         try {
@@ -230,7 +281,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
   }
 
   Future<void> open(String url, {String fallbackUrl = ''}) async {
-    if (url.isEmpty || _disposed) return;
+    if (url.isEmpty || _disposed || _pausedForPerformance) return;
     _fallbackUrl = fallbackUrl;
     if (url == _url && _player != null) {
       // New clip still loading (coalesce window): the in-flight open
@@ -279,7 +330,7 @@ class AnimatedArtworkSession extends ChangeNotifier {
 
   /// Runs with no other native op in flight. Never throws.
   Future<void> _openLocked(String url, int gen) async {
-    if (gen != _generation || _disposed) return;
+    if (gen != _generation || _disposed || _pausedForPerformance) return;
     try {
       await _ensurePlayer();
       if (gen != _generation || _disposed) return;
@@ -756,7 +807,13 @@ class AnimatedArtworkSession extends ChangeNotifier {
 
 final animatedArtworkSessionProvider =
     ChangeNotifierProvider<AnimatedArtworkSession>((ref) {
-      return AnimatedArtworkSession();
+      final session = AnimatedArtworkSession();
+      session.setPerformanceMode(ref.read(performanceModeProvider));
+      ref.listen<bool>(
+        performanceModeProvider,
+        (_, enabled) => session.setPerformanceMode(enabled),
+      );
+      return session;
     });
 
 /// Unified motion-art and Canvas player (1080×1080, single mpv instance).

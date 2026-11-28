@@ -33,6 +33,14 @@ class SmtcChannel {
   // Call from the window procedure (platform thread) for kButtonMessage.
   void OnButtonMessage(WPARAM button);
 
+  // Posted to the main window when the shell asks to seek (flyout scrubber).
+  // Same marshalling as buttons: SMTC raises PlaybackPositionChangeRequested
+  // on a thread-pool thread. WPARAM carries the requested position in ms.
+  static constexpr UINT kSeekMessage = WM_APP + 0x52;
+
+  // Call from the window procedure (platform thread) for kSeekMessage.
+  void OnSeekMessage(WPARAM positionMs);
+
   SmtcChannel(const SmtcChannel&) = delete;
   SmtcChannel& operator=(const SmtcChannel&) = delete;
 

@@ -87,6 +87,25 @@ void main() {
     expect(stream!.url, contains('itag=140'));
     expect(stream.mimeType, startsWith('audio/'));
   });
+
+  test('fallback order demotes ANDROID_VR and cools only reported client',
+      () async {
+    final names =
+        InnerTubeMusicApi.playerClients.map((c) => c.name).toList();
+    expect(names.indexOf('VISIONOS'), 0);
+    expect(names.indexOf('IOS'), lessThan(names.indexOf('ANDROID_VR')));
+    expect(names.indexOf('TVHTML5'), lessThan(names.indexOf('ANDROID_VR')));
+    expect(names.indexOf('WEB_REMIX'), lessThan(names.indexOf('ANDROID_VR')));
+
+    tube = build(_playerResponse(directAudio: true));
+    tube.reportPlaybackFailure(
+      'A7iB6lVeFwc',
+      failedClientProfile: 'VISIONOS@0.1',
+    );
+    final next = await tube.resolveAudioStream('A7iB6lVeFwc');
+    expect(next, isNotNull);
+    expect(next!.cacheKey, contains(':IOS@'));
+  });
 }
 
 /// One canned player response for every client. The ANDROID client is

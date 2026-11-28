@@ -1001,6 +1001,12 @@ class WaveAmbientMesh extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final visualizerEnabled = ref.watch(visualizerEnabledProvider);
+
+    // Toggle is a hard show/hide: no fade animation, no retained layers,
+    // and no background palette decode in Performance Mode.
+    if (!visualizerEnabled) return const SizedBox.shrink();
+
     final reduceTransparency =
         MediaQuery.maybeOf(context)?.highContrast ?? false;
     final blurEnabled = WaveHazeScope.blurEnabled(context);
@@ -1010,10 +1016,6 @@ class WaveAmbientMesh extends ConsumerWidget {
 
     final isDark = waveIsDark(context);
     final darkBase = waveBackground(context);
-    final visualizerEnabled = ref.watch(visualizerEnabledProvider);
-
-    // Toggle is a hard show/hide: no fade animation, no retained layers.
-    if (!visualizerEnabled) return const SizedBox.shrink();
 
     if (reduceTransparency || !blurEnabled) {
       // Solid / high-contrast path: the static palette gradient gets
