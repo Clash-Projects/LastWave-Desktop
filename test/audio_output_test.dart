@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lastwave_desktop/features/audio_output/dac_device.dart';
 import 'package:lastwave_desktop/features/audio_output/format_negotiator.dart';
+import 'package:lastwave_desktop/features/audio_output/output_controller.dart';
 import 'package:lastwave_desktop/features/audio_output/output_path_status.dart';
 import 'package:lastwave_desktop/features/audio_output/pcm_format.dart';
 
@@ -397,6 +398,54 @@ void main() {
         ),
         const PcmFormat(sampleRateHz: 44100, bitDepth: 24, channels: 2),
       );
+    });
+  });
+
+  group('Non-Windows CoreAudio device mapping & selection', () {
+    test('mpvDeviceName preserves prefixed CoreAudio ids and prefixes raw WASAPI ids', () {
+      const auto = DacDevice(id: '', name: 'System');
+      expect(auto.mpvDeviceName, 'auto');
+
+      const explicitAuto = DacDevice(id: 'auto', name: 'Auto');
+      expect(explicitAuto.mpvDeviceName, 'auto');
+
+      const cayin = DacDevice(
+        id: 'coreaudio/AppleUSBAudioEngine:Cayin:RU3:14100000:1',
+        name: 'Cayin RU3',
+      );
+      expect(
+        cayin.mpvDeviceName,
+        'coreaudio/AppleUSBAudioEngine:Cayin:RU3:14100000:1',
+      );
+
+      const wasapi = DacDevice(
+        id: '{0.0.0.00000000}.{12345678-1234-1234-1234-1234567890ab}',
+        name: 'Speakers',
+      );
+      expect(
+        wasapi.mpvDeviceName,
+        'wasapi/{0.0.0.00000000}.{12345678-1234-1234-1234-1234567890ab}',
+      );
+    });
+
+    test('AudioOutputState.selected returns null for System Default when no device has isDefault', () {
+      const builtIn = DacDevice(
+        id: 'coreaudio/BuiltInSpeakerDevice',
+        name: 'MacBook Pro Speakers',
+      );
+      const cayin = DacDevice(
+        id: 'coreaudio/AppleUSBAudioEngine:Cayin:RU3:14100000:1',
+        name: 'Cayin RU3',
+      );
+
+      const defaultState = AudioOutputState(
+        devices: [builtIn, cayin],
+        selectedId: '',
+      );
+      expect(defaultState.selected, isNull);
+
+      final cayinState = defaultState.copyWith(selectedId: cayin.id);
+      expect(cayinState.selected, cayin);
     });
   });
 }

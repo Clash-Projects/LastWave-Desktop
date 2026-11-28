@@ -51,7 +51,13 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   Player? _player;
   final List<StreamSubscription> _subs = [];
+  final StreamController<List<AudioDevice>> _audioDevicesCtrl =
+      StreamController<List<AudioDevice>>.broadcast();
   final List<PlayerLog> _mpvLogTail = [];
+
+  List<AudioDevice> get availableAudioDevices =>
+      _player?.state.audioDevices ?? const [];
+  Stream<List<AudioDevice>> get audioDevicesStream => _audioDevicesCtrl.stream;
   static const int _mpvLogTailMax = 50;
   final Set<String> _unavailable = {};
   final Set<String> _losslessBypass = {};
@@ -788,7 +794,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
               'player.ao-format', () => _refreshAoFormat()));
         });
       }),
+      p.stream.audioDevices.listen((devices) {
+        runGuarded('player.audio-devices', () {
+          if (!_audioDevicesCtrl.isClosed) {
+            _audioDevicesCtrl.add(devices);
+          }
+        });
+      }),
     ]);
+    if (p.state.audioDevices.isNotEmpty && !_audioDevicesCtrl.isClosed) {
+      _audioDevicesCtrl.add(p.state.audioDevices);
+    }
   }
 
   void _rebindPlayerStreams() {
@@ -2004,6 +2020,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       s.cancel();
     }
     _subs.clear();
+    if (!_audioDevicesCtrl.isClosed) {
+      _audioDevicesCtrl.close();
+    }
     _sleepTimer?.cancel();
     _persistThrottle?.cancel();
     _eqDebounceTimer?.cancel();
@@ -2322,6 +2341,21 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       exclusiveApplied = false;
       wasapiError = null;
       _forcedAoFormat = null;
+      _currentAudioDevice = mpvDevice;
+      final device = (mpvDevice.isEmpty || mpvDevice == 'auto')
+          ? AudioDevice.auto()
+          : AudioDevice(mpvDevice, '');
+      final player = _player;
+      final standby = _standbyPlayer;
+      _crumb('configureAudioDevice device=$mpvDevice');
+      await _serializedMpv(() async {
+        for (final p in [player, standby]) {
+          if (p == null) continue;
+          try {
+            await p.setAudioDevice(device);
+          } catch (_) {}
+        }
+      });
       unawaited(_refreshAoFormat());
       return;
     }

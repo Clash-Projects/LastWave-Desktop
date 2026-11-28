@@ -3928,8 +3928,14 @@ class _WasapiOutputSettings extends ConsumerWidget {
         const SizedBox(height: 8),
         Text(
           output.selected == null
-              ? 'Probe the DAC after connecting it to see exclusive PCM rates.'
-              : output.selected!.supportedSummary,
+              ? (Platform.isWindows
+                    ? 'Probe the DAC after connecting it to see exclusive PCM rates.'
+                    : 'Following system default output device')
+              : (!Platform.isWindows && output.selected!.formats.isEmpty
+                    ? (Platform.isMacOS
+                          ? 'CoreAudio device selected'
+                          : 'System audio device selected')
+                    : output.selected!.supportedSummary),
           style: WaveType.meta.copyWith(color: waveTextSecondary(context)),
         ),
         const SizedBox(height: 12),
