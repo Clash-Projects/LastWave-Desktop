@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,30 +8,119 @@ import '../theme/wave_icons.dart';
 import '../../app/track_actions.dart';
 import '../../core/audio/stream_models.dart';
 import '../../features/downloads/download_manager.dart';
+import '../../features/library/playlists.dart';
 import '../../features/player/playback_service.dart';
 import '../components/artwork.dart';
 import '../components/buttons.dart' show LWTooltip, WaveButton, WaveFilledButton, WaveLink;
+import '../components/inputs.dart';
 import '../components/menus.dart';
 import '../navigation/wave_nav.dart';
 import '../theme/tokens.dart';
+import 'queue_actions.dart';
 
 /// Session-only. Closing the app clears it; it is not written to SQLite.
 final queueLockedProvider = StateProvider<bool>((_) => false);
 
 /// Contextual queue — slides from right, 360px, disappears fully.
 ///
-/// Header: Queue 18px + UP NEXT count + Clear. NOW PLAYING 44px accent row.
-/// Reorderable 48px rows: drag handle visible on hover but always
-/// accessible (low-opacity idle), hover X remove, right-click menu
-/// (Play next, Go to album/artist, Download, Add to playlist, Remove).
-class WaveQueuePanel extends ConsumerWidget {
+/// Header: Queue 18px + Save playlist + UP NEXT count + Lock + Clear + filter.
+/// NOW PLAYING 44px accent row. Reorderable 48px rows: drag handle visible on
+/// hover (locked while filtered), hover X remove, right-click menu.
+class WaveQueuePanel extends ConsumerStatefulWidget {
   final VoidCallback? onClose;
   final bool embedded;
   const WaveQueuePanel({super.key, required this.onClose, this.embedded = false});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WaveQueuePanel> createState() => _WaveQueuePanelState();
+}
+
+class _WaveQueuePanelState extends ConsumerState<WaveQueuePanel> {
+  final TextEditingController _filterController = TextEditingController();
+  String _filterQuery = '';
+  SavedPlaylist? _savedPlaylist;
+  int _savedCount = 0;
+  Timer? _savedBannerTimer;
+
+  @override
+  void dispose() {
+    _filterController.dispose();
+    _savedBannerTimer?.cancel();
+    super.dispose();
+  }
+
+  void _clearFilter() {
+    _filterController.clear();
+    setState(() => _filterQuery = '');
+  }
+
+  Future<void> _saveQueue(List<PlayableTrack> visibleTracks) async {
+    final res = await showWaveSaveQueuePlaylist(context, ref, visibleTracks);
+    if (!mounted || res == null) return;
+    _savedBannerTimer?.cancel();
+    setState(() {
+      _savedPlaylist = res.playlist;
+      _savedCount = res.savedCount;
+    });
+    _savedBannerTimer = Timer(const Duration(seconds: 6), () {
+      if (mounted) setState(() => _savedPlaylist = null);
+    });
+  }
+
+  Future<void> _clearUpcoming(
+    List<PlayableTrack> upcoming,
+    String? currentKey,
+  ) async {
+    ref.read(queueClearUndoProvider.notifier).recordCleared(
+          upcoming,
+          expectedCurrentKey: currentKey,
+        );
+    await ref.read(playbackServiceProvider.notifier).clearUpcoming();
+    if (!mounted) return;
+    if (_filterQuery.isNotEmpty) {
+      _clearFilter();
+    }
+  }
+
+  Future<void> _undoClear() async {
+    final snap = ref.read(queueClearUndoProvider.notifier).takeForUndo();
+    if (snap == null) return;
+    await ref.read(playbackServiceProvider.notifier).restoreClearedUpcoming(
+          snap.tracks,
+          expectedCurrentKey: snap.expectedCurrentKey,
+        );
+  }
+
+  Widget _buildUndoBar(QueueClearUndoState undo) {
+    final count = undo.tracks.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+      child: InfoBar(
+        title: Text('Cleared $count track${count == 1 ? '' : 's'}'),
+        content: const Text('Up next was cleared.'),
+        severity: InfoBarSeverity.info,
+        isLong: false,
+        action: WaveLink(
+          onPressed: _undoClear,
+          child: Text('Undo (${undo.secondsLeft}s)'),
+        ),
+        onClose: () => ref.read(queueClearUndoProvider.notifier).dismiss(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final dark = waveIsDark(context);
+    ref.listen<String?>(
+      playbackServiceProvider.select((s) => s.current?.queueKey),
+      (prev, next) {
+        if (prev != next) {
+          ref.read(queueClearUndoProvider.notifier).expireIfTrackChanged(next);
+        }
+      },
+    );
+
     final queue = ref.watch(
       playbackServiceProvider.select((s) => s.queue),
     );
@@ -38,30 +129,86 @@ class WaveQueuePanel extends ConsumerWidget {
     );
     final notifier = ref.read(playbackServiceProvider.notifier);
     final locked = ref.watch(queueLockedProvider);
+    final undo = ref.watch(queueClearUndoProvider);
+
     if (queue.isEmpty) {
       return _Shell(
-        onClose: onClose,
-        embedded: embedded,
-        child: WaveQueueEmpty(onBrowse: () => context.go('/home')),
+        onClose: widget.onClose,
+        embedded: widget.embedded,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (undo != null) _buildUndoBar(undo),
+            Expanded(
+              child: WaveQueueEmpty(onBrowse: () => context.go('/home')),
+            ),
+          ],
+        ),
       );
     }
+
     final current =
         index >= 0 && index < queue.length ? queue[index] : null;
     final upcoming = index >= 0
         ? queue.sublist((index + 1).clamp(0, queue.length))
         : queue;
+    final visibleTracks = visibleQueueTracks(queue, index);
+    final isFiltering = _filterQuery.trim().isNotEmpty;
+    final filtered = filterUpcomingTracks(queue, index, _filterQuery);
 
     return _Shell(
-      onClose: onClose,
-      embedded: embedded,
+      onClose: widget.onClose,
+      embedded: widget.embedded,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
-            child: Text('Queue',
-                style: WaveType.pageTitle.copyWith(fontSize: 18)),
+            child: Row(
+              children: [
+                Text('Queue',
+                    style: WaveType.pageTitle.copyWith(fontSize: 18)),
+                const Spacer(),
+                LWTooltip(
+                  message: 'Save queue as a new playlist',
+                  child: WaveLink(
+                    onPressed: visibleTracks.isEmpty
+                        ? null
+                        : () => _saveQueue(visibleTracks),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(WaveIcons.addTo, size: 12),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Save playlist',
+                          style: WaveType.label.copyWith(fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
+          if (_savedPlaylist != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+              child: InfoBar(
+                title: Text('Saved "${_savedPlaylist!.title}"'),
+                content: Text(
+                  '$_savedCount track${_savedCount == 1 ? '' : 's'} added.',
+                ),
+                severity: InfoBarSeverity.success,
+                isLong: false,
+                action: WaveLink(
+                  onPressed: () =>
+                      context.go('/playlists/${_savedPlaylist!.id}'),
+                  child: const Text('Open'),
+                ),
+                onClose: () => setState(() => _savedPlaylist = null),
+              ),
+            ),
           if (current != null) ...[
             const SizedBox(height: 10),
             Padding(
@@ -88,13 +235,19 @@ class WaveQueuePanel extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                Text(
-                  'UP NEXT · ${upcoming.length}',
-                  style: WaveType.overline.copyWith(
-                    fontSize: 9,
-                    color: dark
-                        ? WaveColors.textTertiary
-                        : WaveColors.lightTextTertiary,
+                Flexible(
+                  child: Text(
+                    isFiltering
+                        ? 'UP NEXT · ${filtered.length} OF ${upcoming.length}'
+                        : 'UP NEXT · ${upcoming.length}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: WaveType.overline.copyWith(
+                      fontSize: 9,
+                      color: dark
+                          ? WaveColors.textTertiary
+                          : WaveColors.lightTextTertiary,
+                    ),
                   ),
                 ),
                 const Spacer(),
@@ -132,7 +285,7 @@ class WaveQueuePanel extends ConsumerWidget {
                   child: WaveLink(
                     onPressed: locked || upcoming.isEmpty
                         ? null
-                        : notifier.clearUpcoming,
+                        : () => _clearUpcoming(upcoming, current?.queueKey),
                     child: Text(
                       'Clear',
                       style: WaveType.label.copyWith(fontSize: 11),
@@ -142,6 +295,43 @@ class WaveQueuePanel extends ConsumerWidget {
               ],
             ),
           ),
+          if (undo != null) _buildUndoBar(undo),
+          if (upcoming.isNotEmpty || isFiltering)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextBox(
+                      decoration: waveInputDecoration(),
+                      controller: _filterController,
+                      placeholder: 'Filter up next…',
+                      prefix: Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Icon(
+                          WaveIcons.search,
+                          size: 13,
+                          color: dark
+                              ? WaveColors.textTertiary
+                              : WaveColors.lightTextTertiary,
+                        ),
+                      ),
+                      onChanged: (v) => setState(() => _filterQuery = v),
+                    ),
+                  ),
+                  if (_filterQuery.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    LWTooltip(
+                      message: 'Clear filter',
+                      child: IconButton(
+                        icon: const Icon(FluentIcons.chrome_close, size: 11),
+                        onPressed: _clearFilter,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           const SizedBox(height: 4),
           Expanded(
             child: upcoming.isEmpty
@@ -155,44 +345,73 @@ class WaveQueuePanel extends ConsumerWidget {
                       ),
                     ),
                   )
-                : locked
-                    ? ListView.builder(
-                        itemCount: upcoming.length,
-                        itemBuilder: (context, i) {
-                          final queueIndex = index + 1 + i;
-                          final t = upcoming[i];
-                          return _QueueRow(
-                            key: ValueKey('q:${t.queueKey}:$queueIndex'),
-                            track: t,
-                            queueIndex: queueIndex,
-                            dragIndex: i,
-                            locked: true,
-                          );
-                        },
+                : filtered.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'No upcoming tracks match "${_filterQuery.trim()}".',
+                                textAlign: TextAlign.center,
+                                style: WaveType.meta.copyWith(
+                                  color: dark
+                                      ? WaveColors.textTertiary
+                                      : WaveColors.lightTextTertiary,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              WaveButton(
+                                onPressed: _clearFilter,
+                                child: const Text('Clear filter'),
+                              ),
+                            ],
+                          ),
+                        ),
                       )
-                    : ReorderableListView.builder(
-                    buildDefaultDragHandles: false,
-                    itemCount: upcoming.length,
-                    // onReorderItem hands over post-removal coordinates;
-                    // moveInQueue expects classic onReorder coordinates,
-                    // so shift back up when moving down.
-                    onReorderItem: (oldI, newI) {
-                      final r = newI > oldI ? newI + 1 : newI;
-                      final oldQueue = index + 1 + oldI;
-                      final newQueue = index + 1 + r;
-                      notifier.moveInQueue(oldQueue, newQueue);
-                    },
-                    itemBuilder: (context, i) {
-                      final queueIndex = index + 1 + i;
-                      final t = upcoming[i];
-                      return _QueueRow(
-                        key: ValueKey('q:${t.queueKey}:$queueIndex'),
-                        track: t,
-                        queueIndex: queueIndex,
-                        dragIndex: i,
-                      );
-                    },
-                  ),
+                    : (locked || isFiltering)
+                        ? ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, i) {
+                              final item = filtered[i];
+                              return _QueueRow(
+                                key: ValueKey(
+                                  'q:${item.track.queueKey}:${item.queueIndex}',
+                                ),
+                                track: item.track,
+                                queueIndex: item.queueIndex,
+                                dragIndex: i,
+                                locked: locked,
+                                reorderDisabledReason: isFiltering && !locked
+                                    ? 'Clear filter to reorder'
+                                    : null,
+                              );
+                            },
+                          )
+                        : ReorderableListView.builder(
+                            buildDefaultDragHandles: false,
+                            itemCount: upcoming.length,
+                            // onReorderItem hands over post-removal coordinates;
+                            // moveInQueue expects classic onReorder coordinates,
+                            // so shift back up when moving down.
+                            onReorderItem: (oldI, newI) {
+                              final r = newI > oldI ? newI + 1 : newI;
+                              final oldQueue = index + 1 + oldI;
+                              final newQueue = index + 1 + r;
+                              notifier.moveInQueue(oldQueue, newQueue);
+                            },
+                            itemBuilder: (context, i) {
+                              final queueIndex = index + 1 + i;
+                              final t = upcoming[i];
+                              return _QueueRow(
+                                key: ValueKey('q:${t.queueKey}:$queueIndex'),
+                                track: t,
+                                queueIndex: queueIndex,
+                                dragIndex: i,
+                              );
+                            },
+                          ),
           ),
         ],
       ),
@@ -393,12 +612,14 @@ class _QueueRow extends ConsumerStatefulWidget {
   final int queueIndex;
   final int dragIndex;
   final bool locked;
+  final String? reorderDisabledReason;
   const _QueueRow({
     super.key,
     required this.track,
     required this.queueIndex,
     required this.dragIndex,
     this.locked = false,
+    this.reorderDisabledReason,
   });
   @override
   ConsumerState<_QueueRow> createState() => _QueueRowState();
@@ -494,17 +715,19 @@ class _QueueRowState extends ConsumerState<_QueueRow> {
               // Drag handle: low-opacity idle (still visible/keyboard
               // reachable) → full opacity on hover. Hidden while locked
               // so the row cannot start a reorder.
-              if (widget.locked)
+              if (widget.locked || widget.reorderDisabledReason != null)
                 LWTooltip(
-                  message: 'Queue is locked',
+                  message: widget.reorderDisabledReason ?? 'Queue is locked',
                   child: Container(
                     width: 28,
                     height: 36,
                     color: Colors.transparent,
                     alignment: Alignment.center,
                     child: Icon(
-                      FluentIcons.lock,
-                      size: 13,
+                      widget.reorderDisabledReason != null
+                          ? WaveIcons.search
+                          : FluentIcons.lock,
+                      size: 12,
                       color: (dark
                               ? WaveColors.textTertiary
                               : WaveColors.lightTextTertiary)
