@@ -138,7 +138,10 @@ class SmtcChannel::Impl {
       smtc_->remove_ButtonPressed(token_);
     }
     if (smtc_ && seek_token_.value != 0) {
-      smtc_->remove_SeekRequested(seek_token_);
+      ComPtr<ABI::Windows::Media::ISystemMediaTransportControls2> smtc2;
+      if (SUCCEEDED(smtc_.As(&smtc2)) && smtc2) {
+        smtc2->remove_PlaybackPositionChangeRequested(seek_token_);
+      }
     }
     smtc_.Reset();
   }
@@ -149,9 +152,9 @@ class SmtcChannel::Impl {
   using ButtonPressedHandler = ABI::Windows::Foundation::
       __FITypedEventHandler_2_Windows__CMedia__CSystemMediaTransportControls_Windows__CMedia__CSystemMediaTransportControlsButtonPressedEventArgs_t;
 
-  // Exact MIDL specialization for the SeekRequested delegate.
+  // Exact MIDL specialization for the PlaybackPositionChangeRequested delegate.
   using SeekRequestedHandler = ABI::Windows::Foundation::
-      __FITypedEventHandler_2_Windows__CMedia__CSystemMediaTransportControls_Windows__CMedia__CSeekRequestedEventArgs_t;
+      __FITypedEventHandler_2_Windows__CMedia__CSystemMediaTransportControls_Windows__CMedia__CPlaybackPositionChangeRequestedEventArgs_t;
 
   void InitSystemMedia() {
     if (hwnd_ == nullptr) return;
@@ -211,14 +214,17 @@ class SmtcChannel::Impl {
 
     // Seek: the shell's scrubber asks here; forward the position to Dart
     // the same way buttons are forwarded (thread-pool -> window thread).
-    // IsSeekEnabled itself is set per update in ApplyUpdate (hasTrack).
+    // Seek range is published via UpdateTimelineProperties on
+    // ISystemMediaTransportControls2.
     auto seekHandler = Callback<SeekRequestedHandler>(
         [this](ABI::Windows::Media::ISystemMediaTransportControls*,
-               ABI::Windows::Media::ISeekRequestedEventArgs* args)
-            -> HRESULT {
+               ABI::Windows::Media::IPlaybackPositionChangeRequestedEventArgs*
+                   args) -> HRESULT {
           if (args == nullptr) return S_OK;
           ABI::Windows::Foundation::TimeSpan position{};
-          if (FAILED(args->get_RequestedPosition(&position))) return S_OK;
+          if (FAILED(args->get_RequestedPlaybackPosition(&position))) {
+            return S_OK;
+          }
           const int64_t ms = position.Duration / kMsTo100ns;
           if (hwnd_ != nullptr && ms >= 0) {
             PostMessage(hwnd_, SmtcChannel::kSeekMessage,
@@ -226,9 +232,11 @@ class SmtcChannel::Impl {
           }
           return S_OK;
         });
-    if (seekHandler) {
+    ComPtr<ABI::Windows::Media::ISystemMediaTransportControls2> smtc2;
+    if (seekHandler && SUCCEEDED(smtc.As(&smtc2)) && smtc2) {
       EventRegistrationToken seekToken{};
-      if (SUCCEEDED(smtc->add_SeekRequested(seekHandler.Get(), &seekToken))) {
+      if (SUCCEEDED(smtc2->add_PlaybackPositionChangeRequested(
+              seekHandler.Get(), &seekToken))) {
         seek_token_ = seekToken;
       }
     }
@@ -383,7 +391,6 @@ class SmtcChannel::Impl {
     smtc_->put_IsPlayEnabled(hasTrack);
     smtc_->put_IsPauseEnabled(hasTrack);
     smtc_->put_IsStopEnabled(hasTrack);
-    smtc_->put_IsSeekEnabled(hasTrack);
     smtc_->put_IsNextEnabled(canNext);
     smtc_->put_IsPreviousEnabled(canPrev);
 
