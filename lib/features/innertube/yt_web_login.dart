@@ -133,13 +133,21 @@ class YtWebLogin {
   /// the window themselves (channel watching).
   static Future<Webview?> ensureWindow() => _ensureWindow();
 
-  /// Hide the window without destroying it.
+  /// Hide (or close on macOS) the sign-in window.
   static Future<void> hideWindow() async {
     _expectVisible = false;
     final w = _cachedWindow;
     if (w == null) return;
     if (Platform.isLinux) {
       await YtWebviewGuard.hide();
+    } else if (Platform.isMacOS) {
+      // macOS desktop_webview_window does not implement
+      // setWebviewWindowVisibility(false), and closing NSWindow does not
+      // trigger the Linux GTK destroy bug; WKWebsiteDataStore persists cookies.
+      _cachedWindow = null;
+      try {
+        w.close();
+      } catch (_) {}
     } else {
       try {
         await w.setWebviewWindowVisibility(false);
@@ -164,6 +172,7 @@ class YtWebLogin {
       await YtWebviewGuard.show();
       return;
     }
+    if (Platform.isMacOS) return;
     await _foregroundOnce(w);
     unawaited(_foregroundRetries(w));
   }
@@ -380,62 +389,12 @@ class YtWebLogin {
   static const _windowTitle = 'LastWave YouTube Sign In';
 
   /// Appended to the system WebView's default UA before the first
-  /// navigation. On macOS the plugin hosts a WKWebView whose default
-  /// Safari UA (no `Chrome/` token) makes music.youtube.com render
-  /// "not optimized for your browser". The native call sets
-  /// `customUserAgent = defaultUA + suffix`, so the leading space
-  /// matters. Called once per window creation; the cached window
-  /// keeps it for reuse.
-  static const _macChromeSuffix = ' Chrome/131.0.0.0 Safari/537.36';
-
-  /// Document-start compatibility shim for macOS only.
-  ///
-  /// Google's `disallowed_useragent` block keys off the embedded
-  /// browser fingerprint (WKWebView reports no `navigator.userAgentData`
-  /// and no `window.chrome`). This shim presents a coherent desktop
-  /// Chrome surface before any page script runs. It is a best-effort
-  /// compatibility measure — Google can change the check at any time,
-  /// and when it fails the flow fails FAST into the paste path instead
-  /// of pretending the browser can be fixed.
-  static const _macCompatShim = r'''
-(function () {
-  try {
-    var ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-      + 'AppleWebKit/537.36 (KHTML, like Gecko) '
-      + 'Chrome/131.0.0.0 Safari/537.36';
-    Object.defineProperty(navigator, 'userAgent', { get: function () { return ua; } });
-    if (!navigator.userAgentData) {
-      var brands = [
-        { brand: 'Chromium', version: '131' },
-        { brand: 'Google Chrome', version: '131' },
-        { brand: 'Not_A Brand', version: '24' }
-      ];
-      Object.defineProperty(navigator, 'userAgentData', {
-        get: function () {
-          return {
-            brands: brands,
-            mobile: false,
-            platform: 'macOS',
-            getHighEntropyValues: function () {
-              return Promise.resolve({
-                brands: brands,
-                mobile: false,
-                platform: 'macOS',
-                platformVersion: '14.0.0',
-                architecture: 'arm',
-                bitness: '64',
-                uaFullVersion: '131.0.0.0'
-              });
-            }
-          };
-        }
-      });
-    }
-    if (!window.chrome) { window.chrome = { runtime: {} }; }
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  } catch (e) {}
-})();
-''';
+  /// navigation. On macOS WKWebView's bare default UA ends at
+  /// `(KHTML, like Gecko)` without `Version/... Safari/605.1.15`; appending
+  /// a genuine macOS Safari token (instead of spoofing Chrome without
+  /// `Sec-CH-UA` headers or fake `window.chrome`) avoids mismatched-client
+  /// rejections during sign-in.
+  static const _macSafariSuffix = ' Version/18.3 Safari/605.1.15';
 
   /// Absolute WebView2 user-data folder for a window slot. See
   /// [webviewUserDataFolder] for why the plugin default is unusable.
@@ -493,9 +452,10 @@ class YtWebLogin {
       if (w != null) return w;
       if (attempt == 1) {
         // A profile left broken by an unclean exit fails every create;
-        // start the retry on a fresh one (costs only the webview's own
-        // Google login, which was unusable anyway).
-        if (Platform.isWindows) {
+        // start the retry on a fresh one ONLY during interactive sign-in
+        // (background silent refresh must never wipe the user's saved
+        // Google cookies on a transient WebView2 lock).
+        if (Platform.isWindows && show) {
           DiagnosticsLog.info('yt signin: resetting auth webview profile');
           await resetWebviewProfile('auth');
         }
@@ -541,10 +501,7 @@ class YtWebLogin {
       _parked = park;
       if (Platform.isMacOS) {
         try {
-          w.addScriptToExecuteOnDocumentCreated(_macCompatShim);
-        } catch (_) {}
-        try {
-          await w.setApplicationNameForUserAgent(_macChromeSuffix);
+          await w.setApplicationNameForUserAgent(_macSafariSuffix);
         } catch (_) {}
       }
       // If the window ever really dies, drop the cache so the next
@@ -601,6 +558,13 @@ class YtWebLogin {
   /// clearing it here is what makes Disconnect stick.
   static Future<void> signOutWebview() async {
     if (_inflight) return;
+    if (Platform.isMacOS) {
+      try {
+        await WebviewWindow.clearAll();
+      } catch (_) {}
+      await hideWindow();
+      return;
+    }
     final w = await _ensureWindow(show: false);
     if (w == null) return;
     try {
@@ -612,6 +576,13 @@ class YtWebLogin {
   }
 
   static Future<String?> signInFresh() async {
+    if (Platform.isMacOS) {
+      await hideWindow();
+      try {
+        await WebviewWindow.clearAll();
+      } catch (_) {}
+      return signIn();
+    }
     final w = await _ensureWindow();
     if (w == null) {
       lastFailure = _windowFailure;
@@ -682,6 +653,11 @@ class YtWebLogin {
     if (_inflight) return null;
     _inflight = true;
     try {
+      if (Platform.isMacOS && _cachedWindow == null) {
+        // desktop_webview_window cannot create hidden NSWindows on macOS;
+        // avoid popping a visible sign-in window during silent refresh.
+        return null;
+      }
       final w = _cachedWindow ??
           (allowCreate ? await _ensureWindow(show: false) : null);
       if (w == null) return null;
@@ -761,18 +737,8 @@ class YtWebLogin {
       lastFailure = YtSignInFailure.noSession;
       return null;
     } finally {
-      // Hide, never destroy (see _cachedWindow note above). Linux goes
-      // through the native guard; elsewhere the plugin call.
-      // Clears _expectVisible so in-flight foreground retries from
-      // _foreground() never re-show the just-hidden window.
-      _expectVisible = false;
-      if (Platform.isLinux) {
-        await YtWebviewGuard.hide();
-      } else {
-        try {
-          await w.setWebviewWindowVisibility(false);
-        } catch (_) {}
-      }
+      // Hide (or close on macOS) so the finished/cancelled window never stays visible.
+      await hideWindow();
       if (kDebugMode) {
         debugPrint('YtWebLogin: window hidden');
       }

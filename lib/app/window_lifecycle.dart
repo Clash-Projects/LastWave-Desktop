@@ -12,6 +12,7 @@ import '../core/diagnostics/diagnostics_log.dart';
 import '../core/network/network_monitor.dart';
 import '../core/platform/windows_memory.dart';
 import '../core/storage/prefs.dart';
+import '../features/innertube/innertube_api.dart';
 import '../features/player/playback_service.dart';
 import '../features/presence/discord_presence_service.dart';
 import '../features/search/shared_providers.dart';
@@ -88,6 +89,12 @@ class _WindowLifecycleState extends ConsumerState<WindowLifecycle>
           await ref
               .read(playbackServiceProvider.notifier)
               .disposePlayer();
+        } catch (_) {}
+        try {
+          await ref
+              .read(innerTubeProvider)
+              .flushPendingWrites()
+              .timeout(const Duration(seconds: 1), onTimeout: () {});
         } catch (_) {}
         try {
           // Best-effort: clear Discord status before the pipe dies.
