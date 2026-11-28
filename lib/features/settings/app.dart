@@ -60,6 +60,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
   bool _fade = false;
   Object? _themedKey;
   Widget? _themedApp;
+  final GlobalKey _appContentKey = GlobalKey();
 
   StreamSubscription<String>? _linkSub;
   AppLifecycleListener? _lifecycle;
@@ -141,12 +142,14 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
         }
         return '';
       };
-      try {
-        ref.read(playbackServiceProvider.notifier).ensurePlayer();
-      } catch (_) {}
-      try {
-        ref.read(audioOutputProvider.notifier).attach();
-      } catch (_) {}
+      unawaited(
+        ref.read(playbackServiceProvider.notifier).ensurePlayer().then((_) {
+          if (!mounted) return;
+          try {
+            ref.read(audioOutputProvider.notifier).attach();
+          } catch (_) {}
+        }).catchError((_) {}),
+      );
       try {
         // MPRIS (Linux): exposes now-playing + transport on the session
         // bus for bars, playerctl and media keys. No-op elsewhere.
@@ -358,6 +361,7 @@ class _LastWaveAppState extends ConsumerState<LastWaveApp> {
               builder: (context, ref, _) {
                 final page = child ?? const SizedBox.shrink();
                 final directed = Directionality(
+                  key: _appContentKey,
                   textDirection:
                       lang.isRtl ? TextDirection.rtl : TextDirection.ltr,
                   child: page,

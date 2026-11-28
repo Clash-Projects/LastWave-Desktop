@@ -153,12 +153,23 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   // one is ever in flight. Hot-path transport (seek/volume/rate) stays
   // direct — serializing those would queue-jank playback.
   Future<void> _mpvTail = Future.value();
+  Future<void>? _ensurePlayerInit;
 
   Future<T> _serializedMpv<T>(Future<T> Function() op) {
     final run = _mpvTail.then((_) => op());
     _mpvTail = run.then((_) {}, onError: (_) {});
     return run;
   }
+
+  Future<void> _disposePlayerSerialized(Player player) =>
+      _serializedMpv(() async {
+        try {
+          await player.stop();
+        } catch (_) {}
+        try {
+          await player.dispose();
+        } catch (_) {}
+      });
 
   /// True when mpv currently holds a DASH manifest. DASH teardown on
   /// Windows lags the stop call (segment fetches still in flight), so
@@ -285,6 +296,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   // -- Dual-engine Crossfade & Standby state -------------------------------
   Player? _standbyPlayer;
+  Player? _retiringPlayer;
+  Timer? _retireTimer;
   bool _standbyArmed = false;
 
   /// True only once the standby deck has the next track fully opened and
@@ -462,6 +475,18 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           );
 
   Future<void> ensurePlayer() async {
+    if (_player != null && _ensurePlayerInit == null) return;
+    final pending = _ensurePlayerInit;
+    if (pending != null) return pending;
+    final init = _ensurePlayerInit = _initPlayer();
+    try {
+      await init;
+    } finally {
+      if (identical(_ensurePlayerInit, init)) _ensurePlayerInit = null;
+    }
+  }
+
+  Future<void> _initPlayer() async {
     if (_player != null) return;
     // One persistent audio-only libmpv instance with on-disk demuxer cache
     // + gapless. media_kit already defaults to vo=null (audio-only) + the
@@ -472,152 +497,157 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     // rather than from main() so the dlopen is off the first-frame path —
     // nothing before the first play needs media_kit. Idempotent, and the
     // only other Player() site (the motion-art session) calls it too.
-    MediaKit.ensureInitialized();
-    // 4MiB demuxer buffer: lossless 24/192 peaks ~5–6 Mbps, plenty for
-    // high-res playback while cutting native heap footprint.
-    _player = Player(
-      configuration: const PlayerConfiguration(
-        vo: 'null',
-        title: 'LastWave',
-        bufferSize: 4 * 1024 * 1024,
-        osc: false,
-        logLevel: MPVLogLevel.error,
-      ),
-    );
-    final created = _player!;
-    await _applyDebugAudioOutput(created);
-    try {
-      final platform = created.platform;
-      if (platform != null) {
-        final dyn = platform as dynamic;
-        // 1. Completely strip video, embedded cover-art decoding, OSD, OSC,
-        // subtitles, scripting, ytdl, and input subsystems on audio deck
-        try {
-          await dyn.setProperty('vid', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('vo', 'null');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('audio-display', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('cover-art-auto', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('osc', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('osd-level', '0');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('sub-auto', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('sid', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('load-scripts', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('ytdl', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('config', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('save-position-on-quit', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('terminal', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('input-default-bindings', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('input-vo-keyboard', 'no');
-        } catch (_) {}
-
-        // 2. Demuxer ring-buffer caps, thread pool & audio buffer
-        try {
-          await dyn.setProperty('gapless-audio', 'yes');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('prefetch-playlist', 'yes');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('cache', 'yes');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('cache-on-disk', 'yes');
-        } catch (_) {}
-        try {
-          // mpv's default on-disk location fails to create here
-          // (`Failed to create file cache` on every open), so pin an
-          // explicit dir the app creates itself.
-          final cacheDir = mpvCacheDirPath();
-          await ensureDirExists(cacheDir);
-          await dyn.setProperty('cache-dir', cacheDir);
-        } catch (_) {}
-        try {
-          await dyn.setProperty('demuxer-max-bytes', '6MiB');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('demuxer-max-back-bytes', '2MiB');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('demuxer-donate-buffer', 'no');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('cache-secs', '10');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('demuxer-readahead-secs', '8');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('cache-pause-wait', '1');
-        } catch (_) {}
-        try {
-          await dyn.setProperty('ad-lavc-threads', '1');
-        } catch (_) {}
-        try {
-          await dyn.setProperty(
-            'audio-buffer',
-            _timedMixEnabled ? '0.2' : '0.4',
-          );
-        } catch (_) {}
-        try {
-          // Stall tolerance for slow stream starts (loopback assembly
-          // waits on CDN first bytes; mpv otherwise aborts the open
-          // after ~5s and forces a wasteful retry cycle). Applies to
-          // YouTube too — strictly more patient, never less.
-          await dyn.setProperty('stream-lavf-o', 'timeout=15000000');
-        } catch (_) {}
-        if (_currentAudioFilter.isNotEmpty) {
-          try {
-            await dyn.setProperty('af', _currentAudioFilter);
-            _afWritten[_player!] = _currentAudioFilter;
-          } catch (_) {}
-        }
-      }
-    } catch (_) {}
-    // Crash-surviving trail: mpv logs to disk continuously and Dart
-    // appends one line per native op — both outlive a segfault,
-    // unlike stdout. All best-effort; never blocks startup.
-    try {
-      final trailDir = Directory(TraceCrumb.directory);
-      trailDir.createSync(recursive: true);
-      // Fresh timeline per session (also names the run in crash logs).
-      TraceCrumb.reset(
-          '--- player created ${DateTime.now().toIso8601String()} ---');
+    //
+    // Serialize native creation and initial property writes so concurrent
+    // callers (e.g. startup audioOutput attach) wait until setup completes.
+    final created = await _serializedMpv(() async {
+      MediaKit.ensureInitialized();
+      // 4MiB demuxer buffer: lossless 24/192 peaks ~5–6 Mbps, plenty for
+      // high-res playback while cutting native heap footprint.
+      final p = Player(
+        configuration: const PlayerConfiguration(
+          vo: 'null',
+          title: 'LastWave',
+          bufferSize: 4 * 1024 * 1024,
+          osc: false,
+          logLevel: MPVLogLevel.error,
+        ),
+      );
+      _player = p;
+      await _applyDebugAudioOutput(p);
       try {
-        final dyn = created.platform as dynamic;
-        await dyn.setProperty('log-file',
-            '${trailDir.path}${Platform.pathSeparator}mpv.log');
+        final platform = p.platform;
+        if (platform != null) {
+          final dyn = platform as dynamic;
+          // 1. Completely strip video, embedded cover-art decoding, OSD, OSC,
+          // subtitles, scripting, ytdl, and input subsystems on audio deck
+          try {
+            await dyn.setProperty('vid', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('vo', 'null');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('audio-display', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('cover-art-auto', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('osc', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('osd-level', '0');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('sub-auto', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('sid', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('load-scripts', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('ytdl', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('config', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('save-position-on-quit', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('terminal', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('input-default-bindings', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('input-vo-keyboard', 'no');
+          } catch (_) {}
+
+          // 2. Demuxer ring-buffer caps, thread pool & audio buffer
+          try {
+            await dyn.setProperty('gapless-audio', 'yes');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('prefetch-playlist', 'yes');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('cache', 'yes');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('cache-on-disk', 'yes');
+          } catch (_) {}
+          try {
+            // mpv's default on-disk location fails to create here
+            // (`Failed to create file cache` on every open), so pin an
+            // explicit dir the app creates itself.
+            final cacheDir = mpvCacheDirPath();
+            await ensureDirExists(cacheDir);
+            await dyn.setProperty('cache-dir', cacheDir);
+          } catch (_) {}
+          try {
+            await dyn.setProperty('demuxer-max-bytes', '6MiB');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('demuxer-max-back-bytes', '2MiB');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('demuxer-donate-buffer', 'no');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('cache-secs', '10');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('demuxer-readahead-secs', '8');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('cache-pause-wait', '1');
+          } catch (_) {}
+          try {
+            await dyn.setProperty('ad-lavc-threads', '1');
+          } catch (_) {}
+          try {
+            await dyn.setProperty(
+              'audio-buffer',
+              _timedMixEnabled ? '0.2' : '0.4',
+            );
+          } catch (_) {}
+          try {
+            // Stall tolerance for slow stream starts (loopback assembly
+            // waits on CDN first bytes; mpv otherwise aborts the open
+            // after ~5s and forces a wasteful retry cycle). Applies to
+            // YouTube too — strictly more patient, never less.
+            await dyn.setProperty('stream-lavf-o', 'timeout=15000000');
+          } catch (_) {}
+          if (_currentAudioFilter.isNotEmpty) {
+            try {
+              await dyn.setProperty('af', _currentAudioFilter);
+              _afWritten[p] = _currentAudioFilter;
+            } catch (_) {}
+          }
+        }
       } catch (_) {}
-    } catch (_) {}
-    final p = _player!;
-    _bindPlayerStreams(p);
+      // Crash-surviving trail: mpv logs to disk continuously and Dart
+      // appends one line per native op — both outlive a segfault,
+      // unlike stdout. All best-effort; never blocks startup.
+      try {
+        final trailDir = Directory(TraceCrumb.directory);
+        trailDir.createSync(recursive: true);
+        // Fresh timeline per session (also names the run in crash logs).
+        TraceCrumb.reset(
+            '--- player created ${DateTime.now().toIso8601String()} ---');
+        try {
+          final dyn = p.platform as dynamic;
+          await dyn.setProperty('log-file',
+              '${trailDir.path}${Platform.pathSeparator}mpv.log');
+        } catch (_) {}
+      } catch (_) {}
+      return p;
+    });
+    _bindPlayerStreams(created);
     _startMixWatchdog();
     await restoreSession();
     _rebuildProcessingFilter();
@@ -778,110 +808,108 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
   Future<void> _ensureStandbyPlayer() async {
     if (_standbyPlayer != null) return;
-    MediaKit.ensureInitialized();
-    final sb = Player(
-      configuration: const PlayerConfiguration(
-        vo: 'null',
-        title: 'LastWave Standby',
-        bufferSize: 2 * 1024 * 1024,
-        osc: false,
-        logLevel: MPVLogLevel.error,
-      ),
-    );
-    _standbyPlayer = sb;
-    await _applyDebugAudioOutput(sb);
-    try {
-      final platform = sb.platform as dynamic;
-      if (platform != null) {
-        // Strip unused subsystems
-        try {
-          await platform.setProperty('vid', 'no');
-        } catch (_) {}
-        try {
-          await platform.setProperty('vo', 'null');
-        } catch (_) {}
-        try {
-          await platform.setProperty('audio-display', 'no');
-        } catch (_) {}
-        try {
-          await platform.setProperty('cover-art-auto', 'no');
-        } catch (_) {}
-        try {
-          await platform.setProperty('osc', 'no');
-        } catch (_) {}
-        try {
-          await platform.setProperty('osd-level', '0');
-        } catch (_) {}
-        try {
-          await platform.setProperty('sub-auto', 'no');
-        } catch (_) {}
-        try {
-          await platform.setProperty('sid', 'no');
-        } catch (_) {}
-        try {
-          await platform.setProperty('load-scripts', 'no');
-        } catch (_) {}
-        try {
-          await platform.setProperty('ytdl', 'no');
-        } catch (_) {}
-        try {
-          await platform.setProperty('config', 'no');
-        } catch (_) {}
-        try {
-          await platform.setProperty('terminal', 'no');
-        } catch (_) {}
+    await _serializedMpv(() async {
+      if (_standbyPlayer != null) return;
+      MediaKit.ensureInitialized();
+      final sb = Player(
+        configuration: const PlayerConfiguration(
+          vo: 'null',
+          title: 'LastWave Standby',
+          bufferSize: 2 * 1024 * 1024,
+          osc: false,
+          logLevel: MPVLogLevel.error,
+        ),
+      );
+      _standbyPlayer = sb;
+      await _applyDebugAudioOutput(sb);
+      try {
+        final platform = sb.platform as dynamic;
+        if (platform != null) {
+          // Strip unused subsystems
+          try {
+            await platform.setProperty('vid', 'no');
+          } catch (_) {}
+          try {
+            await platform.setProperty('vo', 'null');
+          } catch (_) {}
+          try {
+            await platform.setProperty('audio-display', 'no');
+          } catch (_) {}
+          try {
+            await platform.setProperty('cover-art-auto', 'no');
+          } catch (_) {}
+          try {
+            await platform.setProperty('osc', 'no');
+          } catch (_) {}
+          try {
+            await platform.setProperty('osd-level', '0');
+          } catch (_) {}
+          try {
+            await platform.setProperty('sub-auto', 'no');
+          } catch (_) {}
+          try {
+            await platform.setProperty('sid', 'no');
+          } catch (_) {}
+          try {
+            await platform.setProperty('load-scripts', 'no');
+          } catch (_) {}
+          try {
+            await platform.setProperty('ytdl', 'no');
+          } catch (_) {}
+          try {
+            await platform.setProperty('config', 'no');
+          } catch (_) {}
+          try {
+            await platform.setProperty('terminal', 'no');
+          } catch (_) {}
 
-        // Tight demuxer and buffer caps for pre-roll
-        try {
-          await platform.setProperty('gapless-audio', 'yes');
-        } catch (_) {}
-        try {
-          await platform.setProperty('cache', 'yes');
-        } catch (_) {}
-        try {
-          await platform.setProperty('cache-on-disk', 'yes');
-        } catch (_) {}
-        final cacheDir = mpvCacheDirPath();
-        await ensureDirExists(cacheDir);
-        try {
-          await platform.setProperty('cache-dir', cacheDir);
-        } catch (_) {}
-        try {
-          await platform.setProperty('demuxer-max-bytes', '2MiB');
-        } catch (_) {}
-        try {
-          await platform.setProperty('demuxer-max-back-bytes', '0');
-        } catch (_) {}
-        try {
-          await platform.setProperty('ad-lavc-threads', '1');
-        } catch (_) {}
-        try {
-          await platform.setProperty(
-            'audio-buffer',
-            _timedMixEnabled ? '0.2' : '0.4',
-          );
-        } catch (_) {}
-        try {
-          await platform.setProperty('stream-lavf-o', 'timeout=15000000');
-        } catch (_) {}
-        if (_currentAudioDevice.isNotEmpty && _currentAudioDevice != 'auto') {
+          // Tight demuxer and buffer caps for pre-roll
           try {
-            await sb.setAudioDevice(AudioDevice(_currentAudioDevice, ''));
+            await platform.setProperty('gapless-audio', 'yes');
           } catch (_) {}
-        }
-        if (_currentAudioFilter.isNotEmpty) {
           try {
-            await platform.setProperty('af', _currentAudioFilter);
-            _afWritten[sb] = _currentAudioFilter;
+            await platform.setProperty('cache', 'yes');
           } catch (_) {}
+          try {
+            await platform.setProperty('cache-on-disk', 'yes');
+          } catch (_) {}
+          final cacheDir = mpvCacheDirPath();
+          await ensureDirExists(cacheDir);
+          try {
+            await platform.setProperty('cache-dir', cacheDir);
+          } catch (_) {}
+          try {
+            await platform.setProperty('demuxer-max-bytes', '2MiB');
+          } catch (_) {}
+          try {
+            await platform.setProperty('demuxer-max-back-bytes', '0');
+          } catch (_) {}
+          try {
+            await platform.setProperty('ad-lavc-threads', '1');
+          } catch (_) {}
+          try {
+            await platform.setProperty(
+              'audio-buffer',
+              _timedMixEnabled ? '0.2' : '0.4',
+            );
+          } catch (_) {}
+          try {
+            await platform.setProperty('stream-lavf-o', 'timeout=15000000');
+          } catch (_) {}
+          if (_currentAudioDevice.isNotEmpty && _currentAudioDevice != 'auto') {
+            try {
+              await sb.setAudioDevice(AudioDevice(_currentAudioDevice, ''));
+            } catch (_) {}
+          }
+          if (_currentAudioFilter.isNotEmpty) {
+            try {
+              await platform.setProperty('af', _currentAudioFilter);
+              _afWritten[sb] = _currentAudioFilter;
+            } catch (_) {}
+          }
         }
-      }
-    } catch (_) {}
-    if (!exclusiveApplied) {
-      await _applyLoudness(album: _standbyTrack?.album ?? '');
-      final ready = _standbyPlayer;
-      if (ready != null) await _applyRateAndPitchTo(ready);
-    }
+      } catch (_) {}
+    });
   }
 
   void cancelCrossfade() {
@@ -901,9 +929,9 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       _standbyPlayer = null;
       if (sb != null) {
         try {
-          sb.stop();
-          sb.dispose();
+          sb.setVolume(0);
         } catch (_) {}
+        unawaited(_disposePlayerSerialized(sb));
       }
       try {
         _player?.setVolume(_fullDeckVolume);
@@ -1408,8 +1436,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         lastEq = eq;
         unawaited(() async {
           try {
+            if (!_crossfading ||
+                !identical(_player, out) ||
+                !identical(_standbyPlayer, sb)) {
+              return;
+            }
             await _setDeckEq(out, eq.outLow, eq.outHigh);
+            if (!_crossfading ||
+                !identical(_player, out) ||
+                !identical(_standbyPlayer, sb)) {
+              return;
+            }
             await _setDeckEq(sb, eq.inLow, eq.inHigh);
+          } catch (_) {
           } finally {
             eqBusy = false;
           }
@@ -1422,9 +1461,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         clockBusy = true;
         unawaited(() async {
           try {
+            if (!_crossfading ||
+                !identical(_player, out) ||
+                !identical(_standbyPlayer, sb)) {
+              return;
+            }
             final o = await _deckClock(out);
             final i = await _deckClock(sb);
-            if (!_crossfading || !identical(_beatLock, lock)) return;
+            if (!_crossfading ||
+                !identical(_beatLock, lock) ||
+                !identical(_player, out) ||
+                !identical(_standbyPlayer, sb)) {
+              return;
+            }
             lock.sample(o, i);
             final action = lock.step(DateTime.now());
             final seekTo = action.seekTo;
@@ -1759,8 +1808,19 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
           final inc = _standbyPlayer;
           unawaited(() async {
             try {
+              if (!_crossfading ||
+                  !identical(_player, out) ||
+                  !identical(_standbyPlayer, inc)) {
+                return;
+              }
               await _setDeckEq(out, eq.outLow, eq.outHigh);
+              if (!_crossfading ||
+                  !identical(_player, out) ||
+                  !identical(_standbyPlayer, inc)) {
+                return;
+              }
               await _setDeckEq(inc, eq.inLow, eq.inHigh);
+            } catch (_) {
             } finally {
               eqBusy = false;
             }
@@ -1773,11 +1833,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
         _completeCrossfade();
       }
     }));
-  }
-
-  Future<void> _setAf(Player? player, String af) async {
-    if (player == null) return;
-    await _writeAf(player, af);
   }
 
   /// The `af` string each player last received.
@@ -1829,7 +1884,6 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
 
     final oldPrimary = _player;
     try {
-      oldPrimary?.stop();
       oldPrimary?.setVolume(0);
     } catch (_) {}
 
@@ -1852,21 +1906,30 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
       unawaited(_applyLoudnessTo(sb, album: incomingTrack.album));
     } catch (_) {}
     _player = sb;
-    _standbyPlayer = oldPrimary;
-    // The deck that just faded out still carries the low-pass sweep; clear
-    // it so the next mix does not start from a darkened signal.
-    unawaited(_setAf(oldPrimary, _playbackAf()).catchError((_) {}));
+    _standbyPlayer = null;
 
-    // Free the old deck 2 seconds after handoff so native FFmpeg buffers,
-    // event-loop threads and audio handles drop back to single-deck baseline.
+    // Retire the outgoing deck via [_serializedMpv]: stop it immediately in the
+    // serialized queue so audio stops cleanly, then dispose it 2 seconds later
+    // so native FFmpeg/audio handles drop back to single-deck baseline without
+    // racing libmpv teardown.
     if (oldPrimary != null) {
-      Timer(const Duration(seconds: 2), () async {
-        if (identical(_standbyPlayer, oldPrimary)) {
-          _standbyPlayer = null;
-          try {
-            await oldPrimary.stop();
-            await oldPrimary.dispose();
-          } catch (_) {}
+      final prevRetiring = _retiringPlayer;
+      _retireTimer?.cancel();
+      _retireTimer = null;
+      _retiringPlayer = oldPrimary;
+      if (prevRetiring != null && !identical(prevRetiring, oldPrimary)) {
+        unawaited(_disposePlayerSerialized(prevRetiring));
+      }
+      unawaited(_serializedMpv(() async {
+        try {
+          await oldPrimary.stop();
+        } catch (_) {}
+      }));
+      _retireTimer = Timer(const Duration(seconds: 2), () {
+        _retireTimer = null;
+        if (identical(_retiringPlayer, oldPrimary)) {
+          _retiringPlayer = null;
+          unawaited(_disposePlayerSerialized(oldPrimary));
         }
       });
     }
@@ -1927,6 +1990,8 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   Future<void> disposePlayer() async {
     _mixWatchdog?.cancel();
     _mixWatchdog = null;
+    _retireTimer?.cancel();
+    _retireTimer = null;
     // Flush any past-threshold window before tearing down (manual pause/
     // app close would otherwise leave it only as “Scrobbling now”).
     cancelCrossfade();
@@ -1943,26 +2008,28 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _persistThrottle?.cancel();
     _eqDebounceTimer?.cancel();
     _eqDebounceTimer = null;
+    final retiring = _retiringPlayer;
+    _retiringPlayer = null;
+    if (retiring != null) {
+      try {
+        await _disposePlayerSerialized(retiring)
+            .timeout(const Duration(seconds: 2), onTimeout: () {});
+      } catch (_) {}
+    }
     final standby = _standbyPlayer;
     _standbyPlayer = null;
     if (standby != null) {
       try {
-        await standby.stop();
-        await standby.dispose();
+        await _disposePlayerSerialized(standby)
+            .timeout(const Duration(seconds: 2), onTimeout: () {});
       } catch (_) {}
     }
     final player = _player;
     _player = null;
     if (player != null) {
       try {
-        await _serializedMpv(() async {
-          try {
-            await player.stop();
-          } catch (_) {}
-          try {
-            await player.dispose();
-          } catch (_) {}
-        }).timeout(const Duration(seconds: 2), onTimeout: () {});
+        await _disposePlayerSerialized(player)
+            .timeout(const Duration(seconds: 2), onTimeout: () {});
       } catch (_) {}
     }
   }
@@ -2265,13 +2332,17 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
     _currentAudioDevice = mpvDevice;
     if (exclusive) {
       cancelCrossfade();
+      final retiring = _retiringPlayer;
+      _retiringPlayer = null;
+      _retireTimer?.cancel();
+      _retireTimer = null;
+      if (retiring != null) {
+        await _disposePlayerSerialized(retiring);
+      }
       final standby = _standbyPlayer;
       _standbyPlayer = null;
       if (standby != null) {
-        try {
-          await standby.stop();
-          await standby.dispose();
-        } catch (_) {}
+        await _disposePlayerSerialized(standby);
       }
     }
     final player = _player;

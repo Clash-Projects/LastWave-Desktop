@@ -268,7 +268,7 @@ class AutomixAnalyzer {
               await p.stop();
             } catch (_) {}
             await p.dispose();
-          }).timeout(const Duration(seconds: 5));
+          }).timeout(const Duration(seconds: 10));
         } catch (_) {}
       }
     }
