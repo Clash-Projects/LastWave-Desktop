@@ -2170,10 +2170,39 @@ class PlaybackService extends StateNotifier<PlayerSnapshot> {
   }
 
   Future<void> clearUpcoming() async {
-    if (state.currentIndex < 0) return;
+    if (state.queue.isEmpty) return;
+    if (state.currentIndex < 0) {
+      _rebuildShuffleOrder(0, -1);
+      state = state.copyWith(queue: const []);
+      _schedulePersist();
+      return;
+    }
     final queue = state.queue.sublist(0, state.currentIndex + 1);
+    _rebuildShuffleOrder(queue.length, state.currentIndex);
     state = state.copyWith(queue: queue);
     _schedulePersist();
+  }
+
+  /// Restores upcoming tracks removed by [clearUpcoming] (used by Undo Clear).
+  /// Ignores the restore if the currently playing track changed in the meantime.
+  Future<void> restoreClearedUpcoming(
+    List<PlayableTrack> cleared, {
+    String? expectedCurrentKey,
+  }) async {
+    if (cleared.isEmpty) return;
+    if (expectedCurrentKey != null &&
+        state.current?.queueKey != expectedCurrentKey) {
+      return;
+    }
+    final queue = List<PlayableTrack>.of(state.queue);
+    final insertAt = state.currentIndex >= 0
+        ? (state.currentIndex + 1).clamp(0, queue.length)
+        : queue.length;
+    queue.insertAll(insertAt, cleared);
+    _rebuildShuffleOrder(queue.length, state.currentIndex);
+    state = state.copyWith(queue: queue);
+    _schedulePersist();
+    _prefetchNeighbors();
   }
 
   /// Reorder queue via drag: updates actual playback queue and keeps
